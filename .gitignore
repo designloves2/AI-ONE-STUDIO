@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# 개인 환경 설정(ComfyUI 서버 주소 등) — .env.example만 커밋한다
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

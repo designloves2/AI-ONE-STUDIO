@@ -570,13 +570,14 @@ export function renderZImage(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "rebg") {
-      const bgSel = select(["none"], state.rebgBgModel, (v) => { state.rebgBgModel = v; persist(); });
+      const bgSel = searchableSelect(["none"], state.rebgBgModel, (v) => { state.rebgBgModel = v; persist(); });
       api.getBgRemovalModels().then((models) => {
         const opts = models.length ? models : ["none"];
         if (!opts.includes(state.rebgBgModel)) { state.rebgBgModel = opts[0]; persist(); }
-        (bgSel.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o, ...(o === state.rebgBgModel ? { selected: "selected" } : {}) })));
+        (bgSel.el.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o })));
+        bgSel.setValue(state.rebgBgModel);
       }).catch(() => {});
-      leftScroll.appendChild(panel([label("BG Removal Model"), bgSel]));
+      leftScroll.appendChild(panel([label("BG Removal Model"), bgSel.el]));
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.rebgImage, (name) => { state.rebgImage = name; persist(); })]));
       leftScroll.appendChild(panel([
         label("Subject Edge"),

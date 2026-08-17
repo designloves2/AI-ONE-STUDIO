@@ -1,6 +1,7 @@
 // galleryOverlay.ts — Qwen Image Edit 2511 이미지 갤러리 오버레이. Klein과 동일 패턴 + ANGLE 타깃.
 // 원본 근거: web/qwen2511/ui_gallery_qe2511.js
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
+import { confirmDialog } from "../../shared/ui";
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
 
@@ -61,7 +62,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
 
   async function deleteSelected() {
     if (!selected.size) return;
-    if (!confirm(`Delete ${selected.size} selected images?`)) return;
+    if (!(await confirmDialog(`Delete ${selected.size} selected images?`))) return;
     for (const k of Array.from(selected)) {
       const [subfolder, filename] = [k.slice(0, k.lastIndexOf("/")), k.slice(k.lastIndexOf("/") + 1)];
       await deleteImage(filename, subfolder).catch(() => {});
@@ -99,7 +100,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
 
     const closeB = btn("Close", () => closeViewer());
     const folderB = btn("📂 Open Folder", () => openImageFolder(img.filename, img.subfolder || ""));
-    const deleteB = btn("🗑 Delete", async () => { if (!confirm("Delete this image?")) return; await deleteImage(img.filename, img.subfolder || ""); closeViewer(); reset(); }, "danger");
+    const deleteB = btn("🗑 Delete", async () => { if (!(await confirmDialog("Delete this image?"))) return; await deleteImage(img.filename, img.subfolder || ""); closeViewer(); reset(); }, "danger");
     const copyB = btn("📋 Copy Prompt", () => { if (img.prompt) navigator.clipboard?.writeText(img.prompt).catch(() => {}); });
     const reuseB = btn("♻ Reuse", async () => {
       reuseB.textContent = "Loading…"; (reuseB as HTMLButtonElement).disabled = true;
@@ -155,7 +156,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
         await updateImageMeta(img.filename, img.subfolder || "", { favorite: nv });
       });
       const del = el("button", { text: "✕", type: "button", style: { position: "absolute", top: "2px", left: "2px", background: "rgba(180,0,0,0.7)", color: "#fff", border: "none", borderRadius: "8px", width: "18px", height: "18px", fontSize: "10px", cursor: "pointer", lineHeight: "18px", padding: "0" } });
-      del.addEventListener("click", async (e) => { e.stopPropagation(); if (!confirm("Delete?")) return; await deleteImage(img.filename, img.subfolder || ""); reset(); });
+      del.addEventListener("click", async (e) => { e.stopPropagation(); if (!(await confirmDialog("Delete?"))) return; await deleteImage(img.filename, img.subfolder || ""); reset(); });
       cell.append(star, del);
     }
     cell.appendChild(im);

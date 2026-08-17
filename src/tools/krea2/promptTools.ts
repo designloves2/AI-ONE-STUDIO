@@ -2,7 +2,7 @@
 // 프롬프트 템플릿 오버레이. 원본 근거: web/shared/llm_panel.js(attachLLMPanel),
 // web/klein/ui_prompt_templates.js(BUILT_IN 카테고리 — Krea2도 이 템플릿을 공유해 이식).
 import { C, el, clear, BRAND } from "./core";
-import { button, label as uiLabel, row } from "../../shared/ui";
+import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
 import { getConfig, saveConfig } from "./api";
 import { comfyApi } from "./comfyClient";
 
@@ -360,7 +360,7 @@ export function createTemplateOverlay(getMode: () => string, onApply: (prompt: s
       );
       const applyBtn = button("Apply", () => { onApply(t.prompt); ov.style.display = "none"; }, "primary");
       const editBtn = button("Edit", () => startEdit(i));
-      const delBtn = button("✕", () => { if (!confirm(`"${t.name}" 삭제할까요?`)) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
+      const delBtn = button("✕", async () => { if (!(await confirmDialog(`"${t.name}" 삭제할까요?`))) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
       card.append(info, applyBtn, editBtn, delBtn);
       listEl.appendChild(card);
     });

@@ -7,7 +7,7 @@ import {
   LORA_UI_CAP, MAX_EDIT_REFS, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog } from "../../shared/ui";
 import * as api from "./api";
 import { buildGraph } from "./graphBuilder";
 import { queuePrompt } from "./comfyClient";
@@ -381,8 +381,8 @@ export function renderKlein(root: HTMLElement) {
   const helpOv = createHelpOverlay();
   wrap.appendChild(helpOv.el);
 
-  function resetAllSettings() {
-    if (!confirm("Reset all settings? Model selection is preserved.")) return;
+  async function resetAllSettings() {
+    if (!(await confirmDialog("Reset all settings? Model selection is preserved."))) return;
     const { model, textEncoder, vae } = state;
     Object.assign(state, defaultState({}));
     if (model) state.model = model;

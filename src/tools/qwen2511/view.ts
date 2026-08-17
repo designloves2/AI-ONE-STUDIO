@@ -8,7 +8,7 @@ import {
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
   buildAnglePrompt,
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog } from "../../shared/ui";
 import * as api from "./api";
 import { buildGraph } from "./graphBuilder";
 import { queuePrompt } from "./comfyClient";
@@ -358,8 +358,8 @@ export function renderQwen2511(root: HTMLElement) {
   const helpOv = createHelpOverlay();
   wrap.appendChild(helpOv.el);
 
-  function resetAllSettings() {
-    if (!confirm("Reset all settings? Model selection is preserved.")) return;
+  async function resetAllSettings() {
+    if (!(await confirmDialog("Reset all settings? Model selection is preserved."))) return;
     const { model, textEncoder, vae } = state;
     Object.assign(state, defaultState({}));
     if (model) state.model = model;

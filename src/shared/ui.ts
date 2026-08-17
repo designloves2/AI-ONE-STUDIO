@@ -246,3 +246,63 @@ export function openFullscreen(url: string, kind: "image" | "video" = "image") {
   ov.append(media, closeBtn);
   document.body.appendChild(ov);
 }
+
+// confirmDialog/promptDialog — 프리뷰 브라우저 환경에서 window.confirm()/prompt() 같은
+// 네이티브 다이얼로그가 차단되어 조용히 false/null을 반환하는 문제(Reset 버튼 등이 "안 먹는"
+// 원인)를 피하기 위한 자체 오버레이 구현. 반드시 이 둘을 사용하고 네이티브 confirm/prompt는 쓰지 않는다.
+export function confirmDialog(message: string, opts?: { okText?: string; cancelText?: string; danger?: boolean }): Promise<boolean> {
+  return new Promise((resolve) => {
+    const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
+    const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(380px, 88vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "14px" } });
+    box.appendChild(el("div", { text: message, style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" } }));
+    const btnRow = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px" } });
+    function finish(v: boolean) {
+      document.removeEventListener("keydown", onKey);
+      document.body.removeChild(ov);
+      resolve(v);
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") finish(false);
+      if (e.key === "Enter") finish(true);
+    };
+    const cancelBtn = button(opts?.cancelText || "취소", () => finish(false));
+    const okBtn = button(opts?.okText || "확인", () => finish(true), opts?.danger ? "danger" : "primary");
+    btnRow.append(cancelBtn, okBtn);
+    box.appendChild(btnRow);
+    ov.appendChild(box);
+    ov.addEventListener("click", (e) => { if (e.target === ov) finish(false); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(ov);
+    okBtn.focus();
+  });
+}
+
+export function promptDialog(message: string, defaultValue = ""): Promise<string | null> {
+  return new Promise((resolve) => {
+    const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
+    const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(380px, 88vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "14px" } });
+    box.appendChild(el("div", { text: message, style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" } }));
+    const input = el("input", { type: "text", value: defaultValue, style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "13px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+    box.appendChild(input);
+    const btnRow = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px" } });
+    function finish(v: string | null) {
+      document.removeEventListener("keydown", onKey);
+      document.body.removeChild(ov);
+      resolve(v);
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") finish(null);
+      if (e.key === "Enter") finish(input.value);
+    };
+    const cancelBtn = button("취소", () => finish(null));
+    const okBtn = button("확인", () => finish(input.value), "primary");
+    btnRow.append(cancelBtn, okBtn);
+    box.appendChild(btnRow);
+    ov.appendChild(box);
+    ov.addEventListener("click", (e) => { if (e.target === ov) finish(null); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(ov);
+    input.focus();
+    input.select();
+  });
+}

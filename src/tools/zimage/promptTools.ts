@@ -2,7 +2,7 @@
 // 프롬프트 템플릿 오버레이. Krea2와 동일한 공유 LLM 백엔드(shared/llm_panel.js)를 사용하므로
 // 로직은 1:1 재사용, import 경로만 zimage 것으로 조정.
 import { C, el, clear, BRAND } from "./core";
-import { button, label as uiLabel, row } from "../../shared/ui";
+import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
 import { getConfig, saveConfig } from "./api";
 import { comfyApi } from "./comfyClient";
 
@@ -312,7 +312,7 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
       );
       const applyBtn = button("Apply", () => { onApply(t.prompt); ov.style.display = "none"; }, "primary");
       const editBtn = button("Edit", () => startEdit(i));
-      const delBtn = button("✕", () => { if (!confirm(`"${t.name}" 삭제할까요?`)) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
+      const delBtn = button("✕", async () => { if (!(await confirmDialog(`"${t.name}" 삭제할까요?`))) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
       card.append(info, applyBtn, editBtn, delBtn);
       listEl.appendChild(card);
     });

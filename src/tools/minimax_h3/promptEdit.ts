@@ -13,7 +13,7 @@ import {
   promptEnabled,
   promptText,
 } from "./core";
-import { button, clear, el, searchableSelect } from "../../shared/ui";
+import { button, clear, el, searchableSelect, confirmDialog, promptDialog } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import {
   analyzeImagesNative,
@@ -154,12 +154,12 @@ export function createPromptEditOverlay(
 
   setSaveBtn.addEventListener("click", async () => {
     const existing = setsSel.value && setsSel.options.length && setsSel.value !== "" ? setsSel.value : "";
-    const name = window.prompt("Save this prompt set as:", existing || "");
+    const name = await promptDialog("Save this prompt set as:", existing || "");
     if (name == null) return;
     const trimmed = name.trim();
     if (!trimmed) { ctx.showPopup("Name can't be empty.", true); return; }
     const willOverwrite = [...setsSel.options].some((o) => o.value === trimmed);
-    if (willOverwrite && !confirm(`"${trimmed}" already exists — overwrite it?`)) return;
+    if (willOverwrite && !(await confirmDialog(`"${trimmed}" already exists — overwrite it?`))) return;
     try {
       await savePromptSet({
         name: trimmed,
@@ -178,7 +178,7 @@ export function createPromptEditOverlay(
   setDelBtn.addEventListener("click", async () => {
     const name = setsSel.value;
     if (!name) return;
-    if (!confirm(`Delete "${name}"? This can't be undone.`)) return;
+    if (!(await confirmDialog(`Delete "${name}"? This can't be undone.`))) return;
     try {
       await deletePromptSet(name);
       await refreshSetsList();

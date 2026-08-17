@@ -4,7 +4,7 @@
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
 import { SUBFOLDER, alignFrameCount, framesToSeconds } from "./core";
-import { button, el, clear } from "../../shared/ui";
+import { button, el, clear, confirmDialog } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { clipViewUrl, deleteVideo, listVideos, revealOutputFolder, saveMeta, stitchClips, thumbUrl, type GalleryVideo } from "./api";
 
@@ -125,7 +125,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   deleteSelBtn.addEventListener("click", async () => {
     const picked = [...selectedKeys].map((k) => videos.find((v) => vKey(v) === k)).filter(Boolean) as GalleryVideo[];
     if (!picked.length) return;
-    if (!confirm(`선택한 클립 ${picked.length}개를 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    if (!(await confirmDialog(`선택한 클립 ${picked.length}개를 삭제할까요? 되돌릴 수 없습니다.`))) return;
     deleteSelBtn.disabled = true;
     let failed = 0;
     for (const v of picked) {

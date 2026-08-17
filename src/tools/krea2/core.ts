@@ -189,8 +189,15 @@ export function defaultState(saved: Partial<Krea2State> = {}): Krea2State {
     textEncoder: saved.textEncoder || "",
     vae: saved.vae || "",
 
+    // 구버전 저장 데이터(promptsByMode 없이 prompt 필드만 있던 시절) 마이그레이션 — 저장 당시
+    // 활성 모드에만 값을 이관하고, 다른 모드는 절대 이 값을 공유하지 않는다.
     prompt: saved.prompt || "",
-    promptsByMode: saved.promptsByMode || {},
+    promptsByMode: (() => {
+      const p = { ...(saved.promptsByMode || {}) };
+      const activeMode = (saved.mode as any) || "t2i";
+      if (saved.prompt && !(activeMode in p)) p[activeMode] = saved.prompt;
+      return p;
+    })(),
     promptSuffix: saved.promptSuffix || "",
     negativePrompt: saved.negativePrompt || "",
 
@@ -269,9 +276,10 @@ export function defaultState(saved: Partial<Krea2State> = {}): Krea2State {
   };
 }
 
+// 모드별 프롬프트는 완전히 독립적이어야 한다 — state.prompt(공유 필드)로 폴백하지 않는다.
 export function getModePrompt(state: Krea2State, mode?: string): string {
   const key = mode || state.mode;
-  return key in state.promptsByMode ? state.promptsByMode[key] : state.prompt || "";
+  return state.promptsByMode[key] ?? "";
 }
 export function setModePrompt(state: Krea2State, mode: string, text: string) {
   state.promptsByMode[mode] = text;

@@ -41,10 +41,14 @@ export function renderLanding(container: HTMLElement) {
       ComfyUI 커스텀 노드를, 독립 실행형 웹 스튜디오로.
     </h1>
     <p class="text-sm md:text-[15px] text-muted leading-relaxed max-w-3xl">
-      AI ONE STUDIO는 <b class="text-text">ComfyUI-TJ_NODE_STUDIO_ONE</b> 커스텀 노드 패키지에 담겨 있던
-      6개의 생성 도구를 그대로 웹 UI로 옮겨온 사이트입니다. ComfyUI 캔버스 위 노드를 마우스로 조합하지 않아도,
-      이미 실행 중인 ComfyUI 서버에 연결해 브라우저에서 곧바로 생성·편집 작업을 할 수 있습니다.
-      각 도구의 기능과 파라미터는 원본 노드와 1:1로 동일하며, 레이아웃만 웹에 맞게 재구성했습니다.
+      AI ONE STUDIO는
+      <a href="https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE" target="_blank" rel="noopener noreferrer"
+         class="text-text underline decoration-dotted underline-offset-2 hover:no-underline"
+         style="color:${BRAND}">ComfyUI-TJ_NODE_STUDIO_ONE</a>
+      커스텀 노드 패키지에 담겨 있던 6개의 생성 도구를 그대로 웹 UI로 옮겨온 사이트입니다.
+      ComfyUI 캔버스 위 노드를 마우스로 조합하지 않아도, 이미 실행 중인 ComfyUI 서버에 연결해 브라우저에서
+      곧바로 생성·편집 작업을 할 수 있습니다. 각 도구의 기능과 파라미터는 원본 노드와 1:1로 동일하며,
+      레이아웃만 웹에 맞게 재구성했습니다.
     </p>
   `;
   wrap.appendChild(hero);

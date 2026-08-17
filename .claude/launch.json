@@ -5,7 +5,8 @@
       "name": "ai-one-studio-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 5173
+      "port": 8774,
+      "url": "http://127.0.0.1:8774"
     }
   ]
 }

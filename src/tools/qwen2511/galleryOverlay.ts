@@ -2,6 +2,7 @@
 // 원본 근거: web/qwen2511/ui_gallery_qe2511.js
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
 import { confirmDialog } from "../../shared/ui";
+import { sendImagesToMinimax } from "../../shared/minimaxSend";
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
 
@@ -37,9 +38,13 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
   const selectModeBtn = btn("☑ Select", () => toggleSelectMode());
   const deleteSelBtn = btn("🗑 Delete Selection (0)", () => deleteSelected(), "danger");
   deleteSelBtn.style.display = "none";
+  const sendFLBtn = btn("→ FL2VA", () => sendSelectedToMinimax("firstlast"));
+  sendFLBtn.style.display = "none";
+  const sendRefBtn = btn("→ REF2VA", () => sendSelectedToMinimax("reference"));
+  sendRefBtn.style.display = "none";
   const refreshBtn = btn("↻", () => reset());
   const closeBtn = btn("✕", () => (ov.style.display = "none"), "danger");
-  topRow.append(favBtn, selectModeBtn, deleteSelBtn, refreshBtn, closeBtn);
+  topRow.append(favBtn, sendFLBtn, sendRefBtn, selectModeBtn, deleteSelBtn, refreshBtn, closeBtn);
   ov.appendChild(topRow);
 
   let favOnly = false, offset = 0, total = 0, loading = false;
@@ -54,6 +59,8 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     selectMode = !selectMode;
     selectModeBtn.textContent = selectMode ? "☑ Select (ON)" : "☑ Select";
     deleteSelBtn.style.display = selectMode ? "inline-block" : "none";
+    sendFLBtn.style.display = selectMode ? "inline-block" : "none";
+    sendRefBtn.style.display = selectMode ? "inline-block" : "none";
     selected.clear();
     updateDeleteBtn();
     reset();
@@ -70,6 +77,24 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     selected.clear();
     updateDeleteBtn();
     reset();
+  }
+
+  async function sendSelectedToMinimax(target: "firstlast" | "reference") {
+    if (!selected.size) return;
+    const imgs = Array.from(selected).map((k) => {
+      const idx = k.lastIndexOf("/");
+      return { subfolder: k.slice(0, idx), filename: k.slice(idx + 1) };
+    });
+    const btnEl = target === "firstlast" ? sendFLBtn : sendRefBtn;
+    (btnEl as HTMLButtonElement).disabled = true;
+    const orig = btnEl.textContent;
+    btnEl.textContent = "전송 중…";
+    try {
+      await sendImagesToMinimax(imgs, copyOutputToInput, target);
+    } finally {
+      (btnEl as HTMLButtonElement).disabled = false;
+      btnEl.textContent = orig;
+    }
   }
 
   const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "6px", overflowY: "auto", flex: "1", alignContent: "start" } });

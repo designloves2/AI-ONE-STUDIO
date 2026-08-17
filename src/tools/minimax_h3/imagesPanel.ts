@@ -6,6 +6,7 @@ import type { MinimaxState } from "./core";
 import { button, col, el, clear, label, numberField, panel, row, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { getMediaFiles, getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
+import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 
 export interface ImagesPanelCtx {
   persist: () => void;
@@ -33,6 +34,16 @@ export function imageSlot(labelText: string, initialFile: string | null, onSet: 
     class: "absolute top-1 right-1 z-[3] hidden",
     style: { background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "18px", height: "18px", cursor: "pointer", fontSize: "10px", padding: "0" },
   });
+  // 로컬업로드(박스 클릭/드래그) 외에 이미지 도구 갤러리에서 직접 고를 수 있는 방법.
+  const galleryBtn = el("button", {
+    type: "button", text: "🖼", title: "갤러리에서 선택",
+    class: "absolute bottom-1 left-1 z-[3]",
+    style: { background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0" },
+  });
+  galleryBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openImageGalleryPicker((filename) => { setFilename(filename); onSet(filename); });
+  });
   let current: string | null = null;
   function setFilename(name: string | null) {
     current = name || null;
@@ -47,7 +58,7 @@ export function imageSlot(labelText: string, initialFile: string | null, onSet: 
       clearBtn.classList.add("hidden");
     }
   }
-  frame.append(hint, img, clearBtn);
+  frame.append(hint, img, clearBtn, galleryBtn);
   wrap.appendChild(frame);
 
   const inp = el("input", { type: "file", accept: "image/*", style: { display: "none" } }) as HTMLInputElement;

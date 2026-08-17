@@ -1,0 +1,302 @@
+// graphBuilder.ts — Qwen Image Edit 2511 그래프 빌더.
+// 원본 근거: web/qwen2511/graph_builder_qwen2511.js — Krea2/Z-Image와 같은 "처음부터 조립" 방식
+// (Klein처럼 사전 제작 워크플로우 JSON을 fetch+patch하지 않는다).
+import type { QEState, LoraEntry } from "./core";
+import { SUBFOLDER, buildAnglePrompt } from "./core";
+
+const P = "QE";
+
+function saveNode(link: any, state: QEState) {
+  const folder = state.saveSubfolder || SUBFOLDER;
+  if (state.outputMode === "preview") return { class_type: "PreviewImage", inputs: { images: link } };
+  return { class_type: "SaveImage", inputs: { images: link, filename_prefix: `${folder}/QE` } };
+}
+
+function buildPromptText(state: QEState, mode: string): string {
+  const base = mode in state.promptsByMode ? state.promptsByMode[mode] : state.prompt || "";
+  const parts = [base];
+  (state.loras || []).forEach((l) => {
+    if (l.enabled !== false && l.name && l.name !== "none" && l.triggerWord) parts.push(l.triggerWord);
+  });
+  if (state.promptSuffix) parts.push(state.promptSuffix);
+  return parts.filter(Boolean).join(", ");
+}
+
+function buildBaseGraph(state: QEState, extraLoraFn?: (g: Record<string, any>, prev: any) => any) {
+  const model = state.model || "";
+  const clip = state.textEncoder || "";
+  const vae = state.vae || "";
+  if (!model) throw new Error("No model selected. Configure in ⚙ Settings.");
+  if (!clip) throw new Error("No text encoder selected. Configure in ⚙ Settings.");
+  if (!vae) throw new Error("No VAE selected. Configure in ⚙ Settings.");
+
+  const g: Record<string, any> = {};
+
+  if (model.toLowerCase().endsWith(".gguf")) {
+    g[`${P}:unet`] = { class_type: "UnetLoaderGGUF", inputs: { unet_name: model } };
+  } else {
+    g[`${P}:unet`] = { class_type: "UNETLoader", inputs: { unet_name: model, weight_dtype: "default" } };
+  }
+  g[`${P}:clip`] = { class_type: "CLIPLoader", inputs: { clip_name: clip, type: "qwen_image", device: "default" } };
+  g[`${P}:vae`] = { class_type: "VAELoader", inputs: { vae_name: vae } };
+
+  let modelOut: any = [`${P}:unet`, 0];
+
+  const ll = state.lightningLora;
+  if (ll && ll.name && ll.name !== "none" && ll.enabled !== false) {
+    g[`${P}:ll_a`] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelOut, lora_name: ll.name, strength_model: ll.strength ?? 1 } };
+    g[`${P}:ll_b`] = { class_type: "LoraLoaderModelOnly", inputs: { model: [`${P}:ll_a`, 0], lora_name: ll.name, strength_model: ll.strength ?? 1 } };
+    modelOut = [`${P}:ll_b`, 0];
+  }
+
+  if (extraLoraFn) modelOut = extraLoraFn(g, modelOut);
+
+  (state.loras || []).forEach((lora: LoraEntry, i: number) => {
+    if (!lora.name || lora.name === "none" || lora.enabled === false || !(+(lora.strength || 0) > 0)) return;
+    const id = `${P}:lora${i}`;
+    g[id] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelOut, lora_name: lora.name, strength_model: +(lora.strength ?? 1) } };
+    modelOut = [id, 0];
+  });
+
+  g[`${P}:modelSamp`] = { class_type: "ModelSamplingAuraFlow", inputs: { model: modelOut, shift: 3.1 } };
+  g[`${P}:cfgNorm`] = { class_type: "CFGNorm", inputs: { model: [`${P}:modelSamp`, 0], strength: 1.0 } };
+
+  return { g, modelLink: [`${P}:cfgNorm`, 0], clipLink: [`${P}:clip`, 0], vaeLink: [`${P}:vae`, 0] };
+}
+
+function addEditConditioning(g: Record<string, any>, clipLink: any, vaeLink: any, positiveText: string, negativeText: string, imageLinks: any[]) {
+  if (imageLinks.length > 0) {
+    g[`${P}:scale1`] = { class_type: "FluxKontextImageScale", inputs: { image: imageLinks[0] } };
+    g[`${P}:vaeEnc`] = { class_type: "VAEEncode", inputs: { pixels: [`${P}:scale1`, 0], vae: vaeLink } };
+  }
+  if (imageLinks.length > 1) g[`${P}:scale2`] = { class_type: "FluxKontextImageScale", inputs: { image: imageLinks[1] } };
+  if (imageLinks.length > 2) g[`${P}:scale3`] = { class_type: "FluxKontextImageScale", inputs: { image: imageLinks[2] } };
+
+  const posIn: Record<string, any> = { clip: clipLink, vae: vaeLink, prompt: positiveText || "" };
+  if (imageLinks.length > 0) posIn.image1 = [`${P}:scale1`, 0];
+  if (imageLinks.length > 1) posIn.image2 = [`${P}:scale2`, 0];
+  if (imageLinks.length > 2) posIn.image3 = [`${P}:scale3`, 0];
+  g[`${P}:encPos`] = { class_type: "TextEncodeQwenImageEditPlus", inputs: posIn };
+
+  const negIn: Record<string, any> = { clip: clipLink, vae: vaeLink, prompt: negativeText || "" };
+  if (imageLinks.length > 0) negIn.image1 = [`${P}:scale1`, 0];
+  g[`${P}:encNeg`] = { class_type: "TextEncodeQwenImageEditPlus", inputs: negIn };
+
+  if (imageLinks.length > 0) {
+    g[`${P}:refPos`] = { class_type: "FluxKontextMultiReferenceLatentMethod", inputs: { conditioning: [`${P}:encPos`, 0], reference_latents_method: "index_timestep_zero" } };
+    g[`${P}:refNeg`] = { class_type: "FluxKontextMultiReferenceLatentMethod", inputs: { conditioning: [`${P}:encNeg`, 0], reference_latents_method: "index_timestep_zero" } };
+    return { posLink: [`${P}:refPos`, 0], negLink: [`${P}:refNeg`, 0] };
+  }
+  return { posLink: [`${P}:encPos`, 0], negLink: [`${P}:encNeg`, 0] };
+}
+
+function addKSampler(g: Record<string, any>, modelLink: any, latentLink: any, state: QEState, denoise: number, posLink: any, negLink: any) {
+  g[`${P}:sampler`] = {
+    class_type: "KSampler",
+    inputs: {
+      model: modelLink,
+      positive: posLink,
+      negative: negLink,
+      latent_image: latentLink,
+      seed: state.seed ?? 0,
+      steps: state.steps ?? 20,
+      cfg: state.cfg ?? 4.0,
+      sampler_name: state.sampler || "euler",
+      scheduler: state.scheduler || "simple",
+      denoise,
+    },
+  };
+}
+
+function addDecodeAndSave(g: Record<string, any>, vaeLink: any, state: QEState) {
+  g[`${P}:decode`] = { class_type: "VAEDecode", inputs: { samples: [`${P}:sampler`, 0], vae: vaeLink } };
+  g[`${P}:save`] = saveNode([`${P}:decode`, 0], state);
+}
+
+// ── T2I ─────────────────────────────────────────────────────────────────
+export function buildT2IGraph(state: QEState): Record<string, any> {
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
+  const promptText = buildPromptText(state, "t2i");
+  g[`${P}:latent`] = { class_type: "EmptyLatentImage", inputs: { width: state.width || 1024, height: state.height || 1024, batch_size: 1 } };
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", []);
+  addKSampler(g, modelLink, [`${P}:latent`, 0], state, 1.0, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── I2I ─────────────────────────────────────────────────────────────────
+export function buildI2IGraph(state: QEState): Record<string, any> {
+  if (!state.i2iImage) throw new Error("No source image uploaded.");
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
+  const promptText = buildPromptText(state, "i2i");
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.i2iImage } };
+  let imgLink: any = [`${P}:loadImg1`, 0];
+  if (state.i2iWidth && state.i2iHeight) {
+    g[`${P}:i2iScale`] = { class_type: "ImageScale", inputs: { image: imgLink, width: state.i2iWidth, height: state.i2iHeight, upscale_method: "lanczos", crop: "disabled" } };
+    imgLink = [`${P}:i2iScale`, 0];
+  }
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", [imgLink]);
+  addKSampler(g, modelLink, [`${P}:vaeEnc`, 0], state, state.i2iDenoise ?? 0.75, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── EDIT (다중 레퍼런스, 최대 3장) ─────────────────────────────────────────
+export function buildEditGraph(state: QEState): Record<string, any> {
+  if (!state.editImage1) throw new Error("No Image 1 uploaded for Edit mode.");
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
+  const promptText = buildPromptText(state, "edit");
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.editImage1 } };
+  const imageLinks: any[] = [[`${P}:loadImg1`, 0]];
+
+  const img2 = state.editImage2 || state.editRefImages?.[0]?.filename || null;
+  if (img2) {
+    g[`${P}:loadImg2`] = { class_type: "LoadImage", inputs: { image: img2 } };
+    imageLinks.push([`${P}:loadImg2`, 0]);
+  }
+  const img3 = state.editRefImages?.[1]?.filename || null;
+  if (img3) {
+    g[`${P}:loadImg3`] = { class_type: "LoadImage", inputs: { image: img3 } };
+    imageLinks.push([`${P}:loadImg3`, 0]);
+  }
+
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", imageLinks);
+  addKSampler(g, modelLink, [`${P}:vaeEnc`, 0], state, 1.0, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── INPAINT ─────────────────────────────────────────────────────────────
+export function buildInpaintGraph(state: QEState): Record<string, any> {
+  if (!state.inpaintImage) throw new Error("No source image for inpaint.");
+  if (!state.inpaintMaskImage) throw new Error("No mask image — draw and save a mask first.");
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
+  const promptText = buildPromptText(state, "inpaint");
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.inpaintImage } };
+  g[`${P}:loadMask`] = { class_type: "LoadImage", inputs: { image: state.inpaintMaskImage } };
+  g[`${P}:toMask`] = { class_type: "ImageToMask", inputs: { image: [`${P}:loadMask`, 0], channel: "red" } };
+
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", [[`${P}:loadImg1`, 0]]);
+  g[`${P}:maskLatent`] = { class_type: "SetLatentNoiseMask", inputs: { samples: [`${P}:vaeEnc`, 0], mask: [`${P}:toMask`, 0] } };
+  addKSampler(g, modelLink, [`${P}:maskLatent`, 0], state, state.inpaintDenoise ?? 0.85, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── OUTPAINT ────────────────────────────────────────────────────────────
+export function buildOutpaintGraph(state: QEState): Record<string, any> {
+  if (!state.inpaintImage) throw new Error("No source image for outpaint.");
+  const total = (state.outpaintUp || 0) + (state.outpaintDown || 0) + (state.outpaintLeft || 0) + (state.outpaintRight || 0);
+  if (total <= 0) throw new Error("Set at least one expansion value (Up/Down/Left/Right).");
+
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
+  const padR = state.outpaintPadR ?? 0;
+  const padG = state.outpaintPadG ?? 0;
+  const padB = state.outpaintPadB ?? 0;
+  const padColor = `rgb(${padR}, ${padG}, ${padB})`;
+  const sysPrompt = `Extend the composition of this image. Replace all black or ${padColor} areas with a logical continuation of the background and foreground. Ensure the transition is invisible and the new elements perfectly match the perspective and color palette of the original image. Scene description: `;
+  const promptText = sysPrompt + buildPromptText(state, "outpaint");
+
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.inpaintImage } };
+  g[`${P}:padImg`] = {
+    class_type: "ImagePadKJ",
+    inputs: {
+      image: [`${P}:loadImg1`, 0],
+      left: Math.max(0, state.outpaintLeft || 0),
+      top: Math.max(0, state.outpaintUp || 0),
+      right: Math.max(0, state.outpaintRight || 0),
+      bottom: Math.max(0, state.outpaintDown || 0),
+      extra_padding: 0,
+      pad_mode: "color",
+      color: `${padR}, ${padG}, ${padB}`,
+    },
+  };
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", [[`${P}:padImg`, 0]]);
+  addKSampler(g, modelLink, [`${P}:vaeEnc`, 0], state, 1.0, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── FACESWAP ────────────────────────────────────────────────────────────
+export function buildFaceswapGraph(state: QEState): Record<string, any> {
+  if (!state.faceswapTarget) throw new Error("No target image for faceswap.");
+  if (!state.faceswapSource) throw new Error("No source face image.");
+
+  const extraLoraFn = (g: Record<string, any>, prev: any) => {
+    const bl = state.bfsLora;
+    if (bl && bl.name && bl.name !== "none" && bl.enabled !== false) {
+      g[`${P}:bfsLora`] = { class_type: "LoraLoaderModelOnly", inputs: { model: prev, lora_name: bl.name, strength_model: bl.strength ?? 1 } };
+      return [`${P}:bfsLora`, 0];
+    }
+    return prev;
+  };
+
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state, extraLoraFn);
+  const promptText =
+    buildPromptText(state, "faceswap") ||
+    "Replace the head in image 1 with the head from image 2, adapting the facial features to match the artistic style, focus, and environmental lighting of the image 1.";
+
+  g[`${P}:loadTarget`] = { class_type: "LoadImage", inputs: { image: state.faceswapTarget } };
+  g[`${P}:loadSource`] = { class_type: "LoadImage", inputs: { image: state.faceswapSource } };
+
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", [
+    [`${P}:loadTarget`, 0],
+    [`${P}:loadSource`, 0],
+  ]);
+  addKSampler(g, modelLink, [`${P}:vaeEnc`, 0], state, state.faceswapDenoise ?? 1.0, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── ANGLE CHANGE ────────────────────────────────────────────────────────
+export function buildAngleGraph(state: QEState): Record<string, any> {
+  if (!state.angleCameraImage) throw new Error("No source image uploaded for Angle Change.");
+
+  const extraLoraFn = (g: Record<string, any>, prev: any) => {
+    const al = state.angleLora;
+    if (al && al.name && al.name !== "none" && al.enabled !== false) {
+      g[`${P}:angleLora`] = { class_type: "LoraLoaderModelOnly", inputs: { model: prev, lora_name: al.name, strength_model: al.strength ?? 1 } };
+      return [`${P}:angleLora`, 0];
+    }
+    return prev;
+  };
+
+  const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state, extraLoraFn);
+  const anglePrompt = buildAnglePrompt(state.angleHorizontal ?? 0, state.angleVertical ?? 0, state.angleZoom ?? 4);
+  const userExtra = buildPromptText(state, "angle");
+  const fullPrompt = [anglePrompt, userExtra].filter(Boolean).join(", ");
+
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.angleCameraImage } };
+  const { posLink, negLink } = addEditConditioning(g, clipLink, vaeLink, fullPrompt, state.negativePrompt || "", [[`${P}:loadImg1`, 0]]);
+  addKSampler(g, modelLink, [`${P}:vaeEnc`, 0], state, 1.0, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
+}
+
+// ── UPSCALE (SeedVR2) — Krea2/Z-Image/Klein과 동일한 노드 세트 ────────────
+export function buildUpscaleGraph(state: QEState): Record<string, any> {
+  if (!state.upscaleImage) throw new Error("No source image uploaded for upscale.");
+  if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a SeedVR2 DiT model.");
+  if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a SeedVR2 VAE model.");
+
+  const ditOffload = state.upscaleOffloadDevice && state.upscaleOffloadDevice !== "none" ? state.upscaleOffloadDevice : "cpu";
+  const folder = state.saveSubfolder || SUBFOLDER;
+
+  return {
+    "UP:dit": { class_type: "SeedVR2LoadDiTModel", inputs: { model: state.upscaleDitModel, device: "cuda:0", blocks_to_swap: state.upscaleBlocksToSwap ?? 0, swap_io_components: false, offload_device: ditOffload, cache_model: ditOffload !== "none", attention_mode: state.upscaleAttentionMode || "sdpa" } },
+    "UP:vae": { class_type: "SeedVR2LoadVAEModel", inputs: { model: state.upscaleVaeModel, device: "cuda:0", encode_tiled: true, encode_tile_size: 1024, encode_tile_overlap: 128, decode_tiled: true, decode_tile_size: 1024, decode_tile_overlap: 128, tile_debug: "false", offload_device: ditOffload, cache_model: false } },
+    "UP:load": { class_type: "LoadImage", inputs: { image: state.upscaleImage } },
+    "UP:run": { class_type: "SeedVR2VideoUpscaler", inputs: { image: ["UP:load", 0], dit: ["UP:dit", 0], vae: ["UP:vae", 0], seed: (state.seed ?? 42) % 4294967295, resolution: state.upscaleResolution ?? 2048, max_resolution: state.upscaleMaxResolution ?? 4096, batch_size: state.upscaleBatchSize ?? 1, uniform_batch_size: false, color_correction: state.upscaleColorCorrection || "lab", temporal_overlap: 0, prepend_frames: 0, input_noise_scale: state.upscaleInputNoiseScale ?? 0, latent_noise_scale: state.upscaleLatentNoiseScale ?? 0, offload_device: ditOffload, enable_debug: false } },
+    "UP:save": { class_type: "SaveImage", inputs: { images: ["UP:run", 0], filename_prefix: `${folder}/QE_up` } },
+  };
+}
+
+export function buildGraph(state: QEState): Record<string, any> {
+  if (state.mode === "i2i") return buildI2IGraph(state);
+  if (state.mode === "edit") return buildEditGraph(state);
+  if (state.mode === "inpaint") return state.paintSubMode === "outpaint" ? buildOutpaintGraph(state) : buildInpaintGraph(state);
+  if (state.mode === "faceswap") return buildFaceswapGraph(state);
+  if (state.mode === "angle") return buildAngleGraph(state);
+  if (state.mode === "upscale") return buildUpscaleGraph(state);
+  return buildT2IGraph(state);
+}

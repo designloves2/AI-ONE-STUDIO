@@ -101,4 +101,13 @@ body {
   .aos-preview-box {
     min-height: 45vh !important;
   }
+
+  /* MiniMax H3의 PROMPTS 헤더(라벨+통계+4개 버튼)는 고정 h-5(20px)에 nowrap이라
+     좁은 화면에서 다 안 들어가 아래 프롬프트 목록과 겹친다 — 줄바꿈 허용 + 높이 자동. */
+  .aos-prompt-hdr {
+    height: auto !important;
+    flex-wrap: wrap !important;
+    row-gap: 4px !important;
+    padding-bottom: 4px;
+  }
 }

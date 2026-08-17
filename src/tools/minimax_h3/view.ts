@@ -412,7 +412,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   // ── 프롬프트 편집 ─────────────────────────────────────────────────
   const promptWrap = el("div", { class: "flex flex-col gap-1.5 min-h-[140px]", style: { flex: "2 1 0%" } });
-  const promptHdr = el("div", { class: "flex items-center gap-1.5 h-5" });
+  const promptHdr = el("div", { class: "aos-prompt-hdr flex items-center gap-1.5 h-5" });
   const promptTitle = el("div", { text: "PROMPTS", class: "text-muted text-[11px] uppercase tracking-wide" });
   const promptCount = el("span", { class: "text-muted text-[10px]" });
   promptHdr.append(promptTitle, promptCount);

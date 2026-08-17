@@ -40,8 +40,8 @@ export const SEND_TO: Record<ZImageMode, { mode: ZImageMode; label: string; fiel
   upscale: ALL_TARGETS.filter((t) => t.mode !== "upscale"),
 };
 
-// Phase 1에서 실제로 그래프를 만들 수 있는 모드.
-export const IMPLEMENTED_MODES: ZImageMode[] = ["t2i", "i2i", "upscale"];
+// 실제로 그래프를 만들 수 있는 모드 (Phase 1: t2i/i2i/upscale, Phase 2: 나머지 4개 추가).
+export const IMPLEMENTED_MODES: ZImageMode[] = ["t2i", "i2i", "inpaint", "rebg", "controlnet", "face_redraw", "upscale"];
 
 export interface ZImageState {
   mode: ZImageMode;
@@ -74,9 +74,33 @@ export interface ZImageState {
   i2iDenoise: number;
 
   inpaintImage: string;
+  inpaintMaskImage: string | null;
+  inpaintDenoise: number;
+
   rebgImage: string;
+  rebgBgModel: string;
+  rebgOffset: number;
+  rebgBlur: number;
+  rebgUp: number;
+  rebgDown: number;
+  rebgLeft: number;
+  rebgRight: number;
+  rebgFeather: number;
+  rebgDenoise: number;
+
   controlnetImage: string;
+  controlnetModel: string;
+  controlnetType: string;
+  controlnetStrength: number;
+  controlnetResolution: number;
+  controlnetDenoise: number;
+
   faceImage: string;
+  faceDetectorModel: string;
+  faceThreshold: number;
+  faceDilation: number;
+  faceDenoise: number;
+  faceFeather: number;
 
   upscaleImage: string;
   upscaleDitModel: string;
@@ -176,9 +200,33 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
     i2iDenoise: saved.i2iDenoise ?? 0.75,
 
     inpaintImage: saved.inpaintImage || "",
+    inpaintMaskImage: saved.inpaintMaskImage || null,
+    inpaintDenoise: saved.inpaintDenoise ?? 0.85,
+
     rebgImage: saved.rebgImage || "",
+    rebgBgModel: saved.rebgBgModel || "none",
+    rebgOffset: saved.rebgOffset ?? 0,
+    rebgBlur: saved.rebgBlur ?? 0,
+    rebgUp: saved.rebgUp ?? 0,
+    rebgDown: saved.rebgDown ?? 0,
+    rebgLeft: saved.rebgLeft ?? 0,
+    rebgRight: saved.rebgRight ?? 0,
+    rebgFeather: saved.rebgFeather ?? 40,
+    rebgDenoise: saved.rebgDenoise ?? 1,
+
     controlnetImage: saved.controlnetImage || "",
+    controlnetModel: saved.controlnetModel || "none",
+    controlnetType: saved.controlnetType || "depth",
+    controlnetStrength: saved.controlnetStrength ?? 1,
+    controlnetResolution: saved.controlnetResolution ?? 1024,
+    controlnetDenoise: saved.controlnetDenoise ?? 1,
+
     faceImage: saved.faceImage || "",
+    faceDetectorModel: saved.faceDetectorModel || "none",
+    faceThreshold: saved.faceThreshold ?? 0.5,
+    faceDilation: saved.faceDilation ?? 4,
+    faceDenoise: saved.faceDenoise ?? 0.5,
+    faceFeather: saved.faceFeather ?? 5,
 
     upscaleImage: saved.upscaleImage || "",
     upscaleDitModel: saved.upscaleDitModel || "none",

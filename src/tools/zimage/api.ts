@@ -11,11 +11,21 @@ async function jsonFetch(path: string, opts?: RequestInit) {
   return r.json();
 }
 
-export async function getModels(): Promise<{ diffusion_models: string[]; text_encoders: string[]; vaes: string[]; loras: string[] }> {
+export async function getModels(): Promise<{ diffusion_models: string[]; text_encoders: string[]; vaes: string[]; loras: string[]; model_patches: string[]; face_detectors: string[] }> {
   try {
     return await jsonFetch(`${API}/models`);
   } catch {
-    return { diffusion_models: [], text_encoders: [], vaes: [], loras: [] };
+    return { diffusion_models: [], text_encoders: [], vaes: [], loras: [], model_patches: [], face_detectors: [] };
+  }
+}
+
+// 원본 ui_rebg.js — /z_image_turbo/bgremoval_models (Re-BG 전용, /models와 별도 엔드포인트).
+export async function getBgRemovalModels(): Promise<string[]> {
+  try {
+    const d = await jsonFetch(`${API}/bgremoval_models`);
+    return d.models || [];
+  } catch {
+    return [];
   }
 }
 
@@ -146,7 +156,7 @@ export async function copyOutputToInput(filename: string, subfolder: string, typ
 }
 
 export async function setLastImage(filename: string, subfolder: string): Promise<void> {
-  await jsonFetch(`${API}/set_last`, {
+  await jsonFetch(`${API}/set_last_image`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename, subfolder }),

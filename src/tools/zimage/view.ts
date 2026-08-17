@@ -18,6 +18,7 @@ import type { AppConfig } from "./settings";
 import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
 import { createPromptExpandOverlay, createTemplateOverlay } from "./promptTools";
+import { createMaskEditor } from "./maskEditor";
 
 export function renderZImage(root: HTMLElement) {
   clear(root);
@@ -133,6 +134,10 @@ export function renderZImage(root: HTMLElement) {
 
   function currentSourceFilename(): string {
     if (state.mode === "i2i") return state.i2iImage;
+    if (state.mode === "inpaint") return state.inpaintImage;
+    if (state.mode === "rebg") return state.rebgImage;
+    if (state.mode === "controlnet") return state.controlnetImage;
+    if (state.mode === "face_redraw") return state.faceImage;
     if (state.mode === "upscale") return state.upscaleImage;
     return "";
   }
@@ -497,12 +502,8 @@ export function renderZImage(root: HTMLElement) {
     ]);
   }
 
-  function comingSoonPanel(name: string) {
-    return panel([
-      el("div", { text: `${name} — Coming soon`, style: { color: C.text, fontSize: "13px", fontWeight: "700" } }),
-      el("div", { text: "이 모드는 Phase 2에서 구현됩니다. Send-to로 결과를 보낼 수는 있지만 Generate는 비활성화됩니다.", style: { color: C.muted, fontSize: "11px", marginTop: "4px" } }),
-    ]);
-  }
+  // Inpaint 모드는 마스크를 그려야 해서 beforeGenerate에서 자동 저장 훅이 필요 — 모드 전환마다 갱신.
+  let inpaintAutoSave: (() => Promise<boolean>) | null = null;
 
   function renderLeftPanel() {
     clear(leftScroll);
@@ -551,9 +552,94 @@ export function renderZImage(root: HTMLElement) {
         col([label("Offload Device"), select(["cpu", "cuda:0"], state.upscaleOffloadDevice, (v) => { state.upscaleOffloadDevice = v; persist(); })]),
         row([col([label("Input Noise Scale"), numberField(state.upscaleInputNoiseScale ?? 0, (v) => { state.upscaleInputNoiseScale = v; persist(); }, 0.01)]), col([label("Latent Noise Scale"), numberField(state.upscaleLatentNoiseScale ?? 0, (v) => { state.upscaleLatentNoiseScale = v; persist(); }, 0.01)])]),
       ]));
-    } else {
-      const modeLabel = MODES.find((m) => m.key === state.mode)?.label || state.mode;
-      leftScroll.appendChild(comingSoonPanel(modeLabel));
+    } else if (state.mode === "inpaint") {
+      inpaintAutoSave = null;
+      const editor = createMaskEditor(state, persist);
+      leftScroll.appendChild(panel([
+        label("Source Image"),
+        imageUploadSlot(state.inpaintImage, (name) => { state.inpaintImage = name; state.inpaintMaskImage = null; persist(); editor.loadSourceImage(name); }),
+      ]));
+      leftScroll.appendChild(panel([label("Mask Editor (보라=재생성 / 검=유지)"), editor.editorPanel]));
+      if (state.inpaintImage) editor.loadSourceImage(state.inpaintImage);
+      inpaintAutoSave = editor.autoSaveIfNeeded;
+      leftScroll.appendChild(panel([
+        label("Denoise"),
+        el("div", { text: "높을수록 마스크 영역이 프롬프트를 더 강하게 따릅니다.", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
+        numberField(state.inpaintDenoise ?? 0.85, (v) => { state.inpaintDenoise = Math.max(0.1, Math.min(1, v)); persist(); }, 0.01),
+      ]));
+      leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+    } else if (state.mode === "rebg") {
+      const bgSel = select(["none"], state.rebgBgModel, (v) => { state.rebgBgModel = v; persist(); });
+      api.getBgRemovalModels().then((models) => {
+        const opts = models.length ? models : ["none"];
+        if (!opts.includes(state.rebgBgModel)) { state.rebgBgModel = opts[0]; persist(); }
+        (bgSel.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o, ...(o === state.rebgBgModel ? { selected: "selected" } : {}) })));
+      }).catch(() => {});
+      leftScroll.appendChild(panel([label("BG Removal Model"), bgSel]));
+      leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.rebgImage, (name) => { state.rebgImage = name; persist(); })]));
+      leftScroll.appendChild(panel([
+        label("Subject Edge"),
+        el("div", { text: "서브젝트 마스크 경계 확장/축소 (px)", style: { color: C.muted, fontSize: "10px" } }),
+        numberField(state.rebgOffset ?? 0, (v) => { state.rebgOffset = v; persist(); }, 1),
+        el("div", { text: "경계 블러 (px)", style: { color: C.muted, fontSize: "10px", marginTop: "6px" } }),
+        numberField(state.rebgBlur ?? 0, (v) => { state.rebgBlur = Math.max(0, v); persist(); }, 1),
+      ]));
+      leftScroll.appendChild(panel([
+        label("Expansion (px) — 0이면 배경만 재생성"),
+        row([col([label("Up"), numberField(state.rebgUp ?? 0, (v) => { state.rebgUp = Math.max(0, v); persist(); }, 64)]), col([label("Down"), numberField(state.rebgDown ?? 0, (v) => { state.rebgDown = Math.max(0, v); persist(); }, 64)])]),
+        row([col([label("Left"), numberField(state.rebgLeft ?? 0, (v) => { state.rebgLeft = Math.max(0, v); persist(); }, 64)]), col([label("Right"), numberField(state.rebgRight ?? 0, (v) => { state.rebgRight = Math.max(0, v); persist(); }, 64)])]),
+      ]));
+      leftScroll.appendChild(panel([label("Expansion Edge Feathering (px)"), numberField(state.rebgFeather ?? 40, (v) => { state.rebgFeather = Math.max(0, v); persist(); }, 4)]));
+      leftScroll.appendChild(panel([label("Background Denoise"), numberField(state.rebgDenoise ?? 1, (v) => { state.rebgDenoise = Math.max(0.5, Math.min(1, v)); persist(); }, 0.01)]));
+      leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+    } else if (state.mode === "controlnet") {
+      const cnSel = searchableSelect(["none"], state.controlnetModel, (v) => { state.controlnetModel = v; persist(); });
+      api.getModels().then((d) => {
+        const opts = d.model_patches?.length ? d.model_patches : ["none"];
+        if (!opts.includes(state.controlnetModel)) { state.controlnetModel = opts[0]; persist(); }
+        (cnSel.el.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o })));
+        cnSel.setValue(state.controlnetModel);
+      }).catch(() => {});
+      leftScroll.appendChild(panel([label("ControlNet Union Model"), cnSel.el]));
+      leftScroll.appendChild(panel([label("Reference Image"), imageUploadSlot(state.controlnetImage, (name) => { state.controlnetImage = name; persist(); })]));
+      leftScroll.appendChild(panel([
+        label("Control Type"),
+        select([{ value: "depth", label: "Depth" }, { value: "canny", label: "Canny" }, { value: "pose", label: "Pose" }, { value: "hed", label: "HED" }, { value: "mlsd", label: "MLSD" }, { value: "none", label: "None (raw)" }], state.controlnetType || "depth", (v) => { state.controlnetType = v; persist(); }),
+        label("Strength"),
+        numberField(state.controlnetStrength ?? 1, (v) => { state.controlnetStrength = Math.max(0, Math.min(2, v)); persist(); }, 0.05),
+        label("Preprocess Resolution"),
+        numberField(state.controlnetResolution ?? 1024, (v) => { state.controlnetResolution = v; persist(); }, 64),
+        label("Denoise"),
+        numberField(state.controlnetDenoise ?? 1, (v) => { state.controlnetDenoise = Math.max(0.1, Math.min(1, v)); persist(); }, 0.01),
+      ]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+    } else if (state.mode === "face_redraw") {
+      const detSel = searchableSelect(["none"], state.faceDetectorModel, (v) => { state.faceDetectorModel = v; persist(); });
+      api.getModels().then((d) => {
+        const opts = d.face_detectors?.length ? d.face_detectors : ["none"];
+        if (!opts.includes(state.faceDetectorModel)) { state.faceDetectorModel = opts[0]; persist(); }
+        (detSel.el.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o })));
+        detSel.setValue(state.faceDetectorModel);
+      }).catch(() => {});
+      leftScroll.appendChild(panel([label("Face Detector (ultralytics/bbox)"), detSel.el]));
+      leftScroll.appendChild(panel([label("Source Portrait"), imageUploadSlot(state.faceImage, (name) => { state.faceImage = name; persist(); })]));
+      leftScroll.appendChild(panel([
+        label("Detection Settings"),
+        label("Threshold"),
+        numberField(state.faceThreshold ?? 0.5, (v) => { state.faceThreshold = Math.max(0.1, Math.min(0.99, v)); persist(); }, 0.01),
+        label("Dilation (px)"),
+        numberField(state.faceDilation ?? 4, (v) => { state.faceDilation = v; persist(); }, 1),
+      ]));
+      leftScroll.appendChild(panel([
+        label("Regeneration Settings"),
+        label("Denoise"),
+        numberField(state.faceDenoise ?? 0.5, (v) => { state.faceDenoise = Math.max(0.1, Math.min(1, v)); persist(); }, 0.01),
+        label("Feather (px)"),
+        numberField(state.faceFeather ?? 5, (v) => { state.faceFeather = Math.max(0, v); persist(); }, 1),
+      ]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     }
   }
   renderLeftPanel();
@@ -587,6 +673,25 @@ export function renderZImage(root: HTMLElement) {
     if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "I2I 소스 이미지를 업로드하세요"; return; }
     if (state.mode === "upscale" && !state.upscaleImage) { warnTag.textContent = "Upscale 소스 이미지를 업로드하세요"; return; }
     if (state.mode === "upscale" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "SeedVR2 DiT/VAE 모델을 선택하세요"; return; }
+    if (state.mode === "inpaint") {
+      if (!state.inpaintImage) { warnTag.textContent = "Inpaint 소스 이미지를 업로드하세요"; return; }
+      if (!state.inpaintMaskImage) {
+        const saved = await inpaintAutoSave?.().catch(() => false);
+        if (!saved) { warnTag.textContent = "마스크를 칠하고 저장하세요"; return; }
+      }
+    }
+    if (state.mode === "rebg") {
+      if (!state.rebgImage) { warnTag.textContent = "Re-BG 소스 이미지를 업로드하세요"; return; }
+      if (!state.rebgBgModel || state.rebgBgModel === "none") { warnTag.textContent = "BG Removal 모델을 선택하세요"; return; }
+    }
+    if (state.mode === "controlnet") {
+      if (!state.controlnetImage) { warnTag.textContent = "ControlNet 참조 이미지를 업로드하세요"; return; }
+      if (!state.controlnetModel || state.controlnetModel === "none") { warnTag.textContent = "ControlNet Union 모델을 선택하세요"; return; }
+    }
+    if (state.mode === "face_redraw") {
+      if (!state.faceImage) { warnTag.textContent = "Face Redraw 소스 이미지를 업로드하세요"; return; }
+      if (!state.faceDetectorModel || state.faceDetectorModel === "none") { warnTag.textContent = "Face Detector 모델을 선택하세요"; return; }
+    }
     warnTag.textContent = "";
 
     if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }

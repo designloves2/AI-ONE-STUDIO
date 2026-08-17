@@ -522,6 +522,16 @@ export function renderKlein(root: HTMLElement) {
     const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
+    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    clearBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      img.style.display = "none";
+      img.src = "";
+      hint.style.display = "";
+      clearBtn.style.display = "none";
+      onSet("");
+    });
+    wrap.appendChild(clearBtn);
     async function handleFile(file: File) {
       hint.textContent = "업로드 중…";
       try {
@@ -531,6 +541,7 @@ export function renderKlein(root: HTMLElement) {
         img.src = url;
         img.style.display = "block";
         hint.style.display = "none";
+        clearBtn.style.display = "block";
         if (onLoad) {
           const probe = new Image();
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
@@ -544,6 +555,7 @@ export function renderKlein(root: HTMLElement) {
       img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      clearBtn.style.display = "block";
       if (onLoad) {
         const probe = new Image();
         probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
@@ -565,6 +577,7 @@ export function renderKlein(root: HTMLElement) {
       img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      clearBtn.style.display = "block";
       if (onLoad && probeIfUnknown) {
         const probe = new Image();
         probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);

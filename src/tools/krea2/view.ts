@@ -536,6 +536,16 @@ export function renderKrea2(root: HTMLElement) {
     const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
+    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    clearBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      img.style.display = "none";
+      img.src = "";
+      hint.style.display = "";
+      clearBtn.style.display = "none";
+      onSet("");
+    });
+    wrap.appendChild(clearBtn);
     // 주의: 이전엔 img의 "load" 이벤트에서 onLoad→renderLeftPanel()을 호출했는데, 이 슬롯 자체가
     // renderLeftPanel()마다 새로 생성되고 기존 이미지를 다시 img.src에 세팅하므로 "load"가 또 발생 →
     // renderLeftPanel() 재호출 → 다시 "load"... 로 무한 재렌더 루프가 생겨 I2I/Identity처럼 이미
@@ -550,6 +560,7 @@ export function renderKrea2(root: HTMLElement) {
         img.src = url;
         img.style.display = "block";
         hint.style.display = "none";
+        clearBtn.style.display = "block";
         if (onLoad) {
           const probe = new Image();
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
@@ -563,6 +574,7 @@ export function renderKrea2(root: HTMLElement) {
       img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      clearBtn.style.display = "block";
       if (onLoad) {
         const probe = new Image();
         probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
@@ -584,6 +596,7 @@ export function renderKrea2(root: HTMLElement) {
       img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      clearBtn.style.display = "block";
       // Send-to로 넘어온 이미지는 새 업로드가 아니라 onLoad 프로브가 실행되지 않아 W/H가 미확인
       // 상태로 남는 버그가 있었다(Z-Image 라이브 테스트에서 발견) — 아직 크기를 모를 때만, 한 번만 프로브.
       if (onLoad && probeIfUnknown) {

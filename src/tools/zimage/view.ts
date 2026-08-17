@@ -461,6 +461,16 @@ export function renderZImage(root: HTMLElement) {
     const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
+    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    clearBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      img.style.display = "none";
+      img.src = "";
+      hint.style.display = "";
+      clearBtn.style.display = "none";
+      onSet("");
+    });
+    wrap.appendChild(clearBtn);
     // Krea2에서 실제로 겪은 무한 재렌더 루프 버그 회피: img의 "load" 이벤트에 onLoad를 절대 걸지 않는다.
     async function handleFile(file: File) {
       hint.textContent = "업로드 중…";
@@ -471,6 +481,7 @@ export function renderZImage(root: HTMLElement) {
         img.src = url;
         img.style.display = "block";
         hint.style.display = "none";
+        clearBtn.style.display = "block";
         if (onLoad) {
           const probe = new Image();
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
@@ -484,6 +495,7 @@ export function renderZImage(root: HTMLElement) {
       img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      clearBtn.style.display = "block";
       if (onLoad) {
         const probe = new Image();
         probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
@@ -505,6 +517,7 @@ export function renderZImage(root: HTMLElement) {
       img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      clearBtn.style.display = "block";
       // Send-to로 넘어온 이미지는 새 업로드가 아니라 onLoad 프로브가 실행되지 않아 W/H가 미확인
       // 상태로 남는 버그가 있었다(라이브 테스트에서 발견) — 아직 크기를 모를 때만, 한 번만 프로브.
       if (onLoad && probeIfUnknown) {

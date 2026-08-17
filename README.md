@@ -13,7 +13,8 @@
 > rather than reproducing the code — see [NOTICE.md](NOTICE.md) and [LICENSE](LICENSE) for
 > details.
 
-**ComfyUI 커스텀 노드를, 독립 실행형 웹 스튜디오로.**
+# ComfyUI 커스텀 노드를, 독립 실행형 웹 스튜디오.
+
 **Turning ComfyUI custom nodes into a standalone web studio.**
 
 [`ComfyUI-TJ_NODE_STUDIO_ONE`](https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE) 커스텀 노드 패키지에

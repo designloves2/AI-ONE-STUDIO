@@ -454,7 +454,7 @@ export function renderZImage(root: HTMLElement) {
     return wrap;
   }
 
-  function imageUploadSlot(currentFilename: string, onSet: (name: string) => void, onLoad?: (w: number, h: number) => void) {
+  function imageUploadSlot(currentFilename: string, onSet: (name: string) => void, onLoad?: (w: number, h: number) => void, probeIfUnknown?: boolean) {
     const wrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", minHeight: "180px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: C.bg2 } });
     const img = el("img", { style: { maxWidth: "100%", maxHeight: "168px", display: "none", borderRadius: "4px" } });
     const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
@@ -484,9 +484,17 @@ export function renderZImage(root: HTMLElement) {
     wrap.addEventListener("drop", (e) => { e.preventDefault(); wrap.style.borderColor = C.border; const f = e.dataTransfer?.files?.[0]; if (f) handleFile(f); });
 
     if (currentFilename) {
-      img.src = api.viewUrl(currentFilename, "", "input");
+      const url = api.viewUrl(currentFilename, "", "input");
+      img.src = url;
       img.style.display = "block";
       hint.style.display = "none";
+      // Send-to로 넘어온 이미지는 새 업로드가 아니라 onLoad 프로브가 실행되지 않아 W/H가 미확인
+      // 상태로 남는 버그가 있었다(라이브 테스트에서 발견) — 아직 크기를 모를 때만, 한 번만 프로브.
+      if (onLoad && probeIfUnknown) {
+        const probe = new Image();
+        probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
+        probe.src = url;
+      }
     }
     return wrap;
   }
@@ -523,7 +531,7 @@ export function renderZImage(root: HTMLElement) {
     } else if (state.mode === "i2i") {
       leftScroll.appendChild(panel([
         label("Source Image"),
-        imageUploadSlot(state.i2iImage, (name) => { state.i2iImage = name; persist(); }, (w, h) => { state.i2iWidth = snap8(w); state.i2iHeight = snap8(h); persist(); renderLeftPanel(); }),
+        imageUploadSlot(state.i2iImage, (name) => { state.i2iImage = name; persist(); }, (w, h) => { state.i2iWidth = snap8(w); state.i2iHeight = snap8(h); persist(); renderLeftPanel(); }, !state.i2iWidth || !state.i2iHeight),
         sizeFields(() => state.i2iWidth, (v) => (state.i2iWidth = v), () => state.i2iHeight, (v) => (state.i2iHeight = v), () => state.i2iLockRatio, (v) => (state.i2iLockRatio = v)),
       ]));
       leftScroll.appendChild(panel([label("Denoise Strength"), numberField(state.i2iDenoise, (v) => { state.i2iDenoise = Math.max(0, Math.min(1, v)); persist(); }, 0.01)]));

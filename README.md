@@ -186,4 +186,8 @@ Each tool's folder consists of `core.ts` (state/constants), `api.ts` (REST calls
 
 ## 라이선스 / License
 
-[MIT](LICENSE)
+All Rights Reserved — see [LICENSE](LICENSE). 코드 열람은 가능하지만 저작권자의 사전 서면 허가
+없이 복사·수정·배포·2차 저작물 제작을 할 수 없습니다.
+<br><sub>All Rights Reserved — see [LICENSE](LICENSE). Viewable, but copying, modifying,
+distributing, or creating derivative works requires the copyright holder's prior written
+permission.</sub>

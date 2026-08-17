@@ -70,6 +70,11 @@ body {
   }
   .aos-right-panel {
     order: 1;
+    /* leftPanel은 원래 flex-grow:0이라 내용물 크기만 차지하는데, rightPanel은
+       데스크톱용 flex:1(남는 세로 공간을 다 채우는 값)이 그대로 남아있어서, 접었을 때도
+       내용물(헤더 한 줄)만큼이 아니라 강제로 큰 높이를 차지해 그 아래에 빈 공백이 생겼다.
+       모바일에서는 내용물 크기만큼만 차지하도록 되돌린다. */
+    flex: none !important;
   }
   .aos-collapse-header {
     display: flex !important;

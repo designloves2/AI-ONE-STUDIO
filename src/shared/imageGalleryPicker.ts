@@ -61,7 +61,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   let picking = false;
 
   const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
-  const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(880px, 92vw)", height: "min(640px, 86vh)", boxShadow: "0 10px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: "10px" } });
+  const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(880px, 92vw)", height: "min(640px, 86vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: "10px" } });
 
   const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   topRow.appendChild(el("div", { text: "🖼 갤러리에서 이미지 선택", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
@@ -84,7 +84,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   }
   renderToolBar();
 
-  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "6px", overflowY: "auto", flex: "1", alignContent: "start" } });
+  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gridAutoRows: "min-content", gap: "6px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
   const statusEl = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
   const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 10px", borderRadius: "6px", border: `1px solid ${C.border}`, background: C.bg2, color: C.text, flexShrink: "0" } });
   moreBtn.style.display = "none";
@@ -119,8 +119,8 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     total = data.total || 0;
     const imgs = data.images || [];
     imgs.forEach((img) => {
-      const cell = el("div", { style: { cursor: "pointer", borderRadius: "6px", overflow: "hidden", aspectRatio: "1/1", background: C.bg2, position: "relative" } });
-      const im = el("img", { src: viewUrl(img), style: { width: "100%", height: "100%", objectFit: "cover" } });
+      const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
+      const im = el("img", { src: viewUrl(img), style: { width: "100%", height: "auto", display: "block" } });
       cell.appendChild(im);
       cell.addEventListener("click", async () => {
         if (picking) return;

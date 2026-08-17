@@ -89,4 +89,11 @@ body {
   .aos-mode-bar-wrap {
     flex: 1 1 100% !important;
   }
+
+  /* previewBox는 flex:1로 "부모가 준 남는 공간을 채우는" 방식인데, 모바일에서는
+     aos-body가 overflow-y:auto인 스크롤 컨테이너라 부모 쪽에 확정된 높이가 없어
+     flex:1 자식이 거의 0px로 눌린다 — 최소 높이를 못박아 항상 볼 수 있는 크기로 강제. */
+  .aos-preview-box {
+    min-height: 45vh !important;
+  }
 }

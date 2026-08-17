@@ -19,6 +19,20 @@ export function createMaskEditor(state: ZImageState, persist: () => void) {
   const wrap = el("div", { style: { display: "none", position: "relative", width: `${DISP_W}px`, background: "#111", borderRadius: "6px", border: `1px solid ${C.border}`, overflow: "hidden" } });
   wrap.appendChild(dispCanvas);
 
+  // 브러시 크기를 실제 화면 픽셀 원으로 보여주는 커스텀 커서 (SVG data-URI).
+  function updateCursor() {
+    const { origW } = maskRef;
+    if (!origW) return;
+    const rect = dispCanvas.getBoundingClientRect();
+    if (!rect.width) return;
+    const scale = rect.width / origW;
+    const r = Math.max(1, Math.round(brushSize * scale));
+    const s = r * 2 + 4;
+    const color = tool === "eraser" ? "255,255,255" : "124,30,218";
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${s}' height='${s}'><circle cx='${s / 2}' cy='${s / 2}' r='${r}' fill='rgba(${color},0.25)' stroke='rgba(${color},0.9)' stroke-width='1.5'/></svg>`;
+    dispCanvas.style.cursor = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}") ${s / 2} ${s / 2}, crosshair`;
+  }
+
   function render() {
     const { canvas: maskCanvas, srcImg, origW, origH } = maskRef;
     if (!srcImg || !maskCanvas) return;
@@ -86,8 +100,8 @@ export function createMaskEditor(state: ZImageState, persist: () => void) {
   function btn(text: string, onClick: () => void) {
     return el("button", { type: "button", text, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "4px 8px", borderRadius: "6px", border: `1px solid ${C.border}`, background: C.bg2, color: "#fff" }, onclick: onClick });
   }
-  const brushBtn = btn("✏ Brush", () => { tool = "brush"; syncToolBtns(); });
-  const eraserBtn = btn("◻ Eraser", () => { tool = "eraser"; syncToolBtns(); });
+  const brushBtn = btn("✏ Brush", () => { tool = "brush"; syncToolBtns(); updateCursor(); });
+  const eraserBtn = btn("◻ Eraser", () => { tool = "eraser"; syncToolBtns(); updateCursor(); });
   function syncToolBtns() {
     brushBtn.style.background = tool === "brush" ? BRAND_LOCAL : C.bg2;
     eraserBtn.style.background = tool === "eraser" ? BRAND_LOCAL : C.bg2;
@@ -107,7 +121,7 @@ export function createMaskEditor(state: ZImageState, persist: () => void) {
   const sizeRange = el("input", { type: "range", min: "2", max: "150", step: "1" }) as HTMLInputElement;
   sizeRange.value = String(brushSize);
   sizeRange.style.cssText = "flex:1;min-width:60px;";
-  sizeRange.addEventListener("input", () => { brushSize = parseInt(sizeRange.value); sizeValEl.textContent = `${brushSize}px`; });
+  sizeRange.addEventListener("input", () => { brushSize = parseInt(sizeRange.value); sizeValEl.textContent = `${brushSize}px`; updateCursor(); });
 
   const toolRow = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap", marginBottom: "4px" } });
   const sizeRow = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", flex: "1" } }, [el("span", { text: "Size:", style: { color: C.muted, fontSize: "11px" } }), sizeRange, sizeValEl]);
@@ -176,6 +190,7 @@ export function createMaskEditor(state: ZImageState, persist: () => void) {
         render();
       }
       editorPanel.style.display = "flex";
+      requestAnimationFrame(updateCursor);
     };
     img.onerror = () => {};
     img.src = viewUrl(filename, "", "input", Date.now());

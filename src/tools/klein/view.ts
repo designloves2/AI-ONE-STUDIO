@@ -9,6 +9,7 @@ import {
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog } from "../../shared/ui";
 import * as api from "./api";
+import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildGraph } from "./graphBuilder";
 import { queuePrompt } from "./comfyClient";
 import type { AppConfig } from "./settings";
@@ -537,6 +538,22 @@ export function renderKlein(root: HTMLElement) {
         }
       } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
     }
+    function applyPicked(name: string) {
+      onSet(name);
+      const url = api.viewUrl(name, "", "input", Date.now());
+      img.src = url;
+      img.style.display = "block";
+      hint.style.display = "none";
+      if (onLoad) {
+        const probe = new Image();
+        probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
+        probe.src = url;
+      }
+    }
+    const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
+    galleryBtn.addEventListener("click", (e) => { e.stopPropagation(); openImageGalleryPicker((name) => applyPicked(name)); });
+    wrap.appendChild(galleryBtn);
+
     wrap.addEventListener("click", () => fileIn.click());
     fileIn.addEventListener("change", () => { if (fileIn.files?.[0]) handleFile(fileIn.files[0]); });
     wrap.addEventListener("dragover", (e) => { e.preventDefault(); wrap.style.borderColor = BRAND; });

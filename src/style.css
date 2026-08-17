@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #7612da;
+  --color-bg0: #0b0b0b;
+  --color-bg1: #111111;
+  --color-bg2: #181818;
+  --color-bg3: #222222;
+  --color-border: #2a2a2a;
+  --color-borderh: #3c3c3c;
+  --color-text: #dedede;
+  --color-muted: #565656;
+  --color-dim: #2e2e2e;
+  --color-warn: #ffb347;
+  --color-err: #ff6767;
+  --color-ok: #5fd38d;
+  --font-sans: inherit;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg0);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* 다크 테마 고정 팩이라 스크롤바도 시스템 기본(흰색)이 아니라 다크로 맞춘다 */
+* {
+  scrollbar-color: var(--color-border) var(--color-bg1);
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--color-bg1);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-borderh);
+}

@@ -10,7 +10,7 @@ import {
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO, IMPLEMENTED_MODES,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildGraph } from "./graphBuilder";
@@ -795,6 +795,8 @@ export function renderZImage(root: HTMLElement) {
       }
     }, 6000);
   }
+
+  applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;

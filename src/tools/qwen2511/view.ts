@@ -8,7 +8,7 @@ import {
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
   buildAnglePrompt,
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildGraph } from "./graphBuilder";
@@ -868,6 +868,8 @@ export function renderQwen2511(root: HTMLElement) {
       }
     }, 6000);
   }
+
+  applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;

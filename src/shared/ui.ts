@@ -306,3 +306,39 @@ export function promptDialog(message: string, defaultValue = ""): Promise<string
     input.select();
   });
 }
+
+// applyMobileCollapsibleLayout — 767px 이하(휴대폰)에서만 leftPanel(설정)과
+// rightPanel(프롬프트/생성 결과)을 세로로 쌓고 각각 접었다 펼 수 있게 만든다.
+// PC/태블릿에서는 아무 영향 없음(CSS 미디어 쿼리로만 동작 — style.css 참고).
+// leftBottomBar(시드/Generate 버튼)는 접히지 않고 leftPanel 맨 아래에 항상 남는다.
+function collapsibleHeader(title: string, contentEl: HTMLElement, defaultOpen: boolean) {
+  contentEl.classList.add("aos-collapse-content");
+  if (!defaultOpen) contentEl.classList.add("aos-collapsed");
+  const chevron = el("span", { text: defaultOpen ? "▾" : "▸" });
+  const header = el(
+    "button",
+    {
+      type: "button",
+      class: "aos-collapse-header",
+      style: { width: "100%", boxSizing: "border-box", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "8px", color: C.text, fontSize: "12px", fontWeight: "700", cursor: "pointer", marginBottom: "6px" },
+    },
+    [el("span", { text: title }), chevron]
+  );
+  header.addEventListener("click", () => {
+    const collapsed = contentEl.classList.toggle("aos-collapsed");
+    chevron.textContent = collapsed ? "▸" : "▾";
+  });
+  return header;
+}
+
+export function applyMobileCollapsibleLayout(body: HTMLElement, leftPanel: HTMLElement, leftScroll: HTMLElement, rightPanel: HTMLElement) {
+  body.classList.add("aos-body");
+  leftPanel.classList.add("aos-left-panel");
+  rightPanel.classList.add("aos-right-panel");
+
+  const rightContent = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px", flex: "1", minHeight: "0" } });
+  Array.from(rightPanel.children).forEach((child) => rightContent.appendChild(child));
+  rightPanel.append(collapsibleHeader("프롬프트 / 생성 결과", rightContent, true), rightContent);
+
+  leftPanel.insertBefore(collapsibleHeader("설정", leftScroll, true), leftScroll);
+}

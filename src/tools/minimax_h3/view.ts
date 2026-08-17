@@ -32,7 +32,7 @@ import {
   resolveResolution,
   saveState,
 } from "./core";
-import { button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select } from "../../shared/ui";
+import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
@@ -1190,6 +1190,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   renderPills();
   renderLeft();
+  applyMobileCollapsibleLayout(mainRow, leftOuter, leftPanel, rightPanel);
 
   // 백그라운드로 모델/가용성/갤러리 초기 로드 — 도착하는 대로 관련 UI를 다시 그린다.
   getModels()

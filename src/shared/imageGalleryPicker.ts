@@ -4,8 +4,9 @@
 // 전역 input 폴더에 복사한 뒤(파일명이 유니크해짐) 그 파일명을 콜백으로 돌려준다.
 import { C, BRAND } from "../identity";
 import { el, clear } from "./ui";
+import { getComfyBase } from "./comfyBase";
 
-const BASE = (import.meta as any).env?.VITE_COMFY_URL || "http://127.0.0.1:8188";
+const BASE = getComfyBase();
 
 export interface GalleryToolDef {
   id: string;

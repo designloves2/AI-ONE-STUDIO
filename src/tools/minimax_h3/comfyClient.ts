@@ -1,8 +1,9 @@
+import { getComfyBase } from "../../shared/comfyBase";
 // comfyClient.ts — ComfyUI 웹소켓 기반 큐잉/이벤트 클라이언트.
 // 원본 ComfyUI 프론트엔드의 scripts/api.js(EventTarget 인터페이스)를 독립 사이트에서
 // 재구현한 것 — §3-2 comfy-client.ts의 이 도구 전용 슬라이스. 다른 도구를 이식할 때
 // 이 파일의 패턴(웹소켓 연결 + addEventListener 유사 인터페이스)을 그대로 재사용한다.
-const BASE = (import.meta as any).env?.VITE_COMFY_URL || "http://127.0.0.1:8188";
+const BASE = getComfyBase();
 const WS_BASE = BASE.replace(/^http/, "ws");
 
 // 탭/페이지 로드마다 새로 발급한다 — localStorage에 영구 저장해서 여러 탭이나 이전

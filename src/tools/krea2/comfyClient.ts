@@ -1,7 +1,8 @@
+import { getComfyBase } from "../../shared/comfyBase";
 // comfyClient.ts — ComfyUI 웹소켓 기반 큐잉/이벤트 클라이언트 (Krea2).
 // MiniMax H3의 comfyClient.ts와 동일 패턴 — clientId는 탭/페이지 로드마다 새로 발급한다
 // (localStorage에 영구 저장하면 유령 소켓이 progress/executed 이벤트를 가로채는 문제가 있었음).
-const BASE = (import.meta as any).env?.VITE_COMFY_URL || "http://127.0.0.1:8188";
+const BASE = getComfyBase();
 const WS_BASE = BASE.replace(/^http/, "ws");
 
 const CLIENT_ID = crypto.randomUUID();

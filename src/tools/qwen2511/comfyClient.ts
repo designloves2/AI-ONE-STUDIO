@@ -1,7 +1,8 @@
+import { getComfyBase } from "../../shared/comfyBase";
 // comfyClient.ts — ComfyUI 웹소켓 큐잉/이벤트 클라이언트 (Qwen Image 2511).
 // Krea2/H3와 동일 패턴 — clientId는 탭/페이지 로드마다 새로 발급 (localStorage에 영구 저장하면
 // 유령 소켓이 progress/executed 이벤트를 가로채는 문제가 있었음, 이 세션에서 실제로 겪은 버그).
-const BASE = (import.meta as any).env?.VITE_COMFY_URL || "http://127.0.0.1:8188";
+const BASE = getComfyBase();
 const WS_BASE = BASE.replace(/^http/, "ws");
 
 const CLIENT_ID = crypto.randomUUID();

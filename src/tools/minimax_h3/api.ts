@@ -1,3 +1,4 @@
+import { getComfyBase } from "../../shared/comfyBase";
 // api.ts — MiniMax H3의 백엔드 호출 (원본 web/minimax/api_minimax.js 이식).
 // 프롬프트 에디터의 LLM(Ollama) 기능은 ComfyUI가 서빙하는 `/minimax_h3_one/llm/*` 라우트를
 // 그대로 부르므로, 이 파일만으로도 ComfyUI가 CORS 허용 상태로 켜져 있으면 바로 동작한다
@@ -5,7 +6,7 @@
 import { API, SUBFOLDER } from "./core";
 
 // TODO(§3-2): comfy-client.ts가 완성되면 이 BASE/fetchApi를 그쪽 공용 클라이언트로 교체.
-const BASE = (import.meta as any).env?.VITE_COMFY_URL || "http://127.0.0.1:8188";
+const BASE = getComfyBase();
 
 async function fetchApi(path: string, opts?: RequestInit) {
   return fetch(`${BASE}${path}`, opts);

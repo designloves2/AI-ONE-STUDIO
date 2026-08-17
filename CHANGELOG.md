@@ -6,6 +6,11 @@
 ## [Unreleased] — 2026-08-18
 
 ### Added
+- ComfyUI 서버 주소를 **접속 호스트에 따라 런타임에 자동 선택** (`shared/comfyBase.ts`) —
+  `127.0.0.1`/`localhost`로 열면 항상 로컬 ComfyUI로 직접 연결, 그 외 도메인(터널 등)으로
+  열면 `VITE_COMFY_URL`을 사용. 로컬 접속과 외부(모바일) 접속이 재시작·설정 전환 없이
+  동시에 동작한다. 저장소가 public으로 전환됨에 따라 실제 `.env`는 gitignore 처리하고
+  플레이스홀더 값의 `.env.example`만 커밋 (README에 외부 접속 설정 안내 추가)
 - 이미지 도구 5종(Krea2/Z-Image/Klein/Qwen2511/SDXL) 갤러리의 Select 모드에 **→ FL2VA** /
   **→ REF2VA** 버튼 추가 — 선택한 결과 이미지를 MiniMax H3의 First/Last Frame 또는
   Reference 슬롯으로 보내고 해당 모드로 자동 전환

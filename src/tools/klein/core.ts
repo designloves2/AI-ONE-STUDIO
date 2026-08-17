@@ -196,11 +196,14 @@ export function defaultState(saved: Partial<KleinState> = {}): KleinState {
 
     // 구버전 저장 데이터 마이그레이션 — 다른 모드로 프롬프트가 새는 버그를 Krea2/Z-Image에서
     // 겪은 뒤 확립한 규칙: getModePrompt는 promptsByMode[key]만 보고 state.prompt로 폴백하지 않는다.
+    // 주의: 이 마이그레이션은 promptsByMode 필드 자체가 아예 없던 "진짜 구버전" 데이터에만
+    // 적용해야 한다 — "현재 모드에 아직 값이 없다"는 조건으로 매번 재실행하면 마지막으로
+    // 입력했던 모드의 프롬프트가 처음 방문하는 다른 모드로 새는 버그가 재발한다(실제 발견).
     prompt: saved.prompt || "",
     promptsByMode: (() => {
-      const p = { ...(saved.promptsByMode || {}) };
-      const activeMode = (saved.mode as KleinMode) || "t2i";
-      if (saved.prompt && !(activeMode in p)) p[activeMode] = saved.prompt;
+      if (saved.promptsByMode) return { ...saved.promptsByMode };
+      const p: Record<string, string> = {};
+      if (saved.prompt) p[(saved.mode as KleinMode) || "t2i"] = saved.prompt;
       return p;
     })(),
     negativePrompt: saved.negativePrompt || DEFAULT_NEG,

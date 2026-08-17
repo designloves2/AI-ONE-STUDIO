@@ -190,12 +190,16 @@ export function defaultState(saved: Partial<Krea2State> = {}): Krea2State {
     vae: saved.vae || "",
 
     // 구버전 저장 데이터(promptsByMode 없이 prompt 필드만 있던 시절) 마이그레이션 — 저장 당시
-    // 활성 모드에만 값을 이관하고, 다른 모드는 절대 이 값을 공유하지 않는다.
+    // 활성 모드에만 값을 이관하고, 다른 모드는 절대 이 값을 공유하지 않는다. promptsByMode
+    // 필드 자체가 없던 "진짜 구버전" 데이터에만 적용해야 한다 — "현재 모드에 값이 아직 없다"는
+    // 조건으로 매번 재실행하면 마지막으로 입력했던 모드의 프롬프트가 처음 방문하는 다른
+    // 모드로 새는 버그가 재발한다(Klein에서 실제 재현 확인 후 세 도구 모두 수정).
     prompt: saved.prompt || "",
     promptsByMode: (() => {
-      const p = { ...(saved.promptsByMode || {}) };
+      if (saved.promptsByMode) return { ...saved.promptsByMode };
+      const p: Record<string, string> = {};
       const activeMode = (saved.mode as any) || "t2i";
-      if (saved.prompt && !(activeMode in p)) p[activeMode] = saved.prompt;
+      if (saved.prompt) p[activeMode] = saved.prompt;
       return p;
     })(),
     promptSuffix: saved.promptSuffix || "",

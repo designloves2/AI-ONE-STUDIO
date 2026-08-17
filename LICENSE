@@ -1,13 +1,18 @@
-All Rights Reserved
+Source-Available License (No Modification, No Redistribution)
 
 Copyright (c) 2026 designloves2
 
-This repository and its contents (source code, documentation, and all other files) are made
-available for viewing purposes only. All rights are reserved by the copyright holder.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+and associated documentation files (the "Software"), to use the Software for any purpose,
+including commercial use, subject to the following conditions:
 
-No permission is granted to copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of this software, or to create derivative works based on it, in whole or in part,
-without the prior written permission of the copyright holder.
+1. You may run and use the Software as-is.
+2. You may NOT modify the Software, or create derivative works based on it.
+3. You may NOT redistribute the Software, in original or modified form (this includes
+   publishing forks, mirrors, or re-uploads, and sublicensing or selling copies of it).
+
+Any use outside of what is explicitly permitted above requires prior written permission from
+the copyright holder.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
 BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND

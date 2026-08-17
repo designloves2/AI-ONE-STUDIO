@@ -186,32 +186,30 @@ Each tool's folder consists of `core.ts` (state/constants), `api.ts` (REST calls
 
 ## 라이선스 / License
 
-**All Rights Reserved** — 저작권자(© 2026 designloves2)가 모든 권리를 보유합니다. 오픈소스
-라이선스가 아닙니다.
+**Source-Available License (수정·재배포 금지)** — 저작권자(© 2026 designloves2)가 모든 권리를
+보유합니다. 오픈소스 라이선스가 아닙니다.
 
-**All Rights Reserved** — all rights are held by the copyright holder (© 2026 designloves2).
-This is **not** an open-source license.
+**Source-Available License (No Modification, No Redistribution)** — all rights are held by
+the copyright holder (© 2026 designloves2). This is **not** an open-source license.
 
-이 저장소는 코드를 열람하는 용도로만 공개되어 있습니다. 저작권자의 사전 서면 허가 없이는
-아래 행위가 전부 금지됩니다:
-- 코드의 전체 또는 일부를 **복사**하는 것
-- 코드를 **수정**하는 것
-- 원본이든 수정본이든 **배포·재배포**하는 것 (포크 공개, 재업로드 포함)
-- 코드를 기반으로 **2차 저작물을 제작**하는 것
-- 코드를 **상업적으로 사용**하는 것
+**허용됨** — 별도 허가 없이 자유롭게(상업적 이용 포함):
+- 이 소프트웨어를 **다운로드해서 그대로 실행·사용**하는 것
 
-This repository is published for viewing purposes only. Without the copyright holder's prior
-written permission, all of the following are prohibited:
-- **Copying** the code, in whole or in part
-- **Modifying** the code
-- **Distributing or redistributing** it, original or modified (including publishing forks or
-  re-uploading it elsewhere)
-- **Creating derivative works** based on the code
-- **Commercial use** of the code
+**Permitted** — freely, without asking (commercial use included):
+- **Downloading and using/running the software as-is**
 
-사용 허가를 받고 싶다면 저장소 소유자([designloves2](https://github.com/designloves2))에게
-직접 문의하세요. 전문은 [LICENSE](LICENSE) 파일을 참고하세요. 소프트웨어는 **어떠한 보증도
-없이 "있는 그대로" 제공**됩니다.
+**금지됨** — 저작권자의 사전 서면 허가 없이는:
+- 코드를 **수정**하는 것 (2차 저작물 제작 포함)
+- 원본이든 수정본이든 **재배포**하는 것 (포크 공개, 미러링, 재업로드, 재판매·재라이선스 포함)
+
+**Prohibited** — without the copyright holder's prior written permission:
+- **Modifying** the code (including creating derivative works)
+- **Redistributing** it, original or modified (including publishing forks, mirrors,
+  re-uploads, or reselling/sublicensing copies)
+
+허가를 받고 싶다면 저장소 소유자([designloves2](https://github.com/designloves2))에게 직접
+문의하세요. 전문은 [LICENSE](LICENSE) 파일을 참고하세요. 소프트웨어는 **어떠한 보증도 없이
+"있는 그대로" 제공**됩니다.
 
 To request permission, contact the repository owner
 ([designloves2](https://github.com/designloves2)) directly. See the [LICENSE](LICENSE) file

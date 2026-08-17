@@ -7,12 +7,14 @@ import { renderKrea2 } from "./tools/krea2/view";
 import { renderZImage } from "./tools/zimage/view";
 import { renderKlein } from "./tools/klein/view";
 import { renderQwen2511 } from "./tools/qwen2511/view";
+import { renderSDXL } from "./tools/sdxl/view";
 
 registerTool("minimax_h3", renderMinimaxH3);
 registerTool("krea2", renderKrea2);
 registerTool("zimage", renderZImage);
 registerTool("klein", renderKlein);
 registerTool("qwen2511", renderQwen2511);
+registerTool("sdxl", renderSDXL);
 
 // 페이지 전체 높이를 모니터 해상도(뷰포트)에 정확히 맞춘다 — h-screen으로 고정하고,
 // 넘치는 콘텐츠는 페이지 자체가 늘어나는 대신 content 영역 안에서만 스크롤되게 한다.

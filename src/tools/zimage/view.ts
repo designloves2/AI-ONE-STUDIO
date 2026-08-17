@@ -581,18 +581,27 @@ export function renderZImage(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.rebgImage, (name) => { state.rebgImage = name; persist(); })]));
       leftScroll.appendChild(panel([
         label("Subject Edge"),
-        el("div", { text: "서브젝트 마스크 경계 확장/축소 (px)", style: { color: C.muted, fontSize: "10px" } }),
+        el("div", { text: "Edge Offset: 마스크 경계를 + 확장 / − 축소 (px). 기본 0", style: { color: C.muted, fontSize: "10px" } }),
         numberField(state.rebgOffset ?? 0, (v) => { state.rebgOffset = v; persist(); }, 1),
-        el("div", { text: "경계 블러 (px)", style: { color: C.muted, fontSize: "10px", marginTop: "6px" } }),
+        el("div", { text: "Edge Blur: 마스크를 블러링해 경계를 부드럽게 (px). 기본 0", style: { color: C.muted, fontSize: "10px", marginTop: "6px" } }),
         numberField(state.rebgBlur ?? 0, (v) => { state.rebgBlur = Math.max(0, v); persist(); }, 1),
       ]));
       leftScroll.appendChild(panel([
         label("Expansion (px) — 0이면 배경만 재생성"),
+        el("div", { text: "ℹ Expansion은 OUTPAINT가 아닙니다. 서브젝트는 원본 위치 그대로 유지되며, 배경 영역만 px 단위로 넓혀 재생성합니다.", style: { color: "#FFD700", fontSize: "11px", padding: "4px 6px", background: "rgba(255,215,0,0.07)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: "5px", marginBottom: "6px" } }),
         row([col([label("Up"), numberField(state.rebgUp ?? 0, (v) => { state.rebgUp = Math.max(0, v); persist(); }, 64)]), col([label("Down"), numberField(state.rebgDown ?? 0, (v) => { state.rebgDown = Math.max(0, v); persist(); }, 64)])]),
         row([col([label("Left"), numberField(state.rebgLeft ?? 0, (v) => { state.rebgLeft = Math.max(0, v); persist(); }, 64)]), col([label("Right"), numberField(state.rebgRight ?? 0, (v) => { state.rebgRight = Math.max(0, v); persist(); }, 64)])]),
       ]));
-      leftScroll.appendChild(panel([label("Expansion Edge Feathering (px)"), numberField(state.rebgFeather ?? 40, (v) => { state.rebgFeather = Math.max(0, v); persist(); }, 4)]));
-      leftScroll.appendChild(panel([label("Background Denoise"), numberField(state.rebgDenoise ?? 1, (v) => { state.rebgDenoise = Math.max(0.5, Math.min(1, v)); persist(); }, 0.01)]));
+      leftScroll.appendChild(panel([
+        label("Expansion Edge Feathering (px)"),
+        el("div", { text: "Expansion px > 0 일 때만 유효 — 원본/확장 경계를 블렌딩", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
+        numberField(state.rebgFeather ?? 40, (v) => { state.rebgFeather = Math.max(0, v); persist(); }, 4),
+      ]));
+      leftScroll.appendChild(panel([
+        label("Background Denoise"),
+        el("div", { text: "1.0 = 완전히 새 배경 생성 / 낮을수록 원본 배경 색감 유지", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
+        numberField(state.rebgDenoise ?? 1, (v) => { state.rebgDenoise = Math.max(0.5, Math.min(1, v)); persist(); }, 0.01),
+      ]));
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "controlnet") {
@@ -682,7 +691,7 @@ export function renderZImage(root: HTMLElement) {
       }
     }
     if (state.mode === "rebg") {
-      if (!state.rebgImage) { warnTag.textContent = "Re-BG 소스 이미지를 업로드하세요"; return; }
+      if (!state.rebgImage) { warnTag.textContent = "Redraw-BG 소스 이미지를 업로드하세요"; return; }
       if (!state.rebgBgModel || state.rebgBgModel === "none") { warnTag.textContent = "BG Removal 모델을 선택하세요"; return; }
     }
     if (state.mode === "controlnet") {

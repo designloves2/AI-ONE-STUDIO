@@ -37,8 +37,8 @@ export function renderQwen2511(root: HTMLElement) {
   root.appendChild(wrap);
 
   // ── Sub bar: 모드 pill + 아이콘들 (Klein과 달리 KV Cache 버튼 없음) ──────────
-  const subBar = el("div", { style: { display: "flex", alignItems: "center", gap: "10px", flexShrink: "0" } });
-  const modeBarWrap = el("div");
+  const subBar = el("div", { class: "aos-sub-bar", style: { display: "flex", alignItems: "center", gap: "10px", flexShrink: "0" } });
+  const modeBarWrap = el("div", { class: "aos-mode-bar-wrap" });
   function renderModeBar() {
     clear(modeBarWrap);
     modeBarWrap.appendChild(

@@ -77,4 +77,16 @@ body {
   .aos-collapse-content.aos-collapsed {
     display: none !important;
   }
+
+  /* 모드 pill(T2I/I2I/…)과 오른쪽 아이콘 툴바(⚙/🖼/? 등)가 한 줄에 같이 눌려 있으면
+     pill 쪽만 밀려서 여러 줄로 쪼그라들며 뒤엉킨다 — pill 그룹을 항상 자기 줄
+     전체를 차지하게 만들어 아이콘 툴바는 그 아래 줄로 자연스럽게 내려가게 한다. */
+  .aos-sub-bar {
+    flex-wrap: wrap !important;
+    row-gap: 6px !important;
+    height: auto !important;
+  }
+  .aos-mode-bar-wrap {
+    flex: 1 1 100% !important;
+  }
 }

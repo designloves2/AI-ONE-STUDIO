@@ -97,8 +97,8 @@ export function renderMinimaxH3(container: HTMLElement) {
   };
 
   // ── 도구 서브바(모드 필/아이콘 버튼) ─────────────────────────────────
-  const subBar = el("div", { class: "flex items-center gap-2 px-4 h-12 border-b border-border shrink-0" });
-  const pillsWrap = el("div", { class: "flex-1" });
+  const subBar = el("div", { class: "aos-sub-bar flex items-center gap-2 px-4 h-12 border-b border-border shrink-0" });
+  const pillsWrap = el("div", { class: "aos-mode-bar-wrap flex-1" });
   const warnTag = el("div", {
     class: "hidden items-center gap-1.5 cursor-pointer text-xs rounded-md px-2.5 py-1 max-w-md truncate",
     style: { color: C.warn, background: "rgba(255,179,71,0.12)", border: `1px solid ${C.warn}` },

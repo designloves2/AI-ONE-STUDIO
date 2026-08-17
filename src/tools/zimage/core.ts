@@ -173,8 +173,15 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
     textEncoder: saved.textEncoder || "",
     vae: saved.vae || "",
 
+    // 구버전 저장 데이터(promptsByMode 없이 prompt 필드만 있던 시절) 마이그레이션 — 저장 당시
+    // 활성 모드에만 값을 이관하고, 다른 모드는 절대 이 값을 공유하지 않는다.
     prompt: saved.prompt || "",
-    promptsByMode: saved.promptsByMode || {},
+    promptsByMode: (() => {
+      const p = { ...(saved.promptsByMode || {}) };
+      const activeMode = (saved.mode as ZImageMode) || "t2i";
+      if (saved.prompt && !(activeMode in p)) p[activeMode] = saved.prompt;
+      return p;
+    })(),
     negativePrompt: saved.negativePrompt || "",
     promptSuffix: saved.promptSuffix || "",
 
@@ -246,9 +253,12 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
   };
 }
 
+// 모드별 프롬프트는 완전히 독립적이어야 한다 — 다른 모드에 값이 없다고 해서 state.prompt(공유
+// 필드)로 폴백하면 "T2I에 입력한 프롬프트가 I2I에도 보임" 버그가 생긴다. state.prompt는 이제
+// 순수하게 "현재 선택된 모드의 프롬프트 캐시" 역할만 하고, 조회는 항상 promptsByMode[key]만 본다.
 export function getModePrompt(state: ZImageState, mode?: string): string {
   const key = mode || state.mode;
-  return key in state.promptsByMode ? state.promptsByMode[key] : state.prompt || "";
+  return state.promptsByMode[key] ?? "";
 }
 export function setModePrompt(state: ZImageState, mode: string, text: string) {
   state.promptsByMode[mode] = text;

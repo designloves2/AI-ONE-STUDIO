@@ -35,7 +35,7 @@ function fieldRow(labelText: string, control: HTMLElement) {
 
 export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (text: string) => void) {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
-  const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(980px, 94vw)", height: "min(660px, 88vh)", display: "flex", flexDirection: "column", gap: "8px" } });
+  const box = el("div", { class: "aos-llm-box", style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(980px, 94vw)", height: "min(660px, 88vh)", display: "flex", flexDirection: "column", gap: "8px" } });
 
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   hdr.append(el("div", { text: "프롬프트 편집", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
@@ -47,7 +47,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const tabEdit = mkTab("Edit"), tabEnhance = mkTab("✨ Enhance"), tabI2P = mkTab("🔍 Image → Prompt");
   tabBar.append(tabEdit, tabEnhance, tabI2P);
 
-  const content = el("div", { style: { flex: "1", minHeight: "0", display: "flex", border: `1px solid ${C.border}`, borderRadius: "0 6px 6px 6px", overflow: "hidden" } });
+  const content = el("div", { class: "aos-llm-content", style: { flex: "1", minHeight: "0", display: "flex", border: `1px solid ${C.border}`, borderRadius: "0 6px 6px 6px", overflow: "hidden" } });
 
   const editTA = el("textarea", { style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
   const panelEdit = el("div", { style: { display: "flex", flex: "1" } }, [editTA]);
@@ -58,7 +58,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   );
   function saveLLM() { saveLLMSettings(llm); }
 
-  const enhLeft = el("div", { style: { width: "210px", flexShrink: "0", background: C.bg0, padding: "10px", display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", borderRight: `1px solid ${C.border}` } });
+  const enhLeft = el("div", { class: "aos-llm-left", style: { width: "210px", flexShrink: "0", background: C.bg0, padding: "10px", display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", borderRight: `1px solid ${C.border}` } });
   const ggufSelE = mkSelect([llm.gguf_model || "Loading…"], llm.gguf_model, (v) => { llm.gguf_model = v; saveLLM(); ggufSelI.value = v; });
   const modelFmtSelE = mkSelect(["Universal Natural Language"], llm.model_format, (v) => { llm.model_format = v; saveLLM(); modelFmtSelI.value = v; });
   const aestheticSelE = mkSelect(["None (no aesthetic injection)"], llm.aesthetic, (v) => { llm.aesthetic = v; saveLLM(); aestheticSelI.value = v; });
@@ -88,7 +88,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const enhTA = el("textarea", { placeholder: "결과가 여기에 표시됩니다…", style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
   const enhReplaceBtn = button("적용", () => { setPrompt(enhTA.value); editTA.value = enhTA.value; }, "primary");
   const enhRight = el("div", { style: { flex: "1", display: "flex", flexDirection: "column" } }, [enhTA, el("div", { style: { padding: "6px", borderTop: `1px solid ${C.border}` } }, [enhReplaceBtn])]);
-  const panelEnhance = el("div", { style: { display: "none", flex: "1", flexDirection: "row" } }, [enhLeft, enhRight]);
+  const panelEnhance = el("div", { class: "aos-llm-panel-row", style: { display: "none", flex: "1", flexDirection: "row" } }, [enhLeft, enhRight]);
 
   enhanceBtn.addEventListener("click", async () => {
     const prompt = editTA.value.trim();
@@ -112,7 +112,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
     }
   });
 
-  const i2pLeft = el("div", { style: { width: "210px", flexShrink: "0", background: C.bg0, padding: "10px", display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", borderRight: `1px solid ${C.border}` } });
+  const i2pLeft = el("div", { class: "aos-llm-left", style: { width: "210px", flexShrink: "0", background: C.bg0, padding: "10px", display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", borderRight: `1px solid ${C.border}` } });
 
   const dropZone = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "6px", padding: "10px", textAlign: "center", cursor: "pointer", color: C.muted, fontSize: "11px", background: C.bg2, minHeight: "80px", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" } });
   dropZone.textContent = "이미지를 드래그하거나 클릭";
@@ -202,7 +202,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const i2pTA = el("textarea", { placeholder: "분석 결과가 여기에 표시됩니다…", style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
   const i2pSendBtn = button("적용", () => { setPrompt(i2pTA.value); editTA.value = i2pTA.value; }, "primary");
   const i2pRight = el("div", { style: { flex: "1", display: "flex", flexDirection: "column" } }, [i2pTA, el("div", { style: { padding: "6px", borderTop: `1px solid ${C.border}` } }, [i2pSendBtn])]);
-  const panelI2P = el("div", { style: { display: "none", flex: "1", flexDirection: "row" } }, [i2pLeft, i2pRight]);
+  const panelI2P = el("div", { class: "aos-llm-panel-row", style: { display: "none", flex: "1", flexDirection: "row" } }, [i2pLeft, i2pRight]);
 
   i2pBtn.addEventListener("click", async () => {
     if (!imgB64) { alert("먼저 이미지를 업로드하세요"); return; }

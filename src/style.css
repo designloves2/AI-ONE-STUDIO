@@ -110,4 +110,23 @@ body {
     row-gap: 4px !important;
     padding-bottom: 4px;
   }
+
+  /* Expand/LLM 오버레이(Edit·✨Enhance·🖼Image→Prompt)의 Enhance/Image→Prompt 탭은
+     왼쪽 설정 폼(고정 210px)과 오른쪽 결과창이 가로로 나란한 2단 구성이라, 모바일
+     폭에서는 오른쪽 결과창이 100px 안팎으로 눌려 텍스트가 잘려 보인다 — 세로로
+     쌓고 내용이 넘치면 오버레이 안에서 스크롤되게 한다. */
+  .aos-llm-box {
+    height: min(660px, 92vh) !important;
+  }
+  .aos-llm-content {
+    overflow-y: auto !important;
+  }
+  .aos-llm-panel-row {
+    flex-direction: column !important;
+  }
+  .aos-llm-left {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--color-border);
+  }
 }

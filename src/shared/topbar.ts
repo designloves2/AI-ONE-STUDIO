@@ -1,6 +1,6 @@
 // topbar.ts — 상단 고정 메뉴바. 6개 도구를 탭으로 노출, 항상 화면에 보임.
 import { animate } from "motion";
-import { TOOLS, GROUP_LABELS, toolFromHash, type ToolId, type ToolGroup } from "./tools";
+import { TOOLS, GROUP_LABELS, GROUP_ORDER, toolFromHash, type ToolId } from "./tools";
 import { goTo } from "../router";
 
 export function createTopbar(): HTMLElement {
@@ -23,7 +23,7 @@ export function createTopbar(): HTMLElement {
 
   const tabs = new Map<ToolId, HTMLButtonElement>();
 
-  const groups: ToolGroup[] = ["video", "image"];
+  const groups = GROUP_ORDER;
   for (const group of groups) {
     const groupEl = document.createElement("div");
     groupEl.className = "flex items-center gap-1 whitespace-nowrap";

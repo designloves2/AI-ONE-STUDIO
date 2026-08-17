@@ -69,8 +69,40 @@ export function createPromptEditOverlay(
   hdr.appendChild(el("div", { text: "📝 Prompt Edit", class: "text-white text-sm font-bold" }));
   const srcTag = el("div", { class: "text-[10px] flex-1", style: { color: C.muted } });
   hdr.appendChild(srcTag);
+  const resetBtn = el("button", {
+    type: "button", text: "↺ Reset", title: "Reset prompts, header and footer",
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 11px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+  });
+  resetBtn.addEventListener("click", () => (resetConfirmOv.style.display = "flex"));
+  hdr.appendChild(resetBtn);
   const closeBtn = button("✕ Close", () => hide(), "danger");
   hdr.appendChild(closeBtn);
+
+  // ── reset confirm — 원본 ui_prompt_edit_minimax.js와 동일: 프롬프트를 1개(빈 값)로,
+  // header/footer를 비운다. body에 직접 붙이는 이유는 원본 주석 그대로: 오버레이가
+  // fixed로 뷰포트 중앙에 항상 보이게 하기 위해서다.
+  const resetConfirmOv = el("div", { style: { display: "none", position: "fixed", inset: "0", zIndex: "99999", background: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" } });
+  const resetConfirmBox = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px 20px", width: "340px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: "10px", boxShadow: "0 8px 30px rgba(0,0,0,0.5)" } });
+  resetConfirmBox.appendChild(el("div", { text: "Reset prompt settings?", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }));
+  resetConfirmBox.appendChild(el("div", { text: "This clears every prompt down to one, plus the common header/footer.", style: { color: C.muted, fontSize: "11.5px", lineHeight: "1.5" } }));
+  const resetBtnRow = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" } });
+  const resetCancelBtn = el("button", { type: "button", text: "Cancel", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11.5px", padding: "6px 14px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+  const resetConfirmBtn = button("Reset", () => {
+    state.prompts = [{ text: "", firstFrame: "", enabled: true }];
+    state.promptHeader = "";
+    state.promptFooter = "";
+    selected = 0;
+    ctx.persist();
+    resetConfirmOv.style.display = "none";
+    renderAll();
+    ctx.showPopup?.("Prompts reset.", false);
+  }, "danger");
+  resetCancelBtn.addEventListener("click", () => (resetConfirmOv.style.display = "none"));
+  resetBtnRow.append(resetCancelBtn, resetConfirmBtn);
+  resetConfirmBox.appendChild(resetBtnRow);
+  resetConfirmOv.appendChild(resetConfirmBox);
+  resetConfirmOv.addEventListener("click", (e) => { if (e.target === resetConfirmOv) resetConfirmOv.style.display = "none"; });
+  document.body.appendChild(resetConfirmOv);
 
   // ── 프롬프트 세트 — 서버 파일로 저장되는 이름 붙은 묶음(원본 A5) ──────────
   const setsWrap = el("div", { class: "flex items-center gap-1.5 shrink-0" });

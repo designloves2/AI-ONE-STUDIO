@@ -287,34 +287,22 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   };
 }
 
-// ── 프롬프트 템플릿 (원본 klein/ui_prompt_templates.js BUILT_IN 카테고리 이식) ──
-const BUILT_IN_CATEGORIES: { cat: string; items: { label: string; prompt: string }[] }[] = [
-  { cat: "ANGLES", items: [
-    { label: "Close-up", prompt: "Shift to a tight close-up on the subject, keeping colors and textures identical, viewed from a much shorter camera distance." },
-    { label: "Wide-angle", prompt: "Switch to a wide-angle lens while keeping the subject centered, revealing more of the existing environment." },
-    { label: "Aerial view", prompt: "Transition to a high-altitude aerial view, keeping all landmarks, colors, and lighting consistent." },
-    { label: "Low-angle", prompt: "Move the camera to a low-angle ground position, keeping the environment identical." },
-  ]},
-  { cat: "STYLES", items: [
-    { label: "35mm Film", prompt: "grainy 35mm film photograph, shot on Kodak Portra 400, vintage aesthetic, natural colors" },
-    { label: "Polaroid", prompt: "authentic 1980s Polaroid photo, faded edges, soft focus, square format with white border" },
-    { label: "3D Render", prompt: "clean 3D isometric render, soft clay-like textures, pastel color palette, Octane Render, studio lighting" },
-    { label: "Oil Paint", prompt: "classical oil painting, thick impasto brushstrokes, rich canvas texture, dramatic chiaroscuro" },
-    { label: "Watercolor", prompt: "delicate watercolor painting, soft pigment bleeds, wet-on-wet technique, hand-painted on cold-press paper" },
-    { label: "Vector Art", prompt: "clean flat vector illustration, geometric shapes, bold solid colors, minimalist digital art" },
-  ]},
-  { cat: "RELIGHT", items: [
-    { label: "Golden Hour", prompt: "relight with a strong golden hour backlight, creating a glowing outline, source off-camera" },
-    { label: "Dramatic Slats", prompt: "strong directional light from the bottom left, casting linear shadows on the background" },
-    { label: "Neutral Studio", prompt: "soft neutral white studio lighting from the top left, source out of frame" },
-    { label: "Dim Moonlight", prompt: "dim silver moonlight coming from the top right" },
-  ]},
-  { cat: "QUALITY", items: [
-    { label: "Enhance", prompt: "high quality, sharp focus, fine details, clean, high-definition, no artifacts" },
-  ]},
-];
+// ── 프롬프트 템플릿 ──────────────────────────────────────────────────────────
+// 원본 one_node_krea2.js는 실제로 klein/ui_prompt_templates.js를 그대로 import해서 쓴다
+// (동적 import("./klein/ui_prompt_templates.js") — 별도 Krea2 전용 템플릿 파일이 없음).
+// 그래서 BUILT_IN도 Klein의 모드별 카테고리를 그대로 공유하는데, Krea2의 모드(t2i/i2i/
+// identity/upscale)는 Klein의 키(edit/i2i/inpaint/faceswap)와 거의 겹치지 않는다 — 실제로는
+// "i2i"만 매칭되고 그마저 원본에서 항목이 비어 있어(cat:"I2I", items:[]) 사실상 Krea2에서는
+// 내장 템플릿이 거의 표시되지 않는 게 원본 그대로의 동작이다. 이전엔 Krea2용으로 별도의
+// 범용 4카테고리를 만들어 썼는데, 그건 원본에 없던 것이라 실제 동작과 달랐다.
+const BUILT_IN: Record<string, { cat: string; items: { label: string; prompt: string }[] }[]> = {
+  edit: [], // Krea2에는 edit 모드가 없어 도달하지 않음 — Klein 원본 키 목록만 참고용으로 유지
+  i2i: [{ cat: "I2I", items: [] }],
+  inpaint: [],
+  faceswap: [],
+};
 
-export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: string) => void) {
+export function createTemplateOverlay(getMode: () => string, onApply: (prompt: string) => void) {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(700px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" } });
 
@@ -328,7 +316,12 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
   box.appendChild(builtInEl);
   function renderBuiltIn() {
     clear(builtInEl);
-    BUILT_IN_CATEGORIES.forEach((cat) => {
+    const categories = (BUILT_IN[getMode()] || []).filter((cat) => cat.items.length);
+    if (!categories.length) {
+      builtInEl.appendChild(el("div", { text: "이 모드에는 내장 템플릿이 없습니다. 아래에서 직접 만들어 쓰세요.", style: { color: C.muted, fontSize: "11px" } }));
+      return;
+    }
+    categories.forEach((cat) => {
       builtInEl.appendChild(el("div", { text: cat.cat, style: { color: C.muted, fontSize: "10px", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: "4px" } }));
       const grid = el("div", { style: { display: "flex", flexWrap: "wrap", gap: "5px" } });
       cat.items.forEach((item) => {

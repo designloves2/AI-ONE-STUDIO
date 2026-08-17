@@ -278,82 +278,37 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   };
 }
 
-const BUILT_IN_CATEGORIES: { cat: string; items: { label: string; prompt: string }[] }[] = [
-  { cat: "ANGLES", items: [
-    { label: "Close-up", prompt: "Shift to a tight close-up on the subject, keeping colors and textures identical, viewed from a much shorter camera distance." },
-    { label: "Wide-angle", prompt: "Switch to a wide-angle lens while keeping the subject centered, revealing more of the existing environment." },
-    { label: "Aerial view", prompt: "Transition to a high-altitude aerial view, keeping all landmarks, colors, and lighting consistent." },
-    { label: "Low-angle", prompt: "Move the camera to a low-angle ground position, keeping the environment identical." },
-  ]},
-  { cat: "STYLES", items: [
-    { label: "35mm Film", prompt: "grainy 35mm film photograph, shot on Kodak Portra 400, vintage aesthetic, natural colors" },
-    { label: "Polaroid", prompt: "authentic 1980s Polaroid photo, faded edges, soft focus, square format with white border" },
-    { label: "3D Render", prompt: "clean 3D isometric render, soft clay-like textures, pastel color palette, Octane Render, studio lighting" },
-    { label: "Oil Paint", prompt: "classical oil painting, thick impasto brushstrokes, rich canvas texture, dramatic chiaroscuro" },
-    { label: "Watercolor", prompt: "delicate watercolor painting, soft pigment bleeds, wet-on-wet technique, hand-painted on cold-press paper" },
-    { label: "Vector Art", prompt: "clean flat vector illustration, geometric shapes, bold solid colors, minimalist digital art" },
-  ]},
-  { cat: "RELIGHT", items: [
-    { label: "Golden Hour", prompt: "relight with a strong golden hour backlight, creating a glowing outline, source off-camera" },
-    { label: "Dramatic Slats", prompt: "strong directional light from the bottom left, casting linear shadows on the background" },
-    { label: "Neutral Studio", prompt: "soft neutral white studio lighting from the top left, source out of frame" },
-    { label: "Dim Moonlight", prompt: "dim silver moonlight coming from the top right" },
-  ]},
-  { cat: "QUALITY", items: [
-    { label: "Enhance", prompt: "high quality, sharp focus, fine details, clean, high-definition, no artifacts" },
-  ]},
-];
-
+// 원본 web/zimage/ui_prompt_templates.js — Klein/Krea2와 달리 내장(BUILT_IN) 템플릿이 전혀
+// 없다. 커스텀 템플릿만 저장/적용할 수 있는 단순한 목록형 오버레이다. 이전에는 Krea2/Klein과
+// 같은 범용 4카테고리 내장 템플릿을 그대로 복사해 붙여넣었는데, 원본에는 없던 기능이었다.
 export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: string) => void) {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(700px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" } });
 
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "📋 프롬프트 템플릿", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(el("div", { text: "📋 프롬프트 템플릿", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
+  const addBtn = button("+ New", () => startEdit(null));
+  hdr.append(addBtn, button("✕", () => (ov.style.display = "none"), "danger"));
   box.appendChild(hdr);
   ov.appendChild(box);
   ov.addEventListener("click", (e) => { if (e.target === ov) ov.style.display = "none"; });
 
-  const builtInEl = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px" } });
-  box.appendChild(builtInEl);
-  function renderBuiltIn() {
-    clear(builtInEl);
-    BUILT_IN_CATEGORIES.forEach((cat) => {
-      builtInEl.appendChild(el("div", { text: cat.cat, style: { color: C.muted, fontSize: "10px", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: "4px" } }));
-      const grid = el("div", { style: { display: "flex", flexWrap: "wrap", gap: "5px" } });
-      cat.items.forEach((item) => {
-        const btnEl = el("button", { type: "button", text: item.label, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "4px 10px", borderRadius: "14px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, whiteSpace: "nowrap" } });
-        btnEl.onclick = () => { onApply(item.prompt); ov.style.display = "none"; };
-        grid.appendChild(btnEl);
-      });
-      builtInEl.appendChild(grid);
-    });
-  }
-
-  box.appendChild(el("div", { style: { borderTop: `1px solid ${C.border}`, margin: "4px 0" } }));
-
-  const customHeader = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  customHeader.append(el("div", { text: "MY TEMPLATES", style: { color: C.muted, fontSize: "10px", fontWeight: "700", letterSpacing: "0.08em", flex: "1" } }));
-  const addBtn = button("+ New", () => startEdit(null));
-  customHeader.appendChild(addBtn);
-  box.appendChild(customHeader);
-
   let customTemplates: { name: string; prompt: string }[] = [];
-  const listEl = el("div", { style: { display: "flex", flexDirection: "column", gap: "5px" } });
+  const listEl = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
   box.appendChild(listEl);
 
   function renderCustom() {
     clear(listEl);
     if (!customTemplates.length) {
-      listEl.appendChild(el("div", { text: "저장된 템플릿이 없습니다. + New로 추가하세요.", style: { color: C.muted, fontSize: "11px", padding: "8px 0" } }));
+      listEl.appendChild(el("div", { text: "저장된 템플릿이 없습니다. + New로 추가하세요.", style: { color: C.muted, fontSize: "12px", padding: "16px 0" } }));
       return;
     }
     customTemplates.forEach((t, i) => {
-      const card = el("div", { style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "7px 10px", display: "flex", alignItems: "flex-start", gap: "8px" } });
+      const card = el("div", { style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px 10px", display: "flex", alignItems: "flex-start", gap: "8px" } });
       const info = el("div", { style: { flex: "1", minWidth: "0" } });
       info.append(
-        el("div", { text: t.name, style: { color: C.text, fontSize: "12px", fontWeight: "600", marginBottom: "2px" } }),
-        el("div", { text: t.prompt.slice(0, 100) + (t.prompt.length > 100 ? "…" : ""), style: { color: C.muted, fontSize: "11px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } })
+        el("div", { text: t.name, style: { color: C.text, fontSize: "12px", fontWeight: "600", marginBottom: "3px" } }),
+        el("div", { text: t.prompt.slice(0, 100) + (t.prompt.length > 100 ? "…" : ""), style: { color: C.muted, fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } })
       );
       const applyBtn = button("Apply", () => { onApply(t.prompt); ov.style.display = "none"; }, "primary");
       const editBtn = button("Edit", () => startEdit(i));
@@ -365,7 +320,7 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
 
   const editForm = el("div", { style: { display: "none", flexDirection: "column", gap: "6px", padding: "10px", background: C.bg0, borderRadius: "8px", border: `1px solid ${C.border}` } });
   const nameIn = el("input", { type: "text", placeholder: "템플릿 이름…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } });
-  const promptTA2 = el("textarea", { placeholder: "프롬프트…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", minHeight: "70px" } });
+  const promptTA2 = el("textarea", { placeholder: "프롬프트…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", minHeight: "80px" } });
   editForm.append(uiLabel("이름"), nameIn, uiLabel("프롬프트"), promptTA2);
   let editIdx: number | null = null;
   const saveEditBtn = button("💾 저장", () => {
@@ -392,7 +347,6 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
     el: ov,
     show() {
       ov.style.display = "flex";
-      renderBuiltIn();
       if (!loaded) {
         loaded = true;
         getConfig().then((cfg) => {

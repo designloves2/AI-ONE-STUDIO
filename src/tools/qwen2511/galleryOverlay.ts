@@ -97,7 +97,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     }
   }
 
-  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "6px", overflowY: "auto", flex: "1", alignContent: "start" } });
+  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gridAutoRows: "min-content", gap: "6px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
   const statusEl = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
   const moreBtn = btn("Load more", () => loadMore());
   moreBtn.style.display = "none";

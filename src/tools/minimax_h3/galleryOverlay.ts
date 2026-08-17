@@ -238,7 +238,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     }
   }
 
-  const grid = el("div", { class: "flex-1 overflow-y-auto grid gap-2", style: { gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", alignContent: "start", paddingRight: "4px" } });
+  const grid = el("div", { class: "flex-1 min-h-0 overflow-y-auto grid gap-2", style: { gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", gridAutoRows: "min-content", alignContent: "start", paddingRight: "4px" } });
   const hint = el("div", { class: "shrink-0 text-[10px] text-center", style: { color: C.muted } });
   hint.innerHTML = "double-click a clip to play it full screen · <b>space</b> play/pause · <b>← →</b> seek · <b>[ ]</b> previous / next · <b>Esc</b> close";
 

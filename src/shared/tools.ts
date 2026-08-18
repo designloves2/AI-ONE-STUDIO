@@ -4,6 +4,7 @@ export type ToolId =
   | "krea2"
   | "qwen2511"
   | "sdxl"
+  | "anima"
   | "minimax_h3";
 
 export type MediaKind = "image" | "video";
@@ -26,6 +27,7 @@ export const TOOLS: ToolMeta[] = [
   { id: "klein", label: "Flux2 Klein", hash: "#klein", kind: "image", group: "image_edit" },
   { id: "qwen2511", label: "Qwen Image 2511", hash: "#qwen2511", kind: "image", group: "image_edit" },
   { id: "sdxl", label: "SDXL", hash: "#sdxl", kind: "image", group: "beta" },
+  { id: "anima", label: "Anima", hash: "#anima", kind: "image", group: "beta" },
 ];
 
 export const GROUP_ORDER: ToolGroup[] = ["video", "image", "image_edit", "beta"];

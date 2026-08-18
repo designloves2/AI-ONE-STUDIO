@@ -155,17 +155,23 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
 
   getConfig()
     .then((cfg) => {
+      // 모델/LoRA 선택값은 서버(ComfyUI 백엔드)가 기준 — 여러 기기/브라우저에서 동일한 값을 보도록
+      // 로컬(localStorage) 값보다 서버 값을 우선 적용한다.
+      if (cfg.selected_model) state.model = cfg.selected_model;
+      if (cfg.selected_text_encoder) state.textEncoder = cfg.selected_text_encoder;
+      if (cfg.selected_vae) state.vae = cfg.selected_vae;
       if (cfg.negative_prompt && !state.negativePrompt) { state.negativePrompt = cfg.negative_prompt; negTA.value = cfg.negative_prompt; }
       if (cfg.prompt_suffix && !state.promptSuffix) { state.promptSuffix = cfg.prompt_suffix; suffixIn.value = cfg.prompt_suffix; }
-      if ((!state.controlLoraDepth || state.controlLoraDepth === "none") && cfg.control_lora_depth && cfg.control_lora_depth !== "none") state.controlLoraDepth = cfg.control_lora_depth;
-      if ((!state.controlLoraCanny || state.controlLoraCanny === "none") && cfg.control_lora_canny && cfg.control_lora_canny !== "none") state.controlLoraCanny = cfg.control_lora_canny;
+      if (cfg.control_lora_depth && cfg.control_lora_depth !== "none") state.controlLoraDepth = cfg.control_lora_depth;
+      if (cfg.control_lora_canny && cfg.control_lora_canny !== "none") state.controlLoraCanny = cfg.control_lora_canny;
       if (cfg.depth_ckpt) state.depthCkpt = safeDepthCkpt(cfg.depth_ckpt);
-      if ((!state.identityLora || state.identityLora === "none") && cfg.identity_lora && cfg.identity_lora !== "none") state.identityLora = cfg.identity_lora;
+      if (cfg.identity_lora && cfg.identity_lora !== "none") state.identityLora = cfg.identity_lora;
       if (cfg.identity_lora_strength != null) { state.identityLoraStrength = cfg.identity_lora_strength; idStrIn.value = String(state.identityLoraStrength); }
       if (cfg.save_subfolder && !state.saveSubfolder) pathIn.placeholder = cfg.save_subfolder;
       visChk.checked = cfg.output_mode_visible !== false;
       ctx.appConfig.output_mode_visible = visChk.checked;
       ctx.onOutputVisibilityChanged?.();
+      ctx.persist();
       return getModels().then((d) => {
         rebuildModels(d);
         ctx.availableLoras = d.loras || [];

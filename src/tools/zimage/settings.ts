@@ -108,12 +108,18 @@ export function createSettingsOverlay(state: ZImageState, ctx: SettingsCtx) {
 
   getConfig()
     .then((cfg) => {
+      // 모델/LoRA 선택값은 서버(ComfyUI 백엔드)가 기준 — 여러 기기/브라우저에서 동일한 값을 보도록
+      // 로컬(localStorage) 값보다 서버 값을 우선 적용한다.
+      if (cfg.selected_model) state.model = cfg.selected_model;
+      if (cfg.selected_text_encoder) state.textEncoder = cfg.selected_text_encoder;
+      if (cfg.selected_vae) state.vae = cfg.selected_vae;
       if (cfg.negative_prompt && !state.negativePrompt) { state.negativePrompt = cfg.negative_prompt; negTA.value = cfg.negative_prompt; }
       if (cfg.prompt_suffix && !state.promptSuffix) { state.promptSuffix = cfg.prompt_suffix; suffixIn.value = cfg.prompt_suffix; }
       if (cfg.save_subfolder && !state.saveSubfolder) pathIn.placeholder = cfg.save_subfolder;
       visChk.checked = cfg.output_mode_visible !== false;
       ctx.appConfig.output_mode_visible = visChk.checked;
       ctx.onOutputVisibilityChanged?.();
+      ctx.persist();
       return getModels().then((d) => {
         rebuildModels(d);
         ctx.availableLoras = d.loras || [];

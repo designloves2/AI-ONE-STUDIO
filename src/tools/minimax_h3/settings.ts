@@ -391,8 +391,10 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   getConfig()
     .then((cfg) => {
+      // 모델/LoRA 선택값은 서버(ComfyUI 백엔드)가 기준 — 여러 기기/브라우저에서 동일한 값을 보도록
+      // 로컬(localStorage) 값보다 서버 값을 우선 적용한다.
       const take = (k: keyof MinimaxState, v: any) => {
-        if ((!state[k] || state[k] === "none") && v && v !== "none") (state as any)[k] = v;
+        if (v && v !== "none") (state as any)[k] = v;
       };
       take("unetFirstLast", cfg.unet_first_last);
       take("unetReference", cfg.unet_reference);
@@ -401,7 +403,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       take("vaeAudio", cfg.vae_audio);
       take("turboLora", cfg.turbo_lora);
       take("upscaleModel", cfg.upscale_model);
-      if (cfg.turbo_lora_strength != null && state.turboLoraStrength == null) state.turboLoraStrength = cfg.turbo_lora_strength;
+      if (cfg.turbo_lora_strength != null) state.turboLoraStrength = cfg.turbo_lora_strength;
       if (cfg.prompt_suffix && !state.promptSuffix) state.promptSuffix = cfg.prompt_suffix;
       if (cfg.avg_minutes_per_clip != null) state.avgMinutesPerClip = cfg.avg_minutes_per_clip;
       ctx.persist();

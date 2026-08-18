@@ -292,6 +292,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
 
   const onKey = (e: KeyboardEvent) => {
     if (player.style.display === "none") return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     const k = e.key;
     if (k === "Escape") { e.preventDefault(); e.stopPropagation(); closePlayer(); return; }
     if (k === " ") { e.preventDefault(); e.stopPropagation(); pVideo.paused ? pVideo.play() : pVideo.pause(); return; }

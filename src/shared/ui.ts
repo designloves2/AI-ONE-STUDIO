@@ -145,10 +145,12 @@ export function modeBar(modes: ModePillMeta[], activeKey: string, onSelect: (key
 export interface SearchableSelectHandle {
   el: HTMLElement;
   setValue(v: string): void;
+  setOptions(opts: string[]): void;
   value: string;
 }
 
-export function searchableSelect(options: string[], value: string, onChange: (v: string) => void): SearchableSelectHandle {
+export function searchableSelect(initialOptions: string[], value: string, onChange: (v: string) => void): SearchableSelectHandle {
+  let options = initialOptions;
   const wrap = el("div", { style: { position: "relative", width: "100%" } });
   const filterIn = el("input", {
     type: "text",
@@ -184,6 +186,10 @@ export function searchableSelect(options: string[], value: string, onChange: (v:
     setValue(v: string) {
       s.value = v;
       s.title = v || "";
+    },
+    setOptions(opts: string[]) {
+      options = opts;
+      buildOptions(filterIn.value);
     },
     get value() {
       return s.value;

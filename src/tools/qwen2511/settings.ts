@@ -51,7 +51,17 @@ function simpleLoraRow(
     row([el("span", { text: "Strength:", style: { fontSize: "11px", color: C.muted, flexShrink: "0" } }), strIn, onBtn]),
     el("div", { style: { fontSize: "10px", color: C.muted, lineHeight: "1.4" }, text: hint })
   );
-  return { wrap, refreshOptions: (newOpts: string[]) => { (sel.el.querySelector("select") as HTMLSelectElement)?.replaceChildren(...["none", ...newOpts].map((o) => el("option", { value: o, text: o }))); sel.setValue(lora.name || "none"); } };
+  function refreshDisplay() {
+    sel.setValue(lora.name || "none");
+    strIn.value = String(lora.strength ?? 1);
+    onBtn.textContent = lora.enabled ? "ON" : "OFF";
+    onBtn.style.background = lora.enabled ? BRAND : "#444";
+  }
+  return {
+    wrap,
+    refreshOptions: (newOpts: string[]) => { sel.setOptions(["none", ...newOpts]); refreshDisplay(); },
+    refreshDisplay,
+  };
 }
 
 export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
@@ -168,6 +178,12 @@ export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
       selected_vae: state.vae || "",
       negative_prompt: state.negativePrompt || "",
       prompt_suffix: state.promptSuffix || "",
+      lightning_lora: state.lightningLora?.name || "none",
+      lightning_lora_strength: state.lightningLora?.strength ?? 1,
+      lightning_lora_enabled: !!state.lightningLora?.enabled,
+      angle_lora: state.angleLora?.name || "none",
+      angle_lora_strength: state.angleLora?.strength ?? 1,
+      angle_lora_enabled: !!state.angleLora?.enabled,
     });
     saveAllBtn.textContent = "✓ Saved!";
     setTimeout(() => (saveAllBtn.textContent = "💾 Save All"), 1500);
@@ -175,12 +191,28 @@ export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
 
   getConfig()
     .then((cfg) => {
+      // 모델/LoRA 선택값은 서버(ComfyUI 백엔드)가 기준 — 여러 기기/브라우저에서 동일한 값을 보도록
+      // 로컬(localStorage) 값보다 서버 값을 우선 적용한다.
+      if (cfg.selected_model) state.model = cfg.selected_model;
+      if (cfg.selected_text_encoder) state.textEncoder = cfg.selected_text_encoder;
+      if (cfg.selected_vae) state.vae = cfg.selected_vae;
+      if (cfg.lightning_lora) {
+        state.lightningLora.name = cfg.lightning_lora;
+        if (cfg.lightning_lora_strength != null) state.lightningLora.strength = cfg.lightning_lora_strength;
+        state.lightningLora.enabled = !!cfg.lightning_lora_enabled;
+      }
+      if (cfg.angle_lora) {
+        state.angleLora.name = cfg.angle_lora;
+        if (cfg.angle_lora_strength != null) state.angleLora.strength = cfg.angle_lora_strength;
+        state.angleLora.enabled = !!cfg.angle_lora_enabled;
+      }
       if (cfg.negative_prompt && !state.negativePrompt) { state.negativePrompt = cfg.negative_prompt; negTA.value = cfg.negative_prompt; }
       if (cfg.prompt_suffix && !state.promptSuffix) { state.promptSuffix = cfg.prompt_suffix; suffixIn.value = cfg.prompt_suffix; }
       if (cfg.save_subfolder && !state.saveSubfolder) pathIn.placeholder = cfg.save_subfolder;
       visChk.checked = cfg.output_mode_visible !== false;
       ctx.appConfig.output_mode_visible = visChk.checked;
       ctx.onOutputVisibilityChanged?.();
+      ctx.persist();
       return getModels().then((d) => {
         rebuildModels(d);
         ctx.availableLoras = d.loras || [];

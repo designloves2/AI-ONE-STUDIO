@@ -176,12 +176,15 @@ export function createSettingsOverlay(state: SDXLState, ctx: SettingsCtx) {
   getConfig()
     .then((cfg) => {
       if (!cfg) return;
-      if (!state.checkpoint && cfg.selected_checkpoint) state.checkpoint = cfg.selected_checkpoint;
-      if (!state.refinerCheckpoint && cfg.selected_refiner) state.refinerCheckpoint = cfg.selected_refiner;
-      if (!state.unet && cfg.selected_unet) state.unet = cfg.selected_unet;
-      if (!state.clipL && cfg.selected_clip_l) state.clipL = cfg.selected_clip_l;
-      if (!state.clipG && cfg.selected_clip_g) state.clipG = cfg.selected_clip_g;
-      if (!state.vae && cfg.selected_vae) state.vae = cfg.selected_vae;
+      // 모델/LoRA 선택값은 서버(ComfyUI 백엔드)가 기준 — 여러 기기/브라우저에서 동일한 값을 보도록
+      // 로컬(localStorage) 값보다 서버 값을 우선 적용한다.
+      if (cfg.selected_checkpoint) state.checkpoint = cfg.selected_checkpoint;
+      if (cfg.selected_refiner) state.refinerCheckpoint = cfg.selected_refiner;
+      if (cfg.selected_unet) state.unet = cfg.selected_unet;
+      if (cfg.selected_clip_l) state.clipL = cfg.selected_clip_l;
+      if (cfg.selected_clip_g) state.clipG = cfg.selected_clip_g;
+      if (cfg.selected_vae) state.vae = cfg.selected_vae;
+      if (cfg.model_loader_mode) { state.modelLoaderMode = cfg.model_loader_mode; renderModeRow(); }
       if (cfg.negative_prompt && !state.negativePrompt) { state.negativePrompt = cfg.negative_prompt; negTA.value = cfg.negative_prompt; }
       if (cfg.prompt_suffix && !state.promptSuffix) { state.promptSuffix = cfg.prompt_suffix; suffixIn.value = cfg.prompt_suffix; }
       if (cfg.save_subfolder && !state.saveSubfolder) pathIn.placeholder = cfg.save_subfolder;

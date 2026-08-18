@@ -46,11 +46,18 @@ engine, and this project is just the frontend that calls it.**
 | 🖼 **Flux2 Klein** | Flux.2-Klein (9B / 4B) | T2I · I2I · Edit · Inpaint · Outpaint · Faceswap · Upscale |
 | 🖼 **Qwen Image 2511** | Qwen2.5-VL 기반 Image Edit 모델<br><sub>Qwen2.5-VL based Image Edit model</sub> | T2I · I2I · Edit(최대 5장<sub>up to 5 images</sub>) · Inpaint · Outpaint · Faceswap · Angle(3D 카메라 컨트롤<sub>3D camera control</sub>) · Upscale |
 | 🖼 **SDXL** | SDXL Checkpoint / Separate UNet | T2I · I2I · Inpaint · Outpaint · Upscale(ESRGAN / Refiner / SeedVR2) |
+| 🖼 **Anima** (Beta) | Anima (2B, 애니메이션/일러스트 특화)<br><sub>Anima (2B params, anime/illustration-focused)</sub> | T2I · Inpainting · Any Control to Image · Depth Control to Image · TURBO(8-step) |
 
-이미지 도구 5종은 서로의 갤러리를 넘나들며 이미지를 골라 다른 도구의 소스 이미지로 보낼
+SDXL과 Anima는 **Beta** 그룹으로 분류되어 있습니다 — 원본 커스텀 노드 기준으로도 비교적
+최근에 추가된 도구라 안정성 검증이 더 필요합니다.
+
+SDXL and Anima are grouped under **Beta** — they were added to the original custom node package
+more recently and haven't been battle-tested as thoroughly as the rest.
+
+이미지 도구 6종은 서로의 갤러리를 넘나들며 이미지를 골라 다른 도구의 소스 이미지로 보낼
 수 있고, MiniMax H3의 First/Last Frame·Reference 슬롯으로도 곧바로 보낼 수 있습니다.
 
-The 5 image tools can browse each other's galleries and send an image straight into another
+The 6 image tools can browse each other's galleries and send an image straight into another
 tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Reference slots.
 
 ## 기술 스택 / Tech Stack
@@ -69,6 +76,18 @@ tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Refe
 
 ## 사전 준비 / Prerequisites
 
+> ⚠️ **이 사이트는 프론트엔드일 뿐이며, 그 자체로는 아무 기능도 없습니다.** 아래 두 가지
+> (ComfyUI + 커스텀 노드 패키지)가 **먼저 설치되어 실행 중이어야** `git clone` /
+> `npm install` / `npm run dev`가 의미가 있습니다. 이 순서를 건너뛰고 이 사이트만 띄우면
+> 화면은 뜨지만 모델 목록이 비어 있거나, Settings에 아무것도 안 뜨거나, 생성 버튼을 눌러도
+> 아무 반응이 없습니다 — 코드 문제가 아니라 **아직 백엔드가 없어서**입니다.
+>
+> ⚠️ **This site is a frontend only — it has zero functionality by itself.** The two items
+> below (ComfyUI + the custom node package) must be **installed and already running** before
+> `git clone` / `npm install` / `npm run dev` mean anything. Skip that and the page will load,
+> but the model dropdowns will be empty, Settings will show nothing, and Generate will do
+> nothing — that's not a bug, it just means **the backend isn't there yet**.
+
 이 사이트 혼자서는 아무것도 하지 못합니다. 아래 두 가지가 먼저 필요합니다.
 
 This site can't do anything on its own. You need both of these first:
@@ -78,21 +97,31 @@ This site can't do anything on its own. You need both of these first:
    <br><sub>**A running ComfyUI server** (default: `http://127.0.0.1:8188`, requires the
    `--enable-cors-header` flag).</sub>
 2. ComfyUI에 [`ComfyUI-TJ_NODE_STUDIO_ONE`](https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE)
-   커스텀 노드 패키지와 그 의존 노드들이 설치되어 있어야 합니다.
+   커스텀 노드 패키지와 그 의존 노드들이 설치되어 있어야 합니다. 이 사이트가 호출하는
+   `/qwen2511_one`, `/flux_klein`, `/krea2_one`, `/z_image_turbo`, `/sdxl_one`,
+   `/minimax_h3_one` 같은 API 경로는 전부 이 커스텀 노드 패키지가 ComfyUI 안에 등록하는
+   백엔드 라우트이며, 모델 목록 조회부터 실제 생성, Settings 저장까지 전부 이 경로를 통해
+   이루어집니다 — 즉 **이 커스텀 노드 없이는 이 사이트가 화면만 있고 아무 기능도 못 하는
+   빈 껍데기**입니다.
    <br><sub>ComfyUI must have the
    [`ComfyUI-TJ_NODE_STUDIO_ONE`](https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE)
-   custom node package and its dependency nodes installed.</sub>
+   custom node package and its dependency nodes installed. Every API path this site calls —
+   `/qwen2511_one`, `/flux_klein`, `/krea2_one`, `/z_image_turbo`, `/sdxl_one`,
+   `/minimax_h3_one` — is a backend route this custom node package registers inside ComfyUI;
+   model listing, actual generation, and even saving Settings all go through it. Without this
+   custom node installed, **this site is an empty shell with a UI and no functionality.**</sub>
 
 저장소에 포함된 `install_comfyui_dependencies.bat`을 실행하면 기존 ComfyUI 설치 경로를
 입력받아 `ComfyUI-TJ_NODE_STUDIO_ONE`과 필요한 의존 커스텀 노드 전부를 자동으로 설치합니다
 (이미 설치된 항목은 건너뜁니다). 모델 파일(체크포인트 등)은 용량 문제로 이 스크립트가
-다루지 않으며, 자세한 목록은 `ComfyUI-TJ_NODE_STUDIO_ONE`의 README를 참고하세요.
+다루지 않으며, 자세한 목록은 `ComfyUI-TJ_NODE_STUDIO_ONE`의 README를 참고하세요. 설치 후에는
+**ComfyUI를 반드시 재시작**해야 새 커스텀 노드가 로드됩니다.
 
 Running the included `install_comfyui_dependencies.bat` asks for your existing ComfyUI install
 path and automatically installs `ComfyUI-TJ_NODE_STUDIO_ONE` plus every required dependency
 custom node (already-installed ones are skipped). Model files (checkpoints, etc.) are out of
 scope for this script due to their size — see `ComfyUI-TJ_NODE_STUDIO_ONE`'s README for the
-full list.
+full list. You must **restart ComfyUI** afterward for the new custom nodes to load.
 
 ```bash
 install_comfyui_dependencies.bat

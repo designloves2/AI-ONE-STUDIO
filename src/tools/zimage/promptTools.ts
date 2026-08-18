@@ -3,7 +3,9 @@
 // 로직은 1:1 재사용, import 경로만 zimage 것으로 조정.
 import { C, el, clear, BRAND } from "./core";
 import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
-import { getConfig, saveConfig } from "./api";
+// 템플릿은 도구별 config가 아니라 공용 풀(/shared/prompt_templates?pool=nl)에 저장한다 —
+// Klein/Krea2/Z-Image/Qwen2511/Anima가 전부 이 nl 풀을 공유. SPEC_ZIMAGE_TEMPLATE_SYNC.md 참고.
+import { getTemplates, saveTemplates } from "../../shared/promptTemplatesApi";
 import { comfyApi } from "./comfyClient";
 
 const LLM_LS_KEY = "tj_studio_one_llm_settings";
@@ -340,7 +342,7 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
     promptTA2.value = idx !== null ? customTemplates[idx].prompt : "";
     editForm.style.display = "flex";
   }
-  function saveCustom() { saveConfig({ zit_templates: customTemplates }).catch(() => {}); }
+  function saveCustom() { saveTemplates("nl", customTemplates).catch(() => {}); }
 
   let loaded = false;
   return {
@@ -349,8 +351,8 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
       ov.style.display = "flex";
       if (!loaded) {
         loaded = true;
-        getConfig().then((cfg) => {
-          customTemplates = Array.isArray(cfg.zit_templates) ? cfg.zit_templates : [];
+        getTemplates("nl").then((templates) => {
+          customTemplates = templates;
           renderCustom();
         }).catch(() => renderCustom());
       }

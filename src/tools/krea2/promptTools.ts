@@ -3,7 +3,9 @@
 // web/klein/ui_prompt_templates.js(BUILT_IN 카테고리 — Krea2도 이 템플릿을 공유해 이식).
 import { C, el, clear, BRAND } from "./core";
 import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
-import { getConfig, saveConfig } from "./api";
+// 템플릿은 도구별 config가 아니라 공용 풀(/shared/prompt_templates?pool=nl)에 저장한다 —
+// Klein/Krea2/Z-Image/Qwen2511/Anima가 전부 이 nl 풀을 공유. SPEC_ZIMAGE_TEMPLATE_SYNC.md 참고.
+import { getTemplates, saveTemplates } from "../../shared/promptTemplatesApi";
 import { comfyApi } from "./comfyClient";
 
 // ── LLM 설정 (탭/기기 전역 공유 — llm_panel.js와 동일 localStorage 키) ──────────
@@ -388,7 +390,7 @@ export function createTemplateOverlay(getMode: () => string, onApply: (prompt: s
     promptTA2.value = idx !== null ? customTemplates[idx].prompt : "";
     editForm.style.display = "flex";
   }
-  function saveCustom() { saveConfig({ t2i_templates: customTemplates }).catch(() => {}); }
+  function saveCustom() { saveTemplates("nl", customTemplates).catch(() => {}); }
 
   let loaded = false;
   return {
@@ -398,8 +400,8 @@ export function createTemplateOverlay(getMode: () => string, onApply: (prompt: s
       renderBuiltIn();
       if (!loaded) {
         loaded = true;
-        getConfig().then((cfg) => {
-          customTemplates = Array.isArray(cfg.t2i_templates) ? cfg.t2i_templates : [];
+        getTemplates("nl").then((templates) => {
+          customTemplates = templates;
           renderCustom();
         }).catch(() => renderCustom());
       }

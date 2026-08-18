@@ -1,7 +1,8 @@
 // view.ts — SDXL 메인 화면 조립. Klein/Qwen2511의 450px 좌측 패널/180px 프롬프트 레이아웃을
 // 그대로 따르되, SDXL 고유 기능(Checkpoint/Separate 모델 로딩 + Refiner, Upscale 3-서브모드,
-// DifferentialDiffusion 기반 Inpaint/Outpaint)을 반영한다. Klein/Qwen2511과 달리 Faceswap/Angle/
-// Templates/Prompt-Expand는 원본에 없으므로 이식하지 않는다.
+// DifferentialDiffusion 기반 Inpaint/Outpaint)을 반영한다. Klein/Qwen2511과 달리 Faceswap/Angle는
+// 원본에 없으므로 이식하지 않는다. Templates/Prompt-Expand는 원본에도 있고(pool="tag") 이 사이트
+// 초기 포팅 때 빠졌던 것 — SPEC_PROMPT_TEMPLATE_SYNC.md 계기로 추가.
 import type { SDXLState, SDXLMode, UpscaleMode } from "./core";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
@@ -16,6 +17,7 @@ import { queuePrompt } from "./comfyClient";
 import type { AppConfig } from "./settings";
 import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
+import { createPromptExpandOverlay, createTemplateOverlay } from "./promptTools";
 import { createMaskEditor } from "./maskEditor";
 
 export function renderSDXL(root: HTMLElement) {
@@ -262,6 +264,9 @@ export function renderSDXL(root: HTMLElement) {
   const promptHdr = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
   const charCount = el("span", { style: { color: C.muted, fontSize: "10px" } });
   promptHdr.append(el("div", { text: "PROMPT", style: { color: C.muted, fontSize: "11px", flex: "1", textTransform: "uppercase", letterSpacing: "0.04em" } }), charCount);
+  const templatesBtn = button("📋 Templates", () => templateOv.show());
+  const expandBtn = button("🔍 Expand / LLM", () => promptExpandOv.show());
+  promptHdr.append(templatesBtn, expandBtn);
 
   const promptTA = el("textarea", { placeholder: "Describe what you want to generate…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } });
   function updatePromptCount() {
@@ -278,6 +283,17 @@ export function renderSDXL(root: HTMLElement) {
 
   promptWrap.append(promptHdr, promptTA);
   rightPanel.appendChild(promptWrap);
+
+  const promptExpandOv = createPromptExpandOverlay(
+    () => getModePrompt(state, state.mode),
+    (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }
+  );
+  const templateOv = createTemplateOverlay(
+    () => state.mode,
+    (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }
+  );
+  wrap.appendChild(promptExpandOv.el);
+  wrap.appendChild(templateOv.el);
 
   const seedInput = numberField(state.seed, (v) => { state.seed = v; persist(); }, 1);
   const seedModeDD = select(
@@ -704,6 +720,8 @@ export function renderSDXL(root: HTMLElement) {
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
+    if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }
     if (helpOv.el.style.display !== "none") { helpOv.hide(); return; }
     if (settingsOv.el.style.display !== "none") { settingsOv.hide(); return; }
     if (galleryOv.el.style.display !== "none") { galleryOv.hide(); return; }

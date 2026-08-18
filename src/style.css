@@ -142,4 +142,12 @@ body {
     flex: none !important;
     min-height: 320px !important;
   }
+
+  /* MiniMax H3 갤러리 상단 버튼 줄(Delete Selection/★/Stitch/↻/Open folder/✕ Close)이
+     한 줄 고정이라, 좁은 화면에서 뒤쪽 버튼(특히 ✕ Close)이 화면 밖으로 밀려나가
+     오버레이를 닫을 수 없게 되는 문제 — 줄바꿈을 허용한다. */
+  .aos-gallery-hdr {
+    flex-wrap: wrap !important;
+    row-gap: 6px !important;
+  }
 }

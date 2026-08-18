@@ -48,7 +48,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   let filterFull = false;
 
   // ── delete confirm ──────────────────────────────────────────────────────
-  const deleteConfirmOv = el("div", { class: "hidden fixed inset-0 z-[99999] items-center justify-center", style: { background: "rgba(0,0,0,0.55)" } });
+  const deleteConfirmOv = el("div", { class: "hidden fixed inset-0 z-[99999] items-center justify-center", style: { display: "none", background: "rgba(0,0,0,0.55)" } });
   const deleteConfirmBox = el("div", { class: "flex flex-col gap-2.5", style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px 20px", width: "320px", boxSizing: "border-box", boxShadow: "0 8px 30px rgba(0,0,0,0.5)" } });
   deleteConfirmBox.append(
     el("div", { text: "Delete this clip?", class: "text-white text-[13px] font-bold" }),
@@ -101,7 +101,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   }
 
   // ── header ──────────────────────────────────────────────────────────────
-  const hdr = el("div", { class: "flex items-center gap-2 shrink-0" });
+  const hdr = el("div", { class: "aos-gallery-hdr flex items-center gap-2 shrink-0" });
   hdr.appendChild(el("div", { text: "🖼 Gallery", class: "text-white text-sm font-bold" }));
   const countTag = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   hdr.appendChild(countTag);
@@ -245,7 +245,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   ov.append(hdr, stitchBar, grid, hint);
 
   // ── fullscreen player ───────────────────────────────────────────────────
-  const player = el("div", { class: "hidden fixed inset-0 z-[100000] flex-col", style: { background: "rgba(0,0,0,0.97)" } });
+  const player = el("div", { class: "hidden fixed inset-0 z-[100000] flex-col", style: { display: "none", background: "rgba(0,0,0,0.97)" } });
   const pTop = el("div", { class: "shrink-0 flex items-center gap-2.5 text-white", style: { padding: "10px 14px" } });
   const pTitle = el("div", { class: "text-[13px] font-semibold flex-1 overflow-hidden text-ellipsis whitespace-nowrap" });
   const pPos = el("div", { class: "text-[11px]", style: { color: "#9a9a9a" } });

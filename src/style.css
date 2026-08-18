@@ -129,4 +129,17 @@ body {
     border-right: none !important;
     border-bottom: 1px solid var(--color-border);
   }
+
+  /* MiniMax H3의 Prompt Edit 풀스크린 에디터(COMMON 필드 + CLIPS 목록 + 클립 에디터 +
+     ENHANCE 패널 + 하단 버튼)는 position:fixed 꽉 찬 화면인데 overflow가 없어서, 내용이
+     한 화면보다 길면 스크롤 없이 잘리거나 다음 섹션이 CLIPS 위로 겹쳐 보였다.
+     오버레이 자체를 스크롤 가능하게 하고, CLIPS+에디터 영역이 flex:1로 눌려
+     찌그러지지 않도록 최소 높이를 준다. */
+  .aos-prompt-edit-ov {
+    overflow-y: auto !important;
+  }
+  .aos-prompt-edit-body {
+    flex: none !important;
+    min-height: 320px !important;
+  }
 }

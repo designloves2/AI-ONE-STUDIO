@@ -53,7 +53,7 @@ export function createPromptEditOverlay(
   onApply?: () => void
 ): PromptEditHandle {
   const ov = el("div", {
-    class: "fixed inset-0 z-[9999] flex-col p-3 gap-2 box-border",
+    class: "aos-prompt-edit-ov fixed inset-0 z-[9999] flex-col p-3 gap-2 box-border",
     style: { display: "none", background: "rgba(11,11,11,0.985)" },
   });
 
@@ -211,7 +211,7 @@ export function createPromptEditOverlay(
   );
 
   // ── body: clip list | editor ───────────────────────────────────────────
-  const body = el("div", { class: "flex-1 flex gap-2.5 min-h-0 flex-col md:flex-row" });
+  const body = el("div", { class: "aos-prompt-edit-body flex-1 flex gap-2.5 min-h-0 flex-col md:flex-row" });
   const listCol = el("div", { class: "w-full md:w-[285px] shrink-0 flex flex-col gap-1.5" });
   const listHdr = el("div", { class: "flex items-center gap-1" });
   listHdr.appendChild(el("div", { text: "CLIPS", class: "text-[10px] tracking-wide", style: { color: C.muted } }));

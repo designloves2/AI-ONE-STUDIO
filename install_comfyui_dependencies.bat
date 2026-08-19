@@ -6,7 +6,9 @@ echo ========================================================================
 echo   AI ONE STUDIO — ComfyUI Backend Dependency Installer
 echo   Installs ComfyUI-TJ_NODE_STUDIO_ONE and every custom node / Python
 echo   package the 6 tools (MiniMax H3, Krea2, Z-Image, Flux2 Klein,
-echo   Qwen Image 2511, SDXL) need. Already-installed nodes are skipped.
+echo   Qwen Image 2511, SDXL) need, plus ComfyUI-Crystools (powers the
+echo   live CPU/RAM/GPU/VRAM/temp monitor in the site's top bar).
+echo   Already-installed nodes are skipped.
 echo ========================================================================
 echo.
 
@@ -106,15 +108,16 @@ set REPOS[13]=https://github.com/kijai/ComfyUI-SolAttn_triton
 set REPOS[14]=https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI
 set REPOS[15]=https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 set REPOS[16]=https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3
+set REPOS[17]=https://github.com/crystian/ComfyUI-Crystools
 
-set COUNT=17
+set COUNT=18
 
-for /L %%i in (0,1,16) do (
+for /L %%i in (0,1,17) do (
     set "URL=!REPOS[%%i]!"
     for %%F in (!URL!) do set "FOLDER=%%~nxF"
 
     echo ------------------------------------------------------------------------
-    echo [%%i/16] !FOLDER!
+    echo [%%i/17] !FOLDER!
     echo         !URL!
 
     if exist "!FOLDER!" (
@@ -170,5 +173,7 @@ echo.
 echo  [모델 파일은 이 스크립트로 설치되지 않습니다 — 직접 다운로드해서]
 echo  [models\ 폴더에 넣어야 합니다. 자세한 목록은 ComfyUI-TJ_NODE_STUDIO_ONE]
 echo  [의 README.md와 install_requirements.bat 안내 문구를 참고하세요.]
+echo  [상단바의 ⟳ Restart 버튼은 ComfyUI-Manager가 설치되어 있어야 동작합니다]
+echo  [— 대부분 이미 설치돼 있고, 이 스크립트는 별도로 설치하지 않습니다.]
 echo ========================================================================
 pause

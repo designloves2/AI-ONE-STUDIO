@@ -60,6 +60,36 @@ more recently and haven't been battle-tested as thoroughly as the rest.
 The 6 image tools can browse each other's galleries and send an image straight into another
 tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Reference slots.
 
+## 상단바 도구 / Top Bar Utilities
+
+상단바 우측에 ComfyUI 서버 상태를 관리하는 3가지 위젯이 있습니다.
+
+<sub>The top bar's right side has 3 widgets for managing the ComfyUI server itself.</sub>
+
+- **🖥 Console** — ComfyUI 서버 콘솔 로그(stdout/stderr)를 실시간으로 보여주는 팝업 창. 크기
+  조절 가능하며 마지막 크기가 기억됩니다. ComfyUI 코어 기능만 쓰므로 추가 설치 필요 없음.
+  <br><sub>Live view of the ComfyUI server's console log (stdout/stderr) in a resizable popup
+  (its size is remembered). Uses only ComfyUI core functionality — nothing extra to install.</sub>
+- **CPU/RAM/GPU/VRAM/온도 모니터** — [`ComfyUI-Crystools`](https://github.com/crystian/ComfyUI-Crystools)가
+  설치되어 있으면 1초마다 실시간으로 갱신됩니다. 설치되어 있지 않으면 그냥 "—"로 비활성 표시될
+  뿐 에러는 나지 않습니다. `install_comfyui_dependencies.bat`이 자동으로 설치합니다.
+  <br><sub>Live CPU/RAM/GPU/VRAM/temperature meters, updated every second — requires
+  [`ComfyUI-Crystools`](https://github.com/crystian/ComfyUI-Crystools) to be installed (it just
+  shows "—" and stays quietly inactive otherwise, no error). Installed automatically by
+  `install_comfyui_dependencies.bat`.</sub>
+- **⟳ Restart** (빨간 아이콘 버튼) — ComfyUI 서버를 재시작합니다.
+  [`ComfyUI-Manager`](https://github.com/Comfy-Org/ComfyUI-Manager)의 재시작 API
+  (`POST /manager/reboot`)를 그대로 호출하므로 Manager가 설치되어 있어야 동작합니다(대부분
+  이미 설치되어 있음 — 이 설치 스크립트는 별도로 설치하지 않습니다). 클릭하면 확인 팝업이
+  뜨고 기본 포커스는 Cancel — 실수로 Enter를 눌러도 재시작되지 않으며, 반드시 "Restart Now"를
+  직접 클릭해야 실행됩니다.
+  <br><sub>Restarts the ComfyUI server via
+  [`ComfyUI-Manager`](https://github.com/Comfy-Org/ComfyUI-Manager)'s own restart API
+  (`POST /manager/reboot`) — requires Manager to be installed (most setups already have it; this
+  installer does not install it separately). Clicking shows a confirmation popup defaulting to
+  Cancel — pressing Enter by accident never restarts the server; only clicking "Restart Now"
+  does.</sub>
+
 ## 기술 스택 / Tech Stack
 
 - **Vite** + **Vanilla TypeScript** — 프레임워크 없이 `el()` 기반 DOM 헬퍼로 구성
@@ -112,16 +142,18 @@ This site can't do anything on its own. You need both of these first:
    custom node installed, **this site is an empty shell with a UI and no functionality.**</sub>
 
 저장소에 포함된 `install_comfyui_dependencies.bat`을 실행하면 기존 ComfyUI 설치 경로를
-입력받아 `ComfyUI-TJ_NODE_STUDIO_ONE`과 필요한 의존 커스텀 노드 전부를 자동으로 설치합니다
-(이미 설치된 항목은 건너뜁니다). 모델 파일(체크포인트 등)은 용량 문제로 이 스크립트가
-다루지 않으며, 자세한 목록은 `ComfyUI-TJ_NODE_STUDIO_ONE`의 README를 참고하세요. 설치 후에는
-**ComfyUI를 반드시 재시작**해야 새 커스텀 노드가 로드됩니다.
+입력받아 `ComfyUI-TJ_NODE_STUDIO_ONE`과 필요한 의존 커스텀 노드 전부를(상단바 실시간
+모니터에 쓰이는 `ComfyUI-Crystools` 포함) 자동으로 설치합니다(이미 설치된 항목은 건너뜁니다).
+모델 파일(체크포인트 등)은 용량 문제로 이 스크립트가 다루지 않으며, 자세한 목록은
+`ComfyUI-TJ_NODE_STUDIO_ONE`의 README를 참고하세요. 설치 후에는 **ComfyUI를 반드시 재시작**해야
+새 커스텀 노드가 로드됩니다.
 
 Running the included `install_comfyui_dependencies.bat` asks for your existing ComfyUI install
 path and automatically installs `ComfyUI-TJ_NODE_STUDIO_ONE` plus every required dependency
-custom node (already-installed ones are skipped). Model files (checkpoints, etc.) are out of
-scope for this script due to their size — see `ComfyUI-TJ_NODE_STUDIO_ONE`'s README for the
-full list. You must **restart ComfyUI** afterward for the new custom nodes to load.
+custom node — including `ComfyUI-Crystools`, which powers the top bar's live monitor —
+(already-installed ones are skipped). Model files (checkpoints, etc.) are out of scope for this
+script due to their size — see `ComfyUI-TJ_NODE_STUDIO_ONE`'s README for the full list. You must
+**restart ComfyUI** afterward for the new custom nodes to load.
 
 ```bash
 install_comfyui_dependencies.bat

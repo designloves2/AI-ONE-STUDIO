@@ -150,4 +150,10 @@ body {
     flex-wrap: wrap !important;
     row-gap: 6px !important;
   }
+
+  /* 상단바 CPU/RAM/GPU/VRAM/온도 모니터(5개 박스, ~280px)는 휴대폰 폭에서 브랜드 로고+도구 탭과
+     같이 놓일 자리가 없다 — 좁은 화면에서는 숨긴다(공간이 있는 태블릿/PC에서만 노출). */
+  .aos-sysmon {
+    display: none !important;
+  }
 }

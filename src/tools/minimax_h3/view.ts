@@ -512,9 +512,22 @@ export function renderMinimaxH3(container: HTMLElement) {
     const p = currentPlan();
     const { width, height } = resolveResolution(state.aspect, state.megapixels);
     if (totalLine) {
-      totalLine.innerHTML =
-        `<span style="font-size:20px;font-weight:700;color:${BRAND}">${p.actualSeconds.toFixed(2)}s</span>` +
-        `<span style="font-size:11px;color:${C.muted}"> total</span>`;
+      // 원테이크(continuityMode==="onetake") + Auto-stitch가 둘 다 켜져 있고 클립이 2개 이상이면
+      // 실제 저장되는 결과는 클립 단순 합("single")이 아니라 겹침 구간을 뺀 값("onetake")이라
+      // 둘 다 보여준다 — 하나만 보여주면 실제 생성 시간과 안 맞아서 혼란스럽다.
+      if (p.isOneTakeStitched && p.count > 1) {
+        totalLine.innerHTML =
+          `<span style="font-size:13px;color:${C.muted}">single: </span>` +
+          `<span style="font-size:15px;font-weight:700;color:${C.muted}">${p.actualSeconds.toFixed(2)}s</span>` +
+          `<span style="font-size:13px;color:${C.muted}"> / </span>` +
+          `<span style="font-size:13px;color:${C.muted}">onetake: </span>` +
+          `<span style="font-size:20px;font-weight:700;color:${BRAND}">${p.stitchedSeconds.toFixed(2)}s</span>` +
+          `<span style="font-size:11px;color:${C.muted}"> total</span>`;
+      } else {
+        totalLine.innerHTML =
+          `<span style="font-size:20px;font-weight:700;color:${BRAND}">${p.actualSeconds.toFixed(2)}s</span>` +
+          `<span style="font-size:11px;color:${C.muted}"> total</span>`;
+      }
     }
     if (planLine) {
       planLine.innerHTML =
@@ -732,6 +745,35 @@ export function renderMinimaxH3(container: HTMLElement) {
           select(contModes.map((m) => ({ value: m.key, disabled: m.disabled, label: m.disabled ? `${m.label} — ${m.reason}` : m.label })), state.continuityMode, (v) => { state.continuityMode = v; persist(); renderLeft(); }),
         ]),
         el("div", { text: (contModes.find((m) => m.key === state.continuityMode) || ({} as any)).hint || "", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        el("div", {
+          text: "One prompt renders one clip. To make a longer piece that holds together, split the brief into shots — each shot becomes a clip and continuity carries the look forward.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5", marginTop: "2px" },
+        }),
+        ...(state.continuityMode === "onetake"
+          ? (() => {
+              const onetakeAvailable = !!ctx.availability?.TJ_H3_LatentContinuation;
+              return [
+                ...(onetakeAvailable
+                  ? []
+                  : [el("div", {
+                      html: "⚠ <code>TJ_H3_LatentContinuation</code> not installed — update the TJ_NODE pack, or switch Continuity to something else.",
+                      style: { fontSize: "10px", color: C.warn, lineHeight: "1.5", marginTop: "4px" },
+                    })]),
+                checkboxRow("Lock the whole audio stream (with Latent Continuation)", !!state.oneTakeLockAudio, (v) => {
+                  state.oneTakeLockAudio = v; persist();
+                }),
+                checkboxRow("Auto-stitch into one clip when the run finishes (overlap trimmed)", state.oneTakeAutoStitch !== false, (v) => {
+                  state.oneTakeAutoStitch = v; persist(); renderLeft();
+                }),
+                el("div", {
+                  text: state.oneTakeAutoStitch !== false
+                    ? "The stitched result (overlap trimmed) is what lands in the Gallery. Per-clip files and checkpoints stay on disk too, for resuming a stopped run."
+                    : "Off — clips stay separate, same as any other run; nothing gets auto-combined.",
+                  style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+                }),
+              ];
+            })()
+          : []),
       ])
     );
 

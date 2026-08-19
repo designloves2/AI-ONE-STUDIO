@@ -1,10 +1,10 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, framesToSeconds } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES } from "./core";
 import type { NodeAvailability } from "./api";
 
-export const ONE_TAKE_OVERLAP_FRAMES = 39;
+export { ONE_TAKE_OVERLAP_FRAMES };
 
 const N = {
   unet: "MM:unet",

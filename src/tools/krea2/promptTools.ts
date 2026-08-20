@@ -44,7 +44,13 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const box = el("div", { class: "aos-llm-box", style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(980px, 94vw)", height: "min(660px, 88vh)", display: "flex", flexDirection: "column", gap: "8px" } });
 
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
-  hdr.append(el("div", { text: "프롬프트 편집", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(
+    el("div", { text: "프롬프트 편집", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }),
+    // Edit 탭엔 자체 적용 버튼이 없어서(Enhance/Image→Prompt 탭만 있었음), 직접 편집한 내용을
+    // 반영할 방법이 없었다 — 헤더에 상시 노출되는 완료 버튼으로 어느 탭에 있든 editTA 내용을 반영.
+    button("✓ 완료", () => { setPrompt(editTA.value); ov.style.display = "none"; }, "primary"),
+    button("✕", () => (ov.style.display = "none"), "danger")
+  );
 
   const tabBar = el("div", { style: { display: "flex", gap: "4px", flexShrink: "0" } });
   function mkTab(text: string) {

@@ -956,7 +956,11 @@ export function renderMinimaxH3(container: HTMLElement) {
   genBtn.className = "flex-1 py-2.5 text-sm whitespace-nowrap";
   const stopBtn = button("■ Stop", null);
   stopBtn.className += " shrink-0";
-  stopBtn.disabled = true;
+  stopBtn.title = "Interrupt whatever ComfyUI is currently running — works even if this page didn't start it (e.g. a queue sent before a disconnect, or from another session).";
+  // 예전엔 이 세션이 직접 큐를 넣었을 때만(running===true) 활성화됐는데, 그러면 "실수로 큐를
+  // 보냈는데 연결이 끊겨서 이 세션은 running=false인 채 새로고침됐다" 같은 경우 Stop을 아예
+  // 누를 수가 없었다. /interrupt는 어차피 ComfyUI 전역 인터럽트라 누가 큐를 넣었는지와 무관하게
+  // 항상 보낼 수 있어야 한다 — 그래서 상시 활성화로 바꾼다.
   seedGenWrap.appendChild(row([genBtn, stopBtn]));
 
   // ══ 생성 릴레이 루프 ═══════════════════════════════════════════════
@@ -997,7 +1001,6 @@ export function renderMinimaxH3(container: HTMLElement) {
     stopRequested = false;
     genBtn.disabled = true;
     genBtn.textContent = "⏳ Preparing…";
-    stopBtn.disabled = false;
     resetPreview();
     barInner.style.width = "0%";
     startClock();
@@ -1151,12 +1154,19 @@ export function renderMinimaxH3(container: HTMLElement) {
       stopRequested = false;
       genBtn.disabled = false;
       genBtn.textContent = "▶ Generate";
-      stopBtn.disabled = true;
       stopClock();
     }
   });
 
   stopBtn.addEventListener("click", async () => {
+    // running이 false여도(새로고침 등으로 이 세션이 추적을 놓쳤거나, 애초에 이 세션이 큐를
+    // 넣은 게 아니어도) 그냥 인터럽트를 보낸다 — /interrupt는 ComfyUI 전역 신호라 누가 큐를
+    // 넣었는지와 무관하게 항상 유효하다("실수로 큐 보냈는데 연결 끊겨서 못 멈춘다" 방지).
+    if (!running) {
+      await interrupt();
+      showPopup("ComfyUI에 정지 신호를 보냈습니다.", false);
+      return;
+    }
     stopRequested = true;
     setStatus("Stopping after the current clip…");
     await interrupt();
@@ -1170,7 +1180,6 @@ export function renderMinimaxH3(container: HTMLElement) {
       stopRequested = false;
       genBtn.disabled = false;
       genBtn.textContent = "▶ Generate";
-      stopBtn.disabled = true;
       stopClock();
       setStatus("Stopped (연결 응답 없음 — 강제 종료). ComfyUI 큐를 확인해 주세요.");
       showPopup("Stop 신호는 보냈지만 완료 응답을 못 받아 화면을 강제로 초기화했습니다.", true);

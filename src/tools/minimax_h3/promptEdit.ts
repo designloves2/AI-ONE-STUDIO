@@ -14,6 +14,7 @@ import {
   promptText,
 } from "./core";
 import { button, clear, el, searchableSelect, confirmDialog, promptDialog } from "../../shared/ui";
+import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
 import {
   analyzeImagesNative,
@@ -463,6 +464,18 @@ export function createPromptEditOverlay(
           if (f) await take(f);
         });
         box.appendChild(inp);
+
+        // 다른 도구들의 이미지 업로드 슬롯과 동일한 갤러리 선택 버튼 — 여기만 빠져 있었다.
+        const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "2px", left: "2px", zIndex: "1", cursor: "pointer", fontSize: "12px", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", padding: "0" } });
+        galleryBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openImageGalleryPicker((name) => {
+            state.ollamaImages[i] = name;
+            ctx.persist();
+            renderImageRow();
+          });
+        });
+        box.appendChild(galleryBtn);
       }
       return box;
     }

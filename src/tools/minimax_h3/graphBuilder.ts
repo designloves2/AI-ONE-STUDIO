@@ -118,7 +118,10 @@ function buildOneTake(g: Graph, state: MinimaxState, avail: Avail | undefined, c
   if (clipIndex === 0 || !prevCheckpointName) return defaultLatent;
   if (!has(avail, "TJ_H3_LoadLatentCheckpoint")) throw new Error("One-Take needs the TJ_H3_LoadLatentCheckpoint node — install/update the TJ_NODE pack.");
 
-  g[N.chkLoad] = { class_type: "TJ_H3_LoadLatentCheckpoint", inputs: { checkpoint_name: prevCheckpointName } };
+  // TJ_NODE가 strict 입력을 새로 필수로 추가했다(기본 true — 없으면 검증 실패: "Required input
+  // is missing: strict"). 이 경로는 clipIndex>=1일 때만 타서 이전 클립의 체크포인트가 반드시
+  // 있어야 하므로, 없으면 에러가 나는 게 맞는 기존 동작과 정확히 같은 strict:true로 명시한다.
+  g[N.chkLoad] = { class_type: "TJ_H3_LoadLatentCheckpoint", inputs: { checkpoint_name: prevCheckpointName, strict: true } };
   g[N.continuation] = {
     class_type: "TJ_H3_LatentContinuation",
     inputs: { overlap_frames: ONE_TAKE_OVERLAP_FRAMES, lock_audio: !!state.oneTakeLockAudio, prev_latent: [N.chkLoad, 0], target_latent: defaultLatent },

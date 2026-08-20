@@ -25,6 +25,7 @@ import {
   getPromptSet,
   getSystemPrompt,
   imageToB64,
+  interrupt,
   listPromptSets,
   savePromptSet,
   uploadImage,
@@ -374,6 +375,15 @@ export function createPromptEditOverlay(
   const enhBtnLabel = el("span", { text: "✨ Enhance" });
   enhBtn.append(enhBtnLabel);
 
+  // native(ComfyUI 그래프로 도는 로컬 LLM)만 인터럽트가 확실히 먹는다 — Ollama/llama.cpp 같은
+  // 외부 서버 경유(non-native) 호출은 ComfyUI 큐 밖이라 /interrupt로 못 멈출 확률이 높아서
+  // native일 때만 이 버튼을 보여준다.
+  const enhStopBtn = el("button", { type: "button", text: "■ Stop", title: "Interrupt the local LLM (ComfyUI queue)", style: { display: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "7px 12px", borderRadius: "6px", background: "#c0392b", color: "#fff", border: "none", fontWeight: "700" } });
+  enhStopBtn.addEventListener("click", async () => {
+    enhStopBtn.setAttribute("disabled", "true");
+    await interrupt().catch(() => {});
+  });
+
   const lenIn = el("input", { type: "text", placeholder: "3:20", style: { width: "74px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none", textAlign: "center" } }) as HTMLInputElement;
   lenIn.value = state.targetLength || "";
   lenIn.title = "Target length for the whole piece — 3:20, 200s, or 3분 20초. Blank = one shot per prompt already in the editor.";
@@ -489,7 +499,7 @@ export function createPromptEditOverlay(
   }
 
   const enhBottom = el("div", { class: "flex items-center gap-2 flex-wrap" });
-  enhBottom.append(modelSelWrap, targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn);
+  enhBottom.append(modelSelWrap, targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, enhStopBtn);
   enhWrap.append(enhTop, imgRow, enhBottom);
 
   function isNative() {
@@ -497,7 +507,12 @@ export function createPromptEditOverlay(
   }
 
   function pickerField(labelText: string, options: string[], value: string, onChange: (v: string) => void) {
-    const wrap = el("div", { class: "flex flex-col gap-0.5", style: { minWidth: "180px" } });
+    // flex:1 1 220px + minWidth:0 대신 고정 minWidth만 있으면, native CLIP 파일명처럼 옵션 텍스트가
+    // 길 때 이 wrap div가 그 텍스트 폭만큼 넓어져서(내용 기반 크기) 두 필드가 한 줄에 안 들어가고
+    // 다음 줄로 밀린다(Ollama는 모델명이 짧아서 우연히 안 겪던 문제). minWidth:0으로 내용 크기보다
+    // 작게 줄어들 수 있게 해야 flex-wrap 컨테이너 폭 안에서 균등하게 나눠 갖고, select 텍스트는
+    // 넘치는 부분만 잘려 보인다.
+    const wrap = el("div", { class: "flex flex-col gap-0.5", style: { flex: "1 1 220px", minWidth: "0" } });
     wrap.appendChild(el("div", { text: labelText, class: "text-[9px]", style: { color: C.muted } }));
     const picker = searchableSelect(options.length ? options : ["(no models found)"], value || options[0] || "", onChange);
     wrap.appendChild(picker.el);
@@ -641,6 +656,7 @@ export function createPromptEditOverlay(
     }
     busy = true;
     enhBtn.setAttribute("disabled", "true");
+    if (native) { enhStopBtn.style.display = "inline-flex"; enhStopBtn.removeAttribute("disabled"); }
     progressStart();
     try {
       let imageSummary = "";
@@ -696,6 +712,7 @@ export function createPromptEditOverlay(
       busy = false;
       enhBtn.removeAttribute("disabled");
       enhBtnLabel.textContent = "✨ Enhance";
+      enhStopBtn.style.display = "none";
     }
   });
 

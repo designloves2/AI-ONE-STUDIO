@@ -409,10 +409,16 @@ const CLIENT_ID = (() => {
 
 /**
  * Submits a small graph straight to /prompt and polls /history (no websocket needed —
- * these native Text/Image→Brief graphs are one node deep and finish in a few seconds,
- * so polling is simpler than wiring up the progress socket this early).
+ * polling is simpler than wiring up the progress socket this early). These native
+ * Text/Image→Brief graphs run an actual local LLM model load + token generation, which can
+ * genuinely take a couple minutes on a slow/large model (confirmed live: a real run logged
+ * "Prompt executed in 129.19 seconds", just over the old 120s timeout, causing a false
+ * "timed out waiting for ComfyUI" even though generation had already finished successfully) —
+ * Some local models run even longer than that, so this is generous (20 min) rather than tight —
+ * pair it with the Stop button (interrupt()) in promptEdit.ts rather than trying to guess a
+ * "safe" ceiling, since a genuinely stuck run should be cancelled by the user, not by a timer.
  */
-async function submitGraph(promptGraph: Record<string, any>, timeoutMs = 120_000): Promise<Record<string, any>> {
+async function submitGraph(promptGraph: Record<string, any>, timeoutMs = 1_200_000): Promise<Record<string, any>> {
   const resp = await fetchApi("/prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

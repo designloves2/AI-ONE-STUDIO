@@ -18,7 +18,25 @@ export interface ModelLists {
   vaes?: string[];
   loras?: string[];
   upscale_models?: string[];
+  vae_approx?: string[];
   [key: string]: string[] | undefined;
+}
+
+// models/vae_approx 목록 — ModelPreviewOverrideKJ(KJNodes)의 optional tiny_vae 콤보에 쓰인다.
+// 원본 노드는 이 목록을 자기 /minimax_h3_one/models 응답에 vae_approx 필드로 얹어서 준다(같은
+// 백엔드를 쓰는 이 사이트도 getModels()가 갱신되는 대로 그대로 받는다). 아직 그 필드가 없는
+// 예전 백엔드에서도 동작하도록, ComfyUI 코어의 범용 /object_info를 폴백으로 쓴다.
+export async function getPreviewTinyVaeOptions(modelData?: ModelLists): Promise<string[]> {
+  if (modelData?.vae_approx?.length) return ["none", ...modelData.vae_approx.filter((v) => v !== "none")];
+  try {
+    const r = await fetchApi("/object_info/ModelPreviewOverrideKJ");
+    if (!r.ok) return ["none"];
+    const d = await r.json();
+    const opts = d?.ModelPreviewOverrideKJ?.input?.optional?.tiny_vae?.[1]?.options;
+    return Array.isArray(opts) && opts.length ? opts : ["none"];
+  } catch {
+    return ["none"];
+  }
 }
 
 export async function getModels(): Promise<ModelLists> {
@@ -43,6 +61,38 @@ export interface MmhConfig {
   save_subfolder?: string;
   prompt_suffix?: string;
   avg_minutes_per_clip?: number;
+  preview_tiny_vae?: string;
+  preview_enabled?: boolean;
+  preview_frames?: number;
+  preview_fps?: number;
+  preview_max_res?: number;
+  preview_quality?: number;
+  turbo_lora_low_vram?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  denoise?: number;
+  shift_video?: number;
+  shift_audio?: number;
+  use_sage_attn?: boolean;
+  sage_attn_mode?: string;
+  use_mem_eff_sage?: boolean;
+  use_torch_patch?: boolean;
+  fp16_accum?: boolean;
+  cache_threshold?: number;
+  cache_start?: number;
+  cache_end?: number;
+  cache_max_steps?: number;
+  ollama_url?: string;
+  ollama_model?: string;
+  ollama_vision_model?: string;
+  ollama_temperature?: number;
+  ollama_top_p?: number;
+  vision_source?: string;
+  native_vision_clip?: string;
+  filename_prefix?: string;
+  stitch_at_end?: boolean;
+  trim_last_clip?: boolean;
+  unload_between_clips?: boolean;
 }
 
 export async function getConfig(): Promise<MmhConfig> {

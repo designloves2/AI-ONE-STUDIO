@@ -130,6 +130,9 @@ export interface MinimaxState {
   previewFps: number;
   previewMaxRes: number;
   previewQuality: number;
+  // "none"(기본, Latent2RGB로 폴백) 또는 models/vae_approx의 파일명 — 지정하면 진짜 VAE로
+  // 디코드한 실시간 프리뷰가 나온다(Latent2RGB보다 정확하지만 스텝마다 약간 더 느림).
+  previewTinyVae: string;
 }
 
 export const CLIP_LENGTHS = (() => {
@@ -565,6 +568,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     previewFps: saved.previewFps ?? 12,
     previewMaxRes: saved.previewMaxRes ?? 512,
     previewQuality: saved.previewQuality ?? 85,
+    previewTinyVae: saved.previewTinyVae || "none",
   };
 }
 

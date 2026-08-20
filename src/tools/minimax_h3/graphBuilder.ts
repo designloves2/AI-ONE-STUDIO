@@ -226,6 +226,10 @@ function applyPreview(g: Graph, state: MinimaxState, avail: Avail | undefined, m
     preview_frames: Math.max(1, state.previewFrames ?? 8),
     preview_fps: state.previewFps ?? 12,
   };
+  // "none"(기본)이면 필드를 아예 안 보내 노드가 Latent2RGB(진짜 VAE 없이 근사)로 폴백하게 둔다 —
+  // 원본 노드(graph_builder_minimax.js)와 동일한 조건. models/vae_approx의 Tiny VAE를 지정하면
+  // 그걸로 실제 디코드해서 더 정확한(대신 스텝마다 조금 더 느린) 프리뷰를 낸다.
+  if (state.previewTinyVae && state.previewTinyVae !== "none") inputs.tiny_vae = state.previewTinyVae;
   g[key] = { class_type: "ModelPreviewOverrideKJ", inputs, _meta: { title: `MMH3 preview #${nodeId}` } };
   return [key, 0];
 }

@@ -10,6 +10,7 @@ import {
   getModels,
   getNodeAvailability,
   getOllamaModels,
+  getPreviewTinyVaeOptions,
   saveConfig,
   type ModelLists,
   type NodeAvailability,
@@ -295,6 +296,23 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     note.innerHTML = kjOk
       ? "Live sampling frames are decoded and streamed into this node's preview box while the clip renders. More frames = an animated clip preview (mp4) instead of a still, at some extra cost per step."
       : "⚠ <code>ModelPreviewOverrideKJ</code> (comfyui-kjnodes) is not installed — generation still works, but the preview box only shows progress.";
+
+    // "none"(기본)이면 노드가 진짜 VAE 없이 Latent2RGB로 근사 프리뷰를 낸다. models/vae_approx의
+    // Tiny VAE를 고르면 실제 디코드된(더 정확한) 프리뷰가 나온다 — 목록은 getModels()의
+    // vae_approx 필드에서 가져오고(원본 노드와 동일 소스), 아직 그 필드가 없는 백엔드에서는
+    // ComfyUI 코어의 /object_info로 자동 폴백한다.
+    // previewTinyVae만 예외적으로 서버 config(preview_tiny_vae 키)에도 저장한다 — 원본 노드가
+    // 이후 Save All에 추가해서 맞춤(SPEC_MINIMAX_H3_PREVIEW_VAE.md 최초 버전은 로컬 전용이라고
+    // 했었지만, 원본이 나중에 바꿈). previewEnabled/Frames/Fps/MaxRes/Quality는 여전히 로컬 전용.
+    const tinyVaeSel = searchableSelect(["none", state.previewTinyVae].filter((v, i, a) => v && a.indexOf(v) === i), state.previewTinyVae || "none", (v) => {
+      state.previewTinyVae = v;
+      ctx.persist();
+    });
+    getPreviewTinyVaeOptions(modelData).then((opts) => {
+      tinyVaeSel.setOptions(opts);
+      tinyVaeSel.setValue(opts.includes(state.previewTinyVae) ? state.previewTinyVae : "none");
+    });
+
     wrap.appendChild(
       panel([
         label("Live Preview (ModelPreviewOverrideKJ)"),
@@ -307,6 +325,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
           col([label("Max resolution"), el("input", { type: "number", step: "64", value: String(state.previewMaxRes ?? 512), style: numInputStyle(), oninput: (e: any) => { state.previewMaxRes = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
           col([label("JPEG quality"), el("input", { type: "number", step: "1", value: String(state.previewQuality ?? 85), style: numInputStyle(), oninput: (e: any) => { state.previewQuality = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
         ]),
+        col([label("Preview VAE (tiny/approx, optional — models/vae_approx/)"), tinyVaeSel.el]),
         note,
       ])
     );
@@ -365,6 +384,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   function saveAll() {
     ctx.persist();
+    // 원본 노드가 처음엔 Models 탭 몇 개 필드만 서버 config에 저장하다가, Sampling/Sage/Cache/
+    // Ollama/Output 탭 값들은 전부 로컬(워크플로우 상태)에만 남아 있던 걸 뒤늦게 알아채고
+    // 한 번에 41개 필드 전부로 넓혔다 — 여기도 동일하게 맞춘다(키 이름 1:1 대응).
     saveConfig({
       unet_first_last: state.unetFirstLast || "",
       unet_reference: state.unetReference || "",
@@ -377,6 +399,38 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       save_subfolder: state.saveSubfolder || "",
       prompt_suffix: state.promptSuffix || "",
       avg_minutes_per_clip: state.avgMinutesPerClip ?? 13,
+      preview_tiny_vae: state.previewTinyVae || "",
+      preview_enabled: state.previewEnabled !== false,
+      preview_frames: state.previewFrames ?? 8,
+      preview_fps: state.previewFps ?? 12,
+      preview_max_res: state.previewMaxRes ?? 512,
+      preview_quality: state.previewQuality ?? 85,
+      turbo_lora_low_vram: state.turboLoraLowVram ?? false,
+      sampler: state.sampler || "res_multistep",
+      scheduler: state.scheduler || "simple",
+      denoise: state.denoise ?? 1.0,
+      shift_video: state.shiftVideo ?? 12,
+      shift_audio: state.shiftAudio ?? 3,
+      use_sage_attn: state.useSageAttn ?? true,
+      sage_attn_mode: state.sageAttnMode || "auto",
+      use_mem_eff_sage: state.useMemEffSage ?? true,
+      use_torch_patch: state.useTorchPatch ?? true,
+      fp16_accum: state.fp16Accum ?? true,
+      cache_threshold: state.cacheThreshold ?? 0.3,
+      cache_start: state.cacheStart ?? 0.15,
+      cache_end: state.cacheEnd ?? 0.9,
+      cache_max_steps: state.cacheMaxSteps ?? 2,
+      ollama_url: state.ollamaUrl || "http://127.0.0.1:11434",
+      ollama_model: state.ollamaModel || "",
+      ollama_vision_model: state.ollamaVisionModel || "",
+      ollama_temperature: state.ollamaTemperature ?? 0.7,
+      ollama_top_p: state.ollamaTopP ?? 0.9,
+      vision_source: state.visionSource || "ollama",
+      native_vision_clip: state.nativeVisionClip || "",
+      filename_prefix: state.filenamePrefix || "MMH3",
+      stitch_at_end: state.stitchAtEnd ?? true,
+      trim_last_clip: state.trimLastClip ?? false,
+      unload_between_clips: state.unloadBetweenClips ?? true,
     });
     saveAllBtn.textContent = "✓ Saved!";
     setTimeout(() => { saveAllBtn.textContent = "💾 Save All"; }, 1500);
@@ -409,9 +463,44 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       take("vaeAudio", cfg.vae_audio);
       take("turboLora", cfg.turbo_lora);
       take("upscaleModel", cfg.upscale_model);
+      take("previewTinyVae", cfg.preview_tiny_vae);
       if (cfg.turbo_lora_strength != null) state.turboLoraStrength = cfg.turbo_lora_strength;
       if (cfg.prompt_suffix && !state.promptSuffix) state.promptSuffix = cfg.prompt_suffix;
       if (cfg.avg_minutes_per_clip != null) state.avgMinutesPerClip = cfg.avg_minutes_per_clip;
+      // 이 아래는 전부 defaultState()에 이미 기본값이 있는(never-empty) 필드라 take()의
+      // "로컬이 비어있을 때만" 조건이 절대 안 걸린다 — avg_minutes_per_clip과 같은 이유로
+      // 여기서도 그냥 무조건 덮어쓴다(이 블록 자체가 세션당 한 번, 사용자가 뭘 만지기 전에만 실행됨).
+      if (cfg.preview_enabled != null) state.previewEnabled = cfg.preview_enabled;
+      if (cfg.preview_frames != null) state.previewFrames = cfg.preview_frames;
+      if (cfg.preview_fps != null) state.previewFps = cfg.preview_fps;
+      if (cfg.preview_max_res != null) state.previewMaxRes = cfg.preview_max_res;
+      if (cfg.preview_quality != null) state.previewQuality = cfg.preview_quality;
+      if (cfg.turbo_lora_low_vram != null) state.turboLoraLowVram = cfg.turbo_lora_low_vram;
+      if (cfg.sampler) state.sampler = cfg.sampler;
+      if (cfg.scheduler) state.scheduler = cfg.scheduler;
+      if (cfg.denoise != null) state.denoise = cfg.denoise;
+      if (cfg.shift_video != null) state.shiftVideo = cfg.shift_video;
+      if (cfg.shift_audio != null) state.shiftAudio = cfg.shift_audio;
+      if (cfg.use_sage_attn != null) state.useSageAttn = cfg.use_sage_attn;
+      if (cfg.sage_attn_mode) state.sageAttnMode = cfg.sage_attn_mode;
+      if (cfg.use_mem_eff_sage != null) state.useMemEffSage = cfg.use_mem_eff_sage;
+      if (cfg.use_torch_patch != null) state.useTorchPatch = cfg.use_torch_patch;
+      if (cfg.fp16_accum != null) state.fp16Accum = cfg.fp16_accum;
+      if (cfg.cache_threshold != null) state.cacheThreshold = cfg.cache_threshold;
+      if (cfg.cache_start != null) state.cacheStart = cfg.cache_start;
+      if (cfg.cache_end != null) state.cacheEnd = cfg.cache_end;
+      if (cfg.cache_max_steps != null) state.cacheMaxSteps = cfg.cache_max_steps;
+      if (cfg.ollama_url) state.ollamaUrl = cfg.ollama_url;
+      if (cfg.ollama_model) state.ollamaModel = cfg.ollama_model;
+      if (cfg.ollama_vision_model) state.ollamaVisionModel = cfg.ollama_vision_model;
+      if (cfg.ollama_temperature != null) state.ollamaTemperature = cfg.ollama_temperature;
+      if (cfg.ollama_top_p != null) state.ollamaTopP = cfg.ollama_top_p;
+      if (cfg.vision_source) state.visionSource = cfg.vision_source;
+      if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;
+      if (cfg.filename_prefix) state.filenamePrefix = cfg.filename_prefix;
+      if (cfg.stitch_at_end != null) state.stitchAtEnd = cfg.stitch_at_end;
+      if (cfg.trim_last_clip != null) state.trimLastClip = cfg.trim_last_clip;
+      if (cfg.unload_between_clips != null) state.unloadBetweenClips = cfg.unload_between_clips;
       ctx.persist();
       ctx.refreshPlan?.();
       ctx.refreshModes?.();

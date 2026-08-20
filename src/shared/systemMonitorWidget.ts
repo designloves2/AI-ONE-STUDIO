@@ -40,6 +40,7 @@ function colorFor(pct: number): string {
 
 function meter(labelText: string) {
   const wrap = document.createElement("div");
+  wrap.className = "aos-sysmon-meter";
   wrap.style.cssText = "display:flex;flex-direction:column;align-items:center;gap:1px;";
 
   const label = document.createElement("div");
@@ -48,6 +49,7 @@ function meter(labelText: string) {
   wrap.appendChild(label);
 
   const box = document.createElement("div");
+  box.className = "aos-sysmon-box";
   box.style.cssText = `position:relative;width:${BOX_W}px;height:${BOX_H}px;border-radius:3px;background:${C.bg2};border:1px solid ${C.border};overflow:hidden;`;
   wrap.appendChild(box);
 
@@ -79,7 +81,7 @@ function meter(labelText: string) {
 
 export function createSystemMonitorWidget(): HTMLElement {
   const bar = document.createElement("div");
-  bar.className = "aos-sysmon";
+  bar.className = "aos-sysmon aos-sysmon-bar";
   bar.style.cssText = "display:flex;align-items:center;gap:6px;flex-shrink:0;padding:0 4px;";
 
   const cpu = meter("CPU");

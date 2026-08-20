@@ -151,9 +151,75 @@ body {
     row-gap: 6px !important;
   }
 
-  /* 상단바 CPU/RAM/GPU/VRAM/온도 모니터(5개 박스, ~280px)는 휴대폰 폭에서 브랜드 로고+도구 탭과
-     같이 놓일 자리가 없다 — 좁은 화면에서는 숨긴다(공간이 있는 태블릿/PC에서만 노출). */
-  .aos-sysmon {
+  /* 상단바를 휴대폰에서 2줄로 재배치: "메뉴 | 재시작" 위, "실시간 모니터링 | 콘솔" 아래.
+     데스크톱은 이 블록 밖이라 전혀 영향 없음 — DOM 순서 그대로(브랜드,메뉴,콘솔,모니터,재시작)
+     한 줄에 다 보인다. .aos-topbar-break는 평소엔 display:none이라 아무 자리도 안 차지하다가,
+     여기서만 flex-basis:100%짜리 높이 0 스페이서로 바뀌어 두 줄 사이에 강제 줄바꿈을 만든다. */
+  .aos-topbar {
+    flex-wrap: wrap !important;
+    height: auto !important;
+    column-gap: 4px !important;
+    row-gap: 6px !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+  .aos-topbar-menu {
+    order: 1 !important;
+  }
+  /* "Video Generator :"/"Image Generator :" 같은 그룹 라벨은 가로 스크롤 메뉴 폭을 많이 잡아먹는다
+     — 좁은 화면에서는 도구 버튼만 남기고 숨긴다(구분선은 그대로 남아 그룹 경계는 여전히 보임). */
+  .aos-topbar-group-label {
     display: none !important;
   }
+  .aos-restart-btn {
+    order: 2 !important;
+  }
+  .aos-topbar-break {
+    display: block !important;
+    flex-basis: 100% !important;
+    width: 0 !important;
+    height: 0 !important;
+    order: 3 !important;
+  }
+  .aos-sysmon {
+    display: flex !important;
+    order: 4 !important;
+  }
+  .aos-console-btn {
+    order: 5 !important;
+    margin-left: auto !important;
+  }
+  /* 모니터 5개 박스(기본 46px)가 콘솔 버튼이랑 한 줄에 못 들어가고 세 번째 줄로 밀리던 문제 —
+     휴대폰에서만 박스/간격을 줄여서 폭을 262px→166px 정도로 좁힌다. */
+  .aos-sysmon-bar {
+    gap: 4px !important;
+  }
+  .aos-sysmon-box {
+    width: 45px !important;
+  }
+
+  /* 로고 텍스트가 넓어서(가로 스크롤인 도구 메뉴가 로고~재시작 사이에 낄 공간이 좁아짐) —
+     휴대폰에서만 로고를 작게 줄여 메뉴 스크롤 영역에 폭을 더 준다. */
+  .aos-topbar-brand {
+    font-size: 11px !important;
+    margin-right: 8px !important;
+  }
+
+  /* MiniMax H3 Settings — 데스크톱은 좌/우 2컬럼(Models+Preview / Sampling+Output)인데,
+     휴대폰 폭에서는 한 줄로 이어 보이게 MODELS→SAMPLING→PREVIEW→OUTPUT 순서로 재배치한다.
+     leftCol/rightCol을 display:contents로 "투명화"해서 그 안의 섹션들이 bodyWrap의 flex 자식으로
+     직접 참여하게 만들고, 섹션마다 order를 매겨 원하는 순서로 줄세운다. */
+  .aos-mmh3-settings-body {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+  .aos-mmh3-settings-col {
+    display: contents !important;
+  }
+  .aos-mmh3-sec-models { order: 1 !important; }
+  .aos-mmh3-sec-sampling { order: 2 !important; }
+  .aos-mmh3-sec-preview { order: 3 !important; }
+  .aos-mmh3-sec-output { order: 4 !important; }
 }

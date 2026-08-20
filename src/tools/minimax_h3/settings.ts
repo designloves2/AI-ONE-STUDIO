@@ -59,9 +59,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   // 화면이 넓으니 탭으로 하나씩 전환하는 대신 좌/우 2컬럼으로 동시에 보여준다:
   // 왼쪽 = Models + Sampling, 오른쪽 = Preview + Output.
-  const bodyWrap = el("div", { class: "flex-1 overflow-hidden flex gap-3 min-h-0" });
-  const leftCol = el("div", { class: "flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
-  const rightCol = el("div", { class: "flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
+  const bodyWrap = el("div", { class: "aos-mmh3-settings-body flex-1 overflow-hidden flex gap-3 min-h-0" });
+  const leftCol = el("div", { class: "aos-mmh3-settings-col flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
+  const rightCol = el("div", { class: "aos-mmh3-settings-col flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
   bodyWrap.append(leftCol, rightCol);
   ov.appendChild(bodyWrap);
 
@@ -349,11 +349,17 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     return wrap;
   }
 
+  // 각 섹션을 자기 wrapper로 감싸서 모바일에서 CSS order로 MODELS→SAMPLING→PREVIEW→OUTPUT
+  // 한 줄 순서로 재배치할 수 있게 한다(데스크톱 2컬럼 배치는 그대로 유지 — style.css 참고).
+  function section(cls: string, heading: string, body: HTMLElement) {
+    return el("div", { class: `aos-mmh3-sec-${cls} flex flex-col gap-2` }, [sectionHeading(heading), body]);
+  }
+
   function renderBody() {
     clear(leftCol);
     clear(rightCol);
-    leftCol.append(sectionHeading("Models"), modelsTab(), sectionHeading("Preview"), previewTab());
-    rightCol.append(sectionHeading("Sampling"), samplingTab(), sectionHeading("Output"), outputTab());
+    leftCol.append(section("models", "Models", modelsTab()), section("preview", "Preview", previewTab()));
+    rightCol.append(section("sampling", "Sampling", samplingTab()), section("output", "Output", outputTab()));
     refreshPackStatusText();
   }
 

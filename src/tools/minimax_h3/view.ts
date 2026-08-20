@@ -678,7 +678,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.accelMode = "solattn";
       persist();
     }
-    if (state.accelMode === "turbo" && state.useCache) {
+    if ((state.accelMode === "turbo" || state.accelMode === "spectrum") && state.useCache) {
       state.useCache = false;
       persist();
     }
@@ -716,7 +716,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       panel([
         col([label("Acceleration"), select(accelModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.accelMode, (v) => { state.accelMode = v; persist(); renderLeft(); })]),
         ...accelSettings(),
-        checkboxRow("H3 Cache (step reuse)", !!state.useCache, (v) => { state.useCache = v; persist(); }, { disabled: state.accelMode === "turbo" }),
+        checkboxRow("H3 Cache (step reuse)", !!state.useCache, (v) => { state.useCache = v; persist(); }, { disabled: state.accelMode === "turbo" || state.accelMode === "spectrum" }),
       ])
     );
 

@@ -22,7 +22,7 @@ export function createGallery(): GalleryHandle {
 
   const empty = document.createElement("div");
   empty.className = "col-span-full text-muted text-sm text-center py-10";
-  empty.textContent = "아직 생성된 결과물이 없습니다";
+  empty.textContent = "No results yet";
   el.appendChild(empty);
 
   function addItem(item: GalleryItem) {

@@ -14,7 +14,7 @@ function confirmRestart(): Promise<boolean> {
     const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(400px, 88vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "14px" } });
     box.appendChild(
       el("div", {
-        text: "ComfyUI 서버를 재시작할까요?\n\n지금 실행 중이거나 대기 중인 모든 작업이 중단됩니다. 서버가 다시 뜰 때까지 몇 초~수십 초 걸릴 수 있습니다.",
+        text: "Restart the ComfyUI server?\n\nAny job currently running or queued will be interrupted. It may take a few seconds to a minute for the server to come back up.",
         style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" },
       })
     );
@@ -67,7 +67,7 @@ export function createRestartButton(): HTMLElement {
       // 서버가 곧 죽으므로 응답이 안 올 수도 있음 — 그건 정상.
     } catch {
       // ComfyUI-Manager 미설치 등으로 라우트가 없으면 여기로 옴.
-      alert("재시작 요청을 보낼 수 없습니다 — ComfyUI-Manager가 설치되어 있는지 확인하세요.");
+      alert("Could not send the restart request — check that ComfyUI-Manager is installed.");
       btn.disabled = false;
       btn.textContent = orig;
     }

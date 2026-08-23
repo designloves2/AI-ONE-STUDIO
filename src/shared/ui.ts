@@ -154,7 +154,7 @@ export function searchableSelect(initialOptions: string[], value: string, onChan
   const wrap = el("div", { style: { position: "relative", width: "100%" } });
   const filterIn = el("input", {
     type: "text",
-    placeholder: "검색…",
+    placeholder: "Search…",
     style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px 6px 0 0", padding: "5px 8px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
   });
   let currentValue = value;
@@ -271,8 +271,8 @@ export function confirmDialog(message: string, opts?: { okText?: string; cancelT
       if (e.key === "Escape") finish(false);
       if (e.key === "Enter") finish(true);
     };
-    const cancelBtn = button(opts?.cancelText || "취소", () => finish(false));
-    const okBtn = button(opts?.okText || "확인", () => finish(true), opts?.danger ? "danger" : "primary");
+    const cancelBtn = button(opts?.cancelText || "Cancel", () => finish(false));
+    const okBtn = button(opts?.okText || "OK", () => finish(true), opts?.danger ? "danger" : "primary");
     btnRow.append(cancelBtn, okBtn);
     box.appendChild(btnRow);
     ov.appendChild(box);
@@ -300,8 +300,8 @@ export function promptDialog(message: string, defaultValue = ""): Promise<string
       if (e.key === "Escape") finish(null);
       if (e.key === "Enter") finish(input.value);
     };
-    const cancelBtn = button("취소", () => finish(null));
-    const okBtn = button("확인", () => finish(input.value), "primary");
+    const cancelBtn = button("Cancel", () => finish(null));
+    const okBtn = button("OK", () => finish(input.value), "primary");
     btnRow.append(cancelBtn, okBtn);
     box.appendChild(btnRow);
     ov.appendChild(box);
@@ -344,7 +344,7 @@ export function applyMobileCollapsibleLayout(body: HTMLElement, leftPanel: HTMLE
 
   const rightContent = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px", flex: "1", minHeight: "0" } });
   Array.from(rightPanel.children).forEach((child) => rightContent.appendChild(child));
-  rightPanel.append(collapsibleHeader("프롬프트 / 생성 결과", rightContent, true), rightContent);
+  rightPanel.append(collapsibleHeader("Prompt / Result", rightContent, true), rightContent);
 
-  leftPanel.insertBefore(collapsibleHeader("설정", leftScroll, true), leftScroll);
+  leftPanel.insertBefore(collapsibleHeader("Settings", leftScroll, true), leftScroll);
 }

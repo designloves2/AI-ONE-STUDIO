@@ -98,7 +98,7 @@ export function renderSDXL(root: HTMLElement) {
   body.appendChild(rightPanel);
 
   const previewBox = el("div", { class: "aos-preview-box", style: { flex: "1", minHeight: "0", background: "#000", border: `1px solid ${C.border}`, borderRadius: "10px", position: "relative", overflow: "hidden" } });
-  const placeholderTxt = el("div", { text: "결과 이미지가 여기에 표시됩니다", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
+  const placeholderTxt = el("div", { text: "Result image appears here", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
   const resultImg = el("img", { style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" } });
   resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
@@ -431,10 +431,10 @@ export function renderSDXL(root: HTMLElement) {
   function imageUploadSlot(currentFilename: string | null, onSet: (name: string) => void, onLoad?: (w: number, h: number) => void, probeIfUnknown?: boolean) {
     const wrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", minHeight: "180px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: C.bg2 } });
     const img = el("img", { style: { maxWidth: "100%", maxHeight: "168px", display: "none", borderRadius: "4px" } });
-    const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
+    const hint = el("div", { text: "Click or drag to upload", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
-    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    const clearBtn = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
     clearBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       img.style.display = "none";
@@ -445,7 +445,7 @@ export function renderSDXL(root: HTMLElement) {
     });
     wrap.appendChild(clearBtn);
     async function handleFile(file: File) {
-      hint.textContent = "업로드 중…";
+      hint.textContent = "Uploading…";
       try {
         const name = await api.uploadImage(file, file.name);
         onSet(name);
@@ -459,7 +459,7 @@ export function renderSDXL(root: HTMLElement) {
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
           probe.src = url;
         }
-      } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
+      } catch (e: any) { hint.textContent = "Upload failed: " + (e.message || e); }
     }
     function applyPicked(name: string) {
       onSet(name);
@@ -474,7 +474,7 @@ export function renderSDXL(root: HTMLElement) {
         probe.src = url;
       }
     }
-    const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
+    const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
     galleryBtn.addEventListener("click", (e) => { e.stopPropagation(); openImageGalleryPicker((name) => applyPicked(name)); });
     wrap.appendChild(galleryBtn);
 
@@ -537,7 +537,7 @@ export function renderSDXL(root: HTMLElement) {
         imageUploadSlot(state.inpaintImage, (name) => { state.inpaintImage = name; state.inpaintMaskImage = null; persist(); editor?.loadSourceImage(name); }),
       ]));
       const editor = createMaskEditor(state as any, persist);
-      leftScroll.appendChild(panel([label("Mask Editor (보라=재생성 / 검=유지)"), editor.editorPanel]));
+      leftScroll.appendChild(panel([label("Mask Editor (purple = regenerate / black = keep)"), editor.editorPanel]));
       if (state.inpaintImage) editor.loadSourceImage(state.inpaintImage);
       inpaintAutoSave = editor.autoSaveIfNeeded;
       leftScroll.appendChild(panel([
@@ -579,7 +579,7 @@ export function renderSDXL(root: HTMLElement) {
         leftScroll.appendChild(panel([label("ESRGAN Model"), esrganSel.el, el("div", { text: "Models → models/upscale_models/", style: { fontSize: "10px", color: C.muted } })]));
       } else if (mode === "refiner") {
         leftScroll.appendChild(panel([
-          el("div", { text: "Refiner Checkpoint는 Settings ⚙에서 설정하세요. 소스 이미지에 Refiner 모델로 I2I를 적용합니다.", style: { fontSize: "11px", color: C.muted, lineHeight: "1.5" } }),
+          el("div", { text: "Set the Refiner Checkpoint in ⚙ Settings. Applies I2I to the source image with the Refiner model.", style: { fontSize: "11px", color: C.muted, lineHeight: "1.5" } }),
           label("Denoise Strength"),
           numberField(state.upscaleRefinerDenoise ?? 0.35, (v) => { state.upscaleRefinerDenoise = Math.max(0, Math.min(1, v)); persist(); }, 0.01),
           row([col([label("Steps"), numberField(state.upscaleRefinerSteps ?? 20, (v) => { state.upscaleRefinerSteps = Math.max(1, Math.round(v)); persist(); }, 1)]), col([label("CFG"), numberField(state.upscaleRefinerCfg ?? 7, (v) => { state.upscaleRefinerCfg = v; persist(); }, 0.5)])]),
@@ -619,10 +619,10 @@ export function renderSDXL(root: HTMLElement) {
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "내 요청이 대기 중…" : "내 요청 실행 중…";
+        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "My request is pending…" : "My request is running…";
       } else if (q.running > 0 || q.pending > 0) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = `ComfyUI가 다른 작업을 처리 중입니다 (대기 ${q.pending}건)`;
+        externalQueueBanner.textContent = `ComfyUI is processing other work (${q.pending} pending)`;
       } else {
         externalQueueBanner.style.display = "none";
         queuedPromptId = null;
@@ -634,31 +634,31 @@ export function renderSDXL(root: HTMLElement) {
   async function generate() {
     if (samplingActive) return;
     if (state.modelLoaderMode === "checkpoint") {
-      if (!state.checkpoint || state.checkpoint === "none") { warnTag.textContent = "⚙ Settings에서 Checkpoint를 설정하세요"; return; }
+      if (!state.checkpoint || state.checkpoint === "none") { warnTag.textContent = "⚙ Set Checkpoint in Settings"; return; }
     } else {
-      if (!state.unet || state.unet === "none") { warnTag.textContent = "⚙ Settings에서 UNet을 설정하세요"; return; }
-      if (!state.clipL || state.clipL === "none" || !state.clipG || state.clipG === "none") { warnTag.textContent = "⚙ Settings에서 CLIP-L / CLIP-G를 설정하세요"; return; }
-      if (!state.vae || state.vae === "none") { warnTag.textContent = "⚙ Settings에서 VAE를 설정하세요"; return; }
+      if (!state.unet || state.unet === "none") { warnTag.textContent = "⚙ Set UNet in Settings"; return; }
+      if (!state.clipL || state.clipL === "none" || !state.clipG || state.clipG === "none") { warnTag.textContent = "⚙ Set CLIP-L / CLIP-G in Settings"; return; }
+      if (!state.vae || state.vae === "none") { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
     }
-    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "I2I 소스 이미지를 업로드하세요"; return; }
+    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
     if (state.mode === "inpaint") {
-      if (!state.inpaintImage) { warnTag.textContent = "Inpaint 소스 이미지를 업로드하세요"; return; }
+      if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
       if (!state.inpaintMaskImage) {
         const saved = await inpaintAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "마스크를 칠하고 저장하세요"; return; }
+        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
       }
     }
     if (state.mode === "outpaint") {
-      if (!state.outpaintImage) { warnTag.textContent = "Outpaint 소스 이미지를 업로드하세요"; return; }
+      if (!state.outpaintImage) { warnTag.textContent = "Upload an Outpaint source image"; return; }
       const total = (state.outpaintUp || 0) + (state.outpaintDown || 0) + (state.outpaintLeft || 0) + (state.outpaintRight || 0);
-      if (total <= 0) { warnTag.textContent = "최소 한 방향의 Expansion 값을 입력하세요"; return; }
+      if (total <= 0) { warnTag.textContent = "Enter an Expansion value for at least one direction"; return; }
     }
     if (state.mode === "upscale") {
-      if (!state.upscaleImage) { warnTag.textContent = "Upscale 소스 이미지를 업로드하세요"; return; }
+      if (!state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
       const um = state.upscaleMode || "esrgan";
-      if (um === "esrgan" && (!state.esrganModel || state.esrganModel === "none")) { warnTag.textContent = "ESRGAN 모델을 선택하세요"; return; }
-      if (um === "refiner" && !state.refinerCheckpoint) { warnTag.textContent = "⚙ Settings에서 Refiner Checkpoint를 설정하세요"; return; }
-      if (um === "seedvr2" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "SeedVR2 DiT/VAE 모델을 선택하세요"; return; }
+      if (um === "esrgan" && (!state.esrganModel || state.esrganModel === "none")) { warnTag.textContent = "Select an ESRGAN model"; return; }
+      if (um === "refiner" && !state.refinerCheckpoint) { warnTag.textContent = "⚙ Set the Refiner Checkpoint in Settings"; return; }
+      if (um === "seedvr2" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     }
     warnTag.textContent = "";
 
@@ -732,15 +732,15 @@ function createHelpOverlay() {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px", width: "min(640px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px" } });
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "❔ SDXL 도움말", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(el("div", { text: "❔ SDXL Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>모드</b>: T2I, I2I, Inpaint, Outpaint, Upscale(ESRGAN / Refiner / SEEDVR2 서브모드).<br>
-    <b>모델 로딩</b>: ⚙ Settings에서 Checkpoint(단일 파일) 또는 UNet+DualCLIP+VAE(Separate) 중 선택합니다.<br>
-    <b>Refiner</b>: Settings에서 켜면 T2I가 Base/Refiner 2단계 샘플링으로 전환되며, Refiner Step Fraction으로 분할 비율을 조절합니다. Upscale의 Refiner 서브모드도 동일한 체크포인트를 사용합니다.<br>
-    <b>Inpaint</b>: DifferentialDiffusion + VAEEncodeForInpaint 기반이며, Grow Mask로 마스크 경계를 확장할 수 있습니다.<br>
-    <b>Outpaint</b>: ImagePadForOutpaint로 확장 영역을 패딩하고 Feathering으로 경계를 부드럽게 합니다.<br>
-    <b>상단 아이콘</b>: ↺ Reset(전체 초기화, 모델 선택 유지) · ⇌ Compare(원본/결과 비교) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery.
+    <b>Modes</b>: T2I, I2I, Inpaint, Outpaint, Upscale (ESRGAN / Refiner / SEEDVR2 submodes).<br>
+    <b>Model loading</b>: pick Checkpoint (single file) or UNet+DualCLIP+VAE (Separate) in ⚙ Settings.<br>
+    <b>Refiner</b>: enabling it in Settings switches T2I to 2-stage Base/Refiner sampling, with Refiner Step Fraction controlling the split. Upscale's Refiner submode uses the same checkpoint.<br>
+    <b>Inpaint</b>: based on DifferentialDiffusion + VAEEncodeForInpaint; Grow Mask expands the mask edge.<br>
+    <b>Outpaint</b>: pads the expanded area with ImagePadForOutpaint and softens the edge with Feathering.<br>
+    <b>Top icons</b>: ↺ Reset (full reset, keeps model selection) · ⇌ Compare (original/result) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery.
   `;
   box.append(hdr, body);
   ov.appendChild(box);

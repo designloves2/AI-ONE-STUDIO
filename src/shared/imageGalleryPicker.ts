@@ -65,7 +65,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(1056px, 96vw)", height: "min(840px, 92vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: "10px" } });
 
   const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
-  topRow.appendChild(el("div", { text: "🖼 갤러리에서 이미지 선택", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
+  topRow.appendChild(el("div", { text: "🖼 Pick an image from the gallery", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
   const closeBtn = el("button", { type: "button", text: "✕", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "5px 10px", borderRadius: "6px", border: "none", background: "#c0392b", color: "#fff" } });
   closeBtn.addEventListener("click", () => close());
   topRow.appendChild(closeBtn);
@@ -140,7 +140,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
       grid.appendChild(cell);
     });
     offset += imgs.length;
-    statusEl.textContent = imgs.length || total ? `${offset} / ${total}` : "이 도구의 갤러리에 저장된 이미지가 없습니다.";
+    statusEl.textContent = imgs.length || total ? `${offset} / ${total}` : "No images saved in this tool's gallery yet.";
     moreBtn.style.display = offset < total ? "block" : "none";
     loading = false;
   }

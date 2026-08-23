@@ -83,7 +83,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     const btnEl = target === "firstlast" ? sendFLBtn : sendRefBtn;
     (btnEl as HTMLButtonElement).disabled = true;
     const orig = btnEl.textContent;
-    btnEl.textContent = "전송 중…";
+    btnEl.textContent = "Sending…";
     try {
       await sendImagesToMinimax(imgs, copyOutputToInput, target);
     } finally {

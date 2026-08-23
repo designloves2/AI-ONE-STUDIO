@@ -71,7 +71,7 @@ export function createSettingsOverlay(state: KleinState, ctx: SettingsCtx) {
 
   // KV Cache — Klein 고유 설정. auto=모델명에 "kv" 포함시 자동 사용, on/off는 강제 지정.
   const kvSel = el("select", { style: { background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } });
-  [{ v: "auto", t: "Auto (모델명에 'kv' 포함 시 사용)" }, { v: "on", t: "항상 사용" }, { v: "off", t: "사용 안 함" }].forEach((o) => {
+  [{ v: "auto", t: "Auto (used when model name contains 'kv')" }, { v: "on", t: "Always on" }, { v: "off", t: "Off" }].forEach((o) => {
     kvSel.appendChild(el("option", { value: o.v, text: o.t, ...(o.v === (state.kvCacheOverride || "auto") ? { selected: "selected" } : {}) }));
   });
   kvSel.addEventListener("change", () => { state.kvCacheOverride = kvSel.value; ctx.persist(); ctx.onModelsRefreshed?.(); });
@@ -98,7 +98,7 @@ export function createSettingsOverlay(state: KleinState, ctx: SettingsCtx) {
     ctx.appConfig.output_mode_visible = visChk.checked;
     ctx.onOutputVisibilityChanged?.();
   });
-  ov.appendChild(panel([label("Save Folder (output/ 안)"), pathIn, visLbl]));
+  ov.appendChild(panel([label("Save Folder (inside output/)"), pathIn, visLbl]));
 
   function saveAll() {
     ctx.persist();

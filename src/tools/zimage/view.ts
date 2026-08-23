@@ -102,7 +102,7 @@ export function renderZImage(root: HTMLElement) {
   body.appendChild(rightPanel);
 
   const previewBox = el("div", { class: "aos-preview-box", style: { flex: "1", minHeight: "0", background: "#000", border: `1px solid ${C.border}`, borderRadius: "10px", position: "relative", overflow: "hidden" } });
-  const placeholderTxt = el("div", { text: "결과 이미지가 여기에 표시됩니다", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
+  const placeholderTxt = el("div", { text: "Result image appears here", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
   const resultImg = el("img", { style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" } });
   resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
@@ -216,7 +216,7 @@ export function renderZImage(root: HTMLElement) {
       btn.addEventListener("click", async () => {
         const mr = modeResults[state.mode];
         if (!mr) return;
-        if (!IMPLEMENTED_MODES.includes(t.mode)) { warnTag.textContent = `${t.mode} 모드는 Phase 2에서 지원 예정입니다.`; return; }
+        if (!IMPLEMENTED_MODES.includes(t.mode)) { warnTag.textContent = `${t.mode} mode is coming in Phase 2.`; return; }
         (btn as HTMLButtonElement).disabled = true;
         btn.textContent = "Copying…";
         try {
@@ -458,10 +458,10 @@ export function renderZImage(root: HTMLElement) {
   function imageUploadSlot(currentFilename: string, onSet: (name: string) => void, onLoad?: (w: number, h: number) => void, probeIfUnknown?: boolean) {
     const wrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", minHeight: "180px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: C.bg2 } });
     const img = el("img", { style: { maxWidth: "100%", maxHeight: "168px", display: "none", borderRadius: "4px" } });
-    const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
+    const hint = el("div", { text: "Click or drag to upload", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
-    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    const clearBtn = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
     clearBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       img.style.display = "none";
@@ -473,7 +473,7 @@ export function renderZImage(root: HTMLElement) {
     wrap.appendChild(clearBtn);
     // Krea2에서 실제로 겪은 무한 재렌더 루프 버그 회피: img의 "load" 이벤트에 onLoad를 절대 걸지 않는다.
     async function handleFile(file: File) {
-      hint.textContent = "업로드 중…";
+      hint.textContent = "Uploading…";
       try {
         const name = await api.uploadImage(file, file.name);
         onSet(name);
@@ -487,7 +487,7 @@ export function renderZImage(root: HTMLElement) {
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
           probe.src = url;
         }
-      } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
+      } catch (e: any) { hint.textContent = "Upload failed: " + (e.message || e); }
     }
     function applyPicked(name: string) {
       onSet(name);
@@ -502,7 +502,7 @@ export function renderZImage(root: HTMLElement) {
         probe.src = url;
       }
     }
-    const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
+    const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
     galleryBtn.addEventListener("click", (e) => { e.stopPropagation(); openImageGalleryPicker((name) => applyPicked(name)); });
     wrap.appendChild(galleryBtn);
 
@@ -597,12 +597,12 @@ export function renderZImage(root: HTMLElement) {
         label("Source Image"),
         imageUploadSlot(state.inpaintImage, (name) => { state.inpaintImage = name; state.inpaintMaskImage = null; persist(); editor.loadSourceImage(name); }),
       ]));
-      leftScroll.appendChild(panel([label("Mask Editor (보라=재생성 / 검=유지)"), editor.editorPanel]));
+      leftScroll.appendChild(panel([label("Mask Editor (purple = regenerate / black = keep)"), editor.editorPanel]));
       if (state.inpaintImage) editor.loadSourceImage(state.inpaintImage);
       inpaintAutoSave = editor.autoSaveIfNeeded;
       leftScroll.appendChild(panel([
         label("Denoise"),
-        el("div", { text: "높을수록 마스크 영역이 프롬프트를 더 강하게 따릅니다.", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
+        el("div", { text: "Higher = the masked area follows the prompt more strongly.", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
         numberField(state.inpaintDenoise ?? 0.85, (v) => { state.inpaintDenoise = Math.max(0.1, Math.min(1, v)); persist(); }, 0.01),
       ]));
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
@@ -619,25 +619,25 @@ export function renderZImage(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.rebgImage, (name) => { state.rebgImage = name; persist(); })]));
       leftScroll.appendChild(panel([
         label("Subject Edge"),
-        el("div", { text: "Edge Offset: 마스크 경계를 + 확장 / − 축소 (px). 기본 0", style: { color: C.muted, fontSize: "10px" } }),
+        el("div", { text: "Edge Offset: expand (+) / shrink (−) the mask edge (px). Default 0.", style: { color: C.muted, fontSize: "10px" } }),
         numberField(state.rebgOffset ?? 0, (v) => { state.rebgOffset = v; persist(); }, 1),
-        el("div", { text: "Edge Blur: 마스크를 블러링해 경계를 부드럽게 (px). 기본 0", style: { color: C.muted, fontSize: "10px", marginTop: "6px" } }),
+        el("div", { text: "Edge Blur: soften the mask edge by blurring (px). Default 0.", style: { color: C.muted, fontSize: "10px", marginTop: "6px" } }),
         numberField(state.rebgBlur ?? 0, (v) => { state.rebgBlur = Math.max(0, v); persist(); }, 1),
       ]));
       leftScroll.appendChild(panel([
-        label("Expansion (px) — 0이면 배경만 재생성"),
-        el("div", { text: "ℹ Expansion은 OUTPAINT가 아닙니다. 서브젝트는 원본 위치 그대로 유지되며, 배경 영역만 px 단위로 넓혀 재생성합니다.", style: { color: "#FFD700", fontSize: "11px", padding: "4px 6px", background: "rgba(255,215,0,0.07)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: "5px", marginBottom: "6px" } }),
+        label("Expansion (px) — 0 = regenerate background only"),
+        el("div", { text: "ℹ Expansion is not OUTPAINT. The subject stays exactly where it is; only the background area is expanded (px) and regenerated.", style: { color: "#FFD700", fontSize: "11px", padding: "4px 6px", background: "rgba(255,215,0,0.07)", border: "1px solid rgba(255,215,0,0.25)", borderRadius: "5px", marginBottom: "6px" } }),
         row([col([label("Up"), numberField(state.rebgUp ?? 0, (v) => { state.rebgUp = Math.max(0, v); persist(); }, 64)]), col([label("Down"), numberField(state.rebgDown ?? 0, (v) => { state.rebgDown = Math.max(0, v); persist(); }, 64)])]),
         row([col([label("Left"), numberField(state.rebgLeft ?? 0, (v) => { state.rebgLeft = Math.max(0, v); persist(); }, 64)]), col([label("Right"), numberField(state.rebgRight ?? 0, (v) => { state.rebgRight = Math.max(0, v); persist(); }, 64)])]),
       ]));
       leftScroll.appendChild(panel([
         label("Expansion Edge Feathering (px)"),
-        el("div", { text: "Expansion px > 0 일 때만 유효 — 원본/확장 경계를 블렌딩", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
+        el("div", { text: "Only applies when Expansion px > 0 — blends the original/expanded boundary", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
         numberField(state.rebgFeather ?? 40, (v) => { state.rebgFeather = Math.max(0, v); persist(); }, 4),
       ]));
       leftScroll.appendChild(panel([
         label("Background Denoise"),
-        el("div", { text: "1.0 = 완전히 새 배경 생성 / 낮을수록 원본 배경 색감 유지", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
+        el("div", { text: "1.0 = fully new background / lower keeps more of the original background's coloring", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }),
         numberField(state.rebgDenoise ?? 1, (v) => { state.rebgDenoise = Math.max(0.5, Math.min(1, v)); persist(); }, 0.01),
       ]));
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
@@ -699,10 +699,10 @@ export function renderZImage(root: HTMLElement) {
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "내 요청이 대기 중…" : "내 요청 실행 중…";
+        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "My request is pending…" : "My request is running…";
       } else if (q.running > 0 || q.pending > 0) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = `ComfyUI가 다른 작업을 처리 중입니다 (대기 ${q.pending}건)`;
+        externalQueueBanner.textContent = `ComfyUI is processing other work (${q.pending} pending)`;
       } else {
         externalQueueBanner.style.display = "none";
         queuedPromptId = null;
@@ -714,31 +714,31 @@ export function renderZImage(root: HTMLElement) {
   // ── Generate / Stop — Krea2와 동일 방식 ────────────────────────────────
   async function generate() {
     if (samplingActive) return;
-    if (!IMPLEMENTED_MODES.includes(state.mode)) { warnTag.textContent = "이 모드는 Phase 2에서 지원 예정입니다."; return; }
-    if (!state.model) { warnTag.textContent = "⚙ Settings에서 Model / Text Encoder / VAE를 설정하세요"; return; }
-    if (!state.textEncoder) { warnTag.textContent = "⚙ Settings에서 Text Encoder를 설정하세요"; return; }
-    if (!state.vae) { warnTag.textContent = "⚙ Settings에서 VAE를 설정하세요"; return; }
-    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "I2I 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "upscale" && !state.upscaleImage) { warnTag.textContent = "Upscale 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "upscale" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "SeedVR2 DiT/VAE 모델을 선택하세요"; return; }
+    if (!IMPLEMENTED_MODES.includes(state.mode)) { warnTag.textContent = "This mode is coming in Phase 2."; return; }
+    if (!state.model) { warnTag.textContent = "⚙ Set Model / Text Encoder / VAE in Settings"; return; }
+    if (!state.textEncoder) { warnTag.textContent = "⚙ Set Text Encoder in Settings"; return; }
+    if (!state.vae) { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
+    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
+    if (state.mode === "upscale" && !state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
+    if (state.mode === "upscale" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     if (state.mode === "inpaint") {
-      if (!state.inpaintImage) { warnTag.textContent = "Inpaint 소스 이미지를 업로드하세요"; return; }
+      if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
       if (!state.inpaintMaskImage) {
         const saved = await inpaintAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "마스크를 칠하고 저장하세요"; return; }
+        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
       }
     }
     if (state.mode === "rebg") {
-      if (!state.rebgImage) { warnTag.textContent = "Redraw-BG 소스 이미지를 업로드하세요"; return; }
-      if (!state.rebgBgModel || state.rebgBgModel === "none") { warnTag.textContent = "BG Removal 모델을 선택하세요"; return; }
+      if (!state.rebgImage) { warnTag.textContent = "Upload a Redraw-BG source image"; return; }
+      if (!state.rebgBgModel || state.rebgBgModel === "none") { warnTag.textContent = "Select a BG Removal model"; return; }
     }
     if (state.mode === "controlnet") {
-      if (!state.controlnetImage) { warnTag.textContent = "ControlNet 참조 이미지를 업로드하세요"; return; }
-      if (!state.controlnetModel || state.controlnetModel === "none") { warnTag.textContent = "ControlNet Union 모델을 선택하세요"; return; }
+      if (!state.controlnetImage) { warnTag.textContent = "Upload a ControlNet reference image"; return; }
+      if (!state.controlnetModel || state.controlnetModel === "none") { warnTag.textContent = "Select a ControlNet Union model"; return; }
     }
     if (state.mode === "face_redraw") {
-      if (!state.faceImage) { warnTag.textContent = "Face Redraw 소스 이미지를 업로드하세요"; return; }
-      if (!state.faceDetectorModel || state.faceDetectorModel === "none") { warnTag.textContent = "Face Detector 모델을 선택하세요"; return; }
+      if (!state.faceImage) { warnTag.textContent = "Upload a Face Redraw source image"; return; }
+      if (!state.faceDetectorModel || state.faceDetectorModel === "none") { warnTag.textContent = "Select a Face Detector model"; return; }
     }
     warnTag.textContent = "";
 
@@ -812,12 +812,12 @@ function createHelpOverlay() {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px", width: "min(640px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px" } });
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "❔ Z-Image Turbo 도움말", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(el("div", { text: "❔ Z-Image Turbo Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>모드</b>: T2I, I2I, Upscale(SeedVR2)가 현재 구현되어 있습니다. Inpaint/Re-BG/ControlNet/Face Redraw는 곧 추가됩니다.<br>
-    <b>프롬프트</b>: 📋 Templates에서 스타일/각도/조명 템플릿을 적용하거나, 🔍 Expand/LLM에서 로컬 LLM으로 프롬프트를 보강하거나 이미지를 프롬프트로 변환할 수 있습니다.<br>
-    <b>상단 아이콘</b>: ↺ Reset(전체 초기화, 모델 선택은 유지) · ⇌ Compare(원본/결과 비교) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery.
+    <b>Modes</b>: T2I, I2I, Upscale (SeedVR2) are implemented now. Inpaint/Re-BG/ControlNet/Face Redraw are coming soon.<br>
+    <b>Prompt</b>: apply a style/angle/lighting template from 📋 Templates, or expand it with a local LLM or convert an image to a prompt via 🔍 Expand/LLM.<br>
+    <b>Top icons</b>: ↺ Reset (full reset, keeps model selection) · ⇌ Compare (original/result) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery.
   `;
   box.append(hdr, body);
   ov.appendChild(box);

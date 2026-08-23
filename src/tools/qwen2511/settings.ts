@@ -166,7 +166,7 @@ export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
     ctx.appConfig.output_mode_visible = visChk.checked;
     ctx.onOutputVisibilityChanged?.();
   });
-  ov.appendChild(panel([label("Save Folder (output/ 안)"), pathIn, visLbl]));
+  ov.appendChild(panel([label("Save Folder (inside output/)"), pathIn, visLbl]));
 
   function saveAll() {
     ctx.persist();

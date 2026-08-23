@@ -41,10 +41,10 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
 
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   hdr.append(
-    el("div", { text: "프롬프트 편집", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }),
+    el("div", { text: "Edit Prompt", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }),
     // Edit 탭엔 자체 적용 버튼이 없어서(Enhance/Image→Prompt 탭만 있었음), 직접 편집한 내용을
     // 반영할 방법이 없었다 — 헤더에 상시 노출되는 완료 버튼으로 어느 탭에 있든 editTA 내용을 반영.
-    button("✓ 완료", () => { setPrompt(editTA.value); ov.style.display = "none"; }, "primary"),
+    button("✓ Done", () => { setPrompt(editTA.value); ov.style.display = "none"; }, "primary"),
     button("✕", () => (ov.style.display = "none"), "danger")
   );
 
@@ -93,14 +93,14 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const enhanceBtn = el("button", { type: "button", text: "✨ Enhance", style: { background: "#1e4a1e", color: "#7eff7e", border: "1px solid #3a7a3a", borderRadius: "5px", padding: "8px", cursor: "pointer", fontSize: "12px", fontWeight: "700" } });
   enhLeft.append(spacer1, enhanceBtn);
 
-  const enhTA = el("textarea", { placeholder: "결과가 여기에 표시됩니다…", style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
-  const enhReplaceBtn = button("적용", () => { setPrompt(enhTA.value); editTA.value = enhTA.value; }, "primary");
+  const enhTA = el("textarea", { placeholder: "Result appears here…", style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
+  const enhReplaceBtn = button("Apply", () => { setPrompt(enhTA.value); editTA.value = enhTA.value; }, "primary");
   const enhRight = el("div", { style: { flex: "1", display: "flex", flexDirection: "column" } }, [enhTA, el("div", { style: { padding: "6px", borderTop: `1px solid ${C.border}` } }, [enhReplaceBtn])]);
   const panelEnhance = el("div", { class: "aos-llm-panel-row", style: { display: "none", flex: "1", flexDirection: "row" } }, [enhLeft, enhRight]);
 
   enhanceBtn.addEventListener("click", async () => {
     const prompt = editTA.value.trim();
-    if (!prompt) { alert("먼저 프롬프트를 입력하세요"); return; }
+    if (!prompt) { alert("Enter a prompt first"); return; }
     enhanceBtn.textContent = "…";
     (enhanceBtn as HTMLButtonElement).disabled = true;
     try {
@@ -113,7 +113,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       if (!d.ok) throw new Error(d.error || "error");
       enhTA.value = d.result;
     } catch (e: any) {
-      alert("LLM 오류: " + (e.message || e));
+      alert("LLM error: " + (e.message || e));
     } finally {
       enhanceBtn.textContent = "✨ Enhance";
       (enhanceBtn as HTMLButtonElement).disabled = false;
@@ -123,7 +123,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const i2pLeft = el("div", { class: "aos-llm-left", style: { width: "210px", flexShrink: "0", background: C.bg0, padding: "10px", display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", borderRight: `1px solid ${C.border}` } });
 
   const dropZone = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "6px", padding: "10px", textAlign: "center", cursor: "pointer", color: C.muted, fontSize: "11px", background: C.bg2, minHeight: "80px", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" } });
-  dropZone.textContent = "이미지를 드래그하거나 클릭";
+  dropZone.textContent = "Drag an image here or click";
   const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
   const preview = el("img", { style: { maxWidth: "100%", maxHeight: "80px", display: "none", borderRadius: "4px", marginTop: "4px" } });
   dropZone.append(fileIn, preview);
@@ -161,18 +161,18 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   dropZone.addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) loadImageFile(f); });
 
   const urlRow = el("div", { style: { display: "flex", gap: "4px", alignItems: "center", width: "100%" } });
-  const urlInput = el("input", { type: "text", placeholder: "이미지 URL…", style: { flex: "1", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "4px", padding: "4px 6px", fontSize: "11px", minWidth: "0" } });
-  const btnDl = el("button", { type: "button", text: "↓", title: "URL에서 다운로드", style: { background: "#1a1e3a", color: "#7e9eff", border: "1px solid #3a4a7a", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", fontSize: "11px", flexShrink: "0" } });
+  const urlInput = el("input", { type: "text", placeholder: "Image URL…", style: { flex: "1", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "4px", padding: "4px 6px", fontSize: "11px", minWidth: "0" } });
+  const btnDl = el("button", { type: "button", text: "↓", title: "Download from URL", style: { background: "#1a1e3a", color: "#7e9eff", border: "1px solid #3a4a7a", borderRadius: "4px", padding: "4px 8px", cursor: "pointer", fontSize: "11px", flexShrink: "0" } });
   btnDl.addEventListener("click", async () => {
     const url = urlInput.value.trim();
-    if (!url) { alert("URL을 입력하세요"); return; }
+    if (!url) { alert("Enter a URL"); return; }
     btnDl.textContent = "…"; (btnDl as HTMLButtonElement).disabled = true;
     try {
       const resp = await comfyApi.fetchApi("/tj_studio_one/llm/download_image", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
       const d = await resp.json();
       if (!d.ok) throw new Error(d.error || "unknown error");
       await resizeAndSetImage(d.b64);
-    } catch (e: any) { alert("다운로드 오류: " + (e.message || e)); }
+    } catch (e: any) { alert("Download error: " + (e.message || e)); }
     finally { btnDl.textContent = "↓"; (btnDl as HTMLButtonElement).disabled = false; }
   });
   urlRow.append(urlInput, btnDl);
@@ -192,7 +192,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const seedI = mkNum(llm.seed, 0, 999999999, 1, (v) => { llm.seed = v; saveLLM(); seedE.value = String(v); });
 
   i2pLeft.append(
-    fieldRow("이미지", imgWrap),
+    fieldRow("Image", imgWrap),
     fieldRow("GGUF Model", ggufSelI),
     fieldRow("mmproj", mmprojSel),
     fieldRow("Vision Task", vtSel),
@@ -204,16 +204,16 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
     fieldRow("Temperature", tempI),
     fieldRow("Seed", seedI)
   );
-  const i2pBtn = el("button", { type: "button", text: "🔍 분석", style: { background: "#1a1e4a", color: "#7e9eff", border: "1px solid #3a4a7a", borderRadius: "5px", padding: "8px", cursor: "pointer", fontSize: "12px", fontWeight: "700" } });
+  const i2pBtn = el("button", { type: "button", text: "🔍 Analyze", style: { background: "#1a1e4a", color: "#7e9eff", border: "1px solid #3a4a7a", borderRadius: "5px", padding: "8px", cursor: "pointer", fontSize: "12px", fontWeight: "700" } });
   i2pLeft.appendChild(i2pBtn);
 
-  const i2pTA = el("textarea", { placeholder: "분석 결과가 여기에 표시됩니다…", style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
-  const i2pSendBtn = button("적용", () => { setPrompt(i2pTA.value); editTA.value = i2pTA.value; }, "primary");
+  const i2pTA = el("textarea", { placeholder: "Analysis result appears here…", style: { flex: "1", background: C.bg0, color: C.text, border: "none", padding: "10px", fontSize: "13px", fontFamily: "inherit", resize: "none", outline: "none" } });
+  const i2pSendBtn = button("Apply", () => { setPrompt(i2pTA.value); editTA.value = i2pTA.value; }, "primary");
   const i2pRight = el("div", { style: { flex: "1", display: "flex", flexDirection: "column" } }, [i2pTA, el("div", { style: { padding: "6px", borderTop: `1px solid ${C.border}` } }, [i2pSendBtn])]);
   const panelI2P = el("div", { class: "aos-llm-panel-row", style: { display: "none", flex: "1", flexDirection: "row" } }, [i2pLeft, i2pRight]);
 
   i2pBtn.addEventListener("click", async () => {
-    if (!imgB64) { alert("먼저 이미지를 업로드하세요"); return; }
+    if (!imgB64) { alert("Upload an image first"); return; }
     i2pBtn.textContent = "…";
     (i2pBtn as HTMLButtonElement).disabled = true;
     try {
@@ -226,9 +226,9 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       if (!d.ok) throw new Error(d.error || "error");
       i2pTA.value = d.result;
     } catch (e: any) {
-      alert("LLM 오류: " + (e.message || e));
+      alert("LLM error: " + (e.message || e));
     } finally {
-      i2pBtn.textContent = "🔍 분석";
+      i2pBtn.textContent = "🔍 Analyze";
       (i2pBtn as HTMLButtonElement).disabled = false;
     }
   });
@@ -292,7 +292,7 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(700px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" } });
 
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "📋 프롬프트 템플릿", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
+  hdr.append(el("div", { text: "📋 Prompt Templates", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
   const addBtn = button("+ New", () => startEdit(null));
   hdr.append(addBtn, button("✕", () => (ov.style.display = "none"), "danger"));
   box.appendChild(hdr);
@@ -306,7 +306,7 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
   function renderCustom() {
     clear(listEl);
     if (!customTemplates.length) {
-      listEl.appendChild(el("div", { text: "저장된 템플릿이 없습니다. + New로 추가하세요.", style: { color: C.muted, fontSize: "12px", padding: "16px 0" } }));
+      listEl.appendChild(el("div", { text: "No saved templates. Add one with + New.", style: { color: C.muted, fontSize: "12px", padding: "16px 0" } }));
       return;
     }
     customTemplates.forEach((t, i) => {
@@ -318,25 +318,25 @@ export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: 
       );
       const applyBtn = button("Apply", () => { onApply(t.prompt); ov.style.display = "none"; }, "primary");
       const editBtn = button("Edit", () => startEdit(i));
-      const delBtn = button("✕", async () => { if (!(await confirmDialog(`"${t.name}" 삭제할까요?`))) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
+      const delBtn = button("✕", async () => { if (!(await confirmDialog(`Delete "${t.name}"?`))) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
       card.append(info, applyBtn, editBtn, delBtn);
       listEl.appendChild(card);
     });
   }
 
   const editForm = el("div", { style: { display: "none", flexDirection: "column", gap: "6px", padding: "10px", background: C.bg0, borderRadius: "8px", border: `1px solid ${C.border}` } });
-  const nameIn = el("input", { type: "text", placeholder: "템플릿 이름…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } });
-  const promptTA2 = el("textarea", { placeholder: "프롬프트…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", minHeight: "80px" } });
-  editForm.append(uiLabel("이름"), nameIn, uiLabel("프롬프트"), promptTA2);
+  const nameIn = el("input", { type: "text", placeholder: "Template name…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } });
+  const promptTA2 = el("textarea", { placeholder: "Prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", minHeight: "80px" } });
+  editForm.append(uiLabel("Name"), nameIn, uiLabel("Prompt"), promptTA2);
   let editIdx: number | null = null;
-  const saveEditBtn = button("💾 저장", () => {
+  const saveEditBtn = button("💾 Save", () => {
     const n = nameIn.value.trim(), p = promptTA2.value.trim();
-    if (!n || !p) { alert("이름과 프롬프트를 모두 입력하세요."); return; }
+    if (!n || !p) { alert("Enter both a name and a prompt."); return; }
     if (editIdx === null) customTemplates.push({ name: n, prompt: p });
     else customTemplates[editIdx] = { name: n, prompt: p };
     saveCustom(); editForm.style.display = "none"; renderCustom();
   }, "primary");
-  const cancelEditBtn = button("취소", () => { editForm.style.display = "none"; });
+  const cancelEditBtn = button("Cancel", () => { editForm.style.display = "none"; });
   editForm.appendChild(row([saveEditBtn, cancelEditBtn]));
   box.appendChild(editForm);
 

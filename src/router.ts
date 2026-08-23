@@ -24,7 +24,7 @@ export function startRouter(container: HTMLElement, renderLanding: RenderFn) {
     if (!renderFn) {
       const div = document.createElement("div");
       div.className = "p-8 text-muted";
-      div.textContent = `${tool.label} — 아직 이식되지 않았습니다`;
+      div.textContent = `${tool.label} — not ported yet`;
       container.appendChild(div);
       return;
     }

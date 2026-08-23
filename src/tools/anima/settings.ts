@@ -92,7 +92,7 @@ export function createSettingsOverlay(state: AnimaState, ctx: SettingsCtx) {
     ctx.appConfig.output_mode_visible = visChk.checked;
     ctx.onOutputVisibilityChanged?.();
   });
-  ov.appendChild(panel([label("Save Folder (output/ 안)"), pathIn, visLbl]));
+  ov.appendChild(panel([label("Save Folder (inside output/)"), pathIn, visLbl]));
 
   const manualBody = el("div", { style: { fontSize: "11px", lineHeight: "1.6", color: C.text, whiteSpace: "pre-wrap" } });
   manualBody.textContent = MANUAL_TEXT;

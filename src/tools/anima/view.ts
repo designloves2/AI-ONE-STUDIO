@@ -95,7 +95,7 @@ export function renderAnima(root: HTMLElement) {
   body.appendChild(rightPanel);
 
   const previewBox = el("div", { class: "aos-preview-box", style: { flex: "1", minHeight: "0", background: "#000", border: `1px solid ${C.border}`, borderRadius: "10px", position: "relative", overflow: "hidden" } });
-  const placeholderTxt = el("div", { text: "결과 이미지가 여기에 표시됩니다", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
+  const placeholderTxt = el("div", { text: "Result image appears here", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
   const resultImg = el("img", { style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" } });
   resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
@@ -368,10 +368,10 @@ export function renderAnima(root: HTMLElement) {
   function imageUploadSlot(currentFilename: string, onSet: (name: string) => void) {
     const wrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", minHeight: "180px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: C.bg2 } });
     const img = el("img", { style: { maxWidth: "100%", maxHeight: "168px", display: "none", borderRadius: "4px" } });
-    const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
+    const hint = el("div", { text: "Click or drag to upload", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
-    const clearImgBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    const clearImgBtn = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
     clearImgBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       img.style.display = "none";
@@ -391,13 +391,13 @@ export function renderAnima(root: HTMLElement) {
       clearImgBtn.style.display = "block";
     }
     async function handleFile(file: File) {
-      hint.textContent = "업로드 중…";
+      hint.textContent = "Uploading…";
       try {
         const name = await api.uploadImage(file, file.name);
         applyPicked(name);
-      } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
+      } catch (e: any) { hint.textContent = "Upload failed: " + (e.message || e); }
     }
-    const galleryPickBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
+    const galleryPickBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
     galleryPickBtn.addEventListener("click", (e) => { e.stopPropagation(); openImageGalleryPicker((name) => applyPicked(name)); });
     wrap.appendChild(galleryPickBtn);
 
@@ -470,7 +470,7 @@ export function renderAnima(root: HTMLElement) {
         label("Source Image"),
         imageUploadSlot(state.inpaintImage, (name) => { state.inpaintImage = name; state.inpaintMask = null; persist(); editor.loadSourceImage(name); }),
       ]));
-      leftScroll.appendChild(panel([label("Mask Editor (보라=컨트롤 영역)"), editor.editorPanel]));
+      leftScroll.appendChild(panel([label("Mask Editor (purple = control area)"), editor.editorPanel]));
       if (state.inpaintImage) editor.loadSourceImage(state.inpaintImage);
       controlAutoSave = editor.autoSaveIfNeeded;
       leftScroll.appendChild(resolutionSection());
@@ -484,9 +484,9 @@ export function renderAnima(root: HTMLElement) {
       leftScroll.appendChild(panel([
         label("Source Image"),
         imageUploadSlot(state.anyControlImage, (name) => { state.anyControlImage = name; state.anyControlMask = null; persist(); editor.loadSourceImage(name); }),
-        el("div", { text: "마스크는 선택 사항입니다 — 칠하지 않으면 이미지 전체가 컨트롤됩니다.", style: { fontSize: "10px", color: C.muted, marginTop: "4px" } }),
+        el("div", { text: "The mask is optional — leave it unpainted and the whole image is controlled.", style: { fontSize: "10px", color: C.muted, marginTop: "4px" } }),
       ]));
-      leftScroll.appendChild(panel([label("Mask Editor (선택 사항)"), editor.editorPanel]));
+      leftScroll.appendChild(panel([label("Mask Editor (optional)"), editor.editorPanel]));
       if (state.anyControlImage) editor.loadSourceImage(state.anyControlImage);
       leftScroll.appendChild(resolutionSection());
       leftScroll.appendChild(panel([
@@ -498,7 +498,7 @@ export function renderAnima(root: HTMLElement) {
       leftScroll.appendChild(panel([
         label("Source Image"),
         imageUploadSlot(state.depthControlImage, (name) => { state.depthControlImage = name; persist(); }),
-        el("div", { text: "Depth map은 소스 이미지에서 자동 추출됩니다 (DepthAnythingV2 preprocessor).", style: { fontSize: "10px", color: C.muted, marginTop: "4px" } }),
+        el("div", { text: "The depth map is auto-extracted from the source image (DepthAnythingV2 preprocessor).", style: { fontSize: "10px", color: C.muted, marginTop: "4px" } }),
       ]));
       leftScroll.appendChild(resolutionSection());
       leftScroll.appendChild(panel([
@@ -512,20 +512,20 @@ export function renderAnima(root: HTMLElement) {
 
   async function generate() {
     if (samplingActive) return;
-    if (!state.model) { warnTag.textContent = "⚙ Settings에서 Diffusion Model을 설정하세요"; return; }
-    if (!state.textEncoder) { warnTag.textContent = "⚙ Settings에서 Text Encoder를 설정하세요"; return; }
-    if (!state.vae) { warnTag.textContent = "⚙ Settings에서 VAE를 설정하세요"; return; }
-    if (state.mode === "t2i" && state.useBaseVariant === "preview3" && !state.previewModel) { warnTag.textContent = "⚙ Settings에서 Preview3 모델을 설정하세요"; return; }
-    if (state.turboMode && !state.turboLora) { warnTag.textContent = "⚙ Settings에서 Turbo LoRA를 설정하세요"; return; }
+    if (!state.model) { warnTag.textContent = "⚙ Set the Diffusion Model in Settings"; return; }
+    if (!state.textEncoder) { warnTag.textContent = "⚙ Set Text Encoder in Settings"; return; }
+    if (!state.vae) { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
+    if (state.mode === "t2i" && state.useBaseVariant === "preview3" && !state.previewModel) { warnTag.textContent = "⚙ Set the Preview3 model in Settings"; return; }
+    if (state.turboMode && !state.turboLora) { warnTag.textContent = "⚙ Set the Turbo LoRA in Settings"; return; }
     if (state.mode === "inpaint") {
-      if (!state.inpaintImage) { warnTag.textContent = "Inpainting 소스 이미지를 업로드하세요"; return; }
+      if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpainting source image"; return; }
       if (!state.inpaintMask) {
         const saved = await controlAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "마스크를 칠하고 저장하세요"; return; }
+        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
       }
     }
-    if (state.mode === "anycontrol" && !state.anyControlImage) { warnTag.textContent = "Any Control 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "depthcontrol" && !state.depthControlImage) { warnTag.textContent = "Depth Control 소스 이미지를 업로드하세요"; return; }
+    if (state.mode === "anycontrol" && !state.anyControlImage) { warnTag.textContent = "Upload an Any Control source image"; return; }
+    if (state.mode === "depthcontrol" && !state.depthControlImage) { warnTag.textContent = "Upload a Depth Control source image"; return; }
     warnTag.textContent = "";
 
     if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
@@ -601,14 +601,14 @@ function createHelpOverlay() {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px", width: "min(640px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px" } });
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "❔ Anima 도움말", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(el("div", { text: "❔ Anima Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>모드</b>: T2I, Inpainting, Any Control to Image, Depth Control to Image.<br>
-    <b>TURBO</b>: Base 1.0 + Turbo LoRA를 함께 적용해 8 steps / CFG 1로 빠르게 생성합니다 (⚙ Settings에서 Turbo LoRA 파일을 먼저 지정하세요).<br>
-    <b>컨트롤 모드</b>: Inpainting/Any Control/Depth Control은 표준 ControlNet이 아니라 가벼운 LLLite 모델 패치를 씁니다 — Depth Control은 소스 이미지에서 깊이맵을 자동 추출합니다.<br>
-    <b>프롬프트</b>: 📋 Templates에서 저장한 템플릿을 적용하거나, 🔍 Expand/LLM에서 로컬 LLM으로 프롬프트를 보강할 수 있습니다.<br>
-    <b>상단 아이콘</b>: ↺ Reset(전체 초기화, 모델 선택 유지) · ⇌ Compare(원본/결과 비교) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery. 자세한 모델 파일 안내는 ⚙ Settings 하단의 Manual을 참고하세요.
+    <b>Modes</b>: T2I, Inpainting, Any Control to Image, Depth Control to Image.<br>
+    <b>TURBO</b>: applies Base 1.0 + Turbo LoRA together for fast 8-step / CFG 1 generation (set the Turbo LoRA file in ⚙ Settings first).<br>
+    <b>Control modes</b>: Inpainting/Any Control/Depth Control use a lightweight LLLite model patch rather than a standard ControlNet — Depth Control auto-extracts a depth map from the source image.<br>
+    <b>Prompt</b>: apply a saved template from 📋 Templates, or expand it with a local LLM via 🔍 Expand/LLM.<br>
+    <b>Top icons</b>: ↺ Reset (full reset, keeps model selection) · ⇌ Compare (original/result) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery. See the Manual at the bottom of ⚙ Settings for model file details.
   `;
   box.append(hdr, body);
   ov.appendChild(box);

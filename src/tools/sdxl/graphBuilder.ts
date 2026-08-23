@@ -123,7 +123,7 @@ export function buildT2IGraph(state: SDXLState): Record<string, any> {
 
 // ── I2I ──────────────────────────────────────────────────────────────────
 export function buildI2IGraph(state: SDXLState): Record<string, any> {
-  if (!state.i2iImage) throw new Error("소스 이미지를 업로드하세요.");
+  if (!state.i2iImage) throw new Error("Upload a source image.");
   const { g, modelRef, clipRef, vaeRef } = buildModelNodes(state);
   const { modelOut, clipOut } = applyLoraChain(g, state, modelRef, clipRef);
 
@@ -139,8 +139,8 @@ export function buildI2IGraph(state: SDXLState): Record<string, any> {
 
 // ── INPAINT — DifferentialDiffusion + VAEEncodeForInpaint ─────────────────
 export function buildInpaintGraph(state: SDXLState): Record<string, any> {
-  if (!state.inpaintImage) throw new Error("소스 이미지를 업로드하세요.");
-  if (!state.inpaintMaskImage) throw new Error("마스크 이미지를 업로드하세요.");
+  if (!state.inpaintImage) throw new Error("Upload a source image.");
+  if (!state.inpaintMaskImage) throw new Error("Upload a mask image.");
 
   const { g, modelRef, clipRef, vaeRef } = buildModelNodes(state);
   const { modelOut, clipOut } = applyLoraChain(g, state, modelRef, clipRef);
@@ -171,9 +171,9 @@ export function buildInpaintGraph(state: SDXLState): Record<string, any> {
 
 // ── OUTPAINT — ImagePadForOutpaint + DifferentialDiffusion ─────────────────
 export function buildOutpaintGraph(state: SDXLState): Record<string, any> {
-  if (!state.outpaintImage) throw new Error("소스 이미지를 업로드하세요.");
+  if (!state.outpaintImage) throw new Error("Upload a source image.");
   const total = (state.outpaintUp || 0) + (state.outpaintDown || 0) + (state.outpaintLeft || 0) + (state.outpaintRight || 0);
-  if (total <= 0) throw new Error("아웃페인트 확장 값을 1px 이상 설정하세요.");
+  if (total <= 0) throw new Error("Set at least 1px of outpaint expansion.");
 
   const { g, modelRef, clipRef, vaeRef } = buildModelNodes(state);
   const { modelOut, clipOut } = applyLoraChain(g, state, modelRef, clipRef);
@@ -213,8 +213,8 @@ export function buildOutpaintGraph(state: SDXLState): Record<string, any> {
 
 // ── UPSCALE: ESRGAN ─────────────────────────────────────────────────────────
 export function buildESRGANGraph(state: SDXLState): Record<string, any> {
-  if (!state.upscaleImage) throw new Error("업스케일할 이미지를 업로드하세요.");
-  if (!state.esrganModel) throw new Error("ESRGAN 모델을 선택하세요.");
+  if (!state.upscaleImage) throw new Error("Upload an image to upscale.");
+  if (!state.esrganModel) throw new Error("Select an ESRGAN model.");
   const g: Record<string, any> = {};
   g["UP:loader"] = { class_type: "UpscaleModelLoader", inputs: { model_name: state.esrganModel } };
   g["UP:load"] = { class_type: "LoadImage", inputs: { image: state.upscaleImage } };
@@ -232,8 +232,8 @@ export function buildESRGANGraph(state: SDXLState): Record<string, any> {
 
 // ── UPSCALE: SDXL Refiner (I2I with refiner checkpoint) ────────────────────
 export function buildRefinerUpscaleGraph(state: SDXLState): Record<string, any> {
-  if (!state.upscaleImage) throw new Error("업스케일할 이미지를 업로드하세요.");
-  if (!state.refinerCheckpoint) throw new Error("설정에서 Refiner Checkpoint를 선택하세요.");
+  if (!state.upscaleImage) throw new Error("Upload an image to upscale.");
+  if (!state.refinerCheckpoint) throw new Error("Select the Refiner Checkpoint in Settings.");
   const g: Record<string, any> = {};
   g["UP:ckpt"] = { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: state.refinerCheckpoint } };
   g["UP:pos"] = { class_type: "CLIPTextEncode", inputs: { text: state.promptsByMode.upscale || state.prompt || "", clip: ["UP:ckpt", 1] } };
@@ -260,9 +260,9 @@ export function buildRefinerUpscaleGraph(state: SDXLState): Record<string, any> 
 
 // ── UPSCALE: SEEDVR2 ─────────────────────────────────────────────────────────
 export function buildSeedVR2Graph(state: SDXLState): Record<string, any> {
-  if (!state.upscaleImage) throw new Error("업스케일할 이미지를 업로드하세요.");
-  if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("DiT 모델을 선택하세요.");
-  if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("VAE 모델을 선택하세요.");
+  if (!state.upscaleImage) throw new Error("Upload an image to upscale.");
+  if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a DiT model.");
+  if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a VAE model.");
 
   const s = state;
   const offload = s.upscaleOffloadDevice && s.upscaleOffloadDevice !== "none" ? s.upscaleOffloadDevice : "cpu";

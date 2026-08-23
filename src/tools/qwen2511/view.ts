@@ -100,7 +100,7 @@ export function renderQwen2511(root: HTMLElement) {
   body.appendChild(rightPanel);
 
   const previewBox = el("div", { class: "aos-preview-box", style: { flex: "1", minHeight: "0", background: "#000", border: `1px solid ${C.border}`, borderRadius: "10px", position: "relative", overflow: "hidden" } });
-  const placeholderTxt = el("div", { text: "결과 이미지가 여기에 표시됩니다", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
+  const placeholderTxt = el("div", { text: "Result image appears here", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
   const resultImg = el("img", { style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" } });
   resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
@@ -494,10 +494,10 @@ export function renderQwen2511(root: HTMLElement) {
   function imageUploadSlot(currentFilename: string | null, onSet: (name: string) => void, onLoad?: (w: number, h: number) => void, probeIfUnknown?: boolean) {
     const wrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", minHeight: "180px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: C.bg2 } });
     const img = el("img", { style: { maxWidth: "100%", maxHeight: "168px", display: "none", borderRadius: "4px" } });
-    const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
+    const hint = el("div", { text: "Click or drag to upload", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
-    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    const clearBtn = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
     clearBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       img.style.display = "none";
@@ -508,7 +508,7 @@ export function renderQwen2511(root: HTMLElement) {
     });
     wrap.appendChild(clearBtn);
     async function handleFile(file: File) {
-      hint.textContent = "업로드 중…";
+      hint.textContent = "Uploading…";
       try {
         const name = await api.uploadImage(file, file.name);
         onSet(name);
@@ -522,7 +522,7 @@ export function renderQwen2511(root: HTMLElement) {
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
           probe.src = url;
         }
-      } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
+      } catch (e: any) { hint.textContent = "Upload failed: " + (e.message || e); }
     }
     function applyPicked(name: string) {
       onSet(name);
@@ -537,7 +537,7 @@ export function renderQwen2511(root: HTMLElement) {
         probe.src = url;
       }
     }
-    const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
+    const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
     galleryBtn.addEventListener("click", (e) => { e.stopPropagation(); openImageGalleryPicker((name) => applyPicked(name)); });
     wrap.appendChild(galleryBtn);
 
@@ -577,19 +577,19 @@ export function renderQwen2511(root: HTMLElement) {
     const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
 
     const uploadWrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", position: "relative", background: C.bg2 } });
-    const hint = el("div", { text: "클릭 또는 드래그하여 피사체 이미지 업로드 (선택)", style: { color: C.muted, fontSize: "11px" } });
+    const hint = el("div", { text: "Click or drag to upload a subject image (optional)", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     uploadWrap.append(hint, fileIn);
     let subjectImg: HTMLImageElement | null = null;
     async function handleFile(file: File) {
-      hint.textContent = "업로드 중…";
+      hint.textContent = "Uploading…";
       try {
         const name = await api.uploadImage(file, file.name);
         state.angleCameraImage = name;
         persist();
-        hint.textContent = "클릭 또는 드래그하여 피사체 이미지 업로드 (선택)";
+        hint.textContent = "Click or drag to upload a subject image (optional)";
         loadSubjectPreview(name);
-      } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
+      } catch (e: any) { hint.textContent = "Upload failed: " + (e.message || e); }
     }
     uploadWrap.addEventListener("click", () => fileIn.click());
     fileIn.addEventListener("change", () => { if (fileIn.files?.[0]) handleFile(fileIn.files[0]); });
@@ -638,7 +638,7 @@ export function renderQwen2511(root: HTMLElement) {
       button("Reset to Front", () => { state.angleHorizontal = 0; state.angleVertical = 0; state.angleZoom = 5; persist(); hSel.value = "0"; vSel.value = "0"; zSel.value = "5"; scene.draw(); updatePromptPreview(); }),
     ]));
 
-    wrap.appendChild(panel([label("Prompt Preview (자동 생성, 프롬프트에 추가로 합쳐짐)"), promptPreview]));
+    wrap.appendChild(panel([label("Prompt Preview (auto-generated, appended to the prompt)"), promptPreview]));
     updatePromptPreview();
     return wrap;
   }
@@ -703,7 +703,7 @@ export function renderQwen2511(root: HTMLElement) {
       let editor: ReturnType<typeof createMaskEditor> | null = null;
       if (state.paintSubMode === "inpaint") {
         editor = createMaskEditor(state, persist);
-        leftScroll.appendChild(panel([label("Mask Editor (보라=재생성 / 검=유지)"), editor.editorPanel]));
+        leftScroll.appendChild(panel([label("Mask Editor (purple = regenerate / black = keep)"), editor.editorPanel]));
         if (state.inpaintImage) editor.loadSourceImage(state.inpaintImage);
         inpaintAutoSave = editor.autoSaveIfNeeded;
         leftScroll.appendChild(panel([label("Denoise"), numberField(state.inpaintDenoise ?? 0.85, (v) => { state.inpaintDenoise = Math.max(0.1, Math.min(1, v)); persist(); }, 0.01)]));
@@ -730,12 +730,12 @@ export function renderQwen2511(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Source Face"), imageUploadSlot(state.faceswapSource, (name) => { state.faceswapSource = name; persist(); })]));
       leftScroll.appendChild(panel([label("Denoise"), numberField(state.faceswapDenoise ?? 1, (v) => { state.faceswapDenoise = Math.max(0, Math.min(1, v)); persist(); }, 0.01)]));
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
-      leftScroll.appendChild(el("div", { text: "⚠ Face LoRA는 일반 LoRA와 별도로 최대 1개만 적용됩니다.", style: { color: "#FFD700", fontSize: "11px", fontWeight: "600", padding: "6px 8px", background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "6px" } }));
+      leftScroll.appendChild(el("div", { text: "⚠ Face LoRA is applied separately from regular LoRAs — max 1.", style: { color: "#FFD700", fontSize: "11px", fontWeight: "600", padding: "6px 8px", background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "6px" } }));
       leftScroll.appendChild(panel([label("Face LoRA"), bfsLoraSection()]));
     } else if (state.mode === "angle") {
       leftScroll.appendChild(angleSection());
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
-      leftScroll.appendChild(el("div", { text: "⚠ Camera Angle LoRA는 Settings에서 선택 시 ANGLE 모드 생성에 자동 적용됩니다.", style: { color: "#FFD700", fontSize: "11px", fontWeight: "600", padding: "6px 8px", background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "6px" } }));
+      leftScroll.appendChild(el("div", { text: "⚠ Camera Angle LoRA, once selected in Settings, is applied automatically to ANGLE-mode generation.", style: { color: "#FFD700", fontSize: "11px", fontWeight: "600", padding: "6px 8px", background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "6px" } }));
     } else if (state.mode === "upscale") {
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
       const ditSel = searchableSelect(["none"], state.upscaleDitModel, (v) => { state.upscaleDitModel = v; persist(); });
@@ -772,10 +772,10 @@ export function renderQwen2511(root: HTMLElement) {
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "내 요청이 대기 중…" : "내 요청 실행 중…";
+        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "My request is pending…" : "My request is running…";
       } else if (q.running > 0 || q.pending > 0) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = `ComfyUI가 다른 작업을 처리 중입니다 (대기 ${q.pending}건)`;
+        externalQueueBanner.textContent = `ComfyUI is processing other work (${q.pending} pending)`;
       } else {
         externalQueueBanner.style.display = "none";
         queuedPromptId = null;
@@ -787,31 +787,31 @@ export function renderQwen2511(root: HTMLElement) {
   // ── Generate / Stop ────────────────────────────────────────────────────
   async function generate() {
     if (samplingActive) return;
-    if (!state.model || state.model === "none") { warnTag.textContent = "⚙ Settings에서 Model / Text Encoder / VAE를 설정하세요"; return; }
-    if (!state.textEncoder || state.textEncoder === "none") { warnTag.textContent = "⚙ Settings에서 Text Encoder를 설정하세요"; return; }
-    if (!state.vae || state.vae === "none") { warnTag.textContent = "⚙ Settings에서 VAE를 설정하세요"; return; }
-    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "I2I 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "edit" && !state.editImage1) { warnTag.textContent = "Edit 모드에 Image 1을 업로드하세요"; return; }
+    if (!state.model || state.model === "none") { warnTag.textContent = "⚙ Set Model / Text Encoder / VAE in Settings"; return; }
+    if (!state.textEncoder || state.textEncoder === "none") { warnTag.textContent = "⚙ Set Text Encoder in Settings"; return; }
+    if (!state.vae || state.vae === "none") { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
+    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
+    if (state.mode === "edit" && !state.editImage1) { warnTag.textContent = "Upload Image 1 for Edit mode"; return; }
     if (state.mode === "faceswap") {
-      if (!state.faceswapTarget) { warnTag.textContent = "Faceswap Target 이미지를 업로드하세요"; return; }
-      if (!state.faceswapSource) { warnTag.textContent = "Faceswap Source Face 이미지를 업로드하세요"; return; }
+      if (!state.faceswapTarget) { warnTag.textContent = "Upload a Faceswap Target image"; return; }
+      if (!state.faceswapSource) { warnTag.textContent = "Upload a Faceswap Source Face image"; return; }
     }
     if (state.mode === "inpaint") {
       if (state.paintSubMode === "inpaint") {
-        if (!state.inpaintImage) { warnTag.textContent = "Inpaint 소스 이미지를 업로드하세요"; return; }
+        if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
         if (!state.inpaintMaskImage) {
           const saved = await inpaintAutoSave?.().catch(() => false);
-          if (!saved) { warnTag.textContent = "마스크를 칠하고 저장하세요"; return; }
+          if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
         }
       } else {
-        if (!state.inpaintImage) { warnTag.textContent = "Outpaint 소스 이미지를 업로드하세요"; return; }
+        if (!state.inpaintImage) { warnTag.textContent = "Upload an Outpaint source image"; return; }
         const total = (state.outpaintUp || 0) + (state.outpaintDown || 0) + (state.outpaintLeft || 0) + (state.outpaintRight || 0);
-        if (total <= 0) { warnTag.textContent = "최소 한 방향의 Expansion 값을 입력하세요"; return; }
+        if (total <= 0) { warnTag.textContent = "Enter an Expansion value for at least one direction"; return; }
       }
     }
     if (state.mode === "upscale") {
-      if (!state.upscaleImage) { warnTag.textContent = "Upscale 소스 이미지를 업로드하세요"; return; }
-      if (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none") { warnTag.textContent = "SeedVR2 DiT/VAE 모델을 선택하세요"; return; }
+      if (!state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
+      if (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none") { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     }
     warnTag.textContent = "";
 
@@ -885,16 +885,16 @@ function createHelpOverlay() {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px", width: "min(640px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px" } });
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "❔ Qwen Image Edit 2511 도움말", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(el("div", { text: "❔ Qwen Image Edit 2511 Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>모드</b>: T2I, I2I, Edit(최대 5장 레퍼런스 이미지), PAINT(Inpaint/Outpaint 서브모드), Faceswap, Angle(3D 카메라 제어), Upscale(SeedVR2).<br>
-    <b>PAINT 모드</b>: 상단 Inpaint/Outpaint 버튼으로 전환합니다. Inpaint는 브러시로 마스크를 그리고, Outpaint는 확장 방향(px)과 패딩 색을 지정합니다.<br>
-    <b>Angle 모드</b>: 캔버스의 링(H, 분홍)/호(V, 청록)/막대(Z, 노랑) 위를 드래그하거나 프리셋 드롭다운으로 카메라 각도를 지정합니다. 프롬프트는 자동 생성됩니다.<br>
-    <b>Lightning LoRA</b>: ⚙ Settings에서 켜면 Steps=8/CFG=1로 자동 전환되어 4-step 고속 생성이 가능합니다.<br>
-    <b>Faceswap</b>: Target(장면) + Source(얼굴) 이미지가 필요하며, 전용 Face LoRA는 일반 LoRA와 별도로 최대 1개까지 적용됩니다.<br>
-    <b>프롬프트</b>: 📋 Templates에서 스타일 템플릿을 적용하거나, 🔍 Expand/LLM에서 로컬 LLM으로 프롬프트를 보강할 수 있습니다.<br>
-    <b>상단 아이콘</b>: ↺ Reset(전체 초기화, 모델 선택 유지) · ⇌ Compare(원본/결과 비교) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery.
+    <b>Modes</b>: T2I, I2I, Edit (up to 5 reference images), PAINT (Inpaint/Outpaint submodes), Faceswap, Angle (3D camera control), Upscale (SeedVR2).<br>
+    <b>PAINT mode</b>: switch with the Inpaint/Outpaint buttons up top. Inpaint paints a mask with the brush; Outpaint sets expansion direction (px) and padding color.<br>
+    <b>Angle mode</b>: drag the canvas's ring (H, pink) / arc (V, cyan) / bar (Z, yellow), or pick a preset from the dropdown, to set the camera angle. The prompt is generated automatically.<br>
+    <b>Lightning LoRA</b>: enabling it in ⚙ Settings auto-switches to Steps=8/CFG=1 for 4-step fast generation.<br>
+    <b>Faceswap</b>: needs a Target (scene) + Source (face) image; the dedicated Face LoRA applies separately from regular LoRAs, max 1.<br>
+    <b>Prompt</b>: apply a style template from 📋 Templates, or expand it with a local LLM via 🔍 Expand/LLM.<br>
+    <b>Top icons</b>: ↺ Reset (full reset, keeps model selection) · ⇌ Compare (original/result) · 🗑 Unload VRAM · ⚙ Settings · 🖼 Gallery.
   `;
   box.append(hdr, body);
   ov.appendChild(box);

@@ -78,7 +78,7 @@ export function createSettingsOverlay(state: SDXLState, ctx: SettingsCtx) {
       col([label("Checkpoint"), ckptSel.el]),
       el("div", { style: { marginTop: "6px", display: "flex", alignItems: "center", gap: "6px" } }, [refTog, el("span", { text: "Use Refiner", style: { color: C.text, fontSize: "12px" } })]),
       el("div", { style: { marginTop: "4px" } }, [col([label("Refiner Checkpoint"), refinerSel.el])]),
-      el("div", { style: { fontSize: "10px", color: C.muted, marginTop: "4px" }, html: "모델 → <code>models/checkpoints/</code>" }),
+      el("div", { style: { fontSize: "10px", color: C.muted, marginTop: "4px" }, html: "Model → <code>models/checkpoints/</code>" }),
     ]));
   }
 
@@ -147,7 +147,7 @@ export function createSettingsOverlay(state: SDXLState, ctx: SettingsCtx) {
   visChk.checked = ctx.appConfig.output_mode_visible !== false;
   const visLbl = el("label", { style: { display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: C.text } }, [visChk, el("span", { text: "Show Save / Preview toggle in main view" })]);
   visChk.addEventListener("change", () => { ctx.appConfig.output_mode_visible = visChk.checked; ctx.onOutputVisibilityChanged?.(); });
-  ov.appendChild(panel([label("Save Folder (output/ 안)"), pathIn, visLbl]));
+  ov.appendChild(panel([label("Save Folder (inside output/)"), pathIn, visLbl]));
 
   function saveAll() {
     state.negativePrompt = negTA.value;

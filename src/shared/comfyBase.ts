@@ -14,10 +14,10 @@ export function getComfyBase(): string {
   // VITE_COMFY_URL이 안 잡혀 있으면 외부 접속에서 백엔드 호출이 전부 실패한다 — 콘솔에
   // 명확히 알려서 "왜 안 되지" 삽질을 줄인다. 설정 방법은 README.md 참고.
   console.warn(
-    "[AI ONE STUDIO] VITE_COMFY_URL이 설정되지 않았습니다. 외부(터널/모바일) 접속에서는 " +
-      "ComfyUI 백엔드에 연결할 수 없습니다 — 프로젝트 루트에 .env 파일을 만들고 " +
-      "VITE_COMFY_URL=https://your-comfyui-tunnel-domain 을 설정한 뒤 dev 서버를 재시작하세요. " +
-      "(.env.example 참고, 로컬 127.0.0.1 접속에는 영향 없음)"
+    "[AI ONE STUDIO] VITE_COMFY_URL is not set. External (tunnel/mobile) access " +
+      "can't reach the ComfyUI backend — create a .env file in the project root and " +
+      "set VITE_COMFY_URL=https://your-comfyui-tunnel-domain, then restart the dev server. " +
+      "(see .env.example; local 127.0.0.1 access is unaffected)"
   );
   return "http://127.0.0.1:8188";
 }

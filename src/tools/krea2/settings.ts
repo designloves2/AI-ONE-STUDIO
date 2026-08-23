@@ -87,9 +87,9 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
 
   const cnHint = el("div", { style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
   cnHint.innerHTML =
-    "LoRA 파일을 여기서 한 번만 등록. Depth/Canny 세기·모델 등 튜닝값은 좌측 CONTROLNET 패널에서 조정.<br>" +
+    "Register the LoRA file here once. Tune strength/model etc. in the left CONTROLNET panel.<br>" +
     "<b>Depth</b>: Krea2 Control LoRA + DepthAnythingV2Preprocessor.<br><b>Canny</b>: NK2E in-context edit + CannyEdgePreprocessor.";
-  ov.appendChild(panel([label("ControlNet — LoRA 파일 (1회 등록)"), row([cnDepthWrap, cnCannyWrap]), cnHint]));
+  ov.appendChild(panel([label("ControlNet — LoRA file (register once)"), row([cnDepthWrap, cnCannyWrap]), cnHint]));
 
   // ── Identity LoRA ────────────────────────────────────────────────────────
   const idLoraWrap = el("div");
@@ -104,12 +104,12 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
   const idStrIn = el("input", { type: "number", step: "0.05", min: "0", max: "2", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } });
   idStrIn.value = String(state.identityLoraStrength ?? 1.0);
   idStrIn.addEventListener("input", () => { const v = parseFloat(idStrIn.value); state.identityLoraStrength = isNaN(v) ? 1.0 : v; ctx.persist(); });
-  ov.appendChild(panel([label("Identity Edit — LoRA (1회 설정)"), idLoraWrap, row([col([label("LoRA Strength"), idStrIn]), col([el("div")])])]));
+  ov.appendChild(panel([label("Identity Edit — LoRA (set once)"), idLoraWrap, row([col([label("LoRA Strength"), idStrIn]), col([el("div")])])]));
 
   // ── Negative prompt / suffix / save folder ───────────────────────────────────
   // 원본 Krea2는 negative 프롬프트가 없고 항상 ConditioningZeroOut을 쓰지만, 사용자 요청으로
   // 실제 negative 텍스트 입력을 추가했다 — 비어 있으면 그래프가 원본과 동일하게 ConditioningZeroOut으로 폴백한다.
-  const negTA = el("textarea", { placeholder: "Negative prompt… (비워두면 Krea2 기본 방식(ConditioningZeroOut) 사용)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: "60px" } });
+  const negTA = el("textarea", { placeholder: "Negative prompt… (leave empty to use Krea2's default method, ConditioningZeroOut)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: "60px" } });
   negTA.value = state.negativePrompt || "";
   negTA.addEventListener("input", () => (state.negativePrompt = negTA.value));
   ov.appendChild(panel([label("Negative Prompt"), negTA]));
@@ -131,7 +131,7 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
     ctx.appConfig.output_mode_visible = visChk.checked;
     ctx.onOutputVisibilityChanged?.();
   });
-  ov.appendChild(panel([label("Save Folder (output/ 안)"), pathIn, visLbl]));
+  ov.appendChild(panel([label("Save Folder (inside output/)"), pathIn, visLbl]));
 
   function saveAll() {
     ctx.persist();

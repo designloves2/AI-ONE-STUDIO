@@ -99,7 +99,7 @@ export function renderKrea2(root: HTMLElement) {
   body.appendChild(rightPanel);
 
   const previewBox = el("div", { class: "aos-preview-box", style: { flex: "1", minHeight: "0", background: "#000", border: `1px solid ${C.border}`, borderRadius: "10px", position: "relative", overflow: "hidden" } });
-  const placeholderTxt = el("div", { text: "결과 이미지가 여기에 표시됩니다", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
+  const placeholderTxt = el("div", { text: "Result image appears here", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
   const resultImg = el("img", { style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" } });
   resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
@@ -464,7 +464,7 @@ export function renderKrea2(root: HTMLElement) {
     function rebuild() {
       clear(wWrap);
       const enabled = (state as any)[enabledKey] ?? false;
-      const enChk = checkboxRow("ControlNet 사용", enabled, (v) => { (state as any)[enabledKey] = v; persist(); rebuild(); });
+      const enChk = checkboxRow("Use ControlNet", enabled, (v) => { (state as any)[enabledKey] = v; persist(); rebuild(); });
       wWrap.appendChild(enChk);
       if (!enabled) return;
 
@@ -474,16 +474,16 @@ export function renderKrea2(root: HTMLElement) {
 
       const tip = el("div", { style: { fontSize: "10px", color: C.text, lineHeight: "1.55", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px 9px" } });
       tip.innerHTML = type === "canny"
-        ? "💡 <b>Canny</b> — 윤곽선을 정확히 고정해 포즈·얼굴 방향·실루엣을 충실히 재현합니다."
-        : "💡 <b>Depth</b> — 전체 구도·프레이밍·스케일을 잡습니다. 세밀한 포즈는 Canny를 쓰세요.";
+        ? "💡 <b>Canny</b> — locks in exact outlines to faithfully reproduce pose, face direction, and silhouette."
+        : "💡 <b>Depth</b> — sets overall composition, framing, and scale. Use Canny for fine-grained pose.";
       wWrap.appendChild(tip);
 
       const uploadWrap = imageUploadSlot((state as any)[imgKey], (name) => { (state as any)[imgKey] = name; persist(); refreshSizeHint(); }, (w, h) => { (state as any)[wKey] = w; (state as any)[hKey] = h; persist(); refreshSizeHint(); });
-      wWrap.appendChild(col([label("Control Image (원본 사진)"), uploadWrap]));
+      wWrap.appendChild(col([label("Control Image (source photo)"), uploadWrap]));
       const sizeHint = el("div", { text: "", style: { fontSize: "10px", color: C.muted, textAlign: "center" } });
       function refreshSizeHint() {
         const cw = (state as any)[wKey], ch = (state as any)[hKey];
-        sizeHint.textContent = cw && ch ? `컨트롤 이미지 비율: ${cw} × ${ch}` : "";
+        sizeHint.textContent = cw && ch ? `Control image ratio: ${cw} × ${ch}` : "";
       }
       refreshSizeHint();
       wWrap.appendChild(sizeHint);
@@ -510,7 +510,7 @@ export function renderKrea2(root: HTMLElement) {
       const previewImg = el("img", { style: { width: "100%", borderRadius: "6px", display: "none", marginTop: "4px" } });
       const previewBtn = button(`👁 Preview ${type}`, async () => {
         const file = (state as any)[imgKey];
-        if (!file) { warnTag.textContent = "컨트롤 이미지를 먼저 업로드하세요"; return; }
+        if (!file) { warnTag.textContent = "Upload a control image first"; return; }
         try {
           previewBtn.textContent = "…";
           const g = buildControlPreviewGraph(state, file, type);
@@ -533,10 +533,10 @@ export function renderKrea2(root: HTMLElement) {
   function imageUploadSlot(currentFilename: string, onSet: (name: string) => void, onLoad?: (w: number, h: number) => void, probeIfUnknown?: boolean) {
     const wrap = el("div", { style: { border: `2px dashed ${C.border}`, borderRadius: "8px", padding: "8px", textAlign: "center", cursor: "pointer", minHeight: "180px", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", background: C.bg2 } });
     const img = el("img", { style: { maxWidth: "100%", maxHeight: "168px", display: "none", borderRadius: "4px" } });
-    const hint = el("div", { text: "클릭 또는 드래그하여 업로드", style: { color: C.muted, fontSize: "11px" } });
+    const hint = el("div", { text: "Click or drag to upload", style: { color: C.muted, fontSize: "11px" } });
     const fileIn = el("input", { type: "file", accept: "image/*", style: { display: "none" } });
     wrap.append(hint, img, fileIn);
-    const clearBtn = el("button", { type: "button", text: "✕", title: "삭제", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
+    const clearBtn = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "4px", right: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
     clearBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       img.style.display = "none";
@@ -552,7 +552,7 @@ export function renderKrea2(root: HTMLElement) {
     // 이미지가 설정된 모드에서 페이지 전체가 멈춘 것처럼 보였다(클릭/체크박스/셀렉트 전부 무반응).
     // 그래서 이제 onLoad는 "새로 업로드했을 때"만, 화면에 보이는 img와 무관한 별도 Image()로 딱 한 번만 호출한다.
     async function handleFile(file: File) {
-      hint.textContent = "업로드 중…";
+      hint.textContent = "Uploading…";
       try {
         const name = await api.uploadImage(file, file.name);
         onSet(name);
@@ -566,7 +566,7 @@ export function renderKrea2(root: HTMLElement) {
           probe.onload = () => onLoad(probe.naturalWidth, probe.naturalHeight);
           probe.src = url;
         }
-      } catch (e: any) { hint.textContent = "업로드 실패: " + (e.message || e); }
+      } catch (e: any) { hint.textContent = "Upload failed: " + (e.message || e); }
     }
     function applyPicked(name: string) {
       onSet(name);
@@ -581,7 +581,7 @@ export function renderKrea2(root: HTMLElement) {
         probe.src = url;
       }
     }
-    const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
+    const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "4px", left: "4px", zIndex: "3", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" } });
     galleryBtn.addEventListener("click", (e) => { e.stopPropagation(); openImageGalleryPicker((name) => applyPicked(name)); });
     wrap.appendChild(galleryBtn);
 
@@ -655,18 +655,18 @@ export function renderKrea2(root: HTMLElement) {
         ]),
         el("div", { style: { display: "flex", justifyContent: "center", marginTop: "6px" } }, [swapBtn]),
         sizeFields(() => state.identityWidth, (v) => (state.identityWidth = v), () => state.identityHeight, (v) => (state.identityHeight = v), () => state.identityLockRatio, (v) => (state.identityLockRatio = v)),
-        el("div", { html: 'PROMPT에 <b>지시문</b>으로 편집 → 예: "recolor the car to matte black". 2장 사용 시 순서: ① 장면(scene), ② 인물/얼굴(subject).', style: { fontSize: "10px", color: C.muted, lineHeight: "1.55", marginTop: "6px" } }),
+        el("div", { html: 'Write PROMPT as an <b>instruction</b> → e.g. "recolor the car to matte black". With 2 images, order: ① scene, ② person/face (subject).', style: { fontSize: "10px", color: C.muted, lineHeight: "1.55", marginTop: "6px" } }),
       ]));
       leftScroll.appendChild(panel([
         label("Reference fidelity (ref_boost)"),
         numberField(state.identityRefBoost ?? 1.0, (v) => { state.identityRefBoost = Math.max(0.5, Math.min(3, v)); persist(); }, 0.05),
-        el("div", { text: "1.0 = off · >1 identity 강화 · <1 완화", style: { fontSize: "10px", color: C.muted } }),
+        el("div", { text: "1.0 = off · >1 stronger identity · <1 weaker", style: { fontSize: "10px", color: C.muted } }),
         label("Grounding resolution (grounding_px)"),
         numberField(state.identityGroundingPx ?? 768, (v) => { state.identityGroundingPx = Math.max(0, Math.min(1536, v)); persist(); }, 64),
-        el("div", { text: "높을수록 identity 강화(사람 1024+) · 낮을수록 edit adherence 강화(512) · 0 = native", style: { fontSize: "10px", color: C.muted } }),
+        el("div", { text: "Higher = stronger identity (people 1024+) · lower = stronger edit adherence (512) · 0 = native", style: { fontSize: "10px", color: C.muted } }),
         col([label("Fit mode"), select([{ value: "fit", label: "fit (v1.2, recommended)" }, { value: "crop (legacy)", label: "crop (legacy)" }], state.identityFitMode || "fit", (v) => { state.identityFitMode = v; persist(); })]),
       ]));
-      leftScroll.appendChild(panel([label("Sampling"), samplingSection(), el("div", { text: "Turbo: 8 steps, CFG 1 (~1분). Removal 계열은 Raw 모델 + CFG ~3, ~20 steps 권장.", style: { fontSize: "10px", color: C.muted } })]));
+      leftScroll.appendChild(panel([label("Sampling"), samplingSection(), el("div", { text: "Turbo: 8 steps, CFG 1 (~1min). For Removal-type edits, Raw model + CFG ~3, ~20 steps is recommended.", style: { fontSize: "10px", color: C.muted } })]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "upscale") {
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
@@ -702,10 +702,10 @@ export function renderKrea2(root: HTMLElement) {
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "내 요청이 대기 중…" : "내 요청 실행 중…";
+        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "My request is pending…" : "My request is running…";
       } else if (q.running > 0 || q.pending > 0) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = `ComfyUI가 다른 작업을 처리 중입니다 (대기 ${q.pending}건)`;
+        externalQueueBanner.textContent = `ComfyUI is processing other work (${q.pending} pending)`;
       } else {
         externalQueueBanner.style.display = "none";
         queuedPromptId = null;
@@ -717,14 +717,14 @@ export function renderKrea2(root: HTMLElement) {
   // ── Generate / Stop ────────────────────────────────────────────────────
   async function generate() {
     if (samplingActive) return;
-    if (!state.model) { warnTag.textContent = "⚙ Settings에서 Model / Text Encoder / VAE를 설정하세요"; return; }
-    if (!state.textEncoder) { warnTag.textContent = "⚙ Settings에서 Text Encoder를 설정하세요"; return; }
-    if (!state.vae) { warnTag.textContent = "⚙ Settings에서 VAE를 설정하세요"; return; }
-    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "I2I 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "identity" && !state.identityImage) { warnTag.textContent = "Identity 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "identity" && (!state.identityLora || state.identityLora === "none")) { warnTag.textContent = "⚙ Settings에서 Identity Edit LoRA를 설정하세요"; return; }
-    if (state.mode === "upscale" && !state.upscaleImage) { warnTag.textContent = "Upscale 소스 이미지를 업로드하세요"; return; }
-    if (state.mode === "upscale" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "SeedVR2 DiT/VAE 모델을 선택하세요"; return; }
+    if (!state.model) { warnTag.textContent = "⚙ Set Model / Text Encoder / VAE in Settings"; return; }
+    if (!state.textEncoder) { warnTag.textContent = "⚙ Set Text Encoder in Settings"; return; }
+    if (!state.vae) { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
+    if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
+    if (state.mode === "identity" && !state.identityImage) { warnTag.textContent = "Upload an Identity source image"; return; }
+    if (state.mode === "identity" && (!state.identityLora || state.identityLora === "none")) { warnTag.textContent = "⚙ Set the Identity Edit LoRA in Settings"; return; }
+    if (state.mode === "upscale" && !state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
+    if (state.mode === "upscale" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     warnTag.textContent = "";
 
     if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
@@ -799,14 +799,14 @@ function createHelpOverlay() {
   const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px", width: "min(640px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px" } });
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "❔ Krea 2 도움말", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
+  hdr.append(el("div", { text: "❔ Krea 2 Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>모드</b>: Text→Image, Image→Image, Identity Edit(장면+인물 합성), Upscale(SeedVR2).<br>
-    <b>ControlNet</b>: T2I/I2I 좌측 패널에서 Depth 또는 Canny 컨트롤 이미지를 활성화할 수 있습니다. LoRA 파일은 ⚙ Settings에서 1회 등록.<br>
-    <b>Identity Edit</b>: ⚙ Settings에서 Identity Edit LoRA를 먼저 설정해야 합니다. 프롬프트는 지시문 형태로 작성하세요.<br>
-    <b>프롬프트</b>: 📋 Templates에서 스타일/각도/조명 템플릿을 적용하거나, ⤢ Expand/LLM에서 로컬 LLM으로 프롬프트를 보강(Model Format/Aesthetic/Seed 포함)하거나 이미지를 프롬프트로 변환할 수 있습니다.<br>
-    <b>상단 아이콘</b>: ↺ Reset(현재 모드 초기화) · 🧹 Unload VRAM(모델 언로드) · ⇄ Compare(원본/결과 비교) · ⚙ Settings · 🖼 Gallery.
+    <b>Modes</b>: Text→Image, Image→Image, Identity Edit (scene + person composite), Upscale (SeedVR2).<br>
+    <b>ControlNet</b>: enable a Depth or Canny control image in the T2I/I2I left panel. Register the LoRA file once in ⚙ Settings.<br>
+    <b>Identity Edit</b>: set the Identity Edit LoRA in ⚙ Settings first. Write the prompt as an instruction.<br>
+    <b>Prompt</b>: apply a style/angle/lighting template from 📋 Templates, or expand it with a local LLM (including Model Format/Aesthetic/Seed) or convert an image to a prompt via ⤢ Expand/LLM.<br>
+    <b>Top icons</b>: ↺ Reset (reset current mode) · 🧹 Unload VRAM (unload model) · ⇄ Compare (original/result) · ⚙ Settings · 🖼 Gallery.
   `;
   box.append(hdr, body);
   ov.appendChild(box);

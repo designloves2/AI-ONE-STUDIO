@@ -127,16 +127,16 @@ export function createMaskEditor(state: KleinState, persist: () => void) {
   const sizeRow = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", flex: "1" } }, [el("span", { text: "Size:", style: { color: C.muted, fontSize: "11px" } }), sizeRange, sizeValEl]);
   toolRow.append(brushBtn, eraserBtn, clearBtn, sizeRow);
 
-  const hint = el("div", { text: "브러시로 재생성할 영역(보라색)을 칠하세요. 지우개로 지울 수 있습니다.", style: { color: C.muted, fontSize: "9px", marginBottom: "4px" } });
+  const hint = el("div", { text: "Paint the area to regenerate (purple) with the brush. Use the eraser to remove.", style: { color: C.muted, fontSize: "9px", marginBottom: "4px" } });
 
   const saveMaskBtn = el("button", {
-    type: "button", text: "💾 마스크 저장",
+    type: "button", text: "💾 Save Mask",
     style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 12px", borderRadius: "6px", border: "none", background: "#7c1eda", color: "#fff", fontWeight: "700", flex: "1" },
   }) as HTMLButtonElement;
   saveMaskBtn.addEventListener("click", async () => {
     const saved = await saveMask();
-    saveMaskBtn.textContent = saved ? "✓ 저장됨" : "저장 실패";
-    setTimeout(() => (saveMaskBtn.textContent = "💾 마스크 저장"), 1500);
+    saveMaskBtn.textContent = saved ? "✓ Saved" : "Save failed";
+    setTimeout(() => (saveMaskBtn.textContent = "💾 Save Mask"), 1500);
   });
 
   async function saveMask(): Promise<boolean> {

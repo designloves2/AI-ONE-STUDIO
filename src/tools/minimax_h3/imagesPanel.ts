@@ -36,7 +36,7 @@ export function imageSlot(labelText: string, initialFile: string | null, onSet: 
   });
   // 로컬업로드(박스 클릭/드래그) 외에 이미지 도구 갤러리에서 직접 고를 수 있는 방법.
   const galleryBtn = el("button", {
-    type: "button", text: "🖼", title: "갤러리에서 선택",
+    type: "button", text: "🖼", title: "Pick from gallery",
     class: "absolute bottom-1 left-1 z-[3]",
     style: { background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", cursor: "pointer", fontSize: "11px", padding: "0" },
   });
@@ -290,10 +290,16 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
     if (mode === "firstlast") {
       const first = imageSlot("① First frame\n(click / drop)", state.firstFrameImage, (n) => { state.firstFrameImage = n; ctx.persist(); });
       const last = imageSlot("② Last frame\n(optional)", state.lastFrameImage, (n) => { state.lastFrameImage = n; ctx.persist(); });
+      const firstMp = numberField(state.firstFrameMp ?? 1.0, (v) => { state.firstFrameMp = Math.max(0, v); ctx.persist(); }, 0.1);
+      const lastMp = numberField(state.lastFrameMp ?? 1.0, (v) => { state.lastFrameMp = Math.max(0, v); ctx.persist(); }, 0.1);
+      firstMp.style.width = "60px";
+      lastMp.style.width = "60px";
+      const mpCol = (imgEl: HTMLElement, mpEl: HTMLElement) => el("div", { style: { display: "flex", flexDirection: "column", gap: "3px", alignItems: "center" } }, [imgEl, el("div", { text: "MP", style: { fontSize: "9px", color: C.muted } }), mpEl]);
       wrap.appendChild(
         panel([
           label("First / Last Keyframes"),
-          el("div", { class: "flex gap-1.5 justify-center" }, [first.el, last.el]),
+          el("div", { class: "flex gap-1.5 justify-center" }, [mpCol(first.el, firstMp), mpCol(last.el, lastMp)]),
+          el("div", { text: "MP = megapixels sent to the model for that image (0 = send as uploaded, no resize).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
           el("div", { html: "Both are optional. With neither, this is the same as Text only. In a relay run the <b>Last Frame Chain</b> continuity mode overwrites ① for every clip after the first.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         ])
       );
@@ -317,17 +323,32 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
           refs[i] || null,
           (name) => {
             const list = (state.refImages || []).slice();
+            const mpList = (state.refImagesMp || []).slice();
             if (name) list[i] = name;
-            else list.splice(i, 1);
+            else { list.splice(i, 1); mpList.splice(i, 1); }
             state.refImages = list.filter(Boolean).slice(0, 9);
+            state.refImagesMp = mpList.slice(0, 9);
             ctx.persist();
             render();
           },
           { box: 92 }
         );
-        grid.appendChild(s.el);
+        const cell = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", alignItems: "center" } }, [s.el]);
+        if (refs[i]) {
+          const mpIn = numberField(state.refImagesMp?.[i] ?? 1.0, (v) => {
+            const mpList = (state.refImagesMp || []).slice();
+            mpList[i] = Math.max(0, v);
+            state.refImagesMp = mpList;
+            ctx.persist();
+          }, 0.1);
+          mpIn.style.width = "60px";
+          mpIn.title = "Megapixels sent to the model (0 = send as uploaded)";
+          cell.appendChild(mpIn);
+        }
+        grid.appendChild(cell);
       }
       kids.push(label(`Images (${refs.length}/9)`), grid);
+      kids.push(el("div", { text: "MP = megapixels sent to the model for that image (0 = send as uploaded, no resize).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
       kids.push(
         row([
           col([

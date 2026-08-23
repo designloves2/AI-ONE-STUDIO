@@ -130,7 +130,7 @@ export function createPromptEditOverlay(
       if (cur && sets.some((s) => s.name === cur)) setsSel.value = cur;
     } catch {
       clear(setsSel);
-      setsSel.appendChild(el("option", { text: "(failed to load — ComfyUI 연결 확인)", value: "" }));
+      setsSel.appendChild(el("option", { text: "(failed to load — check ComfyUI connection)", value: "" }));
     }
   }
 
@@ -386,7 +386,7 @@ export function createPromptEditOverlay(
 
   const lenIn = el("input", { type: "text", placeholder: "3:20", style: { width: "74px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none", textAlign: "center" } }) as HTMLInputElement;
   lenIn.value = state.targetLength || "";
-  lenIn.title = "Target length for the whole piece — 3:20, 200s, or 3분 20초. Blank = one shot per prompt already in the editor.";
+  lenIn.title = "Target length for the whole piece — 3:20 or 200s. Blank = one shot per prompt already in the editor.";
   const lenTag = el("div", { class: "text-[10px] whitespace-nowrap", style: { color: C.muted } });
 
   function targetPlan() {
@@ -456,7 +456,7 @@ export function createPromptEditOverlay(
             ctx.persist();
             renderImageRow();
           } catch (e: any) {
-            ctx.showPopup(`업로드 실패: ${e.message} (ComfyUI가 실행 중인지 확인하세요)`, true);
+            ctx.showPopup(`Upload failed: ${e.message} (check that ComfyUI is running)`, true);
           }
         }
         box.addEventListener("click", () => inp.click());
@@ -476,7 +476,7 @@ export function createPromptEditOverlay(
         box.appendChild(inp);
 
         // 다른 도구들의 이미지 업로드 슬롯과 동일한 갤러리 선택 버튼 — 여기만 빠져 있었다.
-        const galleryBtn = el("button", { type: "button", text: "🖼", title: "갤러리에서 선택", style: { position: "absolute", bottom: "2px", left: "2px", zIndex: "1", cursor: "pointer", fontSize: "12px", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", padding: "0" } });
+        const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "2px", left: "2px", zIndex: "1", cursor: "pointer", fontSize: "12px", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", padding: "0" } });
         galleryBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           openImageGalleryPicker((name) => {
@@ -524,7 +524,7 @@ export function createPromptEditOverlay(
     if (isNative()) {
       modelSelWrap.className = "flex gap-2 flex-wrap min-w-[280px]";
       if (!clipModels.length) {
-        modelSelWrap.appendChild(el("div", { text: "CLIP 목록을 불러올 수 없습니다 — ComfyUI 연결을 확인하세요", class: "text-[10.5px]", style: { color: C.warn } }));
+        modelSelWrap.appendChild(el("div", { text: "Could not load the CLIP list — check the ComfyUI connection", class: "text-[10.5px]", style: { color: C.warn } }));
         return;
       }
       modelSelWrap.appendChild(
@@ -567,16 +567,16 @@ export function createPromptEditOverlay(
   async function refreshOllama() {
     if (isNative()) {
       if (!clipModels.length) {
-        statusTag.textContent = "CLIP 목록 불러오는 중…";
+        statusTag.textContent = "Loading CLIP list…";
         const d = await getModels();
         clipModels = (d.text_encoders || []).filter((x) => x !== "none");
-        statusTag.textContent = clipModels.length ? `${clipModels.length} CLIP(s) found` : "⚠ ComfyUI에서 text encoder 목록을 가져오지 못했습니다";
+        statusTag.textContent = clipModels.length ? `${clipModels.length} CLIP(s) found` : "⚠ Could not fetch the text encoder list from ComfyUI";
         statusTag.style.color = clipModels.length ? C.muted : C.warn;
       }
       renderModelSel();
       return;
     }
-    statusTag.textContent = "connecting to Ollama (ComfyUI 경유)…";
+    statusTag.textContent = "connecting to Ollama (via ComfyUI)…";
     const d = await getOllamaModels(state.ollamaUrl);
     ollamaModels = d.models || [];
     statusTag.textContent = d.ok ? `${ollamaModels.length} model(s) · ${d.server_url || state.ollamaUrl}` : `⚠ ${String(d.error || "unreachable").slice(0, 90)}`;
@@ -590,7 +590,7 @@ export function createPromptEditOverlay(
     if (systemPrompt) {
       srcTag.textContent = `system prompt: ${d.name || "Minimax H3"} (${d.source === "TJ_NODE" ? "from TJ_NODE" : "built-in"})`;
     } else {
-      srcTag.textContent = d.needsRestart ? "⚠ ComfyUI 백엔드가 이 라우트를 아직 지원하지 않습니다 (재시작 필요)" : "system prompt unavailable — ComfyUI 연결을 확인하세요";
+      srcTag.textContent = d.needsRestart ? "⚠ The ComfyUI backend doesn't support this route yet (restart needed)" : "system prompt unavailable — check the ComfyUI connection";
       srcTag.style.color = C.warn;
     }
   }
@@ -638,15 +638,15 @@ export function createPromptEditOverlay(
 
     if (native) {
       if (!state.nativeBriefClip) {
-        ctx.showPopup("Brief CLIP 파일명을 입력하세요.", true);
+        ctx.showPopup("Enter a Brief CLIP filename.", true);
         return;
       }
       if (images.length && !state.nativeVisionClip) {
-        ctx.showPopup("Vision CLIP 파일명을 입력하세요.", true);
+        ctx.showPopup("Enter a Vision CLIP filename.", true);
         return;
       }
     } else if (!state.ollamaModel) {
-      ctx.showPopup("모델을 먼저 선택하세요 (Ollama 목록이 비어있다면 ComfyUI가 실행 중인지 확인).", true);
+      ctx.showPopup("Pick a model first (if the Ollama list is empty, check that ComfyUI is running).", true);
       return;
     }
     const base = (editor.value || "").trim();
@@ -706,7 +706,7 @@ export function createPromptEditOverlay(
     } catch (e: any) {
       statusTag.textContent = `⚠ ${String(e.message || e).slice(0, 90)}`;
       statusTag.style.color = C.err;
-      ctx.showPopup(`Enhance failed: ${e.message || e} — ComfyUI가 CORS 허용 상태로 실행 중인지 확인하세요.`, true);
+      ctx.showPopup(`Enhance failed: ${e.message || e} — check that ComfyUI is running with CORS allowed.`, true);
     } finally {
       progressStop();
       busy = false;

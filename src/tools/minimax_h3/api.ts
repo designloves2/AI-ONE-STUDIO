@@ -78,6 +78,14 @@ export interface MmhConfig {
   use_mem_eff_sage?: boolean;
   use_torch_patch?: boolean;
   fp16_accum?: boolean;
+  use_ck_attention?: boolean;
+  ck_attention_backend?: string;
+  use_sla_attention?: boolean;
+  sla_sparsity?: number;
+  sla_block_size?: string;
+  sla_min_seq_len?: number;
+  sla_dense_last_steps?: number;
+  sla_protect_audio?: boolean;
   cache_threshold?: number;
   cache_start?: number;
   cache_end?: number;
@@ -122,7 +130,10 @@ export const MMH3_OPTIONAL_NODES = [
   "ModelPreviewOverrideKJ",
   "ModelPatchTorchSettings",
   "MiniMaxH3MemoryEfficientSageAttentionPatch",
+  "ModelAttentionBackend",
+  "H3SLAAttention",
   "MiniMaxH3Cache",
+  "ApplyMiniMaxH3FirstBlockCache",
   "MiniMaxH3TurboSampler",
   "MiniMaxH3TurboLoRA",
   "SolAttnPatch",
@@ -368,11 +379,30 @@ export async function pickChainFrame(images: { filename: string; subfolder: stri
   }
 }
 
-export async function stitchClips(clips: any[], filenamePrefix: string, trimSeconds: number | null, overlapSeconds: number | null) {
+export interface StitchAudioOverride {
+  filename: string;
+  subfolder?: string;
+  type?: "input" | "output";
+  start?: number;
+}
+
+export async function stitchClips(
+  clips: any[],
+  filenamePrefix: string,
+  trimSeconds: number | null,
+  overlapSeconds: number | null,
+  overrideAudio?: StitchAudioOverride | null
+) {
   const r = await fetchApi(`${API}/stitch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clips, filename_prefix: filenamePrefix, trim_seconds: trimSeconds ?? null, overlap_seconds: overlapSeconds ?? null }),
+    body: JSON.stringify({
+      clips,
+      filename_prefix: filenamePrefix,
+      trim_seconds: trimSeconds ?? null,
+      overlap_seconds: overlapSeconds ?? null,
+      override_audio: overrideAudio || null,
+    }),
   });
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || "stitch failed");

@@ -37,6 +37,8 @@ export interface MinimaxState {
   audioLockMode: string;
   audioLockStrength: number;
   audioLockFit: string;
+  audioLockTrimStart: number;
+  audioLockTrimEnd: number;
   loras: LoraEntry[];
   generationMode: string;
   accelMode: string;
@@ -44,9 +46,12 @@ export interface MinimaxState {
   continuityMode: string;
   oneTakeLockAudio: boolean;
   oneTakeAutoStitch: boolean;
+  oneTakeAudioOverride: boolean;
   aspect: string;
   megapixels: number;
   clipFrames: number;
+  clipLengthCustom: boolean;
+  clipLengthCustomSec: number;
   totalSeconds: number;
   trimLastClip: boolean;
   avgMinutesPerClip: number;
@@ -57,7 +62,10 @@ export interface MinimaxState {
   promptSuffix: string;
   firstFrameImage: string | null;
   lastFrameImage: string | null;
+  firstFrameMp: number;
+  lastFrameMp: number;
   refImages: string[];
+  refImagesMp: number[];
   refImageSize: string;
   refVideos: { file: string; start: number; end: number; withAudio?: boolean }[];
   refAudios: { file: string; start: number; end: number }[];
@@ -71,6 +79,7 @@ export interface MinimaxState {
   seedMode: string;
   seedPerClip: boolean;
   useCache: boolean;
+  useFirstBlockCache: boolean;
   saveSubfolder: string;
   filenamePrefix: string;
   stitchAtEnd: boolean;
@@ -117,12 +126,23 @@ export interface MinimaxState {
   useSageAttn: boolean;
   sageAttnMode: string;
   useMemEffSage: boolean;
+  useCkAttention: boolean;
+  ckAttentionBackend: string;
   useTorchPatch: boolean;
   fp16Accum: boolean;
   cacheThreshold: number;
   cacheMaxSteps: number;
   cacheStart: number;
   cacheEnd: number;
+
+  // H3 SLA Attention (block-sparse, last before the sampler)
+  useSlaAttention: boolean;
+  slaSparsity: number;
+  slaBlockSize: string;
+  slaMinSeqLen: number;
+  slaDenseLastSteps: number;
+  slaProtectAudio: boolean;
+  slaRunEnabled: boolean;
 
   // Live preview (ModelPreviewOverrideKJ)
   previewEnabled: boolean;
@@ -209,7 +229,7 @@ export const GENERATION_MODES = [
 ];
 
 export const ACCEL_MODES = [
-  { key: "turbo", label: "Turbo LoRA", node: "MiniMaxH3TurboLoRA", modes: ["t2v", "firstlast"] },
+  { key: "turbo", label: "Turbo LoRA(larryvrh)", node: "MiniMaxH3TurboLoRA", modes: ["t2v", "firstlast", "reference"] },
   { key: "solattn", label: "SolAttn", node: "SolAttnPatch" },
   { key: "spectrum", label: "Spectrum", node: "SpectrumApplyMiniMaxH3" },
   { key: "none", label: "None", node: null },
@@ -484,6 +504,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     audioLockMode: saved.audioLockMode || "lock",
     audioLockStrength: saved.audioLockStrength ?? 0.5,
     audioLockFit: saved.audioLockFit || "pad_silence",
+    audioLockTrimStart: saved.audioLockTrimStart ?? 0,
+    audioLockTrimEnd: saved.audioLockTrimEnd ?? 0,
     loras: Array.isArray(saved.loras)
       ? saved.loras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))
       : [],
@@ -493,9 +515,12 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     continuityMode: saved.continuityMode || "onetake",
     oneTakeLockAudio: saved.oneTakeLockAudio ?? false,
     oneTakeAutoStitch: saved.oneTakeAutoStitch ?? true,
+    oneTakeAudioOverride: !!saved.oneTakeAudioOverride,
     aspect: saved.aspect || "9:16 Portrait",
     megapixels: saved.megapixels ?? 1.0,
     clipFrames: saved.clipFrames ?? DEFAULT_FRAMES,
+    clipLengthCustom: !!saved.clipLengthCustom,
+    clipLengthCustomSec: saved.clipLengthCustomSec ?? framesToSeconds(saved.clipFrames ?? DEFAULT_FRAMES),
     totalSeconds: saved.totalSeconds ?? 8,
     trimLastClip: saved.trimLastClip ?? false,
     avgMinutesPerClip: saved.avgMinutesPerClip ?? 13,
@@ -508,7 +533,10 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     promptSuffix: saved.promptSuffix || "",
     firstFrameImage: saved.firstFrameImage || null,
     lastFrameImage: saved.lastFrameImage || null,
+    firstFrameMp: saved.firstFrameMp ?? 1.0,
+    lastFrameMp: saved.lastFrameMp ?? 1.0,
     refImages: Array.isArray(saved.refImages) ? saved.refImages.slice(0, 9) : [],
+    refImagesMp: Array.isArray(saved.refImagesMp) ? saved.refImagesMp.slice(0, 9) : [],
     refImageSize: saved.refImageSize || "match",
     refVideos: Array.isArray(saved.refVideos) ? saved.refVideos.slice(0, 3).map((v) => ({ file: v.file || "", start: v.start ?? 0, end: v.end ?? 5, withAudio: v.withAudio !== false })) : [],
     refAudios: Array.isArray(saved.refAudios) ? saved.refAudios.slice(0, 3).map((a) => ({ file: a.file || "", start: a.start ?? 0, end: a.end ?? 5 })) : [],
@@ -522,6 +550,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     seedMode: saved.seedMode || "randomize",
     seedPerClip: saved.seedPerClip ?? true,
     useCache: saved.useCache ?? true,
+    useFirstBlockCache: saved.useFirstBlockCache ?? false,
     saveSubfolder: saved.saveSubfolder || "",
     filenamePrefix: saved.filenamePrefix || "MMH3",
     stitchAtEnd: saved.stitchAtEnd ?? true,
@@ -557,8 +586,17 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     useSageAttn: saved.useSageAttn ?? true,
     sageAttnMode: saved.sageAttnMode || "auto",
     useMemEffSage: saved.useMemEffSage ?? true,
+    useCkAttention: saved.useCkAttention ?? false,
+    ckAttentionBackend: saved.ckAttentionBackend || "comfy_kitchen",
     useTorchPatch: saved.useTorchPatch ?? true,
     fp16Accum: saved.fp16Accum ?? true,
+    useSlaAttention: saved.useSlaAttention ?? false,
+    slaSparsity: saved.slaSparsity ?? 0.9,
+    slaBlockSize: saved.slaBlockSize || "64",
+    slaMinSeqLen: saved.slaMinSeqLen ?? 8192,
+    slaDenseLastSteps: saved.slaDenseLastSteps ?? 0,
+    slaProtectAudio: saved.slaProtectAudio !== false,
+    slaRunEnabled: saved.slaRunEnabled !== false,
     cacheThreshold: saved.cacheThreshold ?? 0.3,
     cacheMaxSteps: saved.cacheMaxSteps ?? 2,
     cacheStart: saved.cacheStart ?? 0.15,

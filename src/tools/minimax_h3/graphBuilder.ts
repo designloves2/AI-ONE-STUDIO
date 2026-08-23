@@ -13,9 +13,12 @@ const N = {
   vaeA: "MM:vae_audio",
   sage: "MM:sage",
   memSage: "MM:mem_sage",
+  ckAttn: "MM:ck_attn",
   torch: "MM:torch",
   shift: "MM:sigma_shift",
   cache: "MM:cache",
+  fbcache: "MM:fbcache",
+  sla: "MM:sla_attn",
   sol: "MM:solattn",
   spectrum: "MM:spectrum",
   turbo: "MM:turbo_lora",
@@ -39,7 +42,10 @@ const N = {
   tailPrev: "MM:tail_preview",
   loadFirst: "MM:load_first",
   loadLast: "MM:load_last",
+  loadFirstResize: "MM:load_first_resize",
+  loadLastResize: "MM:load_last_resize",
   ref: (i: number) => `MM:ref_${i}`,
+  refResize: (i: number) => `MM:ref_resize_${i}`,
   refVid: (i: number) => `MM:refvid_${i}`,
   refAud: (i: number) => `MM:refaud_${i}`,
   refAudTrim: (i: number) => `MM:refaud_trim_${i}`,
@@ -65,7 +71,6 @@ export function previewNodeKey(nodeId: string | number) {
 function effectiveAccel(state: MinimaxState, avail?: Avail): { mode: string; fellBack: boolean; reason?: string } {
   const want = state.accelMode || "turbo";
   if (want !== "turbo") return { mode: want, fellBack: false };
-  if ((state.generationMode || "t2v") === "reference") return { mode: "none", fellBack: true, reason: "Turbo is not available in Reference mode (turbo LoRAs are fl2v-only)." };
   const name = turboLoraForMode(state);
   if (!name) return { mode: "none", fellBack: true, reason: "No turbo LoRA set — turbo skipped." };
   if (avail && Object.keys(avail).length && !avail.MiniMaxH3TurboLoRA) return { mode: "none", fellBack: true, reason: "comfyui-minimax-h3-turbo is not installed — turbo skipped." };
@@ -73,7 +78,6 @@ function effectiveAccel(state: MinimaxState, avail?: Avail): { mode: string; fel
 }
 
 function turboLoraForMode(state: MinimaxState): string {
-  if ((state.generationMode || "t2v") === "reference") return "";
   const name = state.turboLora;
   return name && name !== "none" ? name : "";
 }
@@ -84,7 +88,8 @@ function buildAudioLock(g: Graph, state: MinimaxState, avail: Avail | undefined,
   if (!state.lockAudioFile) throw new Error("Audio lock is on but no audio file is selected — pick one under Lock audio in the left panel.");
 
   const clipSeconds = framesToSeconds(frames);
-  const startSec = clipIndex * clipSeconds;
+  const trimStart = Math.max(0, state.audioLockTrimStart || 0);
+  const startSec = trimStart + clipIndex * clipSeconds;
 
   g[N.lockAud] = { class_type: "LoadAudio", inputs: { audio: state.lockAudioFile } };
   let audioLink: any = [N.lockAud, 0];
@@ -155,13 +160,20 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
   g[N.unet] = unetNode(unet);
   let m: any = [N.unet, 0];
 
-  if (state.useSageAttn && has(avail, "PathchSageAttentionKJ")) {
-    g[N.sage] = { class_type: "PathchSageAttentionKJ", inputs: { model: m, sage_attention: state.sageAttnMode || "auto" } };
-    m = [N.sage, 0];
-  }
-  if (state.useMemEffSage && has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
-    g[N.memSage] = { class_type: "MiniMaxH3MemoryEfficientSageAttentionPatch", inputs: { model: m } };
-    m = [N.memSage, 0];
+  // SageAttention and CK-Attention are alternative attention backends — the Settings UI
+  // enforces only one group being on, so these never stack.
+  if (state.useCkAttention && has(avail, "ModelAttentionBackend")) {
+    g[N.ckAttn] = { class_type: "ModelAttentionBackend", inputs: { model: m, attention: state.ckAttentionBackend === "pytorch" ? "pytorch attention" : "comfy kitchen attention" } };
+    m = [N.ckAttn, 0];
+  } else {
+    if (state.useSageAttn && has(avail, "PathchSageAttentionKJ")) {
+      g[N.sage] = { class_type: "PathchSageAttentionKJ", inputs: { model: m, sage_attention: state.sageAttnMode || "auto" } };
+      m = [N.sage, 0];
+    }
+    if (state.useMemEffSage && has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
+      g[N.memSage] = { class_type: "MiniMaxH3MemoryEfficientSageAttentionPatch", inputs: { model: m } };
+      m = [N.memSage, 0];
+    }
   }
   if (state.useTorchPatch && has(avail, "ModelPatchTorchSettings")) {
     g[N.torch] = { class_type: "ModelPatchTorchSettings", inputs: { model: m, enable_fp16_accumulation: state.fp16Accum !== false } };
@@ -186,6 +198,16 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
       inputs: { model: m, resuse_threshold: state.cacheThreshold ?? 0.3, start_percent: state.cacheStart ?? 0.15, end_percent: state.cacheEnd ?? 0.9, max_steps: state.cacheMaxSteps ?? 2, device: "auto", verbose: false },
     };
     m = [N.cache, 0];
+  }
+
+  // Same reuse-cache idea as MiniMaxH3Cache above, just a different implementation — the UI
+  // enforces only one of the two being on at once, so this never stacks with N.cache.
+  if (state.useFirstBlockCache && has(avail, "ApplyMiniMaxH3FirstBlockCache")) {
+    g[N.fbcache] = {
+      class_type: "ApplyMiniMaxH3FirstBlockCache",
+      inputs: { model: m, mode: "H3 Fast — 0.10 / max 2", threshold: 0.1, start_percent: 0.1, end_percent: 0.95, max_consecutive_hits: 2, temporal_guard: false },
+    };
+    m = [N.fbcache, 0];
   }
 
   const accel = effectiveAccel(state, avail).mode;
@@ -234,6 +256,36 @@ function applyPreview(g: Graph, state: MinimaxState, avail: Avail | undefined, m
   return [key, 0];
 }
 
+// H3 SLA Attention wants to be last before the sampler (its own README: "place it after your
+// LoRA loader, last before the sampler"), so it goes after preview, not inside buildModelChain.
+// Enabling it lives in Settings; the node's own `enabled` bypass is the left-panel per-run
+// checkbox, so the node stays in the graph either way once turned on in Settings — flipping
+// the left-panel box just toggles sparse vs dense passthrough.
+function applySla(g: Graph, state: MinimaxState, avail: Avail | undefined, modelLink: any) {
+  if (!state.useSlaAttention || !has(avail, "H3SLAAttention")) return modelLink;
+  g[N.sla] = {
+    class_type: "H3SLAAttention",
+    inputs: {
+      model: modelLink,
+      sparsity_ratio: state.slaSparsity ?? 0.9,
+      block_size: state.slaBlockSize || "64",
+      min_seq_len: state.slaMinSeqLen ?? 8192,
+      dense_last_steps: state.slaDenseLastSteps ?? 0,
+      protect_audio: state.slaProtectAudio !== false,
+      enabled: state.slaRunEnabled !== false,
+    },
+  };
+  return [N.sla, 0];
+}
+
+// Per-card megapixel override for a keyframe/reference image — 0 (or unset) means "send as
+// uploaded, no resize". ImageScaleToTotalPixels is a ComfyUI core node, so no availability gate.
+function resizeToMp(g: Graph, key: string, imageLink: any, mp: number | undefined) {
+  if (!((mp ?? 0) > 0)) return imageLink;
+  g[key] = { class_type: "ImageScaleToTotalPixels", inputs: { image: imageLink, upscale_method: "lanczos", megapixels: mp, resolution_steps: 1 } };
+  return [key, 0];
+}
+
 function buildConditioning(g: Graph, state: MinimaxState, promptText: string, width: number, height: number, frames: number, opts: { firstFrame?: string | null; lastFrame?: string | null; refImages?: string[] }, avail?: Avail) {
   const mode = state.generationMode || "t2v";
   const { firstFrame, lastFrame, refImages } = opts || {};
@@ -243,7 +295,7 @@ function buildConditioning(g: Graph, state: MinimaxState, promptText: string, wi
     (refImages || []).slice(0, 9).forEach((name, i) => {
       if (!name) return;
       g[N.ref(i)] = { class_type: "LoadImage", inputs: { image: name } };
-      inputs[`ref_images.ref_image_${i}`] = [N.ref(i), 0];
+      inputs[`ref_images.ref_image_${i}`] = resizeToMp(g, N.refResize(i), [N.ref(i), 0], (state.refImagesMp || [])[i]);
     });
 
     // Reference videos. VHS_LoadVideo does the whole job in one node: force_rate pins the
@@ -285,11 +337,11 @@ function buildConditioning(g: Graph, state: MinimaxState, promptText: string, wi
   if (mode === "firstlast") {
     if (firstFrame) {
       g[N.loadFirst] = { class_type: "LoadImage", inputs: { image: firstFrame } };
-      inputs.first_frame = [N.loadFirst, 0];
+      inputs.first_frame = resizeToMp(g, N.loadFirstResize, [N.loadFirst, 0], state.firstFrameMp);
     }
     if (lastFrame) {
       g[N.loadLast] = { class_type: "LoadImage", inputs: { image: lastFrame } };
-      inputs.last_frame = [N.loadLast, 0];
+      inputs.last_frame = resizeToMp(g, N.loadLastResize, [N.loadLast, 0], state.lastFrameMp);
     }
   }
   g[N.cond] = { class_type: "MiniMaxH3ImageToVideo", inputs };
@@ -323,7 +375,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   g[N.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
   g[N.vaeA] = { class_type: "VAELoader", inputs: { vae_name: state.vaeAudio } };
 
-  const modelLink = applyPreview(g, state, avail, modelLink0, nodeId);
+  const modelLink = applySla(g, state, avail, applyPreview(g, state, avail, modelLink0, nodeId));
 
   const fullPrompt = String(promptText || "").trim();
   buildConditioning(g, state, fullPrompt, width, height, frames, { firstFrame, lastFrame, refImages: refImages ?? state.refImages }, avail);

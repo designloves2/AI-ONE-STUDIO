@@ -109,15 +109,16 @@ set REPOS[14]=https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI
 set REPOS[15]=https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 set REPOS[16]=https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3
 set REPOS[17]=https://github.com/crystian/ComfyUI-Crystools
+set REPOS[18]=https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache
 
-set COUNT=18
+set COUNT=19
 
-for /L %%i in (0,1,17) do (
+for /L %%i in (0,1,18) do (
     set "URL=!REPOS[%%i]!"
     for %%F in (!URL!) do set "FOLDER=%%~nxF"
 
     echo ------------------------------------------------------------------------
-    echo [%%i/17] !FOLDER!
+    echo [%%i/18] !FOLDER!
     echo         !URL!
 
     if exist "!FOLDER!" (

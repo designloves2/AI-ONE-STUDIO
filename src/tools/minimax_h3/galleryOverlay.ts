@@ -4,9 +4,9 @@
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
 import { SUBFOLDER, alignFrameCount, framesToSeconds } from "./core";
-import { button, el, clear, confirmDialog } from "../../shared/ui";
+import { button, el, clear, confirmDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
-import { clipViewUrl, deleteVideo, listVideos, revealOutputFolder, saveMeta, stitchClips, thumbUrl, type GalleryVideo } from "./api";
+import { clipViewUrl, deleteVideo, getMediaFiles, listVideos, revealOutputFolder, saveMeta, stitchClips, thumbUrl, type GalleryVideo } from "./api";
 
 const STITCH_MAX = 10;
 
@@ -125,7 +125,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   deleteSelBtn.addEventListener("click", async () => {
     const picked = [...selectedKeys].map((k) => videos.find((v) => vKey(v) === k)).filter(Boolean) as GalleryVideo[];
     if (!picked.length) return;
-    if (!(await confirmDialog(`선택한 클립 ${picked.length}개를 삭제할까요? 되돌릴 수 없습니다.`))) return;
+    if (!(await confirmDialog(`Delete ${picked.length} selected clip(s)? This can't be undone.`))) return;
     deleteSelBtn.disabled = true;
     let failed = 0;
     for (const v of picked) {
@@ -139,8 +139,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     selectedKeys.clear();
     refreshDeleteSelBtn();
     await refresh();
-    if (failed) ctx.showPopup(`${failed}개 삭제 실패`, true);
-    else ctx.showPopup(`${picked.length}개 삭제했습니다.`, false);
+    if (failed) ctx.showPopup(`${failed} failed to delete`, true);
+    else ctx.showPopup(`Deleted ${picked.length} clip(s).`, false);
   });
 
   const fullBtn = toolBtn("★ stitched only");
@@ -172,6 +172,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     stitchBtn.style.background = stitchMode ? BRAND : C.bg2;
     stitchBtn.style.borderColor = stitchMode ? BRAND : C.border;
     stitchBar.style.display = stitchMode ? "flex" : "none";
+    audioOverrideBar.style.display = stitchMode ? "flex" : "none";
     renderGrid();
   });
   hdr.append(deleteSelBtn, fullBtn, stitchBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
@@ -190,6 +191,43 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
 
   const stitchGoBtn = button("🔗 Combine", () => runStitch(), "primary");
   stitchBar.append(stitchInfo, oneTakeLabel, stitchClearBtn, stitchGoBtn);
+
+  // 스티치 결과의 오디오를 클립 각각에 구워진 생성 오디오 대신 별도 음원 파일로 통째로
+  // 교체하는 옵션 — MiniMax H3 One-Take의 "Audio Lock 원본으로 교체" 옵션과 같은 기능을
+  // 갤러리에서 임의로 고른 클립들 스티치에도 그대로 쓸 수 있게 한 것.
+  let audioOverrideOn = false;
+  let audioOverrideFile = "";
+  let audioOverrideStart = 0;
+  let audioFilesCache: string[] | undefined;
+
+  const audioOverrideBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${C.border}`, padding: "7px 10px" } });
+  const audioOverrideLabel = el("label", { class: "flex items-center gap-1.5 text-[10.5px] cursor-pointer", style: { color: C.text } });
+  const audioOverrideCb = el("input", { type: "checkbox" }) as HTMLInputElement;
+  audioOverrideCb.style.cursor = "pointer";
+  audioOverrideLabel.append(audioOverrideCb, el("span", { text: "🎵 Replace audio with:" }));
+  const audioSelectWrap = el("div", { style: { minWidth: "180px" } });
+  const startField = numberField(0, (v) => { audioOverrideStart = Math.max(0, v); }, 0.1);
+  const startFieldWrap = el("div", { class: "flex items-center gap-1.5 text-[10.5px]", style: { color: C.muted } }, [el("span", { text: "start(s)" }), startField]);
+  audioOverrideBar.append(audioOverrideLabel, audioSelectWrap, startFieldWrap);
+
+  function renderAudioSelect() {
+    clear(audioSelectWrap);
+    const files = audioFilesCache || [];
+    const opts = ["", ...files].map((f) => ({ value: f, label: f || (audioFilesCache ? "— pick a file —" : "loading…") }));
+    const sel = select(opts, audioOverrideFile, (v) => { audioOverrideFile = v; });
+    (sel as HTMLElement).style.fontSize = "10.5px";
+    audioSelectWrap.appendChild(sel);
+  }
+  renderAudioSelect();
+
+  audioOverrideCb.addEventListener("change", () => {
+    audioOverrideOn = audioOverrideCb.checked;
+    if (audioOverrideOn && audioFilesCache === undefined) {
+      getMediaFiles()
+        .then((d) => { audioFilesCache = d.audios || []; renderAudioSelect(); })
+        .catch(() => { audioFilesCache = []; renderAudioSelect(); });
+    }
+  });
 
   function refreshStitchBar() {
     const picked = stitchOrder.map((k) => videos.find((v) => vKey(v) === k)).filter(Boolean) as GalleryVideo[];
@@ -219,7 +257,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     stitchInfo.textContent = `Stitching ${picked.length} clips${overlapSec ? ` (One-Take, ${overlapSec.toFixed(3)}s overlap trimmed)` : ""}…`;
     try {
       const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
-      const out = await stitchClips(picked.map((v) => ({ filename: v.filename, subfolder: v.subfolder || "" })), `${folder}/${state.filenamePrefix || "MMH3"}_full`, null, overlapSec);
+      const audioOverride = audioOverrideOn && audioOverrideFile ? { filename: audioOverrideFile, start: audioOverrideStart } : null;
+      const out = await stitchClips(picked.map((v) => ({ filename: v.filename, subfolder: v.subfolder || "" })), `${folder}/${state.filenamePrefix || "MMH3"}_full`, null, overlapSec, audioOverride);
       const known = picked.map((v) => ((v as any).meta?.frames ? framesToSeconds((v as any).meta.frames) : null));
       const rawTotal = known.every((s) => s != null) ? known.reduce((a, b) => a! + b!, 0) : null;
       const durationSeconds = rawTotal != null && overlapSec ? rawTotal! - (picked.length - 1) * overlapSec : rawTotal;
@@ -242,7 +281,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const hint = el("div", { class: "shrink-0 text-[10px] text-center", style: { color: C.muted } });
   hint.innerHTML = "double-click a clip to play it full screen · <b>space</b> play/pause · <b>← →</b> seek · <b>[ ]</b> previous / next · <b>Esc</b> close";
 
-  ov.append(hdr, stitchBar, grid, hint);
+  ov.append(hdr, stitchBar, audioOverrideBar, grid, hint);
 
   // ── fullscreen player ───────────────────────────────────────────────────
   const player = el("div", { class: "hidden fixed inset-0 z-[100000] flex-col", style: { display: "none", background: "rgba(0,0,0,0.97)" } });

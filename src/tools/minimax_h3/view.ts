@@ -8,6 +8,7 @@ import {
   ACCEL_MODES,
   ASPECTS,
   CLIP_LENGTHS,
+  FPS,
   SUBFOLDER,
   UPSCALE_MODES,
   accelModesFor,
@@ -33,6 +34,7 @@ import {
   saveState,
 } from "./core";
 import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select } from "../../shared/ui";
+import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
@@ -54,6 +56,7 @@ import {
   setLastResult,
   stitchClips,
   uploadMedia,
+  viewUrl,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
 import { buildClipGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey } from "./graphBuilder";
@@ -212,7 +215,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // 화면에 그대로 남아있지 않게). 다시 on으로 바꾸면 다음 프레임이 도착할 때 자연스럽게
   // showPreviewFrame이 이 화면을 걷어낸다.
   const previewOffMsg = el("div", { class: "text-muted text-xs text-center leading-relaxed hidden" });
-  previewOffMsg.innerHTML = "⏸ 라이브 프리뷰 꺼짐<br><span style='font-size:10px'>생성 중입니다…</span>";
+  previewOffMsg.innerHTML = "⏸ Live preview off<br><span style='font-size:10px'>Generating…</span>";
   // 라이브 프리뷰 온/오프 — off일 때는 새 스텝이 와도 화면을 갱신하지 않는다(진행률 텍스트는 계속 반영).
   // Settings의 previewEnabled와 같은 값을 공유해 여기서 끄면 Settings에도 반영된다.
   const previewToggleBtn = el("button", {
@@ -343,7 +346,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         // 작업이 돌고 있어서 ComfyUI 큐에서 대기 중인 상태일 수 있다. samplingActive가
         // true로 바뀌는 순간(=내 클립의 첫 스텝이 들어오는 순간) 이 배너는 사라진다.
         if (q.pending > 0 || q.running > 0) {
-          externalQueueBanner.textContent = `⏳ 내 생성 요청이 ComfyUI 큐에서 대기 중입니다 (대기 ${q.pending}건) — 앞선 작업이 끝나면 자동으로 시작됩니다.`;
+          externalQueueBanner.textContent = `⏳ My generation request is waiting in the ComfyUI queue (${q.pending} pending) — it'll start automatically once earlier jobs finish.`;
           externalQueueBanner.classList.remove("hidden");
           externalQueueBanner.classList.add("flex");
         } else {
@@ -357,7 +360,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         // 큐잉한 경우) 그것만 알려준다.
         const extraPending = Math.max(0, q.pending);
         if (extraPending > 0) {
-          externalQueueBanner.textContent = `⚠ ComfyUI 큐: 이 화면의 생성 외에 대기 ${extraPending}건 더 있습니다.`;
+          externalQueueBanner.textContent = `⚠ ComfyUI queue: ${extraPending} more pending besides this screen's generation.`;
           externalQueueBanner.classList.remove("hidden");
           externalQueueBanner.classList.add("flex");
         } else {
@@ -369,7 +372,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       // 이 화면이 아무것도 큐잉하지 않은 상태 — ComfyUI가 뭔가 돌고 있으면(새로고침 전에
       // 시작된 내 작업이거나 남의 큐) 그대로 알려준다.
       if (q.running > 0 || q.pending > 0) {
-        externalQueueBanner.textContent = `⚠ ComfyUI 큐: 실행 중 ${q.running} · 대기 ${q.pending} — 이 화면이 큐잉한 작업이 아니라면 진행률/프리뷰는 표시되지 않습니다.`;
+        externalQueueBanner.textContent = `⚠ ComfyUI queue: ${q.running} running · ${q.pending} pending — if this screen didn't queue it, progress/preview won't show here.`;
         externalQueueBanner.classList.remove("hidden");
         externalQueueBanner.classList.add("flex");
       } else {
@@ -567,7 +570,133 @@ export function renderMinimaxH3(container: HTMLElement) {
         up.textContent = "⬆ upload";
       }
     });
-    return row([col([sel]), col([up, inp])]);
+    return col([row([col([sel]), col([up, inp])]), state.lockAudioFile ? audioPreviewPlayer(state.lockAudioFile) : null]);
+  }
+
+  function audioPreviewPlayer(filename: string) {
+    const audio = el("audio", { preload: "metadata", src: viewUrl(filename), style: { display: "none" } }) as HTMLAudioElement;
+    const playBtn = el("button", {
+      type: "button",
+      text: "▶",
+      style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", width: "26px", height: "26px", borderRadius: "5px", background: C.bg3, color: C.text, border: `1px solid ${C.border}`, flexShrink: "0" },
+    });
+    const timeLbl = el("span", { text: "0:00 / 0:00", style: { fontSize: "10px", color: C.muted, minWidth: "72px", textAlign: "center", flexShrink: "0" } });
+    const seek = el("input", { type: "range", min: "0", max: "1000", value: "0", style: { flex: "1", accentColor: BRAND, minWidth: "0" } }) as HTMLInputElement;
+    let seeking = false;
+    let loopOn = false;
+    const loopBtn = el("button", {
+      type: "button",
+      text: "🔁",
+      title: "Loop the trimmed range",
+      style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", width: "26px", height: "26px", borderRadius: "5px", background: C.bg3, color: C.muted, border: `1px solid ${C.border}`, flexShrink: "0" },
+    });
+    loopBtn.addEventListener("click", () => {
+      loopOn = !loopOn;
+      loopBtn.style.background = loopOn ? BRAND : C.bg3;
+      loopBtn.style.color = loopOn ? "#fff" : C.muted;
+    });
+
+    const fmt = (s: number) => {
+      if (!isFinite(s) || s < 0) return "0:00";
+      const m = Math.floor(s / 60);
+      const ss = Math.floor(s % 60).toString().padStart(2, "0");
+      return `${m}:${ss}`;
+    };
+
+    // 재생/탐색은 항상 트림된 구간([effStart, effEnd]) 안으로만 — 트림 밖 구간은
+    // 어차피 오디오 락에 안 쓰이니 미리듣기도 거기에 맞춰야 실제 결과와 일치한다.
+    const effStart = () => Math.max(0, state.audioLockTrimStart || 0);
+    const effEnd = () => {
+      const dur = audio.duration || 0;
+      const e = state.audioLockTrimEnd || 0;
+      return e > 0 ? Math.min(e, dur || e) : dur;
+    };
+
+    playBtn.addEventListener("click", () => {
+      if (audio.paused) {
+        const s = effStart(), e = effEnd();
+        if (audio.currentTime < s || (e > s && audio.currentTime >= e)) audio.currentTime = s;
+        audio.play().catch(() => {});
+      } else {
+        audio.pause();
+      }
+    });
+    audio.addEventListener("play", () => { playBtn.textContent = "⏸"; });
+    audio.addEventListener("pause", () => { playBtn.textContent = "▶"; });
+    audio.addEventListener("ended", () => { playBtn.textContent = "▶"; });
+    audio.addEventListener("timeupdate", () => {
+      if (seeking) return;
+      const s = effStart(), e = effEnd();
+      if (e > s && audio.currentTime >= e) {
+        if (loopOn) { audio.currentTime = s; audio.play().catch(() => {}); }
+        else { audio.pause(); audio.currentTime = e; }
+      }
+      const span = Math.max(0.001, e - s);
+      const pos = Math.min(1, Math.max(0, (audio.currentTime - s) / span));
+      seek.value = String(pos * 1000);
+      timeLbl.textContent = `${fmt(Math.max(0, audio.currentTime - s))} / ${fmt(span)}`;
+    });
+    audio.addEventListener("loadedmetadata", () => {
+      audio.currentTime = effStart();
+      timeLbl.textContent = `0:00 / ${fmt(effEnd() - effStart())}`;
+      updateTrimHint();
+    });
+    seek.addEventListener("input", () => {
+      seeking = true;
+      const s = effStart(), e = effEnd();
+      const span = Math.max(0.001, e - s);
+      audio.currentTime = s + (parseFloat(seek.value) / 1000) * span;
+      timeLbl.textContent = `${fmt(audio.currentTime - s)} / ${fmt(span)}`;
+    });
+    seek.addEventListener("change", () => { seeking = false; });
+
+    const trimHint = el("div", { text: "", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
+    function updateTrimHint() {
+      const dur = audio.duration || 0;
+      const s = effStart();
+      const e = effEnd();
+      const len = Math.max(0, e - s);
+      trimHint.textContent = dur ? `In use: ${fmt(s)} – ${fmt(e)} (${len.toFixed(1)}s available) — preview plays this range only` : "";
+      // 트림 범위가 바뀌어서 현재 재생 위치가 밖으로 밀려났으면 안으로 당겨온다.
+      if (audio.currentTime < s || (e > s && audio.currentTime > e)) audio.currentTime = s;
+      // 재생 중이 아니어도(timeupdate가 안 도는 상태) 시간 표시/탐색바는 입력값 바뀔 때마다 바로 갱신.
+      const span = Math.max(0.001, e - s);
+      const pos = Math.min(1, Math.max(0, (audio.currentTime - s) / span));
+      seek.value = String(pos * 1000);
+      timeLbl.textContent = `${fmt(Math.max(0, audio.currentTime - s))} / ${fmt(span)}`;
+    }
+    const startField = numberField(state.audioLockTrimStart || 0, (v) => { state.audioLockTrimStart = Math.max(0, v); persist(); updateTrimHint(); }, 0.1);
+    const endField = numberField(state.audioLockTrimEnd || 0, (v) => { state.audioLockTrimEnd = Math.max(0, v); persist(); updateTrimHint(); }, 0.1);
+    const setBtnStyle = { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 6px", borderRadius: "5px", background: C.bg3, color: C.text, border: `1px solid ${C.border}`, flexShrink: "0" };
+    const setStartBtn = el("button", { type: "button", text: "from playhead", style: setBtnStyle });
+    const setEndBtn = el("button", { type: "button", text: "from playhead", style: setBtnStyle });
+    const setEndFullBtn = el("button", { type: "button", text: "full length", style: setBtnStyle });
+    setStartBtn.addEventListener("click", () => {
+      state.audioLockTrimStart = Math.round((audio.currentTime || 0) * 100) / 100;
+      startField.value = String(state.audioLockTrimStart);
+      persist();
+      updateTrimHint();
+    });
+    setEndBtn.addEventListener("click", () => {
+      state.audioLockTrimEnd = Math.round((audio.currentTime || 0) * 100) / 100;
+      endField.value = String(state.audioLockTrimEnd);
+      persist();
+      updateTrimHint();
+    });
+    setEndFullBtn.addEventListener("click", () => {
+      state.audioLockTrimEnd = Math.round((audio.duration || 0) * 100) / 100;
+      endField.value = String(state.audioLockTrimEnd);
+      persist();
+      updateTrimHint();
+    });
+    updateTrimHint();
+
+    const trimRow = row([
+      col([label("Trim start (s)"), row([startField, setStartBtn])]),
+      col([label("Trim end (s) — 0 = to end"), row([endField, setEndBtn, setEndFullBtn])]),
+    ]);
+
+    return col([row([playBtn, loopBtn, seek, timeLbl, audio], "6px"), trimRow, trimHint]);
   }
 
   function audioLockControls() {
@@ -678,7 +807,11 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.accelMode = "solattn";
       persist();
     }
-    if ((state.accelMode === "turbo" || state.accelMode === "spectrum") && state.useCache) {
+    if (state.accelMode === "turbo" && (state.useCache || state.useFirstBlockCache)) {
+      state.useCache = false;
+      state.useFirstBlockCache = false;
+      persist();
+    } else if (state.accelMode === "spectrum" && state.useCache) {
       state.useCache = false;
       persist();
     }
@@ -700,7 +833,31 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftPanel.appendChild(
       panel([
         label("Clip length"),
-        select(CLIP_LENGTHS.map((c) => ({ value: String(c.frames), label: c.label })), String(state.clipFrames), (v) => { state.clipFrames = parseInt(v, 10); persist(); refreshPlan(); }),
+        select(
+          [...CLIP_LENGTHS.map((c) => ({ value: String(c.frames), label: c.label })), { value: "custom", label: "Custom (seconds)…" }],
+          state.clipLengthCustom ? "custom" : String(state.clipFrames),
+          (v) => {
+            if (v === "custom") {
+              state.clipLengthCustom = true;
+              state.clipFrames = alignFrameCount(state.clipLengthCustomSec * FPS);
+            } else {
+              state.clipLengthCustom = false;
+              state.clipFrames = parseInt(v, 10);
+            }
+            persist();
+            renderLeft();
+          }
+        ),
+        state.clipLengthCustom
+          ? row([
+              numberField(state.clipLengthCustomSec, (v) => {
+                state.clipLengthCustomSec = Math.max(0.1, v);
+                state.clipFrames = alignFrameCount(state.clipLengthCustomSec * FPS);
+                persist();
+                refreshPlan();
+              }, 0.1),
+            ])
+          : null,
         totalLine,
         planLine,
         el("div", { text: "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
@@ -716,7 +873,26 @@ export function renderMinimaxH3(container: HTMLElement) {
       panel([
         col([label("Acceleration"), select(accelModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.accelMode, (v) => { state.accelMode = v; persist(); renderLeft(); })]),
         ...accelSettings(),
-        checkboxRow("H3 Cache (step reuse)", !!state.useCache, (v) => { state.useCache = v; persist(); }, { disabled: state.accelMode === "turbo" || state.accelMode === "spectrum" }),
+        checkboxRow("H3 Cache (step reuse)", !!state.useCache, (v) => { state.useCache = v; if (v) state.useFirstBlockCache = false; persist(); renderLeft(); }, {
+          disabled: state.accelMode === "turbo" || state.accelMode === "spectrum",
+          title: state.accelMode === "turbo"
+            ? "Off with Turbo — turbo's 4-step schedule never reaches the threshold H3 Cache reuses steps at"
+            : state.accelMode === "spectrum"
+            ? "Off with Spectrum — Spectrum is its own step-schedule accelerator and conflicts with H3 Cache's step reuse"
+            : "",
+        }),
+        checkboxRow("H3 FirstBlockCache (step reuse)", !!state.useFirstBlockCache, (v) => { state.useFirstBlockCache = v; if (v) state.useCache = false; persist(); renderLeft(); }, {
+          disabled: state.accelMode === "turbo",
+          title: state.accelMode === "turbo"
+            ? "Off with Turbo — turbo's 4-step schedule never reaches the threshold step-reuse caches trigger at"
+            : "Same idea as H3 Cache above, different implementation — only one can be on at a time. Compatible with Spectrum.",
+        }),
+        checkboxRow("H3 SLA Attention Enabled", state.slaRunEnabled !== false, (v) => { state.slaRunEnabled = v; persist(); }, {
+          disabled: !state.useSlaAttention,
+          title: state.useSlaAttention
+            ? "Toggles the node's own bypass — off runs dense attention without removing the node."
+            : "Enable H3 SLA Attention in ⚙ Settings → Models first.",
+        }),
       ])
     );
 
@@ -771,6 +947,22 @@ export function renderMinimaxH3(container: HTMLElement) {
                     : "Off — clips stay separate, same as any other run; nothing gets auto-combined.",
                   style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
                 }),
+                ...(state.oneTakeAutoStitch !== false
+                  ? [
+                      checkboxRow(
+                        "Replace with Audio Lock source (skip generated audio)",
+                        !!state.oneTakeAudioOverride,
+                        (v) => { state.oneTakeAudioOverride = v; persist(); },
+                        { disabled: !state.audioLock || !state.lockAudioFile }
+                      ),
+                      el("div", {
+                        text: state.audioLock && state.lockAudioFile
+                          ? "The stitched result's audio track is swapped for the locked source file itself (trimmed to match), instead of the model's generated audio."
+                          : "Needs Audio Lock on with a file selected.",
+                        style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+                      }),
+                    ]
+                  : []),
               ];
             })()
           : []),
@@ -838,7 +1030,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           const after = availableLoras.length;
           showPopup(after === before ? `LoRA list refreshed — ${after} found.` : `LoRA list refreshed — ${after} found (${after - before > 0 ? "+" : ""}${after - before}).`, false);
         } catch {
-          showPopup("Could not refresh the model list — ComfyUI가 실행 중인지 확인하세요.", true);
+          showPopup("Could not refresh the model list — check that ComfyUI is running.", true);
         }
         reload.disabled = false;
         reload.textContent = "⟳";
@@ -969,6 +1161,41 @@ export function renderMinimaxH3(container: HTMLElement) {
   let running = false;
   let stopRequested = false;
 
+  // 브라우저가 백그라운드 탭을 스스로 디스카드했다가 다시 그리면(사용자가 새로고침을
+  // 누른 게 아님) 이 클로저 전체가 사라지고 릴레이 루프도 완전히 끊긴다 — 서버(ComfyUI)는
+  // 이미 큐에 들어간 클립을 계속 처리하지만, 그다음 클립을 다시 큐에 넣어줄 코드가 없어져서
+  // 거기서 멈춘다. 매 클립 경계마다 진행 상황을 localStorage에 남겨두고, 페이지가 다시
+  // 그려질 때 그걸 보고 이어서(새 큐를 보내지 않고 이미 떠 있는 작업에 재부착해서) 계속
+  // 진행하게 한다.
+  const RUN_PROGRESS_KEY = "aos_mmh3_run_progress";
+  interface RunProgress {
+    pos: number;
+    totClip: number;
+    clipRecords: any[];
+    prevCheckpointName: string | null;
+    chainFrame: string | null;
+    promptId: string | null;
+    savedAt: number;
+  }
+  function saveRunProgress(p: RunProgress | null) {
+    try {
+      if (p) localStorage.setItem(RUN_PROGRESS_KEY, JSON.stringify(p));
+      else localStorage.removeItem(RUN_PROGRESS_KEY);
+    } catch {}
+  }
+  function loadRunProgress(): RunProgress | null {
+    try {
+      const raw = localStorage.getItem(RUN_PROGRESS_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw) as RunProgress;
+      // 24시간 넘은 기록은 그냥 죽은 것으로 본다 — ComfyUI가 그사이 재시작됐을 확률이 높다.
+      if (!p || Date.now() - (p.savedAt || 0) > 24 * 3600 * 1000) return null;
+      return p;
+    } catch {
+      return null;
+    }
+  }
+
   function promptForClip(clipIdx: number) {
     return composeClipPrompt(state, clipIdx);
   }
@@ -995,15 +1222,18 @@ export function renderMinimaxH3(container: HTMLElement) {
     return out?.images || out?.gifs || [];
   }
 
-  genBtn.addEventListener("click", async () => {
+  genBtn.addEventListener("click", () => runGenerate());
+
+  async function runGenerate(resume?: RunProgress) {
     if (running) return;
     running = true;
     stopRequested = false;
     genBtn.disabled = true;
-    genBtn.textContent = "⏳ Preparing…";
-    resetPreview();
+    genBtn.textContent = resume ? "⏳ Reconnecting to previous run…" : "⏳ Preparing…";
+    if (!resume) resetPreview();
     barInner.style.width = "0%";
     startClock();
+    keepTabAlive(true);
 
     try {
       if (!ctx.availability || !Object.keys(ctx.availability).length) {
@@ -1015,21 +1245,26 @@ export function renderMinimaxH3(container: HTMLElement) {
         throw new Error(`Missing core nodes: ${(ctx.availabilityInfo.missing_core || []).join(", ")}`);
       }
 
-      if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
-      else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
-      else if (state.seedMode === "decrement") { state.seed = Math.max(0, (state.seed || 0) - 1); seedInput.value = String(state.seed); }
-      persist();
+      if (!resume) {
+        if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
+        else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
+        else if (state.seedMode === "decrement") { state.seed = Math.max(0, (state.seed || 0) - 1); seedInput.value = String(state.seed); }
+        persist();
+      }
 
       const plan = currentPlan();
       const active = activePrompts(state);
       if (!active.length) throw new Error("No prompts are switched on.");
       totClip = active.length;
-      const clipRecords: any[] = [];
-      let chainFrame: string | null = state.generationMode === "reference" ? null : state.firstFrameImage || null;
-      let prevCheckpointName: string | null = null;
+      const clipRecords: any[] = resume ? [...resume.clipRecords] : [];
+      let chainFrame: string | null = resume ? resume.chainFrame : (state.generationMode === "reference" ? null : state.firstFrameImage || null);
+      let prevCheckpointName: string | null = resume ? resume.prevCheckpointName : null;
       const clipTimes: number[] = [];
+      let resumePromptId: string | null = resume?.promptId || null;
 
-      for (let pos = 0; pos < active.length; pos++) {
+      if (!resume) saveRunProgress({ pos: 0, totClip, clipRecords: [], prevCheckpointName: null, chainFrame, promptId: null, savedAt: Date.now() });
+
+      for (let pos = resume ? resume.pos : 0; pos < active.length; pos++) {
         if (stopRequested) { setStatus(`Stopped after ${pos} clip(s).`); break; }
         const i = active[pos].i;
         curClip = pos + 1;
@@ -1071,11 +1306,17 @@ export function renderMinimaxH3(container: HTMLElement) {
         setStatus(`Clip ${curClip}/${totClip} · queued`);
         samplingActive = true;
         applyPreviewOffState();
+        const reattachId = pos === (resume?.pos ?? -1) ? resumePromptId || undefined : undefined;
         let res;
         try {
-          res = await queuePrompt(built.graph, { onProgress: (v, m) => setStepProgress(v, m) });
+          res = await queuePrompt(built.graph, {
+            onProgress: (v, m) => setStepProgress(v, m),
+            existingPromptId: reattachId,
+            onQueued: (promptId) => saveRunProgress({ pos, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId, savedAt: Date.now() }),
+          });
         } finally {
           samplingActive = false;
+          resumePromptId = null;
         }
         if (isOneTake) prevCheckpointName = checkpointName;
 
@@ -1106,6 +1347,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         state.avgMinutesPerClip = +(clipTimes.reduce((a, b) => a + b, 0) / clipTimes.length).toFixed(2);
         persist();
         refreshPlan();
+        saveRunProgress(pos < active.length - 1 ? { pos: pos + 1, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId: null, savedAt: Date.now() } : null);
 
         if (state.unloadBetweenClips && pos < active.length - 1) {
           setStatus(`Clip ${curClip}/${totClip} done · freeing VRAM…`);
@@ -1118,7 +1360,10 @@ export function renderMinimaxH3(container: HTMLElement) {
         setStatus(`Stitching ${clipRecords.length} clips (One-Take, ${overlapSec.toFixed(3)}s overlap trimmed)…`);
         try {
           const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
-          const out = await stitchClips(clipRecords, `${folder}/${state.filenamePrefix || "MMH3"}_full`, null, overlapSec);
+          const audioOverride = state.oneTakeAudioOverride && state.audioLock && state.lockAudioFile
+            ? { filename: state.lockAudioFile, start: Math.max(0, state.audioLockTrimStart || 0) }
+            : null;
+          const out = await stitchClips(clipRecords, `${folder}/${state.filenamePrefix || "MMH3"}_full`, null, overlapSec, audioOverride);
           const url = outputViewUrl(out.filename, out.subfolder || "", "output");
           const totalSeconds = clipRecords.length * framesToSeconds(state.clipFrames || 192) - (clipRecords.length - 1) * overlapSec;
           saveMeta(out.filename, out.subfolder || "", metaForVideo(
@@ -1155,8 +1400,10 @@ export function renderMinimaxH3(container: HTMLElement) {
       genBtn.disabled = false;
       genBtn.textContent = "▶ Generate";
       stopClock();
+      keepTabAlive(false);
+      saveRunProgress(null);
     }
-  });
+  }
 
   stopBtn.addEventListener("click", async () => {
     // running이 false여도(새로고침 등으로 이 세션이 추적을 놓쳤거나, 애초에 이 세션이 큐를
@@ -1164,7 +1411,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     // 넣었는지와 무관하게 항상 유효하다("실수로 큐 보냈는데 연결 끊겨서 못 멈춘다" 방지).
     if (!running) {
       await interrupt();
-      showPopup("ComfyUI에 정지 신호를 보냈습니다.", false);
+      showPopup("Sent an interrupt signal to ComfyUI.", false);
       return;
     }
     stopRequested = true;
@@ -1181,8 +1428,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       genBtn.disabled = false;
       genBtn.textContent = "▶ Generate";
       stopClock();
-      setStatus("Stopped (연결 응답 없음 — 강제 종료). ComfyUI 큐를 확인해 주세요.");
-      showPopup("Stop 신호는 보냈지만 완료 응답을 못 받아 화면을 강제로 초기화했습니다.", true);
+      setStatus("Stopped (no response — forced reset). Please check the ComfyUI queue.");
+      showPopup("Sent the stop signal but got no completion response, so the screen was reset forcibly.", true);
     }, 6000);
   });
 
@@ -1259,4 +1506,12 @@ export function renderMinimaxH3(container: HTMLElement) {
   loadAudioFiles();
   refreshGallery();
   startQueuePolling();
+
+  // 탭이 사용자 모르게 디스카드/리로드됐다가 다시 그려진 경우 — 죽기 전에 남겨둔 진행
+  // 상황이 있으면(24시간 이내) 새 큐를 보내는 대신 그 자리에 재부착해서 이어간다.
+  const pending = loadRunProgress();
+  if (pending) {
+    setStatus(`Reconnecting to previous run… (clip ${pending.pos + 1}/${pending.totClip})`);
+    runGenerate(pending);
+  }
 }

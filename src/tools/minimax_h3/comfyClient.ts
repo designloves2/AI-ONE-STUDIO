@@ -6,11 +6,27 @@ import { getComfyBase } from "../../shared/comfyBase";
 const BASE = getComfyBase();
 const WS_BASE = BASE.replace(/^http/, "ws");
 
-// 탭/페이지 로드마다 새로 발급한다 — localStorage에 영구 저장해서 여러 탭이나 이전
-// 세션의 유령 소켓과 같은 clientId를 공유하면, ComfyUI가 progress/executing 같은
-// 단방향(unicast) 이벤트를 그 중 아무 소켓에나 보내버려 실제 연결에는 아무것도 안
-// 오는 문제가 생긴다(실제로 겪었음) — 매번 고유해야 이런 충돌이 생기지 않는다.
-const CLIENT_ID = crypto.randomUUID();
+// sessionStorage에 탭 단위로 유지한다 — localStorage로 여러 탭이 공유하면 ComfyUI가
+// progress/executing 같은 단방향(unicast) 이벤트를 그 중 아무 소켓에나 보내버려 실제
+// 연결에는 아무것도 안 오는 문제가 생긴다(실제로 겪었음). 반대로 매 로드마다 완전히
+// 새로 발급하면, 브라우저가 백그라운드 탭을 스스로 디스카드했다가 다시 그리는 경우
+// (사용자가 새로고침을 누른 게 아닌데도 탭이 리셋된 것처럼 보이는 크롬 메모리 절약
+// 동작) 새 clientId로 붙어버려서 서버가 진행 중이던 작업의 progress를 예전 소켓으로
+// 계속 보내다 허공에 날려버린다 — 그래서 "이 화면이 큐잉한 작업이 아니면 표시 안 됨"
+// 배너가 뜨고 릴레이도 거기서 멈춘다. sessionStorage는 탭 하나에만 묶이고 탭이 다시
+// 그려질 때도 유지되니, 같은 clientId로 재연결하면 서버가 다음 progress부터는 새
+// 소켓으로 다시 보내준다 — 두 문제를 동시에 피한다.
+const CLIENT_ID = (() => {
+  try {
+    const existing = sessionStorage.getItem("mmh3_client_id");
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    sessionStorage.setItem("mmh3_client_id", id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+})();
 
 type Listener = (detail: any) => void;
 const listeners = new Map<string, Set<Listener>>();
@@ -72,11 +88,23 @@ export interface QueueResult {
   byNode: Record<string, any>;
 }
 
-/** Submit one graph and resolve once ComfyUI finishes executing it (or reject on error). */
-export function queuePrompt(promptGraph: Record<string, any>, opts?: { onProgress?: (v: number, m: number) => void }): Promise<QueueResult> {
+/**
+ * Submit one graph and resolve once ComfyUI finishes executing it (or reject on error).
+ *
+ * Pass `existingPromptId` (and `promptGraph: null`) to re-attach to a job that was already
+ * queued in an earlier page load instead of submitting a new one — the browser can silently
+ * discard/reload a backgrounded tab (Chrome's memory-saver, no user refresh involved), which
+ * wipes this function's in-flight promise but leaves the job running server-side. Re-attaching
+ * checks /history first in case it already finished while the tab was gone, then falls back to
+ * listening for the same events a fresh submission would.
+ */
+export function queuePrompt(
+  promptGraph: Record<string, any> | null,
+  opts?: { onProgress?: (v: number, m: number) => void; onQueued?: (promptId: string) => void; existingPromptId?: string }
+): Promise<QueueResult> {
   return new Promise(async (resolve, reject) => {
     await connect();
-    let promptId: string | null = null;
+    let promptId: string | null = opts?.existingPromptId || null;
     const outputs: Record<string, any> = {};
 
     const onProgress = (d: any) => {
@@ -118,6 +146,51 @@ export function queuePrompt(promptGraph: Record<string, any>, opts?: { onProgres
     comfyApi.addEventListener("execution_cancelled", onCancelled);
     comfyApi.addEventListener("execution_interrupted", onCancelled);
 
+    if (opts?.existingPromptId) {
+      // 재부착 — 이미 큐에 들어간 작업이니 다시 POST하지 않는다. 탭이 없던 사이에
+      // 이미 끝나 있었을 수도 있으니 /history부터 확인하고, 아니면 위에서 건 리스너가
+      // 다음 progress/executed/success 이벤트를 그대로 받아서 이어간다.
+      try {
+        const h = await comfyApi.fetchApi(`/history/${opts.existingPromptId}`);
+        const hd = await h.json();
+        const entry = hd?.[opts.existingPromptId];
+        if (entry?.status?.completed) {
+          cleanup();
+          const outs: Record<string, any> = {};
+          for (const nodeId in entry.outputs || {}) outs[nodeId] = entry.outputs[nodeId];
+          resolve({ byNode: outs });
+          return;
+        }
+        if (entry?.status?.status_str === "error") {
+          cleanup();
+          reject(new Error(entry.status?.messages?.map((m: any) => m?.[1]?.exception_message || "").filter(Boolean).join(" ") || "generation failed"));
+          return;
+        }
+      } catch {
+        // /history lookup failing doesn't mean the job is gone — just fall through and
+        // check /queue below instead.
+      }
+      // Not in history (not done, not errored) — confirm it's actually still queued/running
+      // before settling in to wait forever. If ComfyUI restarted while the tab was gone, the
+      // old prompt_id is just gone and no WS event for it will ever arrive; failing fast here
+      // beats leaving the UI stuck on "reconnecting…" indefinitely.
+      try {
+        const q = await comfyApi.fetchApi("/queue");
+        const qd = await q.json();
+        const stillThere = [...(qd.queue_running || []), ...(qd.queue_pending || [])].some((e: any) => e?.[1] === opts.existingPromptId);
+        if (!stillThere) {
+          cleanup();
+          reject(new Error("Previous run not found in the ComfyUI queue — the server may have restarted or it's already gone."));
+          return;
+        }
+      } catch (e) {
+        cleanup();
+        reject(e instanceof Error ? e : new Error("failed to check reconnection status"));
+        return;
+      }
+      return;
+    }
+
     try {
       const resp = await comfyApi.fetchApi("/prompt", {
         method: "POST",
@@ -132,6 +205,7 @@ export function queuePrompt(promptGraph: Record<string, any>, opts?: { onProgres
         return;
       }
       promptId = data.prompt_id;
+      if (promptId) opts?.onQueued?.(promptId);
     } catch (e) {
       cleanup();
       reject(e);

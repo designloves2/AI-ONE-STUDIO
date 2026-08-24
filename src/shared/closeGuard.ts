@@ -29,6 +29,6 @@ window.addEventListener("beforeunload", (e) => {
   // "falsy면 확인창 생략"으로 판단해 그냥 닫아버리는 경우가 있어, 실제 텍스트를 채운다
   // (커스텀 텍스트는 브라우저가 무시하고 자체 문구를 보여주지만, truthy 값 자체가 필요함).
   e.preventDefault();
-  e.returnValue = "Generation is still running. Leave this page?";
+  e.returnValue = "Leave this page?";
   return e.returnValue;
 });

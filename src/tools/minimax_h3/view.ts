@@ -1153,7 +1153,83 @@ export function renderMinimaxH3(container: HTMLElement) {
   // 보냈는데 연결이 끊겨서 이 세션은 running=false인 채 새로고침됐다" 같은 경우 Stop을 아예
   // 누를 수가 없었다. /interrupt는 어차피 ComfyUI 전역 인터럽트라 누가 큐를 넣었는지와 무관하게
   // 항상 보낼 수 있어야 한다 — 그래서 상시 활성화로 바꾼다.
-  seedGenWrap.appendChild(row([genBtn, stopBtn]));
+  // Only offered for a single-prompt run: with one prompt, the whole clip's graph is
+  // already built and queued by the time this could be clicked, so editing the panel
+  // afterward (to prepare the next run) can never leak into the one in flight. A
+  // multi-clip run reads state.prompts live per clip on purpose, and that's exactly
+  // what this queue would corrupt if it were allowed there too.
+  //
+  // Like ComfyUI's own queue: every click snapshots the whole panel as-is and appends
+  // it as one more entry. When the current run finishes cleanly, entry #1 takes over
+  // the panel and restarts; when THAT one finishes, #2 takes over, and so on — a plain
+  // FIFO, not a single toggle.
+  const nextGenBtn = button("⏭ Next Gen", null);
+  nextGenBtn.style.flexShrink = "0";
+  nextGenBtn.style.display = "none";
+  nextGenBtn.title = "Snapshot this exact panel and append it to the queue — takes over once everything ahead of it finishes.";
+  const queueListBtn = el("button", {
+    type: "button", text: "📋", title: "View queued runs",
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "0 8px", borderRadius: "6px", background: C.bg3, color: C.text, border: `1px solid ${C.border}`, display: "none", flexShrink: "0", position: "relative" },
+  });
+  const queueCountDot = el("div", {
+    style: { position: "absolute", top: "-5px", right: "-5px", minWidth: "14px", height: "14px", borderRadius: "7px", background: BRAND, color: "#fff", fontSize: "9px", fontWeight: "700", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 2px" },
+  });
+  queueListBtn.appendChild(queueCountDot);
+  let nextQueue: MinimaxState[] = [];
+  function summarizeQueued(snap: MinimaxState) {
+    const active = (snap.prompts || []).filter((p) => p && p.enabled !== false && (p.text || "").trim());
+    const first = active[0]?.text || "(no prompt text)";
+    return `${active.length} clip${active.length === 1 ? "" : "s"} · ${String(first).slice(0, 40)}${first.length > 40 ? "…" : ""}`;
+  }
+  function renderNextQueue() {
+    nextGenBtn.textContent = nextQueue.length ? `⏭ Next Gen (${nextQueue.length})` : "⏭ Next Gen";
+    nextGenBtn.style.background = nextQueue.length ? BRAND : "";
+    queueListBtn.style.display = nextQueue.length ? "flex" : "none";
+    queueCountDot.textContent = String(nextQueue.length);
+    if (queueListOv.style.display !== "none") renderQueueListPopup();
+  }
+  nextGenBtn.addEventListener("click", () => {
+    nextQueue.push(JSON.parse(JSON.stringify(state)));
+    renderNextQueue();
+  });
+  queueListBtn.addEventListener("click", () => {
+    renderQueueListPopup();
+    queueListOv.style.display = "flex";
+  });
+  seedGenWrap.appendChild(row([genBtn, stopBtn, nextGenBtn, queueListBtn]));
+
+  // ── Next Gen queue popup ──────────────────────────────────────────
+  const queueListOv = el("div", {
+    class: "fixed inset-0 z-[9998] flex-col p-3.5 gap-2.5 box-border",
+    style: { display: "none", background: "rgba(11,11,11,0.97)" },
+  });
+  const queueListTop = el("div", { class: "flex items-center gap-2 shrink-0" });
+  queueListTop.append(
+    el("div", { text: "Next Gen queue", class: "text-white text-sm font-bold flex-1" }),
+    button("✕", () => { queueListOv.style.display = "none"; }, "danger")
+  );
+  const queueListBody = el("div", { class: "flex-1 overflow-y-auto flex flex-col gap-1.5" });
+  queueListOv.append(queueListTop, queueListBody);
+  function renderQueueListPopup() {
+    clear(queueListBody);
+    if (!nextQueue.length) {
+      queueListBody.appendChild(el("div", { text: "Nothing queued.", style: { color: C.muted, fontSize: "11px" } }));
+      return;
+    }
+    nextQueue.forEach((snap, idx) => {
+      const rowEl = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px 10px" } });
+      rowEl.appendChild(el("div", { text: `#${idx + 1}`, style: { color: BRAND, fontSize: "12px", fontWeight: "700", flexShrink: "0" } }));
+      rowEl.appendChild(el("div", { text: summarizeQueued(snap), style: { flex: "1", fontSize: "11px", color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }));
+      const cancelBtn = el("button", { type: "button", text: "✕ Cancel", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "5px", background: "#c0392b", color: "#fff", border: "none", flexShrink: "0" } });
+      cancelBtn.addEventListener("click", () => {
+        nextQueue.splice(idx, 1);
+        renderNextQueue();
+        renderQueueListPopup();
+      });
+      rowEl.appendChild(cancelBtn);
+      queueListBody.appendChild(rowEl);
+    });
+  }
 
   // ══ 생성 릴레이 루프 ═══════════════════════════════════════════════
   // 원본: one_node_minimax_h3.js의 genBtn.onclick — 클립 하나당 그래프 하나를 큐잉하고,
@@ -1230,6 +1306,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     stopRequested = false;
     genBtn.disabled = true;
     genBtn.textContent = resume ? "⏳ Reconnecting to previous run…" : "⏳ Preparing…";
+    nextGenBtn.style.display = "none";
     if (!resume) resetPreview();
     barInner.style.width = "0%";
     startClock();
@@ -1256,6 +1333,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       const active = activePrompts(state);
       if (!active.length) throw new Error("No prompts are switched on.");
       totClip = active.length;
+      nextGenBtn.style.display = totClip === 1 ? "" : "none";
       const clipRecords: any[] = resume ? [...resume.clipRecords] : [];
       let chainFrame: string | null = resume ? resume.chainFrame : (state.generationMode === "reference" ? null : state.firstFrameImage || null);
       let prevCheckpointName: string | null = resume ? resume.prevCheckpointName : null;
@@ -1395,6 +1473,12 @@ export function renderMinimaxH3(container: HTMLElement) {
       }
     } finally {
       try { await freeMemory(); } catch {}
+      // Entry #1 of the Next Gen queue takes over the live panel and restarts, but only
+      // on a clean finish — a stopped or errored run shouldn't silently barrel into
+      // whatever's queued, so Stop drops the whole queue, not just this run.
+      const queued = !stopRequested && nextQueue.length ? nextQueue.shift() : null;
+      if (stopRequested) nextQueue = [];
+      renderNextQueue();
       running = false;
       stopRequested = false;
       genBtn.disabled = false;
@@ -1402,6 +1486,13 @@ export function renderMinimaxH3(container: HTMLElement) {
       stopClock();
       keepTabAlive(false);
       saveRunProgress(null);
+      if (queued) {
+        Object.assign(state, queued);
+        persist();
+        renderPills();
+        renderLeft();
+        setTimeout(() => runGenerate(), 50);
+      }
     }
   }
 
@@ -1482,7 +1573,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   commonBtn.addEventListener("click", () => commonPromptOv.show());
 
-  wrap.append(subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, settingsOv.el, helpOv);
+  wrap.append(subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, settingsOv.el, helpOv, queueListOv);
   container.appendChild(wrap);
   document.body.appendChild(galleryOv.playerEl); // 풀스크린 플레이어는 다른 모든 것 위에 떠야 하므로 body 직속
 

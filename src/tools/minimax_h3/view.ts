@@ -1252,6 +1252,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     chainFrame: string | null;
     promptId: string | null;
     savedAt: number;
+    // 런 시작 시점 패널 전체 스냅샷 — 새로고침 후 이어갈 때도 그사이 라이브 state가
+    // 바뀌었을 수 있으므로(사용자가 다음 런을 준비하며 설정을 만졌을 수 있음) 라이브
+    // state가 아니라 이 스냅샷을 그대로 읽어야 지금 돌던 런이 안전하게 이어진다.
+    runState: MinimaxState;
   }
   function saveRunProgress(p: RunProgress | null) {
     try {
@@ -1272,19 +1276,19 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
   }
 
-  function promptForClip(clipIdx: number) {
-    return composeClipPrompt(state, clipIdx);
+  function promptForClip(rs: MinimaxState, clipIdx: number) {
+    return composeClipPrompt(rs, clipIdx);
   }
-  function seedForClip(i: number) {
-    if (!state.seedPerClip) return state.seed ?? 0;
-    return ((state.seed ?? 0) + i) % Number.MAX_SAFE_INTEGER;
+  function seedForClip(rs: MinimaxState, i: number) {
+    if (!rs.seedPerClip) return rs.seed ?? 0;
+    return ((rs.seed ?? 0) + i) % Number.MAX_SAFE_INTEGER;
   }
-  function metaForVideo(promptTextVal: string, extra: Record<string, any> = {}) {
-    const { width, height } = resolveResolution(state.aspect, state.megapixels);
+  function metaForVideo(rs: MinimaxState, promptTextVal: string, extra: Record<string, any> = {}) {
+    const { width, height } = resolveResolution(rs.aspect, rs.megapixels);
     return {
-      v: 1, prompt: String(promptTextVal || ""), promptHeader: state.promptHeader || "", promptFooter: state.promptFooter || "",
-      w: width, h: height, mode: state.generationMode || "t2v", aspect: state.aspect, megapixels: state.megapixels,
-      frames: state.clipFrames, steps: state.steps, sampler: state.sampler, accel: state.accelMode, seed: state.seed,
+      v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
+      w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
+      frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler, accel: rs.accelMode, seed: rs.seed,
       node: "minimax_h3", created: Date.now(), ...extra,
     };
   }
@@ -1329,18 +1333,25 @@ export function renderMinimaxH3(container: HTMLElement) {
         persist();
       }
 
-      const plan = currentPlan();
-      const active = activePrompts(state);
+      // 런 시작 시점 패널 전체를 얼려서 이 런의 모든 클립이 이 스냅샷만 읽게 한다(컴피
+      // 자체 큐와 동일한 방식) — 실행 도중 라이브 state를 고쳐도(예: Next Gen으로 다음
+      // 런을 미리 준비) 지금 도는 런에는 전혀 영향 없다. 새로고침 재개 시엔 그때 저장해둔
+      // 스냅샷을 그대로 다시 읽어서, 그사이 라이브 state가 바뀌었어도 안전하게 이어진다.
+      // resume.runState may be missing on progress saved before this snapshot field existed —
+      // fall back to the live panel rather than crash the reconnect.
+      const rs: MinimaxState = resume?.runState ? resume.runState : JSON.parse(JSON.stringify(state));
+      const plan = clipPlan(rs);
+      const active = activePrompts(rs);
       if (!active.length) throw new Error("No prompts are switched on.");
       totClip = active.length;
       nextGenBtn.style.display = totClip === 1 ? "" : "none";
       const clipRecords: any[] = resume ? [...resume.clipRecords] : [];
-      let chainFrame: string | null = resume ? resume.chainFrame : (state.generationMode === "reference" ? null : state.firstFrameImage || null);
+      let chainFrame: string | null = resume ? resume.chainFrame : (rs.generationMode === "reference" ? null : rs.firstFrameImage || null);
       let prevCheckpointName: string | null = resume ? resume.prevCheckpointName : null;
       const clipTimes: number[] = [];
       let resumePromptId: string | null = resume?.promptId || null;
 
-      if (!resume) saveRunProgress({ pos: 0, totClip, clipRecords: [], prevCheckpointName: null, chainFrame, promptId: null, savedAt: Date.now() });
+      if (!resume) saveRunProgress({ pos: 0, totClip, clipRecords: [], prevCheckpointName: null, chainFrame, promptId: null, savedAt: Date.now(), runState: rs });
 
       for (let pos = resume ? resume.pos : 0; pos < active.length; pos++) {
         if (stopRequested) { setStatus(`Stopped after ${pos} clip(s).`); break; }
@@ -1351,29 +1362,29 @@ export function renderMinimaxH3(container: HTMLElement) {
         badge.classList.remove("hidden");
         badge.textContent = `● CLIP ${curClip}/${totClip}`;
 
-        const isRef = state.generationMode === "reference";
-        let firstFrame: string | null = isRef ? null : state.firstFrameImage || null;
-        let refImages: string[] = state.refImages || [];
-        const continued = pos > 0 && state.continuityMode === "lastframe" && !!chainFrame;
+        const isRef = rs.generationMode === "reference";
+        let firstFrame: string | null = isRef ? null : rs.firstFrameImage || null;
+        let refImages: string[] = rs.refImages || [];
+        const continued = pos > 0 && rs.continuityMode === "lastframe" && !!chainFrame;
         if (pos > 0) firstFrame = continued ? chainFrame : null;
         if (continued) refImages = [];
 
-        const override = promptFirstFrame(state.prompts[i]);
+        const override = promptFirstFrame(rs.prompts[i]);
         let overridden = false;
         if (override) { firstFrame = override; refImages = []; overridden = true; }
 
-        const modeForClip = continued || overridden ? "firstlast" : state.generationMode;
-        const clipState: MinimaxState = { ...state, generationMode: modeForClip };
+        const modeForClip = continued || overridden ? "firstlast" : rs.generationMode;
+        const clipState: MinimaxState = { ...rs, generationMode: modeForClip };
 
-        const isOneTake = state.continuityMode === "onetake";
+        const isOneTake = rs.continuityMode === "onetake";
         const checkpointName = isOneTake ? `${instanceId}_${i}` : null;
 
         const built = buildClipGraph(clipState, ctx.availability, {
           nodeId: instanceId,
-          promptText: promptForClip(i),
-          seed: seedForClip(i),
+          promptText: promptForClip(rs, i),
+          seed: seedForClip(rs, i),
           firstFrame,
-          lastFrame: pos === active.length - 1 ? state.lastFrameImage || null : null,
+          lastFrame: pos === active.length - 1 ? rs.lastFrameImage || null : null,
           refImages,
           clipIndex: i,
           saveLastFrame: true,
@@ -1390,7 +1401,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           res = await queuePrompt(built.graph, {
             onProgress: (v, m) => setStepProgress(v, m),
             existingPromptId: reattachId,
-            onQueued: (promptId) => saveRunProgress({ pos, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId, savedAt: Date.now() }),
+            onQueued: (promptId) => saveRunProgress({ pos, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId, savedAt: Date.now(), runState: rs }),
           });
         } finally {
           samplingActive = false;
@@ -1402,9 +1413,9 @@ export function renderMinimaxH3(container: HTMLElement) {
         const lastImg = firstOutput(res.byNode, NODE_IDS.saveLF);
         if (vid) {
           clipRecords.push(vid);
-          saveMeta(vid.filename, vid.subfolder || "", metaForVideo(promptForClip(i), {
-            clip: curClip, clips: plan.count, seed: seedForClip(i), mode: modeForClip,
-            prompts: [promptText(state.prompts?.[i])], onetake: isOneTake,
+          saveMeta(vid.filename, vid.subfolder || "", metaForVideo(rs, promptForClip(rs, i), {
+            clip: curClip, clips: plan.count, seed: seedForClip(rs, i), mode: modeForClip,
+            prompts: [promptText(rs.prompts?.[i])], onetake: isOneTake,
           }));
           showResultVideo(outputViewUrl(vid.filename, vid.subfolder || "", vid.type || "output"));
           badge.textContent = `CLIP ${curClip}/${totClip} done`;
@@ -1422,31 +1433,34 @@ export function renderMinimaxH3(container: HTMLElement) {
         }
 
         clipTimes.push((Date.now() - clipStart) / 60000);
+        // avgMinutesPerClip은 이 도구 전역 통계라 라이브 state에 그대로 반영(런별 설정이
+        // 아니라 UI에 항상 보이는 값이므로 스냅샷과 무관하게 최신으로 유지).
         state.avgMinutesPerClip = +(clipTimes.reduce((a, b) => a + b, 0) / clipTimes.length).toFixed(2);
         persist();
         refreshPlan();
-        saveRunProgress(pos < active.length - 1 ? { pos: pos + 1, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId: null, savedAt: Date.now() } : null);
+        saveRunProgress(pos < active.length - 1 ? { pos: pos + 1, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId: null, savedAt: Date.now(), runState: rs } : null);
 
-        if (state.unloadBetweenClips && pos < active.length - 1) {
+        if (rs.unloadBetweenClips && pos < active.length - 1) {
           setStatus(`Clip ${curClip}/${totClip} done · freeing VRAM…`);
           await freeMemory();
         }
       }
 
-      if (state.continuityMode === "onetake" && state.oneTakeAutoStitch !== false && !stopRequested && clipRecords.length > 1) {
+      if (rs.continuityMode === "onetake" && rs.oneTakeAutoStitch !== false && !stopRequested && clipRecords.length > 1) {
         const overlapSec = framesToSeconds(alignFrameCount(ONE_TAKE_OVERLAP_FRAMES));
         setStatus(`Stitching ${clipRecords.length} clips (One-Take, ${overlapSec.toFixed(3)}s overlap trimmed)…`);
         try {
-          const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
-          const audioOverride = state.oneTakeAudioOverride && state.audioLock && state.lockAudioFile
-            ? { filename: state.lockAudioFile, start: Math.max(0, state.audioLockTrimStart || 0) }
+          const folder = (rs.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+          const audioOverride = rs.oneTakeAudioOverride && rs.audioLock && rs.lockAudioFile
+            ? { filename: rs.lockAudioFile, start: Math.max(0, rs.audioLockTrimStart || 0) }
             : null;
-          const out = await stitchClips(clipRecords, `${folder}/${state.filenamePrefix || "MMH3"}_full`, null, overlapSec, audioOverride);
+          const out = await stitchClips(clipRecords, `${folder}/${rs.filenamePrefix || "MMH3"}_full`, null, overlapSec, audioOverride);
           const url = outputViewUrl(out.filename, out.subfolder || "", "output");
-          const totalSeconds = clipRecords.length * framesToSeconds(state.clipFrames || 192) - (clipRecords.length - 1) * overlapSec;
+          const totalSeconds = clipRecords.length * framesToSeconds(rs.clipFrames || 192) - (clipRecords.length - 1) * overlapSec;
           saveMeta(out.filename, out.subfolder || "", metaForVideo(
-            active.map(({ i }) => promptForClip(i)).join("\n\n"),
-            { clips: clipRecords.length, stitched: true, onetake: true, overlapSeconds: overlapSec, frames: null, durationSeconds: totalSeconds, prompts: (state.prompts || []).map(promptText) }
+            rs,
+            active.map(({ i }) => promptForClip(rs, i)).join("\n\n"),
+            { clips: clipRecords.length, stitched: true, onetake: true, overlapSeconds: overlapSec, frames: null, durationSeconds: totalSeconds, prompts: (rs.prompts || []).map(promptText) }
           ));
           showResultVideo(url);
           badge.textContent = `FULL · ${clipRecords.length} clips (One-Take)`;

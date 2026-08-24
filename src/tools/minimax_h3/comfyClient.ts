@@ -131,6 +131,7 @@ export function queuePrompt(
       cleanup();
       reject(new Error("cancelled"));
     };
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
     function cleanup() {
       comfyApi.removeEventListener("progress", onProgress);
       comfyApi.removeEventListener("executed", onExecuted);
@@ -138,6 +139,7 @@ export function queuePrompt(
       comfyApi.removeEventListener("execution_error", onError);
       comfyApi.removeEventListener("execution_cancelled", onCancelled);
       comfyApi.removeEventListener("execution_interrupted", onCancelled);
+      if (pollTimer) clearInterval(pollTimer);
     }
     comfyApi.addEventListener("progress", onProgress);
     comfyApi.addEventListener("executed", onExecuted);
@@ -188,6 +190,30 @@ export function queuePrompt(
         reject(e instanceof Error ? e : new Error("failed to check reconnection status"));
         return;
       }
+      // Still queued/running — from here on, normally the WS listeners above catch completion.
+      // But a real tab close+reopen mints a new clientId (comfyClient.ts's CLIENT_ID is
+      // sessionStorage-scoped), so the server keeps routing progress/success events to the old,
+      // now-dead socket and this reattach would otherwise wait forever. Poll /history as a
+      // fallback so completion is still detected even if no WS event ever arrives.
+      const pollId = opts.existingPromptId;
+      pollTimer = setInterval(async () => {
+        try {
+          const h = await comfyApi.fetchApi(`/history/${pollId}`);
+          const hd = await h.json();
+          const entry = hd?.[pollId];
+          if (entry?.status?.completed) {
+            cleanup();
+            const outs: Record<string, any> = {};
+            for (const nodeId in entry.outputs || {}) outs[nodeId] = entry.outputs[nodeId];
+            resolve({ byNode: outs });
+          } else if (entry?.status?.status_str === "error") {
+            cleanup();
+            reject(new Error(entry.status?.messages?.map((m: any) => m?.[1]?.exception_message || "").filter(Boolean).join(" ") || "generation failed"));
+          }
+        } catch {
+          // transient fetch failure — try again next tick
+        }
+      }, 5000);
       return;
     }
 

@@ -24,6 +24,7 @@ const N = {
   turbo: "MM:turbo_lora",
   preview: "MM:preview",
   cond: "MM:cond",
+  freeClipVram: "MM:free_clip_vram",
   noise: "MM:noise",
   sampSel: "MM:sampler_sel",
   sched: "MM:scheduler",
@@ -380,6 +381,16 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   const fullPrompt = String(promptText || "").trim();
   buildConditioning(g, state, fullPrompt, width, height, frames, { firstFrame, lastFrame, refImages: refImages ?? state.refImages }, avail);
 
+  // 텍스트 인코더(N.clip)로 할 인코딩은 여기서 끝 — N.cond가 유일한 소비자라, 디퓨즈
+  // 모델 샘플링 들어가기 전에 그 VRAM을 콕 집어 내린다(unload_all_models처럼 전부 내리는
+  // 게 아니라 이 clip 하나만). 노드가 없는 서버(ComfyUI-TJ_NODE 미설치)에서는 조용히
+  // 건너뛰고 conditioning을 그대로 통과시킨다.
+  let condLink: any = [N.cond, 0];
+  if (has(avail, "TJ_FreeTextEncoderVRAM")) {
+    g[N.freeClipVram] = { class_type: "TJ_FreeTextEncoderVRAM", inputs: { clip: [N.clip, 0], trigger: condLink } };
+    condLink = [N.freeClipVram, 0];
+  }
+
   const accel = effectiveAccel(state, avail).mode;
   const useTurboSampler = accel === "turbo" && has(avail, "MiniMaxH3TurboSampler");
   const steps = useTurboSampler ? state.turboSteps ?? 4 : state.steps ?? 20;
@@ -391,7 +402,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: state.sampler || "er_sde" } };
   }
   g[N.sched] = { class_type: "BasicScheduler", inputs: { model: modelLink, scheduler: state.scheduler || "simple", steps, denoise: state.denoise ?? 1.0 } };
-  g[N.guider] = { class_type: "BasicGuider", inputs: { model: modelLink, conditioning: [N.cond, 0] } };
+  g[N.guider] = { class_type: "BasicGuider", inputs: { model: modelLink, conditioning: condLink } };
 
   const lockAudio = buildAudioLock(g, state, avail, clipIndex, frames);
   const preOneTakeLatent = lockAudio ? [N.audioLock, 0] : [N.cond, 1];

@@ -149,6 +149,7 @@ export const MMH3_OPTIONAL_NODES = [
   "TJ_MultiImageLoader",
   "TextGenerate",
   "TJStudioOneTextOutput",
+  "TJ_FreeTextEncoderVRAM",
 ];
 export const MMH3_CORE_NODES = ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "CreateVideo", "SaveVideo"];
 

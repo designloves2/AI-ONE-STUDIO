@@ -1408,6 +1408,9 @@ export function renderMinimaxH3(container: HTMLElement) {
           resumePromptId = null;
         }
         if (isOneTake) prevCheckpointName = checkpointName;
+        // 렌더가 실제로 끝난 시점 — 체인 프레임 복사 등 후처리 오버헤드는 빼고, 모델이
+        // 걸린 시간에 더 가깝게 여기서 잡는다.
+        const elapsedSec = (Date.now() - clipStart) / 1000;
 
         const vid = firstOutput(res.byNode, NODE_IDS.save);
         const lastImg = firstOutput(res.byNode, NODE_IDS.saveLF);
@@ -1416,6 +1419,10 @@ export function renderMinimaxH3(container: HTMLElement) {
           saveMeta(vid.filename, vid.subfolder || "", metaForVideo(rs, promptForClip(rs, i), {
             clip: curClip, clips: plan.count, seed: seedForClip(rs, i), mode: modeForClip,
             prompts: [promptText(rs.prompts?.[i])], onetake: isOneTake,
+            elapsedSec,
+            turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
+            turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
+            loras: JSON.parse(JSON.stringify(rs.loras || [])),
           }));
           showResultVideo(outputViewUrl(vid.filename, vid.subfolder || "", vid.type || "output"));
           badge.textContent = `CLIP ${curClip}/${totClip} done`;
@@ -1561,8 +1568,27 @@ export function renderMinimaxH3(container: HTMLElement) {
         state.promptHeader = meta.promptHeader || "";
         state.promptFooter = meta.promptFooter || "";
       }
+      // 저장된 클립을 만든 설정 전체를 그대로 복원한다("한 번 잘 나온 클립을 그대로 다시
+      // 만들기") — meta에 없는 필드(이 기능 적용 전 저장된 옛날 클립)는 조용히 건너뛰고
+      // 현재 패널 값을 그대로 둔다. 시드는 버튼 하나로 항상 동일하게 복원하고 seedMode도
+      // "fixed"로 같이 바꿔서 다음 Generate에서 재랜덤되지 않게 한다 — 다른 시드로
+      // 변주하고 싶으면 Reuse 후 사용자가 직접 시드 모드를 바꾸면 됨.
+      if (meta.aspect != null) state.aspect = meta.aspect;
+      if (meta.megapixels != null) state.megapixels = meta.megapixels;
+      if (meta.frames != null) state.clipFrames = meta.frames;
+      if (meta.steps != null) state.steps = meta.steps;
+      if (meta.sampler != null) state.sampler = meta.sampler;
+      if (meta.accel != null) state.accelMode = meta.accel;
+      if (meta.seed != null) { state.seed = meta.seed; state.seedMode = "fixed"; }
+      if (meta.turboLora != null) state.turboLora = meta.turboLora;
+      if (meta.turboLoraReference != null) state.turboLoraReference = meta.turboLoraReference;
+      if (meta.turboLoraStrength != null) state.turboLoraStrength = meta.turboLoraStrength;
+      if (meta.turboLoraLowVram != null) state.turboLoraLowVram = meta.turboLoraLowVram;
+      if (Array.isArray(meta.loras)) state.loras = meta.loras.map((l: any) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }));
       persist();
       refreshPlan();
+      renderPills();
+      renderLeft();
       return true;
     },
   });

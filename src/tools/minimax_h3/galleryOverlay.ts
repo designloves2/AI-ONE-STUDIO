@@ -22,6 +22,32 @@ function fmtWhen(mtime?: number) {
     return "";
   }
 }
+function fmtElapsed(sec?: number) {
+  if (sec == null) return "";
+  const s = Math.max(0, Math.round(sec));
+  const m = Math.floor(s / 60), r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+function metaInfoLines(meta: any): string[] {
+  if (!meta) return ["No settings saved for this clip."];
+  const lines: string[] = [];
+  if (meta.w && meta.h) lines.push(`${meta.w}×${meta.h}`);
+  if (meta.frames != null) lines.push(`${meta.frames} frames`);
+  if (meta.steps != null) lines.push(`${meta.steps} steps`);
+  if (meta.sampler) lines.push(String(meta.sampler));
+  if (meta.accel) lines.push(`accel: ${meta.accel}`);
+  if (meta.elapsedSec != null) lines.push(`⏱ ${fmtElapsed(meta.elapsedSec)}`);
+  if (meta.seed != null) lines.push(`seed: ${meta.seed}`);
+  if (meta.accel === "turbo" && meta.turboLora) {
+    lines.push(`turbo LoRA: ${meta.turboLora} (${meta.turboLoraStrength ?? 1})${meta.turboLoraLowVram ? " · low VRAM" : ""}`);
+  }
+  const loras = Array.isArray(meta.loras) ? meta.loras.filter((l: any) => l && l.name && l.name !== "none") : [];
+  if (loras.length) {
+    lines.push("LoRA:");
+    for (const l of loras) lines.push(`  ${l.enabled === false ? "○" : "●"} ${l.name} (${l.strength ?? 1})`);
+  }
+  return lines.length ? lines : ["No settings saved for this clip."];
+}
 
 export interface GalleryOverlayCtx {
   showPopup: (msg: string, isError?: boolean) => void;
@@ -351,6 +377,24 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
 
   // ── hover-preview (single shared <video> moved into the hovered card) ──
   const hoverVideo = el("video", { muted: "", playsinline: "", preload: "none", class: "absolute inset-0 w-full h-full pointer-events-none", style: { objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
+
+  // ⓘ 아이콘 호버 팝업 — 카드마다 새로 안 만들고 하나 재사용, 위치만 매번 옮긴다.
+  const infoPopup = el("div", {
+    class: "fixed z-[999] pointer-events-none whitespace-pre-line",
+    style: { display: "none", background: "rgba(10,10,10,0.95)", color: "#fff", border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "10px", lineHeight: "1.5", maxWidth: "220px", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" },
+  });
+  document.body.appendChild(infoPopup);
+  function showInfoPopup(anchorRect: DOMRect, meta: any) {
+    infoPopup.textContent = metaInfoLines(meta).join("\n");
+    infoPopup.style.display = "block";
+    const top = anchorRect.bottom + 4;
+    const left = Math.min(anchorRect.left, window.innerWidth - 230);
+    infoPopup.style.top = `${top}px`;
+    infoPopup.style.left = `${Math.max(4, left)}px`;
+  }
+  function hideInfoPopup() {
+    infoPopup.style.display = "none";
+  }
   hoverVideo.muted = true;
   function stopGridVideos() {
     try { hoverVideo.pause(); } catch {}
@@ -388,6 +432,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       });
       deleteBtn.addEventListener("click", (e) => { e.stopPropagation(); askDelete(v); });
       thumbWrap.appendChild(deleteBtn);
+
+      const infoBtn = el("button", {
+        type: "button", text: "ⓘ", title: "Generation settings",
+        class: "absolute bottom-1 right-1 z-[3]",
+        style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontFamily: "inherit", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "4px" },
+      });
+      infoBtn.addEventListener("click", (e) => e.stopPropagation());
+      infoBtn.addEventListener("mouseenter", () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta));
+      infoBtn.addEventListener("mouseleave", hideInfoPopup);
+      thumbWrap.appendChild(infoBtn);
 
       // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.
       if (!stitchMode) {
@@ -457,9 +511,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           return b;
         };
         bar.append(
-          mini("↩ Reuse", "Load this prompt back into the editor", () => {
+          mini("↩ Reuse", "Restore the prompt and every generation setting used for this clip (resolution, steps, LoRAs, seed, ...)", () => {
             const ok = ctx.reusePrompt?.((v as any).meta || { prompt: promptTextVal }) ?? false;
-            ctx.showPopup(ok ? "Prompt loaded into the editor." : "No prompt stored for this clip.", !ok);
+            ctx.showPopup(ok ? "Prompt and settings loaded into the editor." : "No prompt stored for this clip.", !ok);
             if (ok) hide();
           }),
           mini("⧉ Copy", "Copy the prompt to the clipboard", () => {
@@ -515,6 +569,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     destroy() {
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("keydown", onDeleteConfirmKey, true);
+      infoPopup.remove();
     },
   };
 }

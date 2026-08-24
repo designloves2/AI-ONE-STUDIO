@@ -2,7 +2,7 @@
 // 탭: Models · Sampling · Preview · Output. 여기서 정한 값은 매 실행에 재사용되고,
 // 실행마다 바뀌는 값(steps, accel 등)은 좌측 패널에 남아있다 — 원본과 동일한 구분.
 import type { MinimaxState } from "./core";
-import { SAMPLERS, SCHEDULERS } from "./core";
+import { SAMPLERS, SCHEDULERS, SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, panel, row, searchableSelect, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import {
@@ -11,6 +11,7 @@ import {
   getNodeAvailability,
   getOllamaModels,
   getPreviewTinyVaeOptions,
+  listVideos,
   saveConfig,
   type ModelLists,
   type NodeAvailability,
@@ -377,6 +378,39 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     return wrap;
   }
 
+  // 현재 패널 설정(해상도/프레임수/가속모드/LoRA 사용여부)과 정확히 일치하는 과거 클립들의
+  // 실측 elapsedSec 평균을 내서 "Avg minutes per clip"에 자동 반영한다 — 일치하는 게 없으면
+  // 수동 입력값을 그대로 두고 그 사실만 안내한다. Settings가 열릴 때마다 다시 조회.
+  async function refreshMeasuredAvg(avgInput: HTMLInputElement, note: HTMLElement) {
+    try {
+      const { videos } = await listVideos(state.saveSubfolder || SUBFOLDER, { limit: 300 });
+      const loraOn = (state.loras || []).some((l) => l.enabled !== false && l.name && l.name !== "none");
+      const matches = (videos || []).filter((v: any) => {
+        const m = v.meta;
+        if (!m || m.elapsedSec == null) return false;
+        if (m.aspect !== state.aspect) return false;
+        if (Math.abs((m.megapixels ?? 0) - (state.megapixels ?? 0)) > 0.01) return false;
+        if (m.frames !== state.clipFrames) return false;
+        if (m.accel !== state.accelMode) return false;
+        const mLoraOn = Array.isArray(m.loras) && m.loras.some((l: any) => l.enabled !== false && l.name && l.name !== "none");
+        if (!!mLoraOn !== loraOn) return false;
+        return true;
+      });
+      if (matches.length) {
+        const avgMin = matches.reduce((sum: number, v: any) => sum + v.meta.elapsedSec, 0) / matches.length / 60;
+        state.avgMinutesPerClip = +avgMin.toFixed(2);
+        avgInput.value = String(state.avgMinutesPerClip);
+        note.textContent = `Measured from ${matches.length} matching clip${matches.length > 1 ? "s" : ""}.`;
+        ctx.persist();
+        ctx.refreshPlan?.();
+      } else {
+        note.textContent = "No past clips at the current settings yet — using the manual value above.";
+      }
+    } catch {
+      // 조회 실패해도 수동 입력값은 그대로 쓸 수 있으니 조용히 무시.
+    }
+  }
+
   // ══ Output tab ══════════════════════════════════════════════════════════
   function outputTab() {
     const wrap = el("div", { class: "flex flex-col gap-2" });
@@ -396,15 +430,19 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       ])
     );
 
+    const avgInput = el("input", { type: "number", step: "0.5", value: String(state.avgMinutesPerClip ?? 13), style: numInputStyle(), oninput: (e: any) => { state.avgMinutesPerClip = parseFloat(e.target.value) || 0; ctx.persist(); ctx.refreshPlan?.(); } }) as HTMLInputElement;
+    const measuredNote = el("div", { text: "", style: { fontSize: "9px", color: C.muted } });
+
     wrap.appendChild(
       panel([
         label("Relay"),
         checkboxRow("Stitch all clips into one video when the run finishes", !!state.stitchAtEnd, (v) => { state.stitchAtEnd = v; ctx.persist(); }),
         checkboxRow("Trim the stitched video to the requested total length", !!state.trimLastClip, (v) => { state.trimLastClip = v; ctx.persist(); }),
         checkboxRow("Free VRAM between clips (slower reload, safer on 16GB)", !!state.unloadBetweenClips, (v) => { state.unloadBetweenClips = v; ctx.persist(); }),
-        col([label("Avg minutes per clip (used for the time estimate)"), el("input", { type: "number", step: "0.5", value: String(state.avgMinutesPerClip ?? 13), style: numInputStyle(), oninput: (e: any) => { state.avgMinutesPerClip = parseFloat(e.target.value) || 0; ctx.persist(); ctx.refreshPlan?.(); } })]),
+        col([label("Avg minutes per clip (used for the time estimate)"), avgInput, measuredNote]),
       ])
     );
+    refreshMeasuredAvg(avgInput, measuredNote);
 
     const suffixIn = el("input", { type: "text", placeholder: "e.g. cinematic lighting, film grain", style: numInputStyle() }) as HTMLInputElement;
     suffixIn.value = state.promptSuffix || "";
@@ -576,6 +614,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     show() {
       ov.style.display = "flex";
       refreshModels();
+      renderBody();
     },
     hide() {
       ov.style.display = "none";

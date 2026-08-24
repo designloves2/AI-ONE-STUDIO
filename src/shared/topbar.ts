@@ -5,6 +5,7 @@ import { goTo } from "../router";
 import { createSystemMonitorWidget } from "./systemMonitorWidget";
 import { createConsoleLogOverlay } from "./consoleLogOverlay";
 import { createRestartButton } from "./serverRestart";
+import { isCloseGuardEnabled, setCloseGuardEnabled } from "./closeGuard";
 
 export function createTopbar(): HTMLElement {
   const bar = document.createElement("header");
@@ -96,6 +97,20 @@ export function createTopbar(): HTMLElement {
   document.body.appendChild(consoleOv.el);
 
   bar.appendChild(createSystemMonitorWidget());
+
+  // 생성 중 탭을 실수로 닫으면 경고할지 여부 — 기본 ON. 코드 수정으로 인한 Vite 리로드는
+  // closeGuard.ts가 자체적으로 걸러내므로, 이 체크박스는 순전히 "실수로 탭 닫기" 방지용이다.
+  const closeGuardLabel = document.createElement("label");
+  closeGuardLabel.className = "aos-warnclose-btn flex items-center gap-1 shrink-0 text-xs text-muted cursor-pointer select-none";
+  closeGuardLabel.title = "Warn before closing this tab while a generation is running";
+  const closeGuardChk = document.createElement("input");
+  closeGuardChk.type = "checkbox";
+  closeGuardChk.checked = isCloseGuardEnabled();
+  closeGuardChk.addEventListener("change", () => setCloseGuardEnabled(closeGuardChk.checked));
+  const closeGuardText = document.createElement("span");
+  closeGuardText.textContent = "Warn on close";
+  closeGuardLabel.append(closeGuardChk, closeGuardText);
+  bar.appendChild(closeGuardLabel);
 
   const restartBtn = createRestartButton();
   restartBtn.classList.add("aos-restart-btn");

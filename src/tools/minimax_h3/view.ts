@@ -35,6 +35,7 @@ import {
 } from "./core";
 import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
+import { setCloseGuardActive } from "../../shared/closeGuard";
 import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
@@ -1311,6 +1312,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     barInner.style.width = "0%";
     startClock();
     keepTabAlive(true);
+    setCloseGuardActive(true);
 
     try {
       if (!ctx.availability || !Object.keys(ctx.availability).length) {
@@ -1485,6 +1487,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       genBtn.textContent = "▶ Generate";
       stopClock();
       keepTabAlive(false);
+      setCloseGuardActive(false);
       saveRunProgress(null);
       if (queued) {
         Object.assign(state, queued);

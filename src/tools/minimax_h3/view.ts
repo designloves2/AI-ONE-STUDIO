@@ -1344,7 +1344,10 @@ export function renderMinimaxH3(container: HTMLElement) {
       const active = activePrompts(rs);
       if (!active.length) throw new Error("No prompts are switched on.");
       totClip = active.length;
-      nextGenBtn.style.display = totClip === 1 ? "" : "none";
+      // 예전엔 "활성 프롬프트 1개일 때만" 노출했는데, 런 시작 시 패널 전체를 스냅샷
+      // 고정(위 rs)하는 지금은 그 제약이 필요 없다 — 몇 클립짜리 런이든 실행 중이면
+      // 항상 노출해서 다음 런을 계속 대기열에 쌓을 수 있게 한다.
+      nextGenBtn.style.display = "";
       const clipRecords: any[] = resume ? [...resume.clipRecords] : [];
       let chainFrame: string | null = resume ? resume.chainFrame : (rs.generationMode === "reference" ? null : rs.firstFrameImage || null);
       let prevCheckpointName: string | null = resume ? resume.prevCheckpointName : null;

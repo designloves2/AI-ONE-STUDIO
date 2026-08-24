@@ -1,10 +1,9 @@
-// closeGuard.ts — 생성이 진행 중일 때 탭을 실수로 닫으면 브라우저 기본 확인창("나가시겠습니까?")을
-// 띄운다. 체크박스가 켜져 있으면 이유를 가리지 않고 무조건 잡는다(코드 수정 중이면 체크를
+// closeGuard.ts — 탭을 실수로 닫으면 브라우저 기본 확인창("나가시겠습니까?")을 띄운다.
+// 체크박스가 켜져 있으면 생성 진행 여부와 상관없이 무조건 잡는다(코드 수정 중이면 체크를
 // 잠깐 꺼두면 됨) — 예전엔 Vite HMR 리로드만 예외 처리했었는데, 실제 배포 서버(빌드본)에서는
 // import.meta.hot이 없어 그 예외가 애초에 안 걸리는데도 사용자가 "수정 중이라 괜찮겠지"라고
 // 착각해 탭이 그냥 닫혀버리는 사고가 있어서 제거함.
 const ENABLED_KEY = "aos_close_guard_enabled";
-let running = false;
 
 function isEnabled(): boolean {
   try {
@@ -24,19 +23,8 @@ export function setCloseGuardEnabled(v: boolean) {
   } catch {}
 }
 
-/** 도구가 오래 걸리는 릴레이 생성을 시작/종료할 때 호출 — 여러 도구가 동시에 부를 수 있으니 참조 카운트. */
-let refCount = 0;
-export function setCloseGuardActive(active: boolean) {
-  if (active) refCount++;
-  else refCount = Math.max(0, refCount - 1);
-  running = refCount > 0;
-}
-
 window.addEventListener("beforeunload", (e) => {
-  try {
-    localStorage.setItem("aos_close_guard_debug", JSON.stringify({ time: Date.now(), running, enabled: isEnabled() }));
-  } catch {}
-  if (!running || !isEnabled()) return;
+  if (!isEnabled()) return;
   // returnValue를 빈 문자열로 두면 일부 크롬 버전이 preventDefault()를 호출했어도
   // "falsy면 확인창 생략"으로 판단해 그냥 닫아버리는 경우가 있어, 실제 텍스트를 채운다
   // (커스텀 텍스트는 브라우저가 무시하고 자체 문구를 보여주지만, truthy 값 자체가 필요함).

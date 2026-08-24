@@ -33,6 +33,9 @@ export function setCloseGuardActive(active: boolean) {
 }
 
 window.addEventListener("beforeunload", (e) => {
+  try {
+    localStorage.setItem("aos_close_guard_debug", JSON.stringify({ time: Date.now(), running, enabled: isEnabled() }));
+  } catch {}
   if (!running || !isEnabled()) return;
   // returnValue를 빈 문자열로 두면 일부 크롬 버전이 preventDefault()를 호출했어도
   // "falsy면 확인창 생략"으로 판단해 그냥 닫아버리는 경우가 있어, 실제 텍스트를 채운다

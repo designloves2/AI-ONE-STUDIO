@@ -34,6 +34,10 @@ export function setCloseGuardActive(active: boolean) {
 
 window.addEventListener("beforeunload", (e) => {
   if (!running || !isEnabled()) return;
+  // returnValue를 빈 문자열로 두면 일부 크롬 버전이 preventDefault()를 호출했어도
+  // "falsy면 확인창 생략"으로 판단해 그냥 닫아버리는 경우가 있어, 실제 텍스트를 채운다
+  // (커스텀 텍스트는 브라우저가 무시하고 자체 문구를 보여주지만, truthy 값 자체가 필요함).
   e.preventDefault();
-  e.returnValue = "";
+  e.returnValue = "Generation is still running. Leave this page?";
+  return e.returnValue;
 });

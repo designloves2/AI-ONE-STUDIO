@@ -18,6 +18,36 @@ function confirmRestart(): Promise<boolean> {
         style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" },
       })
     );
+    // 강제 큐 정지 — 재시작(서버 전체 재부팅)과 별개로, "지금 서버에서 도는 작업"만
+    // POST /interrupt로 바로 끊는다. /interrupt는 ComfyUI 전역 엔드포인트라 누가 큐에
+    // 넣었는지 구분 안 하고 무조건 끊으므로, 이 화면 것이든 남의 것이든 상관없이 죽는다는
+    // 걸 문구에 명시. Stop 버튼의 "이게 내 클립 맞는지" confirm으로도 못 벗어나는 진짜
+    // 막힌 상황을 위한 별도의 상위 탈출구라, 소유권 판단 없이 바로 쏜다.
+    const forceStopStatus = el("div", { text: "", style: { color: C.muted, fontSize: "11px", minHeight: "14px" } });
+    const forceStopBtn = el("button", {
+      type: "button", text: "⚠ Force Stop Queue",
+      title: "Interrupts whatever ComfyUI is currently running right now — regardless of which screen/session queued it.",
+      style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", padding: "7px 12px", borderRadius: "6px", background: "transparent", color: "#e67e22", border: "1px solid #e67e22", fontWeight: "600", alignSelf: "flex-start" },
+    }) as HTMLButtonElement;
+    forceStopBtn.addEventListener("click", async () => {
+      forceStopBtn.disabled = true;
+      forceStopStatus.textContent = "Sending interrupt…";
+      try {
+        await comfyFetch("/interrupt", { method: "POST" });
+        forceStopStatus.textContent = "Interrupt sent — whatever was running on the server has been stopped.";
+      } catch {
+        forceStopStatus.textContent = "Failed to send the interrupt request.";
+      } finally {
+        forceStopBtn.disabled = false;
+      }
+    });
+    box.append(
+      el("div", { text: "Job stuck and Stop won't clear it?", style: { color: C.muted, fontSize: "11px", fontWeight: "700", marginTop: "-4px" } }),
+      forceStopBtn,
+      forceStopStatus,
+      el("div", { style: { height: "1px", background: C.border } })
+    );
+
     const btnRow = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px" } });
     function finish(v: boolean) {
       document.removeEventListener("keydown", onEsc);

@@ -1520,7 +1520,31 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
   }
 
+  // /interrupt는 ComfyUI 전역 엔드포인트라 "지금 서버에서 실행 중인 것"을 그냥 죽인다 —
+  // 어느 세션/탭이 큐에 넣었는지는 전혀 구분하지 않는다. 다른 노드/세션이 새치기해서 지금
+  // 그게 실행 중이면 Stop이 이 화면의 클립이 아니라 엉뚱한 남의 생성 작업을 끊어버린다.
+  // /queue의 queue_running[0] 그래프에 이 화면 고유 프리뷰 키(라이브 프리뷰 소켓 필터링에
+  // 쓰는 것과 동일)가 있는지 봐서, 없으면 확인창을 띄운다. /queue 조회 자체가 실패하면
+  // 판단 불가이니 사용자를 막지 않고 그냥 통과시킨다.
+  async function confirmStopIsOurs(): Promise<boolean> {
+    try {
+      const r = await comfyApi.fetchApi("/queue");
+      const q = await r.json();
+      const runningEntry = (q.queue_running || [])[0];
+      if (!runningEntry) return true; // 아무것도 안 돌고 있으면 Stop은 어차피 영향 없음
+      const prompt = runningEntry[2] || {};
+      const isOurs = Object.prototype.hasOwnProperty.call(prompt, previewNodeKey(instanceId));
+      if (isOurs) return true;
+      return window.confirm(
+        "The job currently running on the ComfyUI server doesn't look like this screen's clip — Stop may interrupt someone else's generation. Continue anyway?"
+      );
+    } catch {
+      return true; // 조회 실패 — 판단 불가, 사용자 발 묶지 않기
+    }
+  }
+
   stopBtn.addEventListener("click", async () => {
+    if (!(await confirmStopIsOurs())) return;
     // running이 false여도(새로고침 등으로 이 세션이 추적을 놓쳤거나, 애초에 이 세션이 큐를
     // 넣은 게 아니어도) 그냥 인터럽트를 보낸다 — /interrupt는 ComfyUI 전역 신호라 누가 큐를
     // 넣었는지와 무관하게 항상 유효하다("실수로 큐 보냈는데 연결 끊겨서 못 멈춘다" 방지).

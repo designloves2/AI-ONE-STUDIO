@@ -23,13 +23,44 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
   { id: "sdxl", label: "SDXL", api: "/sdxl_one", subfolder: "one_sdxl" },
 ];
 
+// A pseudo tool for ComfyUI's own input/ directory — not one of the 5 galleries above, listed
+// via LoadImage's own combo options (same trick api.ts's getMediaFiles() uses for videos/audios)
+// rather than a /gallery route, since input/ isn't paginated server-side and has no subfolder
+// convention of its own. Picking one of these needs no copy_to_input — it's already in input/.
+const INPUT_TOOL: GalleryToolDef = { id: "__input__", label: "INPUT", api: "", subfolder: "" };
+
 interface PickerImage {
   filename: string;
   subfolder: string;
   mtime?: number;
 }
 
+let inputFilesCache: string[] | null = null;
+async function fetchInputFiles(): Promise<string[]> {
+  if (inputFilesCache) return inputFilesCache;
+  try {
+    const r = await fetch(`${BASE}/object_info/LoadImage`);
+    if (!r.ok) throw new Error(String(r.status));
+    const d = await r.json();
+    const inp = d?.LoadImage?.input;
+    const spec = (inp?.required || {}).image || (inp?.optional || {}).image;
+    const opts = Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options || [];
+    inputFilesCache = Array.isArray(opts) ? opts.filter((x: any) => typeof x === "string") : [];
+  } catch {
+    inputFilesCache = [];
+  }
+  return inputFilesCache;
+}
+
 async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number): Promise<{ images: PickerImage[]; total: number }> {
+  if (tool.id === INPUT_TOOL.id) {
+    const all = await fetchInputFiles();
+    const page = all.slice(offset, offset + limit).map((combo) => {
+      const slash = combo.lastIndexOf("/");
+      return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
+    });
+    return { images: page, total: all.length };
+  }
   try {
     const r = await fetch(`${BASE}${tool.api}/gallery?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(tool.subfolder)}`);
     if (!r.ok) throw new Error(String(r.status));
@@ -40,6 +71,7 @@ async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number)
 }
 
 async function copyToInput(tool: GalleryToolDef, img: PickerImage): Promise<string> {
+  if (tool.id === INPUT_TOOL.id) return img.subfolder ? `${img.subfolder}/${img.filename}` : img.filename;
   const r = await fetch(`${BASE}${tool.api}/copy_to_input`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -50,12 +82,16 @@ async function copyToInput(tool: GalleryToolDef, img: PickerImage): Promise<stri
   return d.filename as string;
 }
 
-function viewUrl(img: PickerImage) {
-  return `${BASE}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=output&t=${img.mtime || ""}`;
+function viewUrl(img: PickerImage, tool: GalleryToolDef) {
+  const type = tool.id === INPUT_TOOL.id ? "input" : "output";
+  return `${BASE}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=${type}&t=${img.mtime || ""}`;
 }
 
+const ALL_PICKER_TOOLS: GalleryToolDef[] = [...IMAGE_GALLERY_TOOLS, INPUT_TOOL];
+
 export function openImageGalleryPicker(onPick: (filename: string) => void, initialToolId?: string) {
-  let activeTool = IMAGE_GALLERY_TOOLS.find((t) => t.id === initialToolId) || IMAGE_GALLERY_TOOLS[0];
+  inputFilesCache = null; // re-list input/ fresh each time the picker opens — files may have changed since last time
+  let activeTool = ALL_PICKER_TOOLS.find((t) => t.id === initialToolId) || ALL_PICKER_TOOLS[0];
   let offset = 0;
   let total = 0;
   let loading = false;
@@ -73,7 +109,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   const toolBar = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", flexShrink: "0" } });
   function renderToolBar() {
     clear(toolBar);
-    IMAGE_GALLERY_TOOLS.forEach((t) => {
+    ALL_PICKER_TOOLS.forEach((t) => {
       const active = t.id === activeTool.id;
       const b = el("button", {
         type: "button", text: t.label,
@@ -121,7 +157,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     const imgs = data.images || [];
     imgs.forEach((img) => {
       const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
-      const im = el("img", { src: viewUrl(img), style: { width: "100%", height: "auto", display: "block" } });
+      const im = el("img", { src: viewUrl(img, tool), style: { width: "100%", height: "auto", display: "block" } });
       cell.appendChild(im);
       cell.addEventListener("click", async () => {
         if (picking) return;

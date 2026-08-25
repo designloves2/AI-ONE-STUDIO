@@ -424,7 +424,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         // 틀릴 여지가 없다. title은 "\n"으로 실제 줄바꿈이 된다(모든 주요 브라우저 지원).
         type: "button", text: "i", title: metaInfoLines((v as any).meta).join("\n"),
         class: "absolute bottom-1 right-1 z-[3]",
-        style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
+        style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "pointer", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
       infoBtn.addEventListener("click", (e) => e.stopPropagation());
       thumbWrap.appendChild(infoBtn);

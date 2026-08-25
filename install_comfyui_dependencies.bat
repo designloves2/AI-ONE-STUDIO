@@ -12,7 +12,7 @@ echo   Already-installed nodes are skipped.
 echo ========================================================================
 echo.
 
-:: ── ComfyUI 경로 입력 ────────────────────────────────────────────────────
+rem ── ComfyUI 경로 입력 ────────────────────────────────────────────────────
 set "COMFY_DIR="
 :ASK_PATH
 set /p "COMFY_DIR=이미 설치된 ComfyUI 폴더 경로를 입력하세요 (custom_nodes가 있는 폴더): "
@@ -20,7 +20,7 @@ if "%COMFY_DIR%"=="" (
     echo [ERROR] 경로를 입력해주세요.
     goto ASK_PATH
 )
-:: 끝에 붙은 백슬래시 제거
+rem 끝에 붙은 백슬래시 제거
 if "%COMFY_DIR:~-1%"=="\" set "COMFY_DIR=%COMFY_DIR:~0,-1%"
 
 if not exist "%COMFY_DIR%\custom_nodes" (
@@ -32,7 +32,7 @@ if not exist "%COMFY_DIR%\custom_nodes" (
 echo [OK] ComfyUI: %COMFY_DIR%
 echo.
 
-:: ── git 확인 ─────────────────────────────────────────────────────────────
+rem ── git 확인 ─────────────────────────────────────────────────────────────
 where git >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] git이 설치되어 있지 않습니다. https://git-scm.com/downloads 에서 설치 후 다시 실행하세요.
@@ -40,9 +40,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: ── Python 경로 탐색 ─────────────────────────────────────────────────────
-:: ComfyUI portable(=python_embeded는 ComfyUI 폴더의 한 단계 위)와 venv(안쪽 또는
-:: 한 단계 위 둘 다) 설치 방식을 모두 지원한다.
+rem ── Python 경로 탐색 ─────────────────────────────────────────────────────
+rem ComfyUI portable(=python_embeded는 ComfyUI 폴더의 한 단계 위)와 venv(안쪽 또는
+rem 한 단계 위 둘 다) 설치 방식을 모두 지원한다.
 set "PYTHON="
 if exist "%COMFY_DIR%\..\python_embeded\python.exe" (
     set "PYTHON=%COMFY_DIR%\..\python_embeded\python.exe"
@@ -64,7 +64,7 @@ echo.
 
 cd /d "%COMFY_DIR%\custom_nodes"
 
-:: ── 메인 패키지: ComfyUI-TJ_NODE_STUDIO_ONE ────────────────────────────────
+rem ── 메인 패키지: ComfyUI-TJ_NODE_STUDIO_ONE ────────────────────────────────
 echo ========================================================================
 echo  [MAIN] ComfyUI-TJ_NODE_STUDIO_ONE
 echo ========================================================================
@@ -88,10 +88,10 @@ if not "%PYTHON%"=="" (
 )
 echo.
 
-:: ── 의존 커스텀 노드 목록 ────────────────────────────────────────────────
-:: (ComfyUI-TJ_NODE_STUDIO_ONE/install_requirements.bat 기반 — 6개 이미지 도구 +
-:: MiniMax H3 영상 노드가 필요로 하는 전부. Crystools(모니터 위젯)는 그쪽엔 없고
-:: 여기만 추가로 필요해서 더 들어있음.)
+rem ── 의존 커스텀 노드 목록 ────────────────────────────────────────────────
+rem (ComfyUI-TJ_NODE_STUDIO_ONE/install_requirements.bat 기반 — 6개 이미지 도구 +
+rem MiniMax H3 영상 노드가 필요로 하는 전부. Crystools(모니터 위젯)는 그쪽엔 없고
+rem 여기만 추가로 필요해서 더 들어있음.)
 set REPOS[0]=https://github.com/ltdrdata/ComfyUI-Impact-Pack
 set REPOS[1]=https://github.com/ltdrdata/ComfyUI-Impact-Subpack
 set REPOS[2]=https://github.com/kijai/ComfyUI-KJNodes

@@ -27,7 +27,8 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
 // via LoadImage's own combo options (same trick api.ts's getMediaFiles() uses for videos/audios)
 // rather than a /gallery route, since input/ isn't paginated server-side and has no subfolder
 // convention of its own. Picking one of these needs no copy_to_input — it's already in input/.
-const INPUT_TOOL: GalleryToolDef = { id: "__input__", label: "INPUT", api: "", subfolder: "" };
+export const INPUT_TOOL_ID = "__input__";
+const INPUT_TOOL: GalleryToolDef = { id: INPUT_TOOL_ID, label: "INPUT", api: "", subfolder: "" };
 
 interface PickerImage {
   filename: string;

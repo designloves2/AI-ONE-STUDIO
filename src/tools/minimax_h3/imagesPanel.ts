@@ -6,7 +6,7 @@ import type { MinimaxState } from "./core";
 import { button, col, el, clear, label, numberField, panel, row, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { getMediaFiles, getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
-import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
+import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 
 export interface ImagesPanelCtx {
   persist: () => void;
@@ -42,7 +42,7 @@ export function imageSlot(labelText: string, initialFile: string | null, onSet: 
   });
   galleryBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    openImageGalleryPicker((filename) => { setFilename(filename); onSet(filename); });
+    openImageGalleryPicker((filename) => { setFilename(filename); onSet(filename); }, INPUT_TOOL_ID);
   });
   let current: string | null = null;
   function setFilename(name: string | null) {

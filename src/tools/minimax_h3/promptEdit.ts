@@ -14,7 +14,7 @@ import {
   promptText,
 } from "./core";
 import { button, clear, el, searchableSelect, confirmDialog, promptDialog } from "../../shared/ui";
-import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
+import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
 import {
   analyzeImagesNative,
@@ -483,7 +483,7 @@ export function createPromptEditOverlay(
             state.ollamaImages[i] = name;
             ctx.persist();
             renderImageRow();
-          });
+          }, INPUT_TOOL_ID);
         });
         box.appendChild(galleryBtn);
       }

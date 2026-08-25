@@ -426,7 +426,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         class: "absolute bottom-1 right-1 z-[3]",
         style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "pointer", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
-      infoBtn.addEventListener("click", (e) => e.stopPropagation());
+      infoBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // title 호버 툴팁은 터치 기기에선 안 뜬다 — 탭했을 때 alert()로 띄운다. 커스텀
+        // 위치 계산이 전혀 없는 브라우저 네이티브 모달이라 이번엔 확실히 뜬다. 데스크톱은
+        // 이미 호버 툴팁이 있으니 클릭까지 alert를 띄우면 중복이라 터치 기기에서만 건다.
+        if (IS_TOUCH_DEVICE) alert(metaInfoLines((v as any).meta).join("\n"));
+      });
       thumbWrap.appendChild(infoBtn);
 
       // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.

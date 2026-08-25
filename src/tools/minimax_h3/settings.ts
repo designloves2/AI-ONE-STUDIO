@@ -193,6 +193,36 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       ])
     );
 
+    const fbcOk = !!ctx.availability?.ApplyMiniMaxH3FirstBlockCache;
+    wrap.appendChild(
+      panel([
+        label(state.useFirstBlockCache ? "H3 FirstBlockCache (step reuse) — ON in the node's left panel" : "H3 FirstBlockCache (step reuse) — OFF in the node's left panel"),
+        ...(!fbcOk ? [el("div", { html: "⚠ <code>ApplyMiniMaxH3FirstBlockCache</code> not installed — this stays off.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })] : []),
+        ...(state.useFirstBlockCache
+          ? [
+              col([
+                label("mode"),
+                select(
+                  ["H3 Safe — 0.08 / max 2", "H3 Fast — 0.10 / max 2", "H3 Aggressive — 0.12 / max 2", "Custom — manual values"].map((m) => ({ value: m, label: m })),
+                  state.fbcMode || "H3 Fast — 0.10 / max 2",
+                  (v) => { state.fbcMode = v; ctx.persist(); renderBody(); }
+                ),
+              ]),
+              el("div", { text: "The fields below only apply in \"Custom — manual values\" mode; presets ignore them.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+              row([
+                col([label("threshold"), el("input", { type: "number", step: "0.005", value: String(state.fbcThreshold ?? 0.1), style: numInputStyle(), oninput: (e: any) => { state.fbcThreshold = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
+                col([label("max consecutive hits"), el("input", { type: "number", step: "1", value: String(state.fbcMaxConsecutiveHits ?? 2), style: numInputStyle(), oninput: (e: any) => { state.fbcMaxConsecutiveHits = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
+              ]),
+              row([
+                col([label("start %"), el("input", { type: "number", step: "0.01", value: String(state.fbcStartPercent ?? 0.1), style: numInputStyle(), oninput: (e: any) => { state.fbcStartPercent = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
+                col([label("end %"), el("input", { type: "number", step: "0.01", value: String(state.fbcEndPercent ?? 0.95), style: numInputStyle(), oninput: (e: any) => { state.fbcEndPercent = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
+              ]),
+              checkboxRow("Temporal guard", !!state.fbcTemporalGuard, (v) => { state.fbcTemporalGuard = v; ctx.persist(); }),
+            ]
+          : []),
+      ])
+    );
+
     return wrap;
   }
 
@@ -507,6 +537,12 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       sla_min_seq_len: state.slaMinSeqLen ?? 8192,
       sla_dense_last_steps: state.slaDenseLastSteps ?? 0,
       sla_protect_audio: state.slaProtectAudio ?? true,
+      fbc_mode: state.fbcMode || "H3 Fast — 0.10 / max 2",
+      fbc_threshold: state.fbcThreshold ?? 0.1,
+      fbc_start_percent: state.fbcStartPercent ?? 0.1,
+      fbc_end_percent: state.fbcEndPercent ?? 0.95,
+      fbc_max_consecutive_hits: state.fbcMaxConsecutiveHits ?? 2,
+      fbc_temporal_guard: state.fbcTemporalGuard ?? false,
       cache_threshold: state.cacheThreshold ?? 0.3,
       cache_start: state.cacheStart ?? 0.15,
       cache_end: state.cacheEnd ?? 0.9,
@@ -585,6 +621,12 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.sla_min_seq_len != null) state.slaMinSeqLen = cfg.sla_min_seq_len;
       if (cfg.sla_dense_last_steps != null) state.slaDenseLastSteps = cfg.sla_dense_last_steps;
       if (cfg.sla_protect_audio != null) state.slaProtectAudio = cfg.sla_protect_audio;
+      if (cfg.fbc_mode) state.fbcMode = cfg.fbc_mode;
+      if (cfg.fbc_threshold != null) state.fbcThreshold = cfg.fbc_threshold;
+      if (cfg.fbc_start_percent != null) state.fbcStartPercent = cfg.fbc_start_percent;
+      if (cfg.fbc_end_percent != null) state.fbcEndPercent = cfg.fbc_end_percent;
+      if (cfg.fbc_max_consecutive_hits != null) state.fbcMaxConsecutiveHits = cfg.fbc_max_consecutive_hits;
+      if (cfg.fbc_temporal_guard != null) state.fbcTemporalGuard = cfg.fbc_temporal_guard;
       if (cfg.cache_threshold != null) state.cacheThreshold = cfg.cache_threshold;
       if (cfg.cache_start != null) state.cacheStart = cfg.cache_start;
       if (cfg.cache_end != null) state.cacheEnd = cfg.cache_end;

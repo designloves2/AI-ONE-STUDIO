@@ -144,6 +144,16 @@ export interface MinimaxState {
   slaProtectAudio: boolean;
   slaRunEnabled: boolean;
 
+  // H3 FirstBlockCache (step reuse) — three calibrated presets + a manual Custom mode.
+  // Manual fields (fbcThreshold/fbcStartPercent/fbcEndPercent/fbcMaxConsecutiveHits/
+  // fbcTemporalGuard) only take effect when fbcMode is "Custom — manual values".
+  fbcMode: string;
+  fbcThreshold: number;
+  fbcStartPercent: number;
+  fbcEndPercent: number;
+  fbcMaxConsecutiveHits: number;
+  fbcTemporalGuard: boolean;
+
   // Live preview (ModelPreviewOverrideKJ)
   previewEnabled: boolean;
   previewFrames: number;
@@ -597,6 +607,12 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     slaDenseLastSteps: saved.slaDenseLastSteps ?? 0,
     slaProtectAudio: saved.slaProtectAudio !== false,
     slaRunEnabled: saved.slaRunEnabled !== false,
+    fbcMode: saved.fbcMode || "H3 Fast — 0.10 / max 2",
+    fbcThreshold: saved.fbcThreshold ?? 0.1,
+    fbcStartPercent: saved.fbcStartPercent ?? 0.1,
+    fbcEndPercent: saved.fbcEndPercent ?? 0.95,
+    fbcMaxConsecutiveHits: saved.fbcMaxConsecutiveHits ?? 2,
+    fbcTemporalGuard: saved.fbcTemporalGuard ?? false,
     cacheThreshold: saved.cacheThreshold ?? 0.3,
     cacheMaxSteps: saved.cacheMaxSteps ?? 2,
     cacheStart: saved.cacheStart ?? 0.15,

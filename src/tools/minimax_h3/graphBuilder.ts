@@ -206,7 +206,12 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
   if (state.useFirstBlockCache && has(avail, "ApplyMiniMaxH3FirstBlockCache")) {
     g[N.fbcache] = {
       class_type: "ApplyMiniMaxH3FirstBlockCache",
-      inputs: { model: m, mode: "H3 Fast — 0.10 / max 2", threshold: 0.1, start_percent: 0.1, end_percent: 0.95, max_consecutive_hits: 2, temporal_guard: false },
+      inputs: {
+        model: m, mode: state.fbcMode || "H3 Fast — 0.10 / max 2",
+        threshold: state.fbcThreshold ?? 0.1, start_percent: state.fbcStartPercent ?? 0.1,
+        end_percent: state.fbcEndPercent ?? 0.95, max_consecutive_hits: state.fbcMaxConsecutiveHits ?? 2,
+        temporal_guard: !!state.fbcTemporalGuard,
+      },
     };
     m = [N.fbcache, 0];
   }

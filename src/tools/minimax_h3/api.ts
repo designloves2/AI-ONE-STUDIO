@@ -86,6 +86,12 @@ export interface MmhConfig {
   sla_min_seq_len?: number;
   sla_dense_last_steps?: number;
   sla_protect_audio?: boolean;
+  fbc_mode?: string;
+  fbc_threshold?: number;
+  fbc_start_percent?: number;
+  fbc_end_percent?: number;
+  fbc_max_consecutive_hits?: number;
+  fbc_temporal_guard?: boolean;
   cache_threshold?: number;
   cache_start?: number;
   cache_end?: number;

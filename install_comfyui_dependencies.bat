@@ -147,6 +147,15 @@ set REPOS[20]=https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes
 
 set COUNT=21
 
+echo [NOTE] pip may print "dependency resolver" conflict warnings below
+echo        (e.g. protobuf version clashes between RMBG and audio tools) -
+echo        those are expected and safe to ignore. The conflicting tools
+echo        pin different versions of a shared package on purpose; each
+echo        node only uses what it needs at runtime, so this doesn't
+echo        break anything. It only matters if you notice one specific
+echo        feature actually misbehaving.
+echo.
+
 rem The whole loop body lives in a called subroutine instead of a nested
 rem parenthesized for/if block, so "do" only ever runs a single command.
 for /L %%i in (0,1,20) do call :InstallRepo %%i

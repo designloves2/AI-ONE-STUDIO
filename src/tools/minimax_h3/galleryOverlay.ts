@@ -395,6 +395,14 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   function hideInfoPopup() {
     infoPopup.style.display = "none";
   }
+  // 모바일은 호버가 없어서(mouseenter가 안 옴) 탭으로도 열고 닫을 수 있어야 한다 — 아이콘을
+  // 탭하면 토글하고, 팝업이 열려 있을 때 바깥을 탭하면 닫는다. 데스크톱 호버는 그대로 유지.
+  const onDocClickCloseInfo = (e: MouseEvent) => {
+    if (infoPopup.style.display === "none") return;
+    if (e.target === infoPopup) return;
+    hideInfoPopup();
+  };
+  document.addEventListener("click", onDocClickCloseInfo);
   hoverVideo.muted = true;
   function stopGridVideos() {
     try { hoverVideo.pause(); } catch {}
@@ -441,7 +449,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         class: "absolute bottom-1 right-1 z-[3]",
         style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
-      infoBtn.addEventListener("click", (e) => e.stopPropagation());
+      infoBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        // 데스크톱은 hover로 이미 열려 있을 수 있으니 탭하면 닫고, 모바일(호버 없음)은
+        // 탭이 곧 열고 닫는 유일한 방법이라 토글로 동작.
+        if (infoPopup.style.display === "block") hideInfoPopup();
+        else showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
+      });
       infoBtn.addEventListener("mouseenter", () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta));
       infoBtn.addEventListener("mouseleave", hideInfoPopup);
       thumbWrap.appendChild(infoBtn);
@@ -572,6 +586,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     destroy() {
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("keydown", onDeleteConfirmKey, true);
+      document.removeEventListener("click", onDocClickCloseInfo);
       infoPopup.remove();
     },
   };

@@ -98,7 +98,10 @@ goto MAIN_PIP
 echo [ERROR] git clone failed. Check your internet connection.
 goto MAIN_PIP
 :MAIN_SKIP
-echo [SKIP] Already installed.
+echo [UPDATE] Already installed - checking for updates...
+pushd "ComfyUI-TJ_NODE_STUDIO_ONE"
+git pull --ff-only
+popd
 :MAIN_PIP
 if "%PYTHON%"=="" goto MAIN_PIP_DONE
 if not exist "ComfyUI-TJ_NODE_STUDIO_ONE\requirements.txt" goto MAIN_PIP_DONE
@@ -164,12 +167,17 @@ goto REPO_PIP
 echo [ERROR] git clone failed. Check your internet connection.
 goto REPO_DONE
 :REPO_SKIP
-rem Folder already exists - could be a clean previous install, or a repo
-rem that got cloned but whose pip install failed/never ran (e.g. an earlier
-rem run errored out partway through). Don't skip the whole thing - just
-rem skip re-cloning and still (re)try the requirements install below;
-rem pip install is idempotent so this is cheap/instant when already done.
-echo [SKIP] Already cloned.
+rem Folder already exists - could be a clean previous install, an existing
+rem repo that just needs updating, or one that got cloned but whose pip
+rem install failed/never ran (e.g. an earlier run errored out partway
+rem through). Pull for updates (--ff-only so a repo with local changes is
+rem left alone rather than risking a merge conflict), then always retry the
+rem requirements install below - pip install is idempotent, so it's cheap/
+rem instant when everything's already satisfied.
+echo [UPDATE] Already cloned - checking for updates...
+pushd "!FOLDER!"
+git pull --ff-only
+popd
 goto REPO_PIP
 
 :REPO_PIP

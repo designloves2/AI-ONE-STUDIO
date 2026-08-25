@@ -62,6 +62,12 @@ if "%PYTHON%"=="" (
 )
 echo.
 
+if "%PYTHON%"=="" goto SKIP_PIP_UPGRADE
+echo [PIP] Upgrading pip to the latest version...
+"%PYTHON%" -m pip install --upgrade pip --quiet
+echo.
+:SKIP_PIP_UPGRADE
+
 cd /d "%COMFY_DIR%\custom_nodes"
 
 rem ── Main package: ComfyUI-TJ_NODE_STUDIO_ONE ────────────────────────────

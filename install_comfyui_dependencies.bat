@@ -25,7 +25,7 @@ if "%COMFY_DIR:~-1%"=="\" set "COMFY_DIR=%COMFY_DIR:~0,-1%"
 
 if not exist "%COMFY_DIR%\custom_nodes" (
     echo [ERROR] "%COMFY_DIR%\custom_nodes" 폴더를 찾을 수 없습니다.
-    echo         ComfyUI 루트 폴더(예: C:\ComfyUI 또는 ...\ComfyUI_windows_portable\ComfyUI)를 입력했는지 확인하세요.
+    echo         ComfyUI 루트 폴더^(예: C:\ComfyUI 또는 ...\ComfyUI_windows_portable\ComfyUI^)를 입력했는지 확인하세요.
     echo.
     goto ASK_PATH
 )

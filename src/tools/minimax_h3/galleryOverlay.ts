@@ -449,15 +449,22 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         class: "absolute bottom-1 right-1 z-[3]",
         style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
-      infoBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        // 데스크톱은 hover로 이미 열려 있을 수 있으니 탭하면 닫고, 모바일(호버 없음)은
-        // 탭이 곧 열고 닫는 유일한 방법이라 토글로 동작.
-        if (infoPopup.style.display === "block") hideInfoPopup();
-        else showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
-      });
-      infoBtn.addEventListener("mouseenter", () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta));
-      infoBtn.addEventListener("mouseleave", hideInfoPopup);
+      // 터치 기기는 tap 한 번에 mouseenter→click이 에뮬레이트로 같이 날아온다 — hover와
+      // click 토글을 둘 다 걸면 열렸다가 곧바로 click이 다시 닫아버려서 아무 반응이 없는
+      // 것처럼 보인다. hover가 실제로 가능한 기기(포인터 마우스)에서만 hover를 걸고,
+      // 그 외(터치)에서는 click 토글만 쓴다.
+      const canHover = window.matchMedia?.("(hover: hover)").matches ?? true;
+      if (canHover) {
+        infoBtn.addEventListener("click", (e) => e.stopPropagation());
+        infoBtn.addEventListener("mouseenter", () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta));
+        infoBtn.addEventListener("mouseleave", hideInfoPopup);
+      } else {
+        infoBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (infoPopup.style.display === "block") hideInfoPopup();
+          else showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
+        });
+      }
       thumbWrap.appendChild(infoBtn);
 
       // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.

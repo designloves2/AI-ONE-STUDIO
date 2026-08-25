@@ -450,16 +450,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         class: "absolute bottom-1 right-1 z-[3]",
         style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
-      // matchMedia('(hover: hover)')로 터치 기기를 가려내려던 이전 시도는 아이패드류에서
-      // 실제 손가락 터치인데도 true로 나오는 경우가 있어 신뢰할 수 없었다(실기기에서 재현—
-      // 탭해도 반응 없음). 대신 click은 "토글"이 아니라 항상 "열기"로만 동작시켜서, 어느
-      // 플랫폼에서 어떤 순서로 mouseenter/click이 오든 최소한 열리기는 하게 만든다. 닫기는
-      // 아래 document 클릭(바깥을 탭/클릭)에게 맡긴다 — 아이콘을 다시 눌러서 닫는 대신
-      // 다른 곳을 눌러서 닫는 방식이라 데스크톱/모바일 모두 동일하게 동작한다.
+      // 호버/클릭/터치 셋 다 그냥 열기만 하게 — 어느 입력이든 먼저 오는 게 여는 거고,
+      // 서로 토글/닫기로 부딪힐 일이 없다(기기별 이벤트 순서 차이를 신경 안 써도 됨).
+      // 닫기는 오직 바깥을 탭/클릭했을 때(아래 document 리스너)만 일어난다.
       const openInfo = () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
       infoBtn.addEventListener("click", (e) => { e.stopPropagation(); openInfo(); });
       infoBtn.addEventListener("mouseenter", openInfo);
-      infoBtn.addEventListener("mouseleave", hideInfoPopup);
+      infoBtn.addEventListener("touchstart", (e) => { e.stopPropagation(); openInfo(); }, { passive: true });
       thumbWrap.appendChild(infoBtn);
 
       // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.

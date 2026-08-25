@@ -89,8 +89,9 @@ if not "%PYTHON%"=="" (
 echo.
 
 :: ── 의존 커스텀 노드 목록 ────────────────────────────────────────────────
-:: (ComfyUI-TJ_NODE_STUDIO_ONE/install_requirements.bat 과 동일한 목록 — 6개
-:: 이미지 도구 + MiniMax H3 영상 노드가 필요로 하는 전부)
+:: (ComfyUI-TJ_NODE_STUDIO_ONE/install_requirements.bat 기반 — 6개 이미지 도구 +
+:: MiniMax H3 영상 노드가 필요로 하는 전부. Crystools(모니터 위젯)는 그쪽엔 없고
+:: 여기만 추가로 필요해서 더 들어있음.)
 set REPOS[0]=https://github.com/ltdrdata/ComfyUI-Impact-Pack
 set REPOS[1]=https://github.com/ltdrdata/ComfyUI-Impact-Subpack
 set REPOS[2]=https://github.com/kijai/ComfyUI-KJNodes
@@ -110,15 +111,17 @@ set REPOS[15]=https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 set REPOS[16]=https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3
 set REPOS[17]=https://github.com/crystian/ComfyUI-Crystools
 set REPOS[18]=https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache
+set REPOS[19]=https://github.com/designloves2/ComfyUI-TJ_NODE
+set REPOS[20]=https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes
 
-set COUNT=19
+set COUNT=21
 
-for /L %%i in (0,1,18) do (
+for /L %%i in (0,1,20) do (
     set "URL=!REPOS[%%i]!"
     for %%F in (!URL!) do set "FOLDER=%%~nxF"
 
     echo ------------------------------------------------------------------------
-    echo [%%i/18] !FOLDER!
+    echo [%%i/20] !FOLDER!
     echo         !URL!
 
     if exist "!FOLDER!" (

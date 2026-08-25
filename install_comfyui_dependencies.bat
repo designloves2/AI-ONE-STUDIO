@@ -1,6 +1,13 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+rem Forces Python's default text I/O to UTF-8 regardless of the system's
+rem locale/codepage. Without this, some setup.py scripts (e.g. groundingdino-py,
+rem pulled in by ComfyUI-RMBG) read a non-ASCII file with the OS default codepage
+rem (cp949 on Korean Windows) and crash with UnicodeDecodeError on the first
+rem non-ASCII byte they hit.
+set "PYTHONUTF8=1"
+
 echo ========================================================================
 echo   AI ONE STUDIO - ComfyUI Backend Dependency Installer
 echo   Installs ComfyUI-TJ_NODE_STUDIO_ONE and every custom node / Python
@@ -64,10 +71,14 @@ echo.
 
 if "%PYTHON%"=="" goto SKIP_PIP_UPGRADE
 echo [PIP] Upgrading pip, setuptools, and wheel to the latest versions...
-rem setuptools/wheel are the standard build backend for source packages -
-rem some ComfyUI portable installs ship without them, which breaks any repo
-rem whose requirements.txt has a package with no prebuilt wheel available.
-"%PYTHON%" -m pip install --upgrade pip setuptools wheel --quiet
+"%PYTHON%" -m pip install --upgrade pip --quiet
+rem --force-reinstall matters here: recent pip versions can pre-seed a
+rem "wheel_stub" placeholder package that satisfies "wheel is installed"
+rem checks but has no real build backend, breaking every source package
+rem that needs one ("Cannot import 'wheel_stub.buildapi'"). A plain
+rem --upgrade doesn't necessarily replace an already-"satisfied" stub -
+rem force-reinstall does.
+"%PYTHON%" -m pip install --upgrade --force-reinstall setuptools wheel --quiet
 echo.
 :SKIP_PIP_UPGRADE
 

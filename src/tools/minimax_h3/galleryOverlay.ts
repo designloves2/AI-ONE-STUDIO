@@ -487,14 +487,19 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         thumbWrap.appendChild(checkWrap);
       }
 
-      thumbWrap.addEventListener("mouseenter", () => {
-        stopGridVideos();
-        hoverVideo.src = clipViewUrl(v.filename, v.subfolder);
-        thumbWrap.appendChild(hoverVideo);
-        hoverVideo.currentTime = 0;
-        hoverVideo.play?.().catch(() => {});
-      });
-      thumbWrap.addEventListener("mouseleave", stopGridVideos);
+      // 터치 기기는 첫 탭이 hover 진입으로만 소비되고 실제 클릭(ⓘ 팝업 열기 등)까지
+      // 안 넘어가는 경우가 있다 — 호버 미리재생은 애초에 터치에서 의미도 없으니
+      // hover가 실제로 가능한 기기에서만 건다.
+      if (canHover) {
+        thumbWrap.addEventListener("mouseenter", () => {
+          stopGridVideos();
+          hoverVideo.src = clipViewUrl(v.filename, v.subfolder);
+          thumbWrap.appendChild(hoverVideo);
+          hoverVideo.currentTime = 0;
+          hoverVideo.play?.().catch(() => {});
+        });
+        thumbWrap.addEventListener("mouseleave", stopGridVideos);
+      }
 
       if (stitchMode) {
         card.addEventListener("click", () => {

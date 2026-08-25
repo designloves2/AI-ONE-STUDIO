@@ -428,10 +428,11 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       });
       infoBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        // title 호버 툴팁은 터치 기기에선 안 뜬다 — 탭했을 때 alert()로 띄운다. 커스텀
-        // 위치 계산이 전혀 없는 브라우저 네이티브 모달이라 이번엔 확실히 뜬다. 데스크톱은
-        // 이미 호버 툴팁이 있으니 클릭까지 alert를 띄우면 중복이라 터치 기기에서만 건다.
-        if (IS_TOUCH_DEVICE) alert(metaInfoLines((v as any).meta).join("\n"));
+        // title 호버 툴팁은 터치에선 안 뜨고, "터치 기기인지" 자체를 기기가 속이는 경우도
+        // 있다(아이패드의 데스크톱 사이트 요청 모드는 maxTouchPoints를 0으로 보고함) — 기기
+        // 판별을 아예 하지 말고 클릭/탭이면 무조건 alert() 띄운다. 데스크톱은 호버 툴팁과
+        // 겹치지만(클릭하면 둘 다 뜸) 안 뜨는 것보다 훨씬 낫다.
+        alert(metaInfoLines((v as any).meta).join("\n"));
       });
       thumbWrap.appendChild(infoBtn);
 

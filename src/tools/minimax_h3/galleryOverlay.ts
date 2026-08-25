@@ -434,9 +434,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       thumbWrap.appendChild(deleteBtn);
 
       const infoBtn = el("button", {
-        type: "button", text: "ⓘ", title: "Generation settings",
+        // ⓘ(U+24D8) 유니코드 글리프가 일부 시스템 폰트에 없어서 미확인 문자(□/?)로
+        // 깨져 보이는 경우가 있어, 항상 렌더되는 일반 "i" 글자를 원형 배지 스타일로
+        // 대신 쓴다. title(네이티브 브라우저 툴팁)도 커스텀 팝업과 겹쳐 보여서 제거.
+        type: "button", text: "i",
         class: "absolute bottom-1 right-1 z-[3]",
-        style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontFamily: "inherit", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "4px" },
+        style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
       infoBtn.addEventListener("click", (e) => e.stopPropagation());
       infoBtn.addEventListener("mouseenter", () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta));

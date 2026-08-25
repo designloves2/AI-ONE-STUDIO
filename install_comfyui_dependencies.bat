@@ -107,7 +107,11 @@ if "%PYTHON%"=="" goto MAIN_PIP_DONE
 if not exist "ComfyUI-TJ_NODE_STUDIO_ONE\requirements.txt" goto MAIN_PIP_DONE
 echo [PIP] Installing ComfyUI-TJ_NODE_STUDIO_ONE requirements...
 "%PYTHON%" -m pip install -r "ComfyUI-TJ_NODE_STUDIO_ONE\requirements.txt" --quiet
+if not errorlevel 1 goto MAIN_PIP_OK
+echo [PIP] Retrying with --no-build-isolation...
+"%PYTHON%" -m pip install -r "ComfyUI-TJ_NODE_STUDIO_ONE\requirements.txt" --no-build-isolation --quiet
 if errorlevel 1 goto MAIN_PIP_WARN
+:MAIN_PIP_OK
 echo [PIP] Done.
 goto MAIN_PIP_DONE
 :MAIN_PIP_WARN
@@ -193,7 +197,15 @@ set "REQ_FILTERED=%TEMP%\aios_req_!FOLDER!.txt"
 findstr /v /i "^dlib" "!REQ_FILE!" > "!REQ_FILTERED!"
 
 "%PYTHON%" -m pip install -r "!REQ_FILTERED!" --quiet
+if not errorlevel 1 goto REPO_PIP_OK
+rem Some packages fail inside pip's isolated build env specifically with
+rem "Cannot import 'wheel_stub.buildapi'" - that env doesn't inherit the
+rem global wheel/setuptools installed above. Retry using the global
+rem environment's build tools instead of a fresh isolated one.
+echo [PIP] Retrying with --no-build-isolation...
+"%PYTHON%" -m pip install -r "!REQ_FILTERED!" --no-build-isolation --quiet
 if errorlevel 1 goto REPO_PIP_WARN
+:REPO_PIP_OK
 echo [PIP] Done.
 goto REPO_DLIB_CHECK
 :REPO_PIP_WARN

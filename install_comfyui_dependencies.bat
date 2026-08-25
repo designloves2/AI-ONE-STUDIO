@@ -153,8 +153,13 @@ goto REPO_PIP
 echo [ERROR] git clone failed. Check your internet connection.
 goto REPO_DONE
 :REPO_SKIP
-echo [SKIP] Already installed.
-goto REPO_DONE
+rem Folder already exists - could be a clean previous install, or a repo
+rem that got cloned but whose pip install failed/never ran (e.g. an earlier
+rem run errored out partway through). Don't skip the whole thing - just
+rem skip re-cloning and still (re)try the requirements install below;
+rem pip install is idempotent so this is cheap/instant when already done.
+echo [SKIP] Already cloned.
+goto REPO_PIP
 
 :REPO_PIP
 if "%PYTHON%"=="" goto REPO_DONE

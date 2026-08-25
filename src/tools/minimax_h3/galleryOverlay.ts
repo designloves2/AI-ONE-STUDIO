@@ -379,28 +379,32 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   // ── hover-preview (single shared <video> moved into the hovered card) ──
   const hoverVideo = el("video", { muted: "", playsinline: "", preload: "none", class: "absolute inset-0 w-full h-full pointer-events-none", style: { objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
 
-  // ⓘ 아이콘 호버 팝업 — 카드마다 새로 안 만들고 하나 재사용, 위치만 매번 옮긴다.
-  const infoPopup = el("div", {
-    class: "fixed z-[999] pointer-events-none whitespace-pre-line",
-    style: { display: "none", background: "rgba(10,10,10,0.95)", color: "#fff", border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "10px", lineHeight: "1.5", maxWidth: "220px", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" },
-  });
-  document.body.appendChild(infoPopup);
+  // ⓘ 아이콘 정보 팝업 — 원본 노드 버전(ui_gallery_minimax.js)과 동일하게 열 때마다 새
+  // 엘리먼트를 만들어 document.body에 붙이고, 닫을 때 완전히 제거한다(공유 엘리먼트를
+  // display로 껐다 켰다 하는 대신) — 원본에서 이미 검증된 단순한 방식을 그대로 따른다.
+  let openInfoPopup: HTMLElement | null = null;
   function showInfoPopup(anchorRect: DOMRect, meta: any) {
-    infoPopup.textContent = metaInfoLines(meta).join("\n");
-    infoPopup.style.display = "block";
-    const top = anchorRect.bottom + 4;
+    openInfoPopup?.remove();
+    const p = el("div", {
+      class: "fixed z-[999] pointer-events-none whitespace-pre-line",
+      style: { background: "rgba(10,10,10,0.95)", color: "#fff", border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "10px", lineHeight: "1.5", maxWidth: "220px", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" },
+    });
+    p.textContent = metaInfoLines(meta).join("\n");
+    document.body.appendChild(p);
     const left = Math.min(anchorRect.left, window.innerWidth - 230);
-    infoPopup.style.top = `${top}px`;
-    infoPopup.style.left = `${Math.max(4, left)}px`;
+    p.style.top = `${anchorRect.bottom + 4}px`;
+    p.style.left = `${Math.max(4, left)}px`;
+    openInfoPopup = p;
   }
   function hideInfoPopup() {
-    infoPopup.style.display = "none";
+    openInfoPopup?.remove();
+    openInfoPopup = null;
   }
-  // 모바일은 호버가 없어서(mouseenter가 안 옴) 탭으로도 열고 닫을 수 있어야 한다 — 아이콘을
-  // 탭하면 토글하고, 팝업이 열려 있을 때 바깥을 탭하면 닫는다. 데스크톱 호버는 그대로 유지.
+  // 모바일은 호버가 없어서(mouseenter가 안 옴) 탭으로도 열고 닫을 수 있어야 한다 — 팝업이
+  // 열려 있을 때 바깥을 탭/클릭하면 닫는다. 데스크톱 호버는 mouseleave로 그대로 닫힘.
   const onDocClickCloseInfo = (e: MouseEvent) => {
-    if (infoPopup.style.display === "none") return;
-    if (e.target === infoPopup) return;
+    if (!openInfoPopup) return;
+    if (e.target === openInfoPopup) return;
     hideInfoPopup();
   };
   document.addEventListener("click", onDocClickCloseInfo);
@@ -456,6 +460,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       const openInfo = () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
       infoBtn.addEventListener("click", (e) => { e.stopPropagation(); openInfo(); });
       infoBtn.addEventListener("mouseenter", openInfo);
+      infoBtn.addEventListener("mouseleave", hideInfoPopup);
       infoBtn.addEventListener("touchstart", (e) => { e.stopPropagation(); openInfo(); }, { passive: true });
       thumbWrap.appendChild(infoBtn);
 
@@ -592,7 +597,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("keydown", onDeleteConfirmKey, true);
       document.removeEventListener("click", onDocClickCloseInfo);
-      infoPopup.remove();
+      hideInfoPopup();
     },
   };
 }

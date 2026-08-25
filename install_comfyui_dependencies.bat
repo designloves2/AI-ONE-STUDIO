@@ -72,13 +72,16 @@ echo.
 if "%PYTHON%"=="" goto SKIP_PIP_UPGRADE
 echo [PIP] Upgrading pip, setuptools, and wheel to the latest versions...
 "%PYTHON%" -m pip install --upgrade pip --quiet
-rem --force-reinstall matters here: recent pip versions can pre-seed a
-rem "wheel_stub" placeholder package that satisfies "wheel is installed"
-rem checks but has no real build backend, breaking every source package
-rem that needs one ("Cannot import 'wheel_stub.buildapi'"). A plain
-rem --upgrade doesn't necessarily replace an already-"satisfied" stub -
-rem force-reinstall does.
-"%PYTHON%" -m pip install --upgrade --force-reinstall setuptools wheel --quiet
+"%PYTHON%" -m pip install --upgrade setuptools wheel --quiet
+rem wheel-stub (imported as wheel_stub) is a real, separate PyPI package
+rem (an NVIDIA-published lightweight build backend, unrelated to the
+rem regular "wheel" package) that Nvidia_RTX_Nodes_ComfyUI's requirements
+rem pull in via a pyproject.toml declaring it as their build-backend.
+rem It isn't installed by default and pip doesn't auto-fetch declared
+rem build-backends in every case, so install it explicitly up front -
+rem confirmed via direct testing that this (not wheel/setuptools) was the
+rem actual fix for "Cannot import 'wheel_stub.buildapi'".
+"%PYTHON%" -m pip install wheel-stub --quiet
 echo.
 :SKIP_PIP_UPGRADE
 

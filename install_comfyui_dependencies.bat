@@ -63,8 +63,11 @@ if "%PYTHON%"=="" (
 echo.
 
 if "%PYTHON%"=="" goto SKIP_PIP_UPGRADE
-echo [PIP] Upgrading pip to the latest version...
-"%PYTHON%" -m pip install --upgrade pip --quiet
+echo [PIP] Upgrading pip, setuptools, and wheel to the latest versions...
+rem setuptools/wheel are the standard build backend for source packages -
+rem some ComfyUI portable installs ship without them, which breaks any repo
+rem whose requirements.txt has a package with no prebuilt wheel available.
+"%PYTHON%" -m pip install --upgrade pip setuptools wheel --quiet
 echo.
 :SKIP_PIP_UPGRADE
 

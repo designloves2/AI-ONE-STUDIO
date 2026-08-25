@@ -379,35 +379,6 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   // ── hover-preview (single shared <video> moved into the hovered card) ──
   const hoverVideo = el("video", { muted: "", playsinline: "", preload: "none", class: "absolute inset-0 w-full h-full pointer-events-none", style: { objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
 
-  // ⓘ 아이콘 정보 팝업 — 원본 노드 버전(ui_gallery_minimax.js)과 동일하게 열 때마다 새
-  // 엘리먼트를 만들어 document.body에 붙이고, 닫을 때 완전히 제거한다(공유 엘리먼트를
-  // display로 껐다 켰다 하는 대신) — 원본에서 이미 검증된 단순한 방식을 그대로 따른다.
-  let openInfoPopup: HTMLElement | null = null;
-  function showInfoPopup(anchorRect: DOMRect, meta: any) {
-    openInfoPopup?.remove();
-    const p = el("div", {
-      class: "fixed z-[999] pointer-events-none whitespace-pre-line",
-      style: { background: "rgba(10,10,10,0.95)", color: "#fff", border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "10px", lineHeight: "1.5", maxWidth: "220px", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" },
-    });
-    p.textContent = metaInfoLines(meta).join("\n");
-    document.body.appendChild(p);
-    const left = Math.min(anchorRect.left, window.innerWidth - 230);
-    p.style.top = `${anchorRect.bottom + 4}px`;
-    p.style.left = `${Math.max(4, left)}px`;
-    openInfoPopup = p;
-  }
-  function hideInfoPopup() {
-    openInfoPopup?.remove();
-    openInfoPopup = null;
-  }
-  // 모바일은 호버가 없어서(mouseenter가 안 옴) 탭으로도 열고 닫을 수 있어야 한다 — 팝업이
-  // 열려 있을 때 바깥을 탭/클릭하면 닫는다. 데스크톱 호버는 mouseleave로 그대로 닫힘.
-  const onDocClickCloseInfo = (e: MouseEvent) => {
-    if (!openInfoPopup) return;
-    if (e.target === openInfoPopup) return;
-    hideInfoPopup();
-  };
-  document.addEventListener("click", onDocClickCloseInfo);
   hoverVideo.muted = true;
   function stopGridVideos() {
     try { hoverVideo.pause(); } catch {}
@@ -447,21 +418,15 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       thumbWrap.appendChild(deleteBtn);
 
       const infoBtn = el("button", {
-        // ⓘ(U+24D8) 유니코드 글리프가 일부 시스템 폰트에 없어서 미확인 문자(□/?)로
-        // 깨져 보이는 경우가 있어, 항상 렌더되는 일반 "i" 글자를 원형 배지 스타일로
-        // 대신 쓴다. title(네이티브 브라우저 툴팁)도 커스텀 팝업과 겹쳐 보여서 제거.
-        type: "button", text: "i",
+        // 커스텀 JS 팝업(위치 계산/이벤트 순서/z-index 등)이 실기기에서 계속 안 뜬다는
+        // 신고가 반복돼서, 브라우저가 직접 그려주는 네이티브 title 툴팁으로 바꾼다 —
+        // 이건 위치·타이밍·스택 컨텍스트를 브라우저가 알아서 처리해서 우리 쪽 코드가
+        // 틀릴 여지가 없다. title은 "\n"으로 실제 줄바꿈이 된다(모든 주요 브라우저 지원).
+        type: "button", text: "i", title: metaInfoLines((v as any).meta).join("\n"),
         class: "absolute bottom-1 right-1 z-[3]",
         style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
-      // 호버/클릭/터치 셋 다 그냥 열기만 하게 — 어느 입력이든 먼저 오는 게 여는 거고,
-      // 서로 토글/닫기로 부딪힐 일이 없다(기기별 이벤트 순서 차이를 신경 안 써도 됨).
-      // 닫기는 오직 바깥을 탭/클릭했을 때(아래 document 리스너)만 일어난다.
-      const openInfo = () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
-      infoBtn.addEventListener("click", (e) => { e.stopPropagation(); openInfo(); });
-      infoBtn.addEventListener("mouseenter", openInfo);
-      infoBtn.addEventListener("mouseleave", hideInfoPopup);
-      infoBtn.addEventListener("touchstart", (e) => { e.stopPropagation(); openInfo(); }, { passive: true });
+      infoBtn.addEventListener("click", (e) => e.stopPropagation());
       thumbWrap.appendChild(infoBtn);
 
       // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.
@@ -596,8 +561,6 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     destroy() {
       document.removeEventListener("keydown", onKey, true);
       document.removeEventListener("keydown", onDeleteConfirmKey, true);
-      document.removeEventListener("click", onDocClickCloseInfo);
-      hideInfoPopup();
     },
   };
 }

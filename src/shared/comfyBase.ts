@@ -5,11 +5,30 @@
 // 정상 동작한다 — VITE_COMFY_URL은 외부 접속 경로에만 영향을 준다.
 //
 // 로컬 포트는 기본 8188이지만, PC에 ComfyUI를 여러 개 설치해두고 서로 다른 포트로 띄우는
-// 경우가 있어 오버라이드 방법을 두 가지 제공한다:
+// 경우가 있어 오버라이드 방법을 세 가지 제공한다(우선순위 순):
 //   1. URL에 ?comfy_port=8189 를 붙여서 열면 그 값을 localStorage에 저장하고 즉시 사용
-//      (.env 수정도, dev 서버 재시작도 필요 없음 — 브라우저 주소창에서 바로 테스트 가능)
-//   2. localStorage에 저장된 값이 없으면 VITE_COMFY_PORT(.env)를, 그것도 없으면 8188을 씀
+//      (한 번 열면 계속 유지 — 브라우저 주소창에서 바로 테스트할 때 편함)
+//   2. public/comfy_port.txt 파일에 포트 번호만 적어두면 그걸 읽는다 — 빌드/재시작 없이
+//      파일만 고치고 새로고침하면 바로 반영된다(정적 파일이라 dev 서버가 그대로 서빙함).
+//      다른 옵션 없이 그냥 "파일에 숫자 하나 적어두면 알아서 읽는" 가장 간단한 방법.
+//   3. 그것도 없으면 VITE_COMFY_PORT(.env), 최종 기본값은 8188.
 const LOCAL_PORT_KEY = "aos_comfy_local_port";
+let filePortCache: string | null = null;
+let filePortRead = false;
+function readComfyPortFile(): string | null {
+  if (filePortRead) return filePortCache;
+  filePortRead = true;
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", "/comfy_port.txt", false); // 동기 — 이 모듈이 여러 파일에서 동기로 쓰여서 부득이함, 로컬 정적 파일 하나라 지연은 무시할 수준.
+    xhr.send(null);
+    if (xhr.status >= 200 && xhr.status < 300) {
+      const val = xhr.responseText.trim();
+      if (/^\d+$/.test(val)) filePortCache = val;
+    }
+  } catch {}
+  return filePortCache;
+}
 function localComfyPort(): string {
   try {
     const url = new URL(window.location.href);
@@ -21,7 +40,7 @@ function localComfyPort(): string {
     const saved = localStorage.getItem(LOCAL_PORT_KEY);
     if (saved) return saved;
   } catch {}
-  return (import.meta as any).env?.VITE_COMFY_PORT || "8188";
+  return readComfyPortFile() || (import.meta as any).env?.VITE_COMFY_PORT || "8188";
 }
 
 export function getComfyBase(): string {

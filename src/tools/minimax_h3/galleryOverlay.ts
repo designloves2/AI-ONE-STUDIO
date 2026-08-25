@@ -9,6 +9,7 @@ import { C, BRAND } from "../../identity";
 import { clipViewUrl, deleteVideo, getMediaFiles, listVideos, revealOutputFolder, saveMeta, stitchClips, thumbUrl, type GalleryVideo } from "./api";
 
 const STITCH_MAX = 10;
+const IS_TOUCH_DEVICE = typeof window !== "undefined" && ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0);
 
 function fmtSize(bytes?: number) {
   if (!bytes) return "";
@@ -449,22 +450,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         class: "absolute bottom-1 right-1 z-[3]",
         style: { width: "18px", height: "18px", lineHeight: "16px", padding: "0", cursor: "help", fontSize: "11px", fontStyle: "italic", fontWeight: "700", fontFamily: "Georgia, 'Times New Roman', serif", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", borderRadius: "50%" },
       });
-      // 터치 기기는 tap 한 번에 mouseenter→click이 에뮬레이트로 같이 날아온다 — hover와
-      // click 토글을 둘 다 걸면 열렸다가 곧바로 click이 다시 닫아버려서 아무 반응이 없는
-      // 것처럼 보인다. hover가 실제로 가능한 기기(포인터 마우스)에서만 hover를 걸고,
-      // 그 외(터치)에서는 click 토글만 쓴다.
-      const canHover = window.matchMedia?.("(hover: hover)").matches ?? true;
-      if (canHover) {
-        infoBtn.addEventListener("click", (e) => e.stopPropagation());
-        infoBtn.addEventListener("mouseenter", () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta));
-        infoBtn.addEventListener("mouseleave", hideInfoPopup);
-      } else {
-        infoBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (infoPopup.style.display === "block") hideInfoPopup();
-          else showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
-        });
-      }
+      // matchMedia('(hover: hover)')로 터치 기기를 가려내려던 이전 시도는 아이패드류에서
+      // 실제 손가락 터치인데도 true로 나오는 경우가 있어 신뢰할 수 없었다(실기기에서 재현—
+      // 탭해도 반응 없음). 대신 click은 "토글"이 아니라 항상 "열기"로만 동작시켜서, 어느
+      // 플랫폼에서 어떤 순서로 mouseenter/click이 오든 최소한 열리기는 하게 만든다. 닫기는
+      // 아래 document 클릭(바깥을 탭/클릭)에게 맡긴다 — 아이콘을 다시 눌러서 닫는 대신
+      // 다른 곳을 눌러서 닫는 방식이라 데스크톱/모바일 모두 동일하게 동작한다.
+      const openInfo = () => showInfoPopup(infoBtn.getBoundingClientRect(), (v as any).meta);
+      infoBtn.addEventListener("click", (e) => { e.stopPropagation(); openInfo(); });
+      infoBtn.addEventListener("mouseenter", openInfo);
+      infoBtn.addEventListener("mouseleave", hideInfoPopup);
       thumbWrap.appendChild(infoBtn);
 
       // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.
@@ -487,10 +482,11 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         thumbWrap.appendChild(checkWrap);
       }
 
-      // 터치 기기는 첫 탭이 hover 진입으로만 소비되고 실제 클릭(ⓘ 팝업 열기 등)까지
-      // 안 넘어가는 경우가 있다 — 호버 미리재생은 애초에 터치에서 의미도 없으니
-      // hover가 실제로 가능한 기기에서만 건다.
-      if (canHover) {
+      // 호버 미리재생은 터치에서 의미가 없고(호버 상태가 없음), 터치의 합성 mouseenter가
+      // 불필요한 비디오 로드를 시작시켜 다른 탭 상호작용을 지연시킬 수 있으니 진짜 터치
+      // 기기(ontouchstart/maxTouchPoints로 판별 — hover 미디어쿼리보다 신뢰도 높음)에서는
+      // 아예 안 건다.
+      if (!IS_TOUCH_DEVICE) {
         thumbWrap.addEventListener("mouseenter", () => {
           stopGridVideos();
           hoverVideo.src = clipViewUrl(v.filename, v.subfolder);

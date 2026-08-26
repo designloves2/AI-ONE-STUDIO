@@ -3,7 +3,7 @@
 // 썸네일 지연로딩, 호버 미리재생, 더블클릭 풀스크린, 프롬프트 표시/Reuse/Copy, 삭제,
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
-import { SUBFOLDER, alignFrameCount, framesToSeconds } from "./core";
+import { SUBFOLDER, framesToSeconds } from "./core";
 import { button, el, clear, confirmDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { clipViewUrl, deleteVideo, getMediaFiles, listVideos, revealOutputFolder, saveMeta, stitchClips, thumbUrl, type GalleryVideo } from "./api";
@@ -213,11 +213,25 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const oneTakeCb = el("input", { type: "checkbox" }) as HTMLInputElement;
   oneTakeCb.style.cursor = "pointer";
   let oneTakeUserSet = false;
-  oneTakeCb.addEventListener("change", () => { oneTakeUserSet = true; });
+  oneTakeCb.addEventListener("change", () => { oneTakeUserSet = true; refreshStitchBar(); });
   oneTakeLabel.append(oneTakeCb, el("span", { text: "One-Take (trim overlap)" }));
 
+  // The auto-stitch at run-finish always trims exactly the 39-frame carried-latent overlap
+  // (ONE_TAKE_OVERLAP_FRAMES) — kept as-is there so a bad automatic result can still be
+  // re-stitched by hand. Manual gallery re-stitch gets its own editable frame count instead:
+  // the One-Take seam has a real color-flicker artifact at the splice point (frames 39-42 of
+  // every continued clip — see SPEC_H3_LATENT_CONTINUATION_SEAM.md in the TJ_NODE repo for the
+  // root-cause writeup), so trimming a few frames past the raw overlap cuts the bad frames out
+  // of the combined output. Default 43 = 39 overlap + 4 frames of guard. Not run through
+  // alignFrameCount() — that's for generation-time latent/frame-count alignment, unrelated to
+  // this post-hoc video trim.
+  let stitchTrimFrames = 43;
+  const trimFrameInput = numberField(stitchTrimFrames, (v) => { stitchTrimFrames = Math.max(0, Math.round(v)); refreshStitchBar(); }, 1);
+  (trimFrameInput as HTMLElement).style.width = "56px";
+  const trimFrameWrap = el("div", { class: "flex items-center gap-1.5 text-[10.5px]", style: { color: C.muted } }, [el("span", { text: "trim frames" }), trimFrameInput]);
+
   const stitchGoBtn = button("🔗 Combine", () => runStitch(), "primary");
-  stitchBar.append(stitchInfo, oneTakeLabel, stitchClearBtn, stitchGoBtn);
+  stitchBar.append(stitchInfo, oneTakeLabel, trimFrameWrap, stitchClearBtn, stitchGoBtn);
 
   // 스티치 결과의 오디오를 클립 각각에 구워진 생성 오디오 대신 별도 음원 파일로 통째로
   // 교체하는 옵션 — MiniMax H3 One-Take의 "Audio Lock 원본으로 교체" 옵션과 같은 기능을
@@ -267,7 +281,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     let text = `${picked.length} / ${STITCH_MAX} selected`;
     if (picked.length >= STITCH_MAX) text += " · longer edits need a real video editor";
     if (total != null) {
-      const trimmed = oneTakeCb.checked && picked.length > 1 ? total! - (picked.length - 1) * framesToSeconds(alignFrameCount(39)) : total!;
+      const trimmed = oneTakeCb.checked && picked.length > 1 ? total! - (picked.length - 1) * framesToSeconds(stitchTrimFrames) : total!;
       text += ` · ≈${trimmed.toFixed(2)}s`;
     }
     if (sizes.size > 1) text += ` · ⚠ mixed resolution (${[...sizes].join(", ")}) — stitch may fail or look off`;
@@ -280,7 +294,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     const picked = stitchOrder.map((k) => videos.find((v) => vKey(v) === k)).filter(Boolean) as GalleryVideo[];
     if (picked.length < 2) return;
     stitchGoBtn.disabled = true;
-    const overlapSec = oneTakeCb.checked ? framesToSeconds(alignFrameCount(39)) : null;
+    const overlapSec = oneTakeCb.checked ? framesToSeconds(stitchTrimFrames) : null;
     stitchInfo.textContent = `Stitching ${picked.length} clips${overlapSec ? ` (One-Take, ${overlapSec.toFixed(3)}s overlap trimmed)` : ""}…`;
     try {
       const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");

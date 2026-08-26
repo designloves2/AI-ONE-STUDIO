@@ -407,12 +407,17 @@ export interface BuildClipOpts {
   refImages?: string[] | null;
   clipIndex?: number;
   saveLastFrame?: boolean;
+  // The tail-frame PreviewImage batch only exists so pickChainFrame() can step back past a
+  // fade-to-black when chaining Last Frame Chain — eight temp PNGs per clip, wasted in every
+  // other continuity mode. Defaults true so other callers are unaffected; the relay loop passes
+  // rs.continuityMode === "lastframe". See SPEC_MINIMAX_H3_TEMP_FILE_CLEANUP.md.
+  saveTailPreviews?: boolean;
   prevCheckpointName?: string | null;
   checkpointName?: string | null;
 }
 
 export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, opts: BuildClipOpts) {
-  const { nodeId, promptText, seed, firstFrame = null, lastFrame = null, refImages = null, clipIndex = 0, saveLastFrame = true, prevCheckpointName = null, checkpointName = null } = opts;
+  const { nodeId, promptText, seed, firstFrame = null, lastFrame = null, refImages = null, clipIndex = 0, saveLastFrame = true, saveTailPreviews = true, prevCheckpointName = null, checkpointName = null } = opts;
 
   const frames = state.clipFrames || 192;
   const { width, height } = resolveResolution(state.aspect, state.megapixels);
@@ -481,9 +486,11 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   if (saveLastFrame) {
     g[N.lastF] = { class_type: "ImageFromBatch", inputs: { image: images, batch_index: Math.max(0, frames - 1), length: 1 } };
     g[N.saveLF] = { class_type: "SaveImage", inputs: { images: [N.lastF, 0], filename_prefix: `${folder}/frames/${stem}_clip${clipTag}_last` } };
-    const tail = Math.min(TAIL_CANDIDATES, frames);
-    g[N.tailF] = { class_type: "ImageFromBatch", inputs: { image: images, batch_index: Math.max(0, frames - tail), length: tail } };
-    g[N.tailPrev] = { class_type: "PreviewImage", inputs: { images: [N.tailF, 0] } };
+    if (saveTailPreviews) {
+      const tail = Math.min(TAIL_CANDIDATES, frames);
+      g[N.tailF] = { class_type: "ImageFromBatch", inputs: { image: images, batch_index: Math.max(0, frames - tail), length: tail } };
+      g[N.tailPrev] = { class_type: "PreviewImage", inputs: { images: [N.tailF, 0] } };
+    }
   }
 
   return { graph: g, meta: { width, height, frames, steps, seed, videoNode: N.save, lastFrameNode: N.saveLF } };

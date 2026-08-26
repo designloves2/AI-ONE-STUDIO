@@ -1604,6 +1604,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           refImages,
           clipIndex: i,
           saveLastFrame: true,
+          saveTailPreviews: rs.continuityMode === "lastframe",
           prevCheckpointName: isOneTake ? prevCheckpointName : null,
           checkpointName,
         });
@@ -1646,13 +1647,19 @@ export function renderMinimaxH3(container: HTMLElement) {
         }
         if (lastImg) {
           await setLastResult(instanceId, { image: lastImg });
-          let carry = lastImg;
-          const tail = allOutputs(res.byNode, NODE_IDS.tailPrev);
-          if (tail.length) {
-            const pick = await pickChainFrame(tail.map((t: any) => ({ filename: t.filename, subfolder: t.subfolder || "", type: t.type || "temp" })));
-            if (pick?.picked) carry = pick.picked;
+          // chainFrame is only ever consumed when continuity is Last Frame Chain — copying it
+          // to input/ in every other mode just orphaned one PNG per clip, forever (nothing
+          // cleans that folder). Continuity is fixed for the run, so gate on the snapshot (rs),
+          // not live state. See SPEC_MINIMAX_H3_TEMP_FILE_CLEANUP.md.
+          if (rs.continuityMode === "lastframe") {
+            let carry = lastImg;
+            const tail = allOutputs(res.byNode, NODE_IDS.tailPrev);
+            if (tail.length) {
+              const pick = await pickChainFrame(tail.map((t: any) => ({ filename: t.filename, subfolder: t.subfolder || "", type: t.type || "temp" })));
+              if (pick?.picked) carry = pick.picked;
+            }
+            try { chainFrame = await copyOutputToInput(carry.filename, carry.subfolder || "", carry.type || "output"); } catch { chainFrame = null; }
           }
-          try { chainFrame = await copyOutputToInput(carry.filename, carry.subfolder || "", carry.type || "output"); } catch { chainFrame = null; }
         }
 
         clipTimes.push((Date.now() - clipStart) / 60000);

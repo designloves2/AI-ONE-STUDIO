@@ -495,3 +495,63 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
 
   return { graph: g, meta: { width, height, frames, steps, seed, videoNode: N.save, lastFrameNode: N.saveLF } };
 }
+
+// ── Gallery post-processing: Upscale / Interpolate on a single finished clip ──
+// SPEC_GALLERY_UPSCALE_INTERPOLATE.md. Standalone one-off graphs, unrelated to the per-clip
+// pipeline above, so they get their own plain node-id strings instead of sharing the N map.
+
+export interface UpscaleGraphOpts {
+  method: "model" | "rtx";
+  upscaleModel?: string;
+  rtxScale?: number;
+  rtxQuality?: string;
+}
+
+export function buildUpscaleGraph(inputFilename: string, folder: string, stem: string, opts: UpscaleGraphOpts) {
+  const g: Record<string, any> = {};
+  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: FPS, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } };
+  let images: any = ["load", 0];
+
+  if (opts.method === "rtx") {
+    g.rtx = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": opts.rtxScale ?? 2.0, quality: opts.rtxQuality || "ULTRA" } };
+    images = ["rtx", 0];
+  } else {
+    g.upModel = { class_type: "UpscaleModelLoader", inputs: { model_name: opts.upscaleModel } };
+    g.upApply = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: ["upModel", 0], image: images } };
+    images = ["upApply", 0];
+  }
+
+  g.video = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: ["load", 2] } };
+  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}_upscaled`, format: "auto", codec: "auto" } };
+  return { graph: g, saveNode: "save" };
+}
+
+export interface InterpolateGraphOpts {
+  targetFps: number;
+  scale: number;
+  batchSize: number;
+  useFp16: boolean;
+}
+
+export function buildInterpolateGraph(inputFilename: string, folder: string, stem: string, opts: InterpolateGraphOpts) {
+  const g: Record<string, any> = {};
+  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: FPS, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } };
+  g.rife = {
+    class_type: "RIFEInterpolation",
+    inputs: {
+      images: ["load", 0],
+      source_fps: FPS,
+      target_fps: opts.targetFps,
+      scale: opts.scale,
+      model_name: "flownet.pkl",
+      batch_size: opts.batchSize,
+      use_fp16: opts.useFp16,
+    },
+  };
+  // Encode at target_fps, not FPS — the clip keeps its original running time and just moves
+  // more smoothly; encoding at the source rate would turn the extra frames into slow motion
+  // and desync the audio.
+  g.video = { class_type: "CreateVideo", inputs: { images: ["rife", 0], fps: opts.targetFps, audio: ["load", 2] } };
+  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}_${opts.targetFps}fps`, format: "auto", codec: "auto" } };
+  return { graph: g, saveNode: "save" };
+}

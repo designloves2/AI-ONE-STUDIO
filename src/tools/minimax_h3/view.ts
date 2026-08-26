@@ -1806,6 +1806,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // (원본 ui_gallery_minimax.js 이식) — shared/gallery.ts의 단순 그리드로는 부족해서 별도 구현.
   const galleryOv = createGalleryOverlay(state, {
     showPopup,
+    get availability() { return ctx.availability; },
     reusePrompt(meta: any) {
       if (!meta) return false;
       const parts: string[] = Array.isArray(meta.prompts) && meta.prompts.length ? meta.prompts.slice() : [String(meta.prompt || "")];

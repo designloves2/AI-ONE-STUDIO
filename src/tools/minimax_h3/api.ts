@@ -147,6 +147,13 @@ export const MMH3_OPTIONAL_NODES = [
   "SolAttnPatch",
   "SpectrumApplyMiniMaxH3",
   "RTXVideoSuperResolution",
+  // Gallery post-processing (Upscale/Interpolate on an already-finished clip) —
+  // SPEC_GALLERY_UPSCALE_INTERPOLATE.md. RIFEInterpolation is "RIFE Frame Interpolation"
+  // (image/animation category) — NOT ComfyUI-Frame-Interpolation's RIFE VFI, a different node
+  // with a different interface (source_fps/target_fps pair vs an integer multiplier).
+  "RIFEInterpolation",
+  "UpscaleModelLoader",
+  "ImageUpscaleWithModel",
   "VHS_LoadVideo",
   "LoadAudio",
   "TrimAudioDuration",
@@ -360,6 +367,17 @@ export async function copyOutputToInput(filename: string, subfolder?: string, ty
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || "copy failed");
   return d.filename;
+}
+
+/** Deletes a copy previously made by copyOutputToInput/copy_to_input — server refuses any
+ * filename that doesn't start with the pack prefix (mmh3_), so it can never touch a user's own
+ * input asset. Fire-and-forget: a failed cleanup is cosmetic, never worth failing the caller. */
+export function discardInputCopy(filename: string) {
+  fetchApi(`${API}/discard_input`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename }),
+  }).catch(() => {});
 }
 
 export async function setLastResult(nodeId: string | number, opts: { image?: any; videoPath?: string } = {}) {

@@ -3,10 +3,25 @@
 // 썸네일 지연로딩, 호버 미리재생, 더블클릭 풀스크린, 프롬프트 표시/Reuse/Copy, 삭제,
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
-import { SUBFOLDER, framesToSeconds } from "./core";
+import { SUBFOLDER, FPS, UPSCALE_MODES, framesToSeconds } from "./core";
 import { button, el, clear, confirmDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
-import { clipViewUrl, deleteVideo, getMediaFiles, listVideos, revealOutputFolder, saveMeta, stitchClips, thumbUrl, type GalleryVideo } from "./api";
+import {
+  clipViewUrl,
+  copyOutputToInput,
+  deleteVideo,
+  discardInputCopy,
+  getMediaFiles,
+  getModels,
+  listVideos,
+  revealOutputFolder,
+  saveMeta,
+  stitchClips,
+  thumbUrl,
+  type GalleryVideo,
+} from "./api";
+import { queuePrompt } from "./comfyClient";
+import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
 
 const STITCH_MAX = 10;
 const IS_TOUCH_DEVICE = typeof window !== "undefined" && ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0);
@@ -53,6 +68,7 @@ function metaInfoLines(meta: any): string[] {
 export interface GalleryOverlayCtx {
   showPopup: (msg: string, isError?: boolean) => void;
   reusePrompt?: (meta: any) => boolean;
+  availability?: Record<string, boolean>;
 }
 
 export interface GalleryOverlayHandle {
@@ -185,24 +201,42 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     if (!r.ok) ctx.showPopup(`Could not open the folder: ${r.error || "unknown"}`, true);
   });
 
-  let stitchMode = false;
+  let mode: null | "stitch" | "upscale" | "rife" = null;
   let stitchOrder: string[] = [];
+  let postPick: string | null = null;
+  let postRunning = false;
   const vKey = (v: GalleryVideo) => `${v.subfolder || ""}|${v.filename}`;
 
   const stitchBtn = toolBtn("🔗 Stitch", "Pick clips in order, then combine into one file");
-  stitchBtn.addEventListener("click", () => {
-    stitchMode = !stitchMode;
+  const upscaleBtn = toolBtn("⬆ Upscale", "Upscale a single clip");
+  const interpBtn = toolBtn("🎞 Interpolate", "Smooth a single clip with frame interpolation");
+
+  // The three modes take over what a click on a grid card means, so only one can be armed at
+  // a time. render:false is used by hide() — the grid was just emptied to stop hover videos,
+  // and re-rendering here would put them back.
+  function setMode(m: typeof mode, doRender = true) {
+    mode = m;
     stitchOrder = [];
+    postPick = null;
     oneTakeUserSet = false;
     selectedKeys.clear();
     refreshDeleteSelBtn();
-    stitchBtn.style.background = stitchMode ? BRAND : C.bg2;
-    stitchBtn.style.borderColor = stitchMode ? BRAND : C.border;
-    stitchBar.style.display = stitchMode ? "flex" : "none";
-    audioOverrideBar.style.display = stitchMode ? "flex" : "none";
-    renderGrid();
-  });
-  hdr.append(deleteSelBtn, fullBtn, stitchBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+    stitchBtn.style.background = mode === "stitch" ? BRAND : C.bg2;
+    stitchBtn.style.borderColor = mode === "stitch" ? BRAND : C.border;
+    stitchBar.style.display = mode === "stitch" ? "flex" : "none";
+    audioOverrideBar.style.display = mode === "stitch" ? "flex" : "none";
+    upscaleBtn.style.background = mode === "upscale" ? BRAND : C.bg2;
+    upscaleBtn.style.borderColor = mode === "upscale" ? BRAND : C.border;
+    upscaleBar.style.display = mode === "upscale" ? "flex" : "none";
+    interpBtn.style.background = mode === "rife" ? BRAND : C.bg2;
+    interpBtn.style.borderColor = mode === "rife" ? BRAND : C.border;
+    interpBar.style.display = mode === "rife" ? "flex" : "none";
+    if (doRender) renderGrid();
+  }
+  stitchBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "stitch" ? null : "stitch"); });
+  upscaleBtn.addEventListener("click", () => { if (!postRunning) { rebuildUpscaleModels(); setMode(mode === "upscale" ? null : "upscale"); } });
+  interpBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "rife" ? null : "rife"); });
+  hdr.append(deleteSelBtn, fullBtn, stitchBtn, upscaleBtn, interpBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const stitchBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg", style: { background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
   const stitchInfo = el("div", { class: "flex-1 text-[10.5px]", style: { color: C.text } });
@@ -318,11 +352,168 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     }
   }
 
+  // ── shared progress readout for Upscale/Interpolate bars ────────────────
+  function makeProgressReadout() {
+    const wrap = el("div", { class: "flex items-center gap-2 flex-1", style: { display: "none" } });
+    const label = el("div", { class: "text-[10.5px]", style: { color: C.muted, minWidth: "90px" } });
+    const track = el("div", { class: "flex-1 rounded-full overflow-hidden", style: { height: "6px", background: C.bg2 } });
+    const fill = el("div", { class: "h-full rounded-full", style: { width: "0%", background: BRAND, transition: "width 0.15s" } });
+    track.appendChild(fill);
+    wrap.append(label, track);
+    return {
+      wrap,
+      start(msg: string) { wrap.style.display = "flex"; label.textContent = msg; fill.style.width = "0%"; },
+      progress(v: number, m: number) { label.textContent = m ? `${Math.round((v / m) * 100)}%` : "working…"; fill.style.width = m ? `${Math.min(100, (v / m) * 100)}%` : "0%"; },
+      done() { wrap.style.display = "none"; },
+      fail(msg: string) { label.textContent = `✕ ${msg}`; fill.style.width = "0%"; },
+    };
+  }
+
+  function findPost(): GalleryVideo | null {
+    if (!postPick) return null;
+    return videos.find((v) => vKey(v) === postPick) || null;
+  }
+
+  // Run wrapper shared by Upscale/Interpolate: copy the source clip into ComfyUI's input/
+  // (VHS_LoadVideo only lists input/), queue the graph, refresh the grid on success, and — in
+  // finally, success and failure alike — delete the input copy so it doesn't accumulate (same
+  // leak SPEC_MINIMAX_H3_TEMP_FILE_CLEANUP.md fixed for the main relay).
+  async function runPost(v: GalleryVideo, buildGraph: (inputFilename: string) => { graph: Record<string, any>; saveNode: string }, readout: ReturnType<typeof makeProgressReadout>, runBtn: HTMLButtonElement) {
+    postRunning = true;
+    runBtn.disabled = true;
+    readout.start("copying…");
+    let copied: string | null = null;
+    try {
+      copied = await copyOutputToInput(v.filename, v.subfolder || "", "output");
+      const { graph } = buildGraph(copied);
+      readout.start("queued…");
+      await queuePrompt(graph, { onProgress: (val, max) => readout.progress(val, max) });
+      readout.done();
+      await refresh();
+      ctx.showPopup("Done.", false);
+    } catch (e: any) {
+      readout.fail(e?.message || String(e));
+      ctx.showPopup(`Failed: ${e?.message || e}`, true);
+    } finally {
+      if (copied) discardInputCopy(copied);
+      postRunning = false;
+      runBtn.disabled = false;
+    }
+  }
+
+  // ── Upscale bar ───────────────────────────────────────────────────────────
+  const upscaleMethods = UPSCALE_MODES.filter((m) => m.key !== "none");
+  let upscaleMethod: string = state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : upscaleMethods[0]?.key || "model";
+  let upscaleModelVal = state.upscaleModel || "";
+  let upscaleRtxScale = state.rtxScale ?? 2.0;
+  let upscaleRtxQuality = state.rtxQuality || "ULTRA";
+
+  const upscaleMethodWrap = el("div", { style: { minWidth: "140px" } });
+  const upscaleModelWrap = el("div", { style: { minWidth: "180px" } });
+  const upscaleRtxWrap = el("div", { class: "flex items-center gap-2" });
+  const upscaleReadout = makeProgressReadout();
+  const upscaleRunBtn = button("⬆ Run", () => { const v = findPost(); if (v) runPost(v, (f) => buildUpscaleGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { method: upscaleMethod as "model" | "rtx", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality }), upscaleReadout, upscaleRunBtn); }, "primary") as HTMLButtonElement;
+  const upscaleBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
+
+  function renderUpscaleMethod() {
+    clear(upscaleMethodWrap);
+    const sel = select(upscaleMethods.map((m) => ({ value: m.key, label: m.label })), upscaleMethod, (v) => { upscaleMethod = v; renderUpscaleControls(); });
+    (sel as HTMLElement).style.fontSize = "10.5px";
+    upscaleMethodWrap.appendChild(sel);
+  }
+  function renderUpscaleModel(models: string[]) {
+    clear(upscaleModelWrap);
+    const opts = models.length ? models : [""];
+    if (!upscaleModelVal && models.length) upscaleModelVal = models[0];
+    const sel = select(opts.map((m) => ({ value: m, label: m || "— no models found —" })), upscaleModelVal, (v) => { upscaleModelVal = v; });
+    (sel as HTMLElement).style.fontSize = "10.5px";
+    upscaleModelWrap.appendChild(sel);
+  }
+  function renderUpscaleRtx() {
+    clear(upscaleRtxWrap);
+    const scaleField = numberField(upscaleRtxScale, (v) => { upscaleRtxScale = Math.max(1, Math.min(4, v)); }, 1);
+    (scaleField as HTMLElement).style.width = "50px";
+    const qualitySel = select(["LOW", "MEDIUM", "HIGH", "ULTRA"], upscaleRtxQuality, (v) => { upscaleRtxQuality = v; });
+    (qualitySel as HTMLElement).style.fontSize = "10.5px";
+    upscaleRtxWrap.append(
+      el("span", { text: "scale", class: "text-[10.5px]", style: { color: C.muted } }), scaleField,
+      el("span", { text: "quality", class: "text-[10.5px]", style: { color: C.muted } }), qualitySel
+    );
+  }
+  function refreshUpscaleAvailability() {
+    const avail = ctx.availability;
+    const nodeName = upscaleMethod === "rtx" ? "RTXVideoSuperResolution" : "ImageUpscaleWithModel";
+    const missing = avail && Object.keys(avail).length && !avail[nodeName];
+    upscaleRunBtn.disabled = !postPick || !!missing || postRunning;
+    upscaleRunBtn.style.opacity = upscaleRunBtn.disabled ? "0.5" : "1";
+    upscaleRunBtn.title = missing ? `Missing node: ${nodeName}` : "";
+  }
+  function renderUpscaleControls() {
+    renderUpscaleMethod();
+    upscaleRtxWrap.style.display = upscaleMethod === "rtx" ? "flex" : "none";
+    upscaleModelWrap.style.display = upscaleMethod === "rtx" ? "none" : "block";
+    if (upscaleMethod === "rtx") renderUpscaleRtx();
+    refreshUpscaleAvailability();
+  }
+  function rebuildUpscaleModels() {
+    getModels()
+      .then((m) => renderUpscaleModel(m.upscale_models || []))
+      .catch(() => renderUpscaleModel([]));
+  }
+  renderUpscaleControls();
+  renderUpscaleModel(upscaleModelVal ? [upscaleModelVal] : []);
+  upscaleBar.append(
+    el("div", { text: "Upscale:", class: "text-[10.5px] font-bold", style: { color: C.text } }),
+    upscaleMethodWrap, upscaleModelWrap, upscaleRtxWrap, upscaleReadout.wrap, upscaleRunBtn
+  );
+
+  // ── Interpolate bar ───────────────────────────────────────────────────────
+  let interpTargetFps = 48;
+  let interpScale = 1.0;
+  let interpBatch = 8;
+  let interpFp16 = true;
+
+  const interpTargetField = numberField(interpTargetFps, (v) => { interpTargetFps = Math.max(FPS + 1, Math.round(v)); }, 1);
+  (interpTargetField as HTMLElement).style.width = "60px";
+  const interpScaleSel = select(["0.25", "0.5", "1.0", "2.0", "4.0"], String(interpScale), (v) => { interpScale = parseFloat(v); });
+  (interpScaleSel as HTMLElement).style.fontSize = "10.5px";
+  const interpBatchField = numberField(interpBatch, (v) => { interpBatch = Math.max(1, Math.min(32, Math.round(v))); }, 1);
+  (interpBatchField as HTMLElement).style.width = "50px";
+  const interpFp16Label = el("label", { class: "flex items-center gap-1.5 text-[10.5px] cursor-pointer", style: { color: C.text } });
+  const interpFp16Cb = el("input", { type: "checkbox" }) as HTMLInputElement;
+  interpFp16Cb.checked = interpFp16;
+  interpFp16Cb.style.cursor = "pointer";
+  interpFp16Cb.addEventListener("change", () => { interpFp16 = interpFp16Cb.checked; });
+  interpFp16Label.append(interpFp16Cb, el("span", { text: "fp16" }));
+
+  const interpReadout = makeProgressReadout();
+  const interpRunBtn = button("🎞 Run", () => { const v = findPost(); if (v) runPost(v, (f) => buildInterpolateGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { targetFps: interpTargetFps, scale: interpScale, batchSize: interpBatch, useFp16: interpFp16 }), interpReadout, interpRunBtn); }, "primary") as HTMLButtonElement;
+  const interpBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
+  interpBar.append(
+    el("div", { text: `Interpolate: ${FPS} →`, class: "text-[10.5px] font-bold", style: { color: C.text } }),
+    interpTargetField,
+    el("span", { text: "fps · scale", class: "text-[10.5px]", style: { color: C.muted } }), interpScaleSel,
+    el("span", { text: "batch", class: "text-[10.5px]", style: { color: C.muted } }), interpBatchField,
+    interpFp16Label, interpReadout.wrap, interpRunBtn
+  );
+  function refreshInterpAvailability() {
+    const avail = ctx.availability;
+    const missing = avail && Object.keys(avail).length && !avail.RIFEInterpolation;
+    interpRunBtn.disabled = !postPick || !!missing || postRunning;
+    interpRunBtn.style.opacity = interpRunBtn.disabled ? "0.5" : "1";
+    interpRunBtn.title = missing ? "Missing node: RIFEInterpolation" : "";
+  }
+
+  function refreshPostBar() {
+    if (mode === "upscale") refreshUpscaleAvailability();
+    else if (mode === "rife") refreshInterpAvailability();
+  }
+
   const grid = el("div", { class: "flex-1 min-h-0 overflow-y-auto grid gap-2", style: { gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", gridAutoRows: "min-content", alignContent: "start", paddingRight: "4px" } });
   const hint = el("div", { class: "shrink-0 text-[10px] text-center", style: { color: C.muted } });
   hint.innerHTML = "double-click a clip to play it full screen · <b>space</b> play/pause · <b>← →</b> seek · <b>[ ]</b> previous / next · <b>Esc</b> close";
 
-  ov.append(hdr, stitchBar, audioOverrideBar, grid, hint);
+  ov.append(hdr, stitchBar, audioOverrideBar, upscaleBar, interpBar, grid, hint);
 
   // ── fullscreen player ───────────────────────────────────────────────────
   const player = el("div", { class: "hidden fixed inset-0 z-[100000] flex-col", style: { display: "none", background: "rgba(0,0,0,0.97)" } });
@@ -411,12 +602,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       return;
     }
     list.forEach((v, i) => {
-      const pickIdx = stitchMode ? stitchOrder.indexOf(vKey(v)) : -1;
-      const picked = pickIdx !== -1;
+      const pickIdx = mode === "stitch" ? stitchOrder.indexOf(vKey(v)) : -1;
+      const postPicked = (mode === "upscale" || mode === "rife") && postPick === vKey(v);
+      const picked = pickIdx !== -1 || postPicked;
       const isFull = !!(v as any).is_full;
       const card = el("div", {
         class: "relative flex flex-col rounded-lg cursor-pointer",
-        style: { background: C.bg1, border: `1px solid ${picked ? BRAND : isFull ? BRAND : C.border}`, opacity: stitchMode && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
+        style: { background: C.bg1, border: `1px solid ${picked ? BRAND : isFull ? BRAND : C.border}`, opacity: mode === "stitch" && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
       });
 
       const thumbWrap = el("div", { class: "relative w-full" });
@@ -450,8 +642,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       });
       thumbWrap.appendChild(infoBtn);
 
-      // 다중 선택 체크박스(좌상단) — 스티치 모드에선 그 자리를 순번 배지가 쓰므로 숨긴다.
-      if (!stitchMode) {
+      // 다중 선택 체크박스(좌상단) — 어떤 모드든 그 자리를 순번/✓ 배지가 쓰므로 숨긴다.
+      if (!mode) {
         const key = vKey(v);
         const checkWrap = el("label", {
           class: "absolute top-1 left-1 z-[3] flex items-center justify-center rounded",
@@ -485,8 +677,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         thumbWrap.addEventListener("mouseleave", stopGridVideos);
       }
 
-      if (stitchMode) {
+      if (mode === "stitch") {
         card.addEventListener("click", () => {
+          if (postRunning) return;
           const key = vKey(v);
           const idx = stitchOrder.indexOf(key);
           if (idx !== -1) stitchOrder.splice(idx, 1);
@@ -496,6 +689,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         });
         if (picked) {
           card.appendChild(el("div", { text: String(pickIdx + 1), class: "absolute top-1 left-1 z-[2] rounded-full flex items-center justify-center font-bold text-[11px]", style: { width: "20px", height: "20px", background: BRAND, color: "#fff" } }));
+        }
+      } else if (mode === "upscale" || mode === "rife") {
+        card.addEventListener("click", () => {
+          if (postRunning) return;
+          const key = vKey(v);
+          postPick = postPick === key ? null : key;
+          renderGrid();
+        });
+        if (postPicked) {
+          card.appendChild(el("div", { text: "✓", class: "absolute top-1 left-1 z-[2] rounded-full flex items-center justify-center font-bold text-[11px]", style: { width: "20px", height: "20px", background: BRAND, color: "#fff" } }));
         }
       } else {
         card.addEventListener("dblclick", () => openPlayer(i));
@@ -538,7 +741,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       card.append(thumbWrap, meta);
       grid.appendChild(card);
     });
-    if (stitchMode) refreshStitchBar();
+    if (mode === "stitch") refreshStitchBar();
+    else if (mode === "upscale" || mode === "rife") refreshPostBar();
   }
 
   async function refresh() {
@@ -557,16 +761,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     stopGridVideos();
     ov.style.display = "none";
     clear(grid);
-    stitchMode = false;
-    stitchOrder = [];
-    oneTakeUserSet = false;
-    stitchBtn.style.background = C.bg2;
-    stitchBtn.style.borderColor = C.border;
-    stitchBar.style.display = "none";
+    // render:false — the grid was just emptied above to stop the hover videos, and
+    // re-rendering would put them back. Skipped entirely while postRunning, so a queued
+    // Upscale/Interpolate job's bar survives a close/reopen.
+    if (!postRunning) setMode(null, false);
     deleteConfirmOv.style.display = "none";
     pendingDelete = null;
-    selectedKeys.clear();
-    refreshDeleteSelBtn();
   }
 
   return {

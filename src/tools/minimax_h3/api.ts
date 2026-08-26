@@ -136,6 +136,8 @@ export const MMH3_OPTIONAL_NODES = [
   "ModelPreviewOverrideKJ",
   "ModelPatchTorchSettings",
   "MiniMaxH3MemoryEfficientSageAttentionPatch",
+  "MiniMaxH3ScheduledSolAttentionPatch",
+  "MiniMaxH3FusedModulation",
   "ModelAttentionBackend",
   "H3SLAAttention",
   "MiniMaxH3Cache",

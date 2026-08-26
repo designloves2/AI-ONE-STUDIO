@@ -154,6 +154,32 @@ export interface MinimaxState {
   fbcMaxConsecutiveHits: number;
   fbcTemporalGuard: boolean;
 
+  // ── Pipeline axes (v1.17.0 port, SPEC_MINIMAX_H3_PIPELINE_AXES.md) ──────────────────────
+  // One control per patch layer, replacing the old single accelMode + scattered booleans.
+  // These are now the source of truth for buildModelChain(); the legacy fields above
+  // (accelMode, useSageAttn, useCkAttention, useSlaAttention, useMemEffSage, useCache,
+  // useFirstBlockCache) are read only by migratePipelineState() to seed these once.
+  turboMode: string; // "none" | "larryvrh" | "lightx2v" (lightx2v is a regular LoRA — add it in the LoRA section; picking it here just forces attnBackend to "sla" and suggests 6 steps)
+  attnBackend: string; // "none" | "sage" | "ck" | "solattn_kijai" | "sla" — L6/L7, single-select
+  attnForward: string; // "none" | "memeff_sage" | "solattn_saganaki" — L5, blocked whenever attnBackend replaces attn.forward itself (ck/solattn_kijai/sla)
+  blockCache: string; // "none" | "h3cache" | "fbcache" — L2/L3, blocked entirely under either Turbo mode
+  useSpectrum: boolean; // L1, independent of attnBackend/blockCache — orthogonal axis
+  useFusedModulation: boolean; // L4, safe with every other axis
+  pipelineMigrated: boolean;
+  // MiniMaxH3ScheduledSolAttentionPatch (Saganaki22/ComfyUI-sol-attn) — strict superset of
+  // that pack's MemoryEfficient variant; set tau_start==tau_end for the old fixed-tau behavior.
+  solSchedTauStart: number;
+  solSchedTauEnd: number;
+  solSchedCurve: string; // "linear" | "cosine" | "sqrt" | "smoothstep"
+  solSchedMinTokens: number;
+  solSchedStrict: boolean;
+  solSchedDensePercent: number;
+  solSchedThreshType: string; // "diag" | "exact"
+  solSchedInt8Qk: boolean;
+  solSchedInt8Pv: boolean;
+  solSchedSinkConditioning: string; // "exact_kv" | "exact_kv_and_rows" | "off"
+  solSchedDenseBlocks: string;
+
   // Live preview (ModelPreviewOverrideKJ)
   previewEnabled: boolean;
   previewFrames: number;
@@ -247,6 +273,99 @@ export const ACCEL_MODES = [
 
 export function accelModesFor(generationMode: string) {
   return ACCEL_MODES.filter((m) => !m.modes || m.modes.includes(generationMode || "t2v"));
+}
+
+// ── Pipeline axes (v1.17.0 port) — one control per patch layer instead of one accelMode. ──
+
+export const TURBO_MODES = [
+  { key: "none", label: "None" },
+  { key: "larryvrh", label: "Turbo LoRA (larryvrh)", modes: ["t2v", "firstlast", "reference"] },
+  { key: "lightx2v", label: "SLA Turbo (lightx2v)" },
+] as const;
+export function turboModesFor(generationMode: string) {
+  return TURBO_MODES.filter((m: any) => !m.modes || m.modes.includes(generationMode || "t2v"));
+}
+
+export const ATTN_BACKENDS = [
+  { key: "none", label: "None" },
+  { key: "sage", label: "Sage", node: "PathchSageAttentionKJ" },
+  { key: "ck", label: "CK-Attention", node: "ModelAttentionBackend" },
+  { key: "solattn_kijai", label: "SolAttn (kijai)", node: "SolAttnPatch" },
+  { key: "sla", label: "H3 SLA Attention", node: "H3SLAAttention" },
+] as const;
+
+export const ATTN_FORWARDS = [
+  { key: "none", label: "None" },
+  { key: "memeff_sage", label: "MemEff Sage", node: "MiniMaxH3MemoryEfficientSageAttentionPatch" },
+  { key: "solattn_saganaki", label: "SolAttn (Saganaki22, scheduled)", node: "MiniMaxH3ScheduledSolAttentionPatch" },
+] as const;
+
+export const BLOCK_CACHES = [
+  { key: "none", label: "None" },
+  { key: "h3cache", label: "H3 Cache", node: "MiniMaxH3Cache" },
+  { key: "fbcache", label: "FirstBlockCache", node: "ApplyMiniMaxH3FirstBlockCache" },
+] as const;
+
+/** Why an attention-backend option is greyed out, or "" if it's fine. Shown inline, never hidden. */
+export function attnBackendBlockedReason(state: MinimaxState, key: string): string {
+  if (key === "none" || key === "sage") return "";
+  if (state.turboMode === "larryvrh" && (key === "solattn_kijai" || key === "sla")) {
+    return "Turbo LoRA (larryvrh) needs dense attention — its 4 steps leave no room for sparse-approximation error to average out.";
+  }
+  if (state.turboMode === "lightx2v" && key !== "sla") {
+    return "SLA Turbo (lightx2v) is a LoRA distilled against the SLA kernel — it gives no speedup and isn't validated without SLA attention.";
+  }
+  return "";
+}
+
+/** Why an attention-forward option is greyed out, or "" if it's fine. */
+export function attnForwardBlockedReason(state: MinimaxState, key: string): string {
+  if (key === "none") return "";
+  if (state.attnBackend === "ck" || state.attnBackend === "solattn_kijai" || state.attnBackend === "sla") {
+    return "This patch replaces the block's own attention call — the selected attention backend would never run underneath it.";
+  }
+  return "";
+}
+
+/** Why a block-cache option is greyed out, or "" if it's fine. */
+export function blockCacheBlockedReason(state: MinimaxState, key: string): string {
+  if (key === "none") return "";
+  if (state.turboMode === "larryvrh" || state.turboMode === "lightx2v") {
+    return "Block caches aren't validated with either Turbo mode.";
+  }
+  return "";
+}
+
+/**
+ * One-time conversion from the old accelMode + scattered attention/cache booleans into the
+ * new axis fields, so saved workflows don't reset. SLA is given priority when multiple old
+ * backends were on at once, since it was the one silently winning before this port (bug ①
+ * in SPEC_MINIMAX_H3_PIPELINE_AXES.md). Mutates `saved` in place; call before defaultState()
+ * reads turboMode/attnBackend/etc. off it. Guarded by pipelineMigrated so it only ever runs once.
+ */
+export function migratePipelineState(saved: Partial<MinimaxState> & Record<string, any>): void {
+  if (saved.pipelineMigrated) return;
+
+  if (saved.turboMode == null) {
+    saved.turboMode = saved.accelMode === "turbo" ? "larryvrh" : "none";
+  }
+  if (saved.useSpectrum == null) {
+    saved.useSpectrum = saved.accelMode === "spectrum" ? true : !!saved.useSpectrum;
+  }
+  if (saved.attnBackend == null) {
+    if (saved.useSlaAttention) saved.attnBackend = "sla";
+    else if (saved.useCkAttention) saved.attnBackend = "ck";
+    else if (saved.accelMode === "solattn") saved.attnBackend = "solattn_kijai";
+    else if (saved.useSageAttn) saved.attnBackend = "sage";
+    else saved.attnBackend = "none";
+  }
+  if (saved.attnForward == null) {
+    saved.attnForward = saved.useMemEffSage ? "memeff_sage" : "none";
+  }
+  if (saved.blockCache == null) {
+    saved.blockCache = saved.useFirstBlockCache ? "fbcache" : saved.useCache ? "h3cache" : "none";
+  }
+  saved.pipelineMigrated = true;
 }
 
 export const UPSCALE_MODES = [
@@ -497,6 +616,7 @@ export function saveState(s: MinimaxState) {
 }
 
 export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
+  migratePipelineState(saved as any);
   return {
     unetFirstLast: saved.unetFirstLast || "",
     unetReference: saved.unetReference || "",
@@ -623,6 +743,24 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     previewMaxRes: saved.previewMaxRes ?? 512,
     previewQuality: saved.previewQuality ?? 85,
     previewTinyVae: saved.previewTinyVae || "none",
+    turboMode: saved.turboMode || "none",
+    attnBackend: saved.attnBackend || "none",
+    attnForward: saved.attnForward || "none",
+    blockCache: saved.blockCache || "none",
+    useSpectrum: !!saved.useSpectrum,
+    useFusedModulation: saved.useFusedModulation ?? false,
+    pipelineMigrated: !!saved.pipelineMigrated,
+    solSchedTauStart: saved.solSchedTauStart ?? 1.3,
+    solSchedTauEnd: saved.solSchedTauEnd ?? 0.8,
+    solSchedCurve: saved.solSchedCurve || "linear",
+    solSchedMinTokens: saved.solSchedMinTokens ?? 4096,
+    solSchedStrict: saved.solSchedStrict ?? false,
+    solSchedDensePercent: saved.solSchedDensePercent ?? 0.0,
+    solSchedThreshType: saved.solSchedThreshType || "diag",
+    solSchedInt8Qk: saved.solSchedInt8Qk ?? false,
+    solSchedInt8Pv: saved.solSchedInt8Pv ?? false,
+    solSchedSinkConditioning: saved.solSchedSinkConditioning || "exact_kv_and_rows",
+    solSchedDenseBlocks: saved.solSchedDenseBlocks || "",
   };
 }
 

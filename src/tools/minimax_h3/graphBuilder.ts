@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason } from "./core";
 import type { NodeAvailability } from "./api";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
@@ -13,6 +13,8 @@ const N = {
   vaeA: "MM:vae_audio",
   sage: "MM:sage",
   memSage: "MM:mem_sage",
+  solSched: "MM:sol_sched",
+  fusedMod: "MM:fused_mod",
   ckAttn: "MM:ck_attn",
   torch: "MM:torch",
   shift: "MM:sigma_shift",
@@ -69,13 +71,12 @@ export function previewNodeKey(nodeId: string | number) {
   return `MMH3_preview_${nodeId}`;
 }
 
-function effectiveAccel(state: MinimaxState, avail?: Avail): { mode: string; fellBack: boolean; reason?: string } {
-  const want = state.accelMode || "turbo";
-  if (want !== "turbo") return { mode: want, fellBack: false };
-  const name = turboLoraForMode(state);
-  if (!name) return { mode: "none", fellBack: true, reason: "No turbo LoRA set — turbo skipped." };
-  if (avail && Object.keys(avail).length && !avail.MiniMaxH3TurboLoRA) return { mode: "none", fellBack: true, reason: "comfyui-minimax-h3-turbo is not installed — turbo skipped." };
-  return { mode: "turbo", fellBack: false };
+/** Resolves turboMode "larryvrh" down to "none" if its LoRA or node isn't actually available. */
+function turboEffective(state: MinimaxState, avail?: Avail): string {
+  if (state.turboMode !== "larryvrh") return state.turboMode || "none";
+  if (!turboLoraForMode(state)) return "none";
+  if (avail && Object.keys(avail).length && !avail.MiniMaxH3TurboLoRA) return "none";
+  return "larryvrh";
 }
 
 function turboLoraForMode(state: MinimaxState): string {
@@ -161,24 +162,59 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
   g[N.unet] = unetNode(unet);
   let m: any = [N.unet, 0];
 
-  // SageAttention and CK-Attention are alternative attention backends — the Settings UI
-  // enforces only one group being on, so these never stack.
-  if (state.useCkAttention && has(avail, "ModelAttentionBackend")) {
+  // ── Attention backend (L6/L7) — single-select axis, so these never stack by construction
+  // (unlike the old independent booleans, which let SLA silently overwrite Sage/SolAttn since
+  // none of them checked for an existing optimized_attention_override — bug ① in
+  // SPEC_MINIMAX_H3_PIPELINE_AXES.md). "sla" is applied later in applySla(), after preview,
+  // per H3SLAAttention's own placement requirement.
+  if (state.attnBackend === "ck" && has(avail, "ModelAttentionBackend")) {
     g[N.ckAttn] = { class_type: "ModelAttentionBackend", inputs: { model: m, attention: state.ckAttentionBackend === "pytorch" ? "pytorch attention" : "comfy kitchen attention" } };
     m = [N.ckAttn, 0];
-  } else {
-    if (state.useSageAttn && has(avail, "PathchSageAttentionKJ")) {
-      g[N.sage] = { class_type: "PathchSageAttentionKJ", inputs: { model: m, sage_attention: state.sageAttnMode || "auto" } };
-      m = [N.sage, 0];
-    }
-    if (state.useMemEffSage && has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
+  } else if (state.attnBackend === "sage" && has(avail, "PathchSageAttentionKJ")) {
+    g[N.sage] = { class_type: "PathchSageAttentionKJ", inputs: { model: m, sage_attention: state.sageAttnMode || "auto" } };
+    m = [N.sage, 0];
+  } else if (state.attnBackend === "solattn_kijai" && has(avail, "SolAttnPatch")) {
+    g[N.sol] = {
+      class_type: "SolAttnPatch",
+      inputs: { model: m, tau: state.solTau ?? 1.3, start_percent: state.solStart ?? 0.2, end_percent: state.solEnd ?? 0.9, min_tokens: state.solMinTokens ?? 4096, int8_qk: true, sink_conditioning: "exact_kv_and_rows", morton: false, morton_curve: "2d_frame", int8_pv: true, verbose: false, use_tma: false, dense_blocks: "" },
+    };
+    m = [N.sol, 0];
+  }
+
+  // ── Attention forward patch (L5) — blocked whenever attnBackend replaces attn.forward
+  // itself (ck/solattn_kijai/sla), since the override those backends rely on is only ever
+  // consulted by the *stock* forward — replacing it makes the selected backend never run
+  // (bug ② in the spec). Only meaningful stacked with "sage" or "none".
+  if (!attnForwardBlockedReason(state, state.attnForward)) {
+    if (state.attnForward === "memeff_sage" && has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
       g[N.memSage] = { class_type: "MiniMaxH3MemoryEfficientSageAttentionPatch", inputs: { model: m } };
       m = [N.memSage, 0];
+    } else if (state.attnForward === "solattn_saganaki" && has(avail, "MiniMaxH3ScheduledSolAttentionPatch")) {
+      g[N.solSched] = {
+        class_type: "MiniMaxH3ScheduledSolAttentionPatch",
+        inputs: {
+          model: m, enabled: true,
+          tau_start: state.solSchedTauStart ?? 1.3, tau_end: state.solSchedTauEnd ?? 0.8,
+          curve: state.solSchedCurve || "linear", min_tokens: state.solSchedMinTokens ?? 4096,
+          strict: !!state.solSchedStrict, dense_percent: state.solSchedDensePercent ?? 0.0,
+          thresh_type: state.solSchedThreshType || "diag", int8_qk: !!state.solSchedInt8Qk, int8_pv: !!state.solSchedInt8Pv,
+          sink_conditioning: state.solSchedSinkConditioning || "exact_kv_and_rows", dense_blocks: state.solSchedDenseBlocks || "",
+        },
+      };
+      m = [N.solSched, 0]; // output 1 is the tau_graph IMAGE — left unconnected, matching the spec's "if unused, leave it"
     }
   }
+
   if (state.useTorchPatch && has(avail, "ModelPatchTorchSettings")) {
     g[N.torch] = { class_type: "ModelPatchTorchSettings", inputs: { model: m, enable_fp16_accumulation: state.fp16Accum !== false } };
     m = [N.torch, 0];
+  }
+
+  // ── Fused Modulation (L4) — independent checkbox, safe with every other axis (it calls
+  // adaln_proj as a module, so Turbo's LoRA injection there survives).
+  if (state.useFusedModulation && has(avail, "MiniMaxH3FusedModulation")) {
+    g[N.fusedMod] = { class_type: "MiniMaxH3FusedModulation", inputs: { model: m, enabled: true } };
+    m = [N.fusedMod, 0];
   }
 
   g[N.shift] = { class_type: "MiniMaxH3SigmaShift", inputs: { model: m, shift_video: state.shiftVideo ?? 12, shift_audio: state.shiftAudio ?? 3 } };
@@ -193,40 +229,39 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
     m = [id, 0];
   });
 
-  if (state.useCache && has(avail, "MiniMaxH3Cache")) {
-    g[N.cache] = {
-      class_type: "MiniMaxH3Cache",
-      inputs: { model: m, resuse_threshold: state.cacheThreshold ?? 0.3, start_percent: state.cacheStart ?? 0.15, end_percent: state.cacheEnd ?? 0.9, max_steps: state.cacheMaxSteps ?? 2, device: "auto", verbose: false },
-    };
-    m = [N.cache, 0];
+  // ── Block cache (L2/L3) — single-select, blocked entirely under either Turbo mode (same
+  // approximation stacked on top of an already-distilled/4-step model isn't validated).
+  if (!blockCacheBlockedReason(state, state.blockCache)) {
+    if (state.blockCache === "h3cache" && has(avail, "MiniMaxH3Cache")) {
+      g[N.cache] = {
+        class_type: "MiniMaxH3Cache",
+        inputs: { model: m, resuse_threshold: state.cacheThreshold ?? 0.3, start_percent: state.cacheStart ?? 0.15, end_percent: state.cacheEnd ?? 0.9, max_steps: state.cacheMaxSteps ?? 2, device: "auto", verbose: false },
+      };
+      m = [N.cache, 0];
+    } else if (state.blockCache === "fbcache" && has(avail, "ApplyMiniMaxH3FirstBlockCache")) {
+      g[N.fbcache] = {
+        class_type: "ApplyMiniMaxH3FirstBlockCache",
+        inputs: {
+          model: m, mode: state.fbcMode || "H3 Fast — 0.10 / max 2",
+          threshold: state.fbcThreshold ?? 0.1, start_percent: state.fbcStartPercent ?? 0.1,
+          end_percent: state.fbcEndPercent ?? 0.95, max_consecutive_hits: state.fbcMaxConsecutiveHits ?? 2,
+          temporal_guard: !!state.fbcTemporalGuard,
+        },
+      };
+      m = [N.fbcache, 0];
+    }
   }
 
-  // Same reuse-cache idea as MiniMaxH3Cache above, just a different implementation — the UI
-  // enforces only one of the two being on at once, so this never stacks with N.cache.
-  if (state.useFirstBlockCache && has(avail, "ApplyMiniMaxH3FirstBlockCache")) {
-    g[N.fbcache] = {
-      class_type: "ApplyMiniMaxH3FirstBlockCache",
-      inputs: {
-        model: m, mode: state.fbcMode || "H3 Fast — 0.10 / max 2",
-        threshold: state.fbcThreshold ?? 0.1, start_percent: state.fbcStartPercent ?? 0.1,
-        end_percent: state.fbcEndPercent ?? 0.95, max_consecutive_hits: state.fbcMaxConsecutiveHits ?? 2,
-        temporal_guard: !!state.fbcTemporalGuard,
-      },
-    };
-    m = [N.fbcache, 0];
-  }
-
-  const accel = effectiveAccel(state, avail).mode;
-  if (accel === "turbo" && has(avail, "MiniMaxH3TurboLoRA")) {
+  // ── Turbo (L8, weights) — larryvrh only; lightx2v is a regular LoRA, already applied above
+  // via the loras[] loop, gated to SLA attention entirely through the UI/attnBackend axis.
+  if (turboEffective(state, avail) === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
     g[N.turbo] = { class_type: "MiniMaxH3TurboLoRA", inputs: { model: m, lora_name: turboLoraForMode(state), strength: state.turboLoraStrength ?? 1.0, low_vram: !!state.turboLoraLowVram } };
     m = [N.turbo, 0];
-  } else if (accel === "solattn" && has(avail, "SolAttnPatch")) {
-    g[N.sol] = {
-      class_type: "SolAttnPatch",
-      inputs: { model: m, tau: state.solTau ?? 1.3, start_percent: state.solStart ?? 0.2, end_percent: state.solEnd ?? 0.9, min_tokens: state.solMinTokens ?? 4096, int8_qk: true, sink_conditioning: "exact_kv_and_rows", morton: false, morton_curve: "2d_frame", int8_pv: true, verbose: false, use_tma: false, dense_blocks: "" },
-    };
-    m = [N.sol, 0];
-  } else if (accel === "spectrum" && has(avail, "SpectrumApplyMiniMaxH3")) {
+  }
+
+  // ── Spectrum (L1) — independent of attnBackend/blockCache; complementary with block
+  // caches (different axis — Spectrum skips whole steps, caches skip blocks within a step).
+  if (state.useSpectrum && has(avail, "SpectrumApplyMiniMaxH3")) {
     g[N.spectrum] = {
       class_type: "SpectrumApplyMiniMaxH3",
       inputs: {
@@ -268,7 +303,7 @@ function applyPreview(g: Graph, state: MinimaxState, avail: Avail | undefined, m
 // checkbox, so the node stays in the graph either way once turned on in Settings — flipping
 // the left-panel box just toggles sparse vs dense passthrough.
 function applySla(g: Graph, state: MinimaxState, avail: Avail | undefined, modelLink: any) {
-  if (!state.useSlaAttention || !has(avail, "H3SLAAttention")) return modelLink;
+  if (state.attnBackend !== "sla" || !has(avail, "H3SLAAttention")) return modelLink;
   g[N.sla] = {
     class_type: "H3SLAAttention",
     inputs: {
@@ -396,8 +431,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     condLink = [N.freeClipVram, 0];
   }
 
-  const accel = effectiveAccel(state, avail).mode;
-  const useTurboSampler = accel === "turbo" && has(avail, "MiniMaxH3TurboSampler");
+  const useTurboSampler = turboEffective(state, avail) === "larryvrh" && has(avail, "MiniMaxH3TurboSampler");
   const steps = useTurboSampler ? state.turboSteps ?? 4 : state.steps ?? 20;
 
   g[N.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };

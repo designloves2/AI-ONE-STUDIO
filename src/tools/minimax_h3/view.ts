@@ -5,15 +5,19 @@
 // 백엔드 연결은 다음 단계(§4-2) — 지금은 정적 UI + 로컬 상태 저장까지만 동작한다.
 import type { MinimaxState } from "./core";
 import {
-  ACCEL_MODES,
   ASPECTS,
+  ATTN_BACKENDS,
+  ATTN_FORWARDS,
+  BLOCK_CACHES,
   CLIP_LENGTHS,
   FPS,
   SUBFOLDER,
   UPSCALE_MODES,
-  accelModesFor,
+  attnBackendBlockedReason,
+  attnForwardBlockedReason,
   activePrompts,
   alignFrameCount,
+  blockCacheBlockedReason,
   clipPlan,
   composeClipPrompt,
   configIssues,
@@ -32,6 +36,7 @@ import {
   randomSeed,
   resolveResolution,
   saveState,
+  turboModesFor,
 } from "./core";
 import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
@@ -64,6 +69,25 @@ import { buildClipGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey } fro
 export function renderMinimaxH3(container: HTMLElement) {
   const state: MinimaxState = defaultState(loadState());
   const persist = () => saveState(state);
+
+  // Pipeline accordion — collapsible sections for the per-axis controls (SPEC_MINIMAX_H3_
+  // PIPELINE_AXES.md Part 3). Expand state persists across reloads but isn't part of
+  // MinimaxState (it's UI-only, not a generation setting).
+  const ACCORDION_KEY = "aos_mmh3_accordion_open";
+  let accordionOpen: Record<string, boolean> = {};
+  try { accordionOpen = JSON.parse(localStorage.getItem(ACCORDION_KEY) || "{}"); } catch {}
+  function saveAccordionOpen() {
+    try { localStorage.setItem(ACCORDION_KEY, JSON.stringify(accordionOpen)); } catch {}
+  }
+  function accordion(key: string, title: string, summary: string, body: (Node | null | undefined)[]) {
+    const det = el("details", {}) as HTMLDetailsElement;
+    det.open = accordionOpen[key] !== false; // default open — matches the old always-visible panels
+    const sum = el("summary", { style: { cursor: "pointer", fontSize: "11px", color: C.text, fontWeight: "700", userSelect: "none", marginBottom: det.open ? "6px" : "0" } });
+    sum.append(el("span", { text: title }), el("span", { text: `  —  ${summary}`, style: { color: C.muted, fontWeight: "400", textTransform: "none" } }));
+    det.addEventListener("toggle", () => { accordionOpen[key] = det.open; saveAccordionOpen(); });
+    det.append(sum, ...body.filter((b): b is Node => !!b));
+    return panel([det]);
+  }
   // ModelPreviewOverrideKJ가 프레임을 이 id로 태깅해 보낸다 — 탭마다 하나씩 생기므로 고정 문자열로 충분.
   const instanceId = "mmh3_web";
   // 이 클립이 지금 샘플링 중일 때만 true — queuePrompt가 resolve된 뒤(또는 결과 영상을
@@ -151,7 +175,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     pillsWrap.appendChild(
       modeBar(modes, state.generationMode, (key) => {
         state.generationMode = key;
-        if (!accelModesFor(key).some((m) => m.key === state.accelMode)) state.accelMode = "solattn";
+        if (!turboModesFor(key).some((m) => m.key === state.turboMode)) state.turboMode = "none";
         persist();
         renderPills();
         renderLeft();
@@ -748,17 +772,47 @@ export function renderMinimaxH3(container: HTMLElement) {
     return kids;
   }
 
-  function accelSettings() {
-    const n = (v: number, set: (v: number) => void, step = 0.05) => numberField(v, (x) => { set(x); persist(); }, step);
-    switch (state.accelMode) {
-      case "turbo":
-        return [
-          row([
-            col([label("Turbo strength"), n(state.turboLoraStrength ?? 1.0, (v) => (state.turboLoraStrength = v))]),
-            col([label("Low VRAM"), checkboxRow("low_vram", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; persist(); })]),
-          ]),
-        ];
-      case "solattn":
+  // ── Pipeline axis detail fields (SPEC_MINIMAX_H3_PIPELINE_AXES.md Part 3) ────────────────
+  const n = (v: number, set: (v: number) => void, step = 0.05) => numberField(v, (x) => { set(x); persist(); }, step);
+
+  function turboSummary() {
+    if (state.turboMode === "larryvrh") return "Turbo LoRA (larryvrh)";
+    if (state.turboMode === "lightx2v") return "SLA Turbo (lightx2v)";
+    return "Off";
+  }
+  function turboSettings() {
+    if (state.turboMode === "larryvrh") {
+      return [
+        row([
+          col([label("Turbo strength"), n(state.turboLoraStrength ?? 1.0, (v) => (state.turboLoraStrength = v))]),
+          col([label("Low VRAM"), checkboxRow("low_vram", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; persist(); })]),
+        ]),
+        el("div", { text: "Uses the dedicated MiniMaxH3TurboLoRA node + 4-step sampler. The LoRA file itself is set in ⚙ Settings → Models.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ];
+    }
+    if (state.turboMode === "lightx2v") {
+      return [
+        el("div", {
+          text: "This is a regular LoRA, not a dedicated node — add the SLA-turbo LoRA file itself in the LoRA section below. Selecting this here just locks Attention to SLA (required — the LoRA gives no speedup without it) and suggests ~6 steps instead of 4.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+        }),
+      ];
+    }
+    return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
+  }
+
+  function attnSummary() {
+    const backend = ATTN_BACKENDS.find((b) => b.key === state.attnBackend)?.label || "None";
+    const fwd = ATTN_FORWARDS.find((f) => f.key === state.attnForward)?.label;
+    return state.attnForward !== "none" && fwd ? `${backend} + ${fwd}` : backend;
+  }
+  function attnBackendSettings() {
+    switch (state.attnBackend) {
+      case "sage":
+        return [col([label("mode"), select(["auto", "disabled", "sageattn3", "sageattn3_per_block_mean", "sageattn_qk_int8_pv_fp16_cuda", "sageattn_qk_int8_pv_fp8_cuda"].map((s) => ({ value: s, label: s })), state.sageAttnMode || "auto", (v) => { state.sageAttnMode = v; persist(); })])];
+      case "ck":
+        return [col([label("attention"), select([{ value: "comfy_kitchen", label: "comfy kitchen attention" }, { value: "pytorch", label: "pytorch attention" }], state.ckAttentionBackend || "comfy_kitchen", (v) => { state.ckAttentionBackend = v; persist(); })])];
+      case "solattn_kijai":
         return [
           row([
             col([label("tau"), n(state.solTau ?? 1.3, (v) => (state.solTau = v))]),
@@ -769,29 +823,126 @@ export function renderMinimaxH3(container: HTMLElement) {
             col([label("end %"), n(state.solEnd ?? 0.9, (v) => (state.solEnd = v))]),
           ]),
         ];
-      case "spectrum":
+      case "sla":
         return [
           row([
-            col([label("blend weight"), n(state.specBlendWeight ?? 0.5, (v) => (state.specBlendWeight = v))]),
-            col([label("degree"), n(state.specDegree ?? 1, (v) => (state.specDegree = Math.round(v)), 1)]),
+            col([label("sparsity ratio"), n(state.slaSparsity ?? 0.9, (v) => (state.slaSparsity = v))]),
+            col([label("block size"), select(["64", "128"].map((s) => ({ value: s, label: s })), state.slaBlockSize || "64", (v) => { state.slaBlockSize = v; persist(); })]),
           ]),
           row([
-            col([label("ridge lambda"), n(state.specRidgeLambda ?? 0.1, (v) => (state.specRidgeLambda = v))]),
-            col([label("window size"), n(state.specWindowSize ?? 2.0, (v) => (state.specWindowSize = v), 0.25)]),
+            col([label("min seq len"), n(state.slaMinSeqLen ?? 8192, (v) => (state.slaMinSeqLen = Math.round(v)), 1024)]),
+            col([label("dense last steps"), n(state.slaDenseLastSteps ?? 0, (v) => (state.slaDenseLastSteps = Math.round(v)), 1)]),
           ]),
-          row([
-            col([label("flex window"), n(state.specFlexWindow ?? 0.75, (v) => (state.specFlexWindow = v))]),
-            col([label("max history"), n(state.specMaxHistory ?? 8, (v) => (state.specMaxHistory = Math.round(v)), 1)]),
-          ]),
-          row([
-            col([label("warmup steps"), n(state.specWarmupSteps ?? 1, (v) => (state.specWarmupSteps = Math.round(v)), 1)]),
-            col([label("tail steps"), n(state.specTailSteps ?? 1, (v) => (state.specTailSteps = Math.round(v)), 1)]),
-          ]),
-          col([label("history storage"), select([{ value: "system_ram", label: "system_ram" }, { value: "vram", label: "vram" }], state.specHistoryStore || "system_ram", (v) => { state.specHistoryStore = v; persist(); })]),
+          checkboxRow("Protect audio (always attend text/cond/audio prefix)", state.slaProtectAudio !== false, (v) => { state.slaProtectAudio = v; persist(); }),
+          checkboxRow("Enabled (node's own bypass — off runs dense attention without removing the node)", state.slaRunEnabled !== false, (v) => { state.slaRunEnabled = v; persist(); }),
         ];
       default:
-        return [el("div", { text: "No acceleration patch — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
+        return [];
     }
+  }
+  function attnForwardSettings() {
+    if (state.attnForward === "solattn_saganaki") {
+      return [
+        row([
+          col([label("tau start"), n(state.solSchedTauStart ?? 1.3, (v) => (state.solSchedTauStart = v))]),
+          col([label("tau end"), n(state.solSchedTauEnd ?? 0.8, (v) => (state.solSchedTauEnd = v))]),
+        ]),
+        el("div", { text: "Set tau start = tau end for the old fixed-tau behavior (this pack's MemoryEfficient variant) — this node is a strict superset.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        row([
+          col([label("curve"), select(["linear", "cosine", "sqrt", "smoothstep"].map((c) => ({ value: c, label: c })), state.solSchedCurve || "linear", (v) => { state.solSchedCurve = v; persist(); })]),
+          col([label("min tokens"), n(state.solSchedMinTokens ?? 4096, (v) => (state.solSchedMinTokens = Math.round(v)), 512)]),
+        ]),
+        row([
+          col([label("thresh type"), select(["diag", "exact"].map((t) => ({ value: t, label: t })), state.solSchedThreshType || "diag", (v) => { state.solSchedThreshType = v; persist(); })]),
+          col([label("dense %"), n(state.solSchedDensePercent ?? 0.0, (v) => (state.solSchedDensePercent = v))]),
+        ]),
+        col([label("sink conditioning"), select(["exact_kv", "exact_kv_and_rows", "off"].map((s) => ({ value: s, label: s })), state.solSchedSinkConditioning || "exact_kv_and_rows", (v) => { state.solSchedSinkConditioning = v; persist(); })]),
+        row([
+          col([checkboxRow("strict", !!state.solSchedStrict, (v) => { state.solSchedStrict = v; persist(); })]),
+          col([checkboxRow("int8 qk", !!state.solSchedInt8Qk, (v) => { state.solSchedInt8Qk = v; persist(); })]),
+          col([checkboxRow("int8 pv", !!state.solSchedInt8Pv, (v) => { state.solSchedInt8Pv = v; persist(); })]),
+        ]),
+        col([label("dense blocks (comma-separated indices, optional)"), el("input", { type: "text", value: state.solSchedDenseBlocks || "", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" }, oninput: (e: any) => { state.solSchedDenseBlocks = e.target.value; persist(); } })]),
+      ];
+    }
+    return [];
+  }
+
+  function blockCacheSummary() {
+    return BLOCK_CACHES.find((b) => b.key === state.blockCache)?.label || "None";
+  }
+  function blockCacheSettings() {
+    if (state.blockCache === "h3cache") {
+      return [
+        row([
+          col([label("reuse threshold"), n(state.cacheThreshold ?? 0.3, (v) => (state.cacheThreshold = v), 0.01)]),
+          col([label("max steps"), n(state.cacheMaxSteps ?? 2, (v) => (state.cacheMaxSteps = Math.round(v)), 1)]),
+        ]),
+        row([
+          col([label("start %"), n(state.cacheStart ?? 0.15, (v) => (state.cacheStart = v), 0.01)]),
+          col([label("end %"), n(state.cacheEnd ?? 0.9, (v) => (state.cacheEnd = v), 0.01)]),
+        ]),
+      ];
+    }
+    if (state.blockCache === "fbcache") {
+      return [
+        col([
+          label("mode"),
+          select(
+            ["H3 Safe — 0.08 / max 2", "H3 Fast — 0.10 / max 2", "H3 Aggressive — 0.12 / max 2", "Custom — manual values"].map((m) => ({ value: m, label: m })),
+            state.fbcMode || "H3 Fast — 0.10 / max 2",
+            (v) => { state.fbcMode = v; persist(); renderLeft(); }
+          ),
+        ]),
+        el("div", { text: "The fields below only apply in \"Custom — manual values\" mode; presets ignore them.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        row([
+          col([label("threshold"), n(state.fbcThreshold ?? 0.1, (v) => (state.fbcThreshold = v), 0.005)]),
+          col([label("max consecutive hits"), n(state.fbcMaxConsecutiveHits ?? 2, (v) => (state.fbcMaxConsecutiveHits = Math.round(v)), 1)]),
+        ]),
+        row([
+          col([label("start %"), n(state.fbcStartPercent ?? 0.1, (v) => (state.fbcStartPercent = v), 0.01)]),
+          col([label("end %"), n(state.fbcEndPercent ?? 0.95, (v) => (state.fbcEndPercent = v), 0.01)]),
+        ]),
+        checkboxRow("Temporal guard", !!state.fbcTemporalGuard, (v) => { state.fbcTemporalGuard = v; persist(); }),
+      ];
+    }
+    return [];
+  }
+
+  function spectrumSettings() {
+    return [
+      row([
+        col([label("blend weight"), n(state.specBlendWeight ?? 0.5, (v) => (state.specBlendWeight = v))]),
+        col([label("degree"), n(state.specDegree ?? 1, (v) => (state.specDegree = Math.round(v)), 1)]),
+      ]),
+      row([
+        col([label("ridge lambda"), n(state.specRidgeLambda ?? 0.1, (v) => (state.specRidgeLambda = v))]),
+        col([label("window size"), n(state.specWindowSize ?? 2.0, (v) => (state.specWindowSize = v), 0.25)]),
+      ]),
+      row([
+        col([label("flex window"), n(state.specFlexWindow ?? 0.75, (v) => (state.specFlexWindow = v))]),
+        col([label("max history"), n(state.specMaxHistory ?? 8, (v) => (state.specMaxHistory = Math.round(v)), 1)]),
+      ]),
+      row([
+        col([label("warmup steps"), n(state.specWarmupSteps ?? 1, (v) => (state.specWarmupSteps = Math.round(v)), 1)]),
+        col([label("tail steps"), n(state.specTailSteps ?? 1, (v) => (state.specTailSteps = Math.round(v)), 1)]),
+      ]),
+      col([label("history storage"), select([{ value: "system_ram", label: "system_ram" }, { value: "vram", label: "vram" }], state.specHistoryStore || "system_ram", (v) => { state.specHistoryStore = v; persist(); })]),
+    ];
+  }
+
+  /** Enforces the gating rules from SPEC_MINIMAX_H3_PIPELINE_AXES.md whenever an axis changes,
+   * so blocked combinations can never actually be reached even by clicking through quickly. */
+  function fixupPipelineAxes() {
+    if (!turboModesFor(state.generationMode).some((m) => m.key === state.turboMode)) state.turboMode = "none";
+    if (state.turboMode === "lightx2v") {
+      state.attnBackend = "sla";
+      state.blockCache = "none";
+    } else if (state.turboMode === "larryvrh") {
+      if (attnBackendBlockedReason(state, state.attnBackend)) state.attnBackend = "none";
+      state.blockCache = "none";
+    }
+    if (attnForwardBlockedReason(state, state.attnForward)) state.attnForward = "none";
   }
 
   function renderLeft() {
@@ -803,18 +954,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
     leftPanel.innerHTML = "";
 
-    if (!accelModesFor(state.generationMode).some((m) => m.key === state.accelMode)) {
-      state.accelMode = "solattn";
-      persist();
-    }
-    if (state.accelMode === "turbo" && (state.useCache || state.useFirstBlockCache)) {
-      state.useCache = false;
-      state.useFirstBlockCache = false;
-      persist();
-    } else if (state.accelMode === "spectrum" && state.useCache) {
-      state.useCache = false;
-      persist();
-    }
+    fixupPipelineAxes();
+    persist();
 
     // Canvas
     leftPanel.appendChild(
@@ -869,31 +1010,79 @@ export function renderMinimaxH3(container: HTMLElement) {
     // panel, so each control group reads as its own thing.
     leftPanel.appendChild(el("div", { text: "Pipeline", style: { color: C.muted, fontSize: "11px", marginTop: "4px", marginBottom: "-2px", textTransform: "uppercase", letterSpacing: "0.04em" } }));
 
+    function gatedSelect(opts: readonly { key: string; label: string }[], blockedFn: (k: string) => string, value: string, onChange: (v: string) => void) {
+      return select(
+        opts.map((o) => {
+          const reason = blockedFn(o.key);
+          return { value: o.key, label: reason ? `${o.label} — ${reason}` : o.label, disabled: !!reason };
+        }),
+        value,
+        onChange
+      );
+    }
+
     leftPanel.appendChild(
-      panel([
-        col([label("Acceleration"), select(accelModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.accelMode, (v) => { state.accelMode = v; persist(); renderLeft(); })]),
-        ...accelSettings(),
-        checkboxRow("H3 Cache (step reuse)", !!state.useCache, (v) => { state.useCache = v; if (v) state.useFirstBlockCache = false; persist(); renderLeft(); }, {
-          disabled: state.accelMode === "turbo" || state.accelMode === "spectrum",
-          title: state.accelMode === "turbo"
-            ? "Off with Turbo — turbo's 4-step schedule never reaches the threshold H3 Cache reuses steps at"
-            : state.accelMode === "spectrum"
-            ? "Off with Spectrum — Spectrum is its own step-schedule accelerator and conflicts with H3 Cache's step reuse"
-            : "",
-        }),
-        checkboxRow("H3 FirstBlockCache (step reuse)", !!state.useFirstBlockCache, (v) => { state.useFirstBlockCache = v; if (v) state.useCache = false; persist(); renderLeft(); }, {
-          disabled: state.accelMode === "turbo",
-          title: state.accelMode === "turbo"
-            ? "Off with Turbo — turbo's 4-step schedule never reaches the threshold step-reuse caches trigger at"
-            : "Same idea as H3 Cache above, different implementation — only one can be on at a time. Compatible with Spectrum.",
-        }),
-        checkboxRow("H3 SLA Attention Enabled", state.slaRunEnabled !== false, (v) => { state.slaRunEnabled = v; persist(); }, {
-          disabled: !state.useSlaAttention,
-          title: state.useSlaAttention
-            ? "Toggles the node's own bypass — off runs dense attention without removing the node."
-            : "Enable H3 SLA Attention in ⚙ Settings → Models first.",
-        }),
-      ])
+      accordion(
+        "turbo", "Turbo", turboSummary(),
+        [
+          col([select(turboModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.turboMode, (v) => {
+            if (v === "lightx2v" && state.turboMode !== "lightx2v") state.steps = 6; // lightx2v docs recommend ~6 steps — one-time suggestion, not locked
+            state.turboMode = v;
+            persist();
+            renderLeft();
+          })]),
+          ...turboSettings(),
+        ]
+      )
+    );
+
+    leftPanel.appendChild(
+      accordion(
+        "attn", "Attention", attnSummary(),
+        [
+          col([label("backend"), gatedSelect(ATTN_BACKENDS, (k) => attnBackendBlockedReason(state, k), state.attnBackend, (v) => { state.attnBackend = v; persist(); renderLeft(); })]),
+          ...attnBackendSettings(),
+          col([label("H3 forward"), gatedSelect(ATTN_FORWARDS, (k) => attnForwardBlockedReason(state, k), state.attnForward, (v) => { state.attnForward = v; persist(); renderLeft(); })]),
+          ...attnForwardSettings(),
+        ]
+      )
+    );
+
+    leftPanel.appendChild(
+      accordion(
+        "blockCache", "Block Cache", blockCacheSummary(),
+        [
+          col([select(BLOCK_CACHES.map((b) => {
+            const reason = blockCacheBlockedReason(state, b.key);
+            return { value: b.key, label: reason ? `${b.label} — ${reason}` : b.label, disabled: !!reason };
+          }), state.blockCache, (v) => { state.blockCache = v; persist(); renderLeft(); })]),
+          ...blockCacheSettings(),
+        ]
+      )
+    );
+
+    leftPanel.appendChild(
+      accordion(
+        "spectrum", "Spectrum", state.useSpectrum ? "ON" : "Off",
+        [
+          checkboxRow("Enabled — independent of Attention/Block Cache (skips whole steps via latent extrapolation, orthogonal axis)", !!state.useSpectrum, (v) => { state.useSpectrum = v; persist(); renderLeft(); }),
+          ...(state.useSpectrum ? spectrumSettings() : []),
+        ]
+      )
+    );
+
+    leftPanel.appendChild(
+      accordion(
+        "modelPatches", "Model Patches",
+        [state.useFusedModulation && "Fused Modulation", state.useTorchPatch && "Torch", state.fp16Accum && "fp16"].filter(Boolean).join(" + ") || "Off",
+        [
+          checkboxRow("Fused Modulation (AdaLN scale/shift + gated residual, Triton) — safe with every other axis", !!state.useFusedModulation, (v) => { state.useFusedModulation = v; persist(); renderLeft(); }),
+          row([
+            col([checkboxRow("Torch settings patch", !!state.useTorchPatch, (v) => { state.useTorchPatch = v; persist(); })]),
+            col([checkboxRow("fp16 accumulation", !!state.fp16Accum, (v) => { state.fp16Accum = v; persist(); })]),
+          ]),
+        ]
+      )
     );
 
     // Audio Lock — H3는 레퍼런스 오디오를 참고만 하고 새로 만들기 때문에, 립싱크나
@@ -979,7 +1168,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     );
 
     // Steps
-    const turbo = state.accelMode === "turbo";
+    const turbo = state.turboMode === "larryvrh";
     leftPanel.appendChild(
       panel([
         label("Steps"),
@@ -1288,7 +1477,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
-      frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler, accel: rs.accelMode, seed: rs.seed,
+      frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
+      accel: rs.turboMode && rs.turboMode !== "none" ? `turbo:${rs.turboMode}` : rs.attnBackend || "none",
+      seed: rs.seed,
       node: "minimax_h3", created: Date.now(), ...extra,
     };
   }
@@ -1605,7 +1796,12 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
       if (meta.sampler != null) state.sampler = meta.sampler;
-      if (meta.accel != null) state.accelMode = meta.accel;
+      if (typeof meta.accel === "string" && meta.accel.startsWith("turbo:")) {
+        state.turboMode = meta.accel.slice("turbo:".length);
+      } else if (meta.accel != null) {
+        state.turboMode = "none";
+        state.attnBackend = meta.accel;
+      }
       if (meta.seed != null) { state.seed = meta.seed; state.seedMode = "fixed"; }
       if (meta.turboLora != null) state.turboLora = meta.turboLora;
       if (meta.turboLoraReference != null) state.turboLoraReference = meta.turboLoraReference;

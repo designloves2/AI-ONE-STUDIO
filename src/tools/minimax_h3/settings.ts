@@ -109,117 +109,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     const um = searchableSelect(ups, state.upscaleModel || "none", (v) => { state.upscaleModel = v; ctx.persist(); });
     wrap.appendChild(
       panel([
-        label("Acceleration & Upscale"),
-        col([label("Turbo LoRA(larryvrh)"), tl.el]),
-        row([
-          col([label("Turbo strength"), el("input", { type: "number", step: "0.01", value: String(state.turboLoraStrength ?? 1.0), style: numInputStyle(), oninput: (e: any) => { state.turboLoraStrength = parseFloat(e.target.value) || 1.0; ctx.persist(); } })]),
-          col([label(" "), checkboxRow("Low VRAM turbo load", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; ctx.persist(); })]),
-        ]),
+        label("Model Files"),
+        col([label("Turbo LoRA (larryvrh) file"), tl.el]),
         col([label("Upscale Model (used when Upscale = Upscale Model)"), um.el]),
-      ])
-    );
-
-    // SageAttention and CK-Attention are alternative attention backends, so only one of the
-    // two groups can be active at a time. Picking Sage turns its whole group (mode + the H3
-    // mem-efficient patch) on together; picking CK turns the Sage group off and leaves only
-    // CK's own setting editable. Both checkboxes stay clickable at all times — picking one
-    // just turns the other off, no separate "uncheck this first" step needed.
-    const sageModeSel = select(["auto", "disabled", "sageattn3", "sageattn3_per_block_mean", "sageattn_qk_int8_pv_fp16_cuda", "sageattn_qk_int8_pv_fp8_cuda"].map((s) => ({ value: s, label: s })), state.sageAttnMode || "auto", (v) => { state.sageAttnMode = v; ctx.persist(); });
-    const memEffChk = checkboxRow("H3 memory-efficient SageAttention patch", !!state.useMemEffSage, (v) => { state.useMemEffSage = v; ctx.persist(); });
-    const ckSel = select([{ value: "comfy_kitchen", label: "comfy kitchen attention" }, { value: "pytorch", label: "pytorch attention" }], state.ckAttentionBackend || "comfy_kitchen", (v) => { state.ckAttentionBackend = v; ctx.persist(); });
-    if (!state.useSageAttn) {
-      (sageModeSel as HTMLSelectElement).disabled = true;
-      sageModeSel.style.opacity = "0.4";
-      memEffChk.style.opacity = "0.4";
-      (memEffChk.querySelector("input") as HTMLInputElement).disabled = true;
-    }
-    if (!state.useCkAttention) {
-      (ckSel as HTMLSelectElement).disabled = true;
-      ckSel.style.opacity = "0.4";
-    }
-
-    wrap.appendChild(
-      panel([
-        label("Model Patches"),
-        el("div", { text: "SageAttention and CK-Attention are alternative backends — only one group is active at a time.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-        row([
-          col([checkboxRow("SageAttention (KJ)", !!state.useSageAttn, (v) => { state.useSageAttn = v; if (v) state.useCkAttention = false; else state.useMemEffSage = false; ctx.persist(); renderBody(); })]),
-          col([label("mode"), sageModeSel]),
-        ]),
-        memEffChk,
-        row([
-          col([checkboxRow("CK-Attention (comfy kitchen)", !!state.useCkAttention, (v) => { state.useCkAttention = v; if (v) state.useSageAttn = false; ctx.persist(); renderBody(); })]),
-          col([label("attention"), ckSel]),
-        ]),
-        row([
-          col([checkboxRow("Torch settings patch", !!state.useTorchPatch, (v) => { state.useTorchPatch = v; ctx.persist(); })]),
-          col([checkboxRow("fp16 accumulation", !!state.fp16Accum, (v) => { state.fp16Accum = v; ctx.persist(); })]),
-        ]),
-        label(state.useCache ? "H3 Cache (step reuse) — ON in the node's left panel" : "H3 Cache (step reuse) — OFF in the node's left panel"),
-        ...(state.useCache
-          ? [
-              row([
-                col([label("reuse threshold"), el("input", { type: "number", step: "0.01", value: String(state.cacheThreshold ?? 0.3), style: numInputStyle(), oninput: (e: any) => { state.cacheThreshold = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-                col([label("max steps"), el("input", { type: "number", step: "1", value: String(state.cacheMaxSteps ?? 2), style: numInputStyle(), oninput: (e: any) => { state.cacheMaxSteps = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
-              ]),
-              row([
-                col([label("start %"), el("input", { type: "number", step: "0.01", value: String(state.cacheStart ?? 0.15), style: numInputStyle(), oninput: (e: any) => { state.cacheStart = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-                col([label("end %"), el("input", { type: "number", step: "0.01", value: String(state.cacheEnd ?? 0.9), style: numInputStyle(), oninput: (e: any) => { state.cacheEnd = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-              ]),
-            ]
-          : []),
-      ])
-    );
-
-    const slaOk = !!ctx.availability?.H3SLAAttention;
-    wrap.appendChild(
-      panel([
-        checkboxRow("H3 SLA Attention (block-sparse, last before the sampler)", !!state.useSlaAttention, (v) => { state.useSlaAttention = v; ctx.persist(); renderBody(); ctx.refreshModes?.(); }),
-        ...(!slaOk ? [el("div", { html: "⚠ <code>H3SLAAttention</code> not installed — this stays off.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })] : []),
-        ...(state.useSlaAttention
-          ? [
-              row([
-                col([label("sparsity ratio"), el("input", { type: "number", step: "0.05", value: String(state.slaSparsity ?? 0.9), style: numInputStyle(), oninput: (e: any) => { state.slaSparsity = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-                col([label("block size"), select(["64", "128"].map((s) => ({ value: s, label: s })), state.slaBlockSize || "64", (v) => { state.slaBlockSize = v; ctx.persist(); })]),
-              ]),
-              row([
-                col([label("min seq len"), el("input", { type: "number", step: "1024", value: String(state.slaMinSeqLen ?? 8192), style: numInputStyle(), oninput: (e: any) => { state.slaMinSeqLen = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
-                col([label("dense last steps"), el("input", { type: "number", step: "1", value: String(state.slaDenseLastSteps ?? 0), style: numInputStyle(), oninput: (e: any) => { state.slaDenseLastSteps = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
-              ]),
-              checkboxRow("Protect audio (always attend text/cond/audio prefix)", state.slaProtectAudio !== false, (v) => { state.slaProtectAudio = v; ctx.persist(); }),
-              el("div", { text: "Quick on/off per run (the node's own bypass) lives in the node's left panel, under H3 FirstBlockCache.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-            ]
-          : []),
-      ])
-    );
-
-    const fbcOk = !!ctx.availability?.ApplyMiniMaxH3FirstBlockCache;
-    wrap.appendChild(
-      panel([
-        label(state.useFirstBlockCache ? "H3 FirstBlockCache (step reuse) — ON in the node's left panel" : "H3 FirstBlockCache (step reuse) — OFF in the node's left panel"),
-        ...(!fbcOk ? [el("div", { html: "⚠ <code>ApplyMiniMaxH3FirstBlockCache</code> not installed — this stays off.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })] : []),
-        ...(state.useFirstBlockCache
-          ? [
-              col([
-                label("mode"),
-                select(
-                  ["H3 Safe — 0.08 / max 2", "H3 Fast — 0.10 / max 2", "H3 Aggressive — 0.12 / max 2", "Custom — manual values"].map((m) => ({ value: m, label: m })),
-                  state.fbcMode || "H3 Fast — 0.10 / max 2",
-                  (v) => { state.fbcMode = v; ctx.persist(); renderBody(); }
-                ),
-              ]),
-              el("div", { text: "The fields below only apply in \"Custom — manual values\" mode; presets ignore them.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-              row([
-                col([label("threshold"), el("input", { type: "number", step: "0.005", value: String(state.fbcThreshold ?? 0.1), style: numInputStyle(), oninput: (e: any) => { state.fbcThreshold = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-                col([label("max consecutive hits"), el("input", { type: "number", step: "1", value: String(state.fbcMaxConsecutiveHits ?? 2), style: numInputStyle(), oninput: (e: any) => { state.fbcMaxConsecutiveHits = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
-              ]),
-              row([
-                col([label("start %"), el("input", { type: "number", step: "0.01", value: String(state.fbcStartPercent ?? 0.1), style: numInputStyle(), oninput: (e: any) => { state.fbcStartPercent = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-                col([label("end %"), el("input", { type: "number", step: "0.01", value: String(state.fbcEndPercent ?? 0.95), style: numInputStyle(), oninput: (e: any) => { state.fbcEndPercent = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-              ]),
-              checkboxRow("Temporal guard", !!state.fbcTemporalGuard, (v) => { state.fbcTemporalGuard = v; ctx.persist(); }),
-            ]
-          : []),
+        el("div", {
+          text: "Turbo mode, Attention backend/forward, Block Cache, Spectrum, and Model Patches (Fused Modulation/Torch/fp16) moved to the left panel's Pipeline accordion — they're per-run settings now, not fixed config.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+        }),
       ])
     );
 
@@ -421,7 +317,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         if (m.aspect !== state.aspect) return false;
         if (Math.abs((m.megapixels ?? 0) - (state.megapixels ?? 0)) > 0.01) return false;
         if (m.frames !== state.clipFrames) return false;
-        if (m.accel !== state.accelMode) return false;
+        const curAccel = state.turboMode && state.turboMode !== "none" ? `turbo:${state.turboMode}` : state.attnBackend || "none";
+        if (m.accel !== curAccel) return false;
         const mLoraOn = Array.isArray(m.loras) && m.loras.some((l: any) => l.enabled !== false && l.name && l.name !== "none");
         if (!!mLoraOn !== loraOn) return false;
         return true;

@@ -317,8 +317,15 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         if (m.aspect !== state.aspect) return false;
         if (Math.abs((m.megapixels ?? 0) - (state.megapixels ?? 0)) > 0.01) return false;
         if (m.frames !== state.clipFrames) return false;
-        const curAccel = state.turboMode && state.turboMode !== "none" ? `turbo:${state.turboMode}` : state.attnBackend || "none";
-        if (m.accel !== curAccel) return false;
+        // New clips carry the real axis fields; older ones (saved before the pipeline-axis
+        // port) only have `accel` — match on whichever the clip actually has, rather than a
+        // string built from the *current* axes, so pre-split clips can still ever match.
+        if (m.turboMode != null || m.attnBackend != null) {
+          if ((m.turboMode || "none") !== (state.turboMode || "none")) return false;
+          if ((m.attnBackend || "none") !== (state.attnBackend || "none")) return false;
+        } else if (m.accel !== (state.attnBackend || "none")) {
+          return false;
+        }
         const mLoraOn = Array.isArray(m.loras) && m.loras.some((l: any) => l.enabled !== false && l.name && l.name !== "none");
         if (!!mLoraOn !== loraOn) return false;
         return true;

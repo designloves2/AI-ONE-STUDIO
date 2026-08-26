@@ -1478,7 +1478,13 @@ export function renderMinimaxH3(container: HTMLElement) {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
-      accel: rs.turboMode && rs.turboMode !== "none" ? `turbo:${rs.turboMode}` : rs.attnBackend || "none",
+      // accel stays for pre-split readers only (this session's own Reuse now reads the axis
+      // fields below directly) — a peer session on the node port confirmed accelMode is
+      // otherwise vestigial post-split and nothing keeps it in sync, so a bare accelMode value
+      // here would go stale immediately.
+      accel: rs.attnBackend || "none",
+      turboMode: rs.turboMode, attnBackend: rs.attnBackend, attnForward: rs.attnForward,
+      blockCache: rs.blockCache, useSpectrum: !!rs.useSpectrum, useFusedModulation: !!rs.useFusedModulation,
       seed: rs.seed,
       node: "minimax_h3", created: Date.now(), ...extra,
     };
@@ -1796,11 +1802,24 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
       if (meta.sampler != null) state.sampler = meta.sampler;
-      if (typeof meta.accel === "string" && meta.accel.startsWith("turbo:")) {
-        state.turboMode = meta.accel.slice("turbo:".length);
-      } else if (meta.accel != null) {
-        state.turboMode = "none";
-        state.attnBackend = meta.accel;
+      // Prefer the real axis fields when the clip was saved post-split; only fall back to
+      // translating the (otherwise-vestigial, nothing-keeps-it-current) `accel` string for
+      // clips saved before this fix — pre-split values ("turbo"/"solattn"/"spectrum"/"none")
+      // aren't valid attnBackend keys, so those need the same mapping migratePipelineState()
+      // uses, not a direct assignment.
+      if (meta.turboMode != null || meta.attnBackend != null || meta.blockCache != null) {
+        if (meta.turboMode != null) state.turboMode = meta.turboMode;
+        if (meta.attnBackend != null) state.attnBackend = meta.attnBackend;
+        if (meta.attnForward != null) state.attnForward = meta.attnForward;
+        if (meta.blockCache != null) state.blockCache = meta.blockCache;
+        if (meta.useSpectrum != null) state.useSpectrum = !!meta.useSpectrum;
+        if (meta.useFusedModulation != null) state.useFusedModulation = !!meta.useFusedModulation;
+      } else if (typeof meta.accel === "string") {
+        if (meta.accel.startsWith("turbo:")) state.turboMode = meta.accel.slice("turbo:".length);
+        else if (meta.accel === "turbo") state.turboMode = "larryvrh";
+        else if (meta.accel === "spectrum") state.useSpectrum = true;
+        else if (meta.accel === "solattn") state.attnBackend = "solattn_kijai";
+        else if (["none", "sage", "ck", "solattn_kijai", "sla"].includes(meta.accel)) state.attnBackend = meta.accel;
       }
       if (meta.seed != null) { state.seed = meta.seed; state.seedMode = "fixed"; }
       if (meta.turboLora != null) state.turboLora = meta.turboLora;

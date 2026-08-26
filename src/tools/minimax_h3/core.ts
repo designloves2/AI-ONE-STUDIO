@@ -72,6 +72,7 @@ export interface MinimaxState {
   refTypes: { images?: boolean; videos?: boolean; audios?: boolean };
   steps: number;
   turboSteps: number;
+  slaTurboSteps: number; // lightx2v's own step count — separate from turboSteps (larryvrh) and steps (no turbo)
   sampler: string;
   scheduler: string;
   denoise: number;
@@ -673,6 +674,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     refTypes: { images: saved.refTypes?.images !== false, videos: saved.refTypes?.videos ?? false, audios: saved.refTypes?.audios ?? false },
     steps: saved.steps ?? 20,
     turboSteps: saved.turboSteps ?? 4,
+    slaTurboSteps: saved.slaTurboSteps ?? 6,
     sampler: saved.sampler || "res_multistep",
     scheduler: saved.scheduler || "simple",
     denoise: saved.denoise ?? 1.0,

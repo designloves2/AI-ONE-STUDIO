@@ -72,7 +72,7 @@ export function previewNodeKey(nodeId: string | number) {
 }
 
 /** Resolves turboMode "larryvrh" down to "none" if its LoRA or node isn't actually available. */
-function turboEffective(state: MinimaxState, avail?: Avail): string {
+export function turboEffective(state: MinimaxState, avail?: Avail): string {
   if (state.turboMode !== "larryvrh") return state.turboMode || "none";
   if (!turboLoraForMode(state)) return "none";
   if (avail && Object.keys(avail).length && !avail.MiniMaxH3TurboLoRA) return "none";
@@ -82,6 +82,16 @@ function turboEffective(state: MinimaxState, avail?: Avail): string {
 function turboLoraForMode(state: MinimaxState): string {
   const name = state.turboLora;
   return name && name !== "none" ? name : "";
+}
+
+/** The step count a run will actually sample at — goes through turboEffective() first, so a
+ * turbo that's selected but can't run (no LoRA set, pack missing) correctly falls back to the
+ * normal step count instead of reporting a turbo number the run won't use. */
+export function effectiveSteps(state: MinimaxState, avail?: Avail): number {
+  const eff = turboEffective(state, avail);
+  if (eff === "larryvrh") return state.turboSteps ?? 4;
+  if (eff === "lightx2v") return state.slaTurboSteps ?? 6;
+  return state.steps ?? 20;
 }
 
 function buildAudioLock(g: Graph, state: MinimaxState, avail: Avail | undefined, clipIndex: number, frames: number): boolean {
@@ -432,7 +442,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   }
 
   const useTurboSampler = turboEffective(state, avail) === "larryvrh" && has(avail, "MiniMaxH3TurboSampler");
-  const steps = useTurboSampler ? state.turboSteps ?? 4 : state.steps ?? 20;
+  const steps = effectiveSteps(state, avail);
 
   g[N.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
   if (useTurboSampler) {

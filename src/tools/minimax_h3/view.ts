@@ -64,7 +64,7 @@ import {
   viewUrl,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
-import { buildClipGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey } from "./graphBuilder";
+import { buildClipGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 
 export function renderMinimaxH3(container: HTMLElement) {
   const state: MinimaxState = defaultState(loadState());
@@ -79,13 +79,21 @@ export function renderMinimaxH3(container: HTMLElement) {
   function saveAccordionOpen() {
     try { localStorage.setItem(ACCORDION_KEY, JSON.stringify(accordionOpen)); } catch {}
   }
-  function accordion(key: string, title: string, summary: string, body: (Node | null | undefined)[]) {
+  // bodyThunk only runs while the section is (or becomes) open, so a collapsed section builds
+  // nothing — matters for the heavier ones (Images/LoRA mount their own sub-panels).
+  function accordion(key: string, title: string, summary: string, bodyThunk: () => (Node | null | undefined)[]) {
     const det = el("details", {}) as HTMLDetailsElement;
-    det.open = accordionOpen[key] !== false; // default open — matches the old always-visible panels
-    const sum = el("summary", { style: { cursor: "pointer", fontSize: "11px", color: C.text, fontWeight: "700", userSelect: "none", marginBottom: det.open ? "6px" : "0" } });
+    det.open = accordionOpen[key] === true; // default collapsed
+    const sum = el("summary", { style: { cursor: "pointer", fontSize: "11px", color: C.text, fontWeight: "700", userSelect: "none" } });
     sum.append(el("span", { text: title }), el("span", { text: `  —  ${summary}`, style: { color: C.muted, fontWeight: "400", textTransform: "none" } }));
-    det.addEventListener("toggle", () => { accordionOpen[key] = det.open; saveAccordionOpen(); });
-    det.append(sum, ...body.filter((b): b is Node => !!b));
+    const bodyWrap = el("div", { style: { marginTop: "6px" } });
+    if (det.open) bodyWrap.append(...bodyThunk().filter((b): b is Node => !!b));
+    det.addEventListener("toggle", () => {
+      accordionOpen[key] = det.open;
+      saveAccordionOpen();
+      if (det.open && !bodyWrap.childNodes.length) bodyWrap.append(...bodyThunk().filter((b): b is Node => !!b));
+    });
+    det.append(sum, bodyWrap);
     return panel([det]);
   }
   // ModelPreviewOverrideKJ가 프레임을 이 id로 태깅해 보낸다 — 탭마다 하나씩 생기므로 고정 문자열로 충분.
@@ -776,9 +784,19 @@ export function renderMinimaxH3(container: HTMLElement) {
   const n = (v: number, set: (v: number) => void, step = 0.05) => numberField(v, (x) => { set(x); persist(); }, step);
 
   function turboSummary() {
-    if (state.turboMode === "larryvrh") return "Turbo LoRA (larryvrh)";
-    if (state.turboMode === "lightx2v") return "SLA Turbo (lightx2v)";
-    return "Off";
+    if (state.turboMode === "none") return "Off";
+    const eff = turboEffective(state, ctx.availability);
+    const label = state.turboMode === "larryvrh" ? "larryvrh" : "lightx2v";
+    if (eff === state.turboMode) return `${label} · ${effectiveSteps(state, ctx.availability)} steps`;
+    const reason = state.turboMode === "larryvrh" && !turboLoraSet()
+      ? "no turbo LoRA set"
+      : state.turboMode === "larryvrh"
+      ? "MiniMaxH3TurboLoRA not installed"
+      : "unavailable";
+    return `${label} · inactive — ${reason}`;
+  }
+  function turboLoraSet() {
+    return !!state.turboLora && state.turboLora !== "none";
   }
   function turboSettings() {
     if (state.turboMode === "larryvrh") {
@@ -787,13 +805,16 @@ export function renderMinimaxH3(container: HTMLElement) {
           col([label("Turbo strength"), n(state.turboLoraStrength ?? 1.0, (v) => (state.turboLoraStrength = v))]),
           col([label("Low VRAM"), checkboxRow("low_vram", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; persist(); })]),
         ]),
-        el("div", { text: "Uses the dedicated MiniMaxH3TurboLoRA node + 4-step sampler. The LoRA file itself is set in ⚙ Settings → Models.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        col([label("Turbo steps"), n(state.turboSteps ?? 4, (v) => (state.turboSteps = Math.max(1, Math.round(v))), 1)]),
+        el("div", { text: "Uses the dedicated MiniMaxH3TurboLoRA node + this step count. The LoRA file itself is set in ⚙ Settings → Models.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        ...(turboLoraSet() ? [] : [el("div", { text: "⚠ No turbo LoRA file selected in ⚙ Settings → Models — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
     if (state.turboMode === "lightx2v") {
       return [
+        col([label("Steps"), n(state.slaTurboSteps ?? 6, (v) => (state.slaTurboSteps = Math.max(1, Math.round(v))), 1)]),
         el("div", {
-          text: "This is a regular LoRA, not a dedicated node — add the SLA-turbo LoRA file itself in the LoRA section below. Selecting this here just locks Attention to SLA (required — the LoRA gives no speedup without it) and suggests ~6 steps instead of 4.",
+          text: "This is a regular LoRA, not a dedicated node — add the SLA-turbo LoRA file itself in the LoRA section below. Selecting this here just locks Attention to SLA (required — the LoRA gives no speedup without it).",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
         }),
       ];
@@ -1001,7 +1022,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           : null,
         totalLine,
         planLine,
-        el("div", { text: "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        el("div", { text: "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer. Clips are saved separately — combine them afterward from 🖼 Gallery.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
       ])
     );
     refreshPlan();
@@ -1022,60 +1043,47 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
 
     leftPanel.appendChild(
-      accordion(
-        "turbo", "Turbo", turboSummary(),
-        [
-          col([select(turboModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.turboMode, (v) => {
-            if (v === "lightx2v" && state.turboMode !== "lightx2v") state.steps = 6; // lightx2v docs recommend ~6 steps — one-time suggestion, not locked
-            state.turboMode = v;
-            persist();
-            renderLeft();
-          })]),
-          ...turboSettings(),
-        ]
-      )
+      accordion("turbo", "Turbo", turboSummary(), () => [
+        col([select(turboModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.turboMode, (v) => {
+          state.turboMode = v;
+          persist();
+          renderLeft();
+        })]),
+        ...turboSettings(),
+      ])
     );
 
     leftPanel.appendChild(
-      accordion(
-        "attn", "Attention", attnSummary(),
-        [
-          col([label("backend"), gatedSelect(ATTN_BACKENDS, (k) => attnBackendBlockedReason(state, k), state.attnBackend, (v) => { state.attnBackend = v; persist(); renderLeft(); })]),
-          ...attnBackendSettings(),
-          col([label("H3 forward"), gatedSelect(ATTN_FORWARDS, (k) => attnForwardBlockedReason(state, k), state.attnForward, (v) => { state.attnForward = v; persist(); renderLeft(); })]),
-          ...attnForwardSettings(),
-        ]
-      )
+      accordion("attn", "Attention", attnSummary(), () => [
+        col([label("backend"), gatedSelect(ATTN_BACKENDS, (k) => attnBackendBlockedReason(state, k), state.attnBackend, (v) => { state.attnBackend = v; persist(); renderLeft(); })]),
+        ...attnBackendSettings(),
+        col([label("H3 forward"), gatedSelect(ATTN_FORWARDS, (k) => attnForwardBlockedReason(state, k), state.attnForward, (v) => { state.attnForward = v; persist(); renderLeft(); })]),
+        ...attnForwardSettings(),
+      ])
     );
 
     leftPanel.appendChild(
-      accordion(
-        "blockCache", "Block Cache", blockCacheSummary(),
-        [
-          col([select(BLOCK_CACHES.map((b) => {
-            const reason = blockCacheBlockedReason(state, b.key);
-            return { value: b.key, label: reason ? `${b.label} — ${reason}` : b.label, disabled: !!reason };
-          }), state.blockCache, (v) => { state.blockCache = v; persist(); renderLeft(); })]),
-          ...blockCacheSettings(),
-        ]
-      )
+      accordion("blockCache", "Block Cache", blockCacheSummary(), () => [
+        col([select(BLOCK_CACHES.map((b) => {
+          const reason = blockCacheBlockedReason(state, b.key);
+          return { value: b.key, label: reason ? `${b.label} — ${reason}` : b.label, disabled: !!reason };
+        }), state.blockCache, (v) => { state.blockCache = v; persist(); renderLeft(); })]),
+        ...blockCacheSettings(),
+      ])
     );
 
     leftPanel.appendChild(
-      accordion(
-        "spectrum", "Spectrum", state.useSpectrum ? "ON" : "Off",
-        [
-          checkboxRow("Enabled — independent of Attention/Block Cache (skips whole steps via latent extrapolation, orthogonal axis)", !!state.useSpectrum, (v) => { state.useSpectrum = v; persist(); renderLeft(); }),
-          ...(state.useSpectrum ? spectrumSettings() : []),
-        ]
-      )
+      accordion("spectrum", "Spectrum", state.useSpectrum ? "ON" : "Off", () => [
+        checkboxRow("Enabled — independent of Attention/Block Cache (skips whole steps via latent extrapolation, orthogonal axis)", !!state.useSpectrum, (v) => { state.useSpectrum = v; persist(); renderLeft(); }),
+        ...(state.useSpectrum ? spectrumSettings() : []),
+      ])
     );
 
     leftPanel.appendChild(
       accordion(
         "modelPatches", "Model Patches",
         [state.useFusedModulation && "Fused Modulation", state.useTorchPatch && "Torch", state.fp16Accum && "fp16"].filter(Boolean).join(" + ") || "Off",
-        [
+        () => [
           checkboxRow("Fused Modulation (AdaLN scale/shift + gated residual, Triton) — safe with every other axis", !!state.useFusedModulation, (v) => { state.useFusedModulation = v; persist(); renderLeft(); }),
           row([
             col([checkboxRow("Torch settings patch", !!state.useTorchPatch, (v) => { state.useTorchPatch = v; persist(); })]),
@@ -1085,13 +1093,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       )
     );
 
-    // Audio Lock — H3는 레퍼런스 오디오를 참고만 하고 새로 만들기 때문에, 립싱크나
-    // 음악 영상처럼 원본 오디오를 그대로 유지해야 할 때 이 락이 필요하다.
-    leftPanel.appendChild(panel(audioLockControls()));
-
     leftPanel.appendChild(
-      panel([
-        col([label("Upscale"), select(UPSCALE_MODES.map((m) => ({ value: m.key, label: m.label })), state.upscaleMode, (v) => { state.upscaleMode = v; persist(); renderLeft(); })]),
+      accordion("upscale", "Upscale", UPSCALE_MODES.find((m) => m.key === state.upscaleMode)?.label || "None", () => [
+        col([select(UPSCALE_MODES.map((m) => ({ value: m.key, label: m.label })), state.upscaleMode, (v) => { state.upscaleMode = v; persist(); renderLeft(); })]),
         ...(state.upscaleMode === "rtx"
           ? [
               row([
@@ -1104,9 +1108,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     );
 
     leftPanel.appendChild(
-      panel([
+      accordion("continuity", "Continuity", contModes.find((m) => m.key === state.continuityMode)?.label || "None", () => [
         col([
-          label("Continuity between clips"),
           select(contModes.map((m) => ({ value: m.key, disabled: m.disabled, label: m.disabled ? `${m.label} — ${m.reason}` : m.label })), state.continuityMode, (v) => { state.continuityMode = v; persist(); renderLeft(); }),
         ]),
         el("div", { text: (contModes.find((m) => m.key === state.continuityMode) || ({} as any)).hint || "", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
@@ -1158,34 +1161,47 @@ export function renderMinimaxH3(container: HTMLElement) {
       ])
     );
 
-    // Output
-    leftPanel.appendChild(
-      panel([
-        label("Output"),
-        checkboxRow("Free VRAM between clips", state.unloadBetweenClips !== false, (v) => { state.unloadBetweenClips = v; persist(); }),
-        el("div", { text: "Clips are saved separately. Combine them afterward from 🖼 Gallery.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-      ])
-    );
-
-    // Steps
-    const turbo = state.turboMode === "larryvrh";
-    leftPanel.appendChild(
-      panel([
-        label("Steps"),
-        row([
-          col([label(turbo ? "Turbo steps ●" : "Turbo steps"), numberField(state.turboSteps ?? 4, (v) => { state.turboSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
-          col([label(turbo ? "Normal steps" : "Normal steps ●"), numberField(state.steps ?? 20, (v) => { state.steps = Math.max(1, Math.round(v)); persist(); }, 1)]),
-        ]),
-      ])
-    );
+    // Audio Lock — H3는 레퍼런스 오디오를 참고만 하고 새로 만들기 때문에, 립싱크나
+    // 음악 영상처럼 원본 오디오를 그대로 유지해야 할 때 이 락이 필요하다.
+    leftPanel.appendChild(accordion("audioLock", "Audio Lock", state.audioLock ? "ON" : "Off", () => audioLockControls()));
 
     // Images (mode-specific: First/Last keyframes, Reference images/videos/audios)
-    const imgPanel = mountImagePanel(state, ctx);
-    leftPanel.appendChild(imgPanel.el);
-    ctx._rerenderImages = imgPanel.render;
+    leftPanel.appendChild(
+      accordion("images", "Images", generationModesFor(state).find((m) => m.key === state.generationMode)?.label || "", () => {
+        const imgPanel = mountImagePanel(state, ctx);
+        ctx._rerenderImages = imgPanel.render;
+        return [imgPanel.el];
+      })
+    );
 
     // LoRA
-    leftPanel.appendChild(mountLoraPanel());
+    leftPanel.appendChild(
+      accordion("lora", "LoRA", `${(state.loras || []).filter((l) => l.enabled !== false && l.name && l.name !== "none").length} active`, () => [mountLoraPanel()])
+    );
+
+    // Steps — exactly one field is ever editable: whichever count the run will actually use.
+    // Turbo's own step count lives in the Turbo accordion next to its LoRA/strength instead.
+    leftPanel.appendChild(
+      (() => {
+        const eff = turboEffective(state, ctx.availability);
+        const turboActive = eff === "larryvrh" || eff === "lightx2v";
+        const stepsInput = numberField(state.steps ?? 20, (v) => { state.steps = Math.max(1, Math.round(v)); persist(); }, 1);
+        if (turboActive) {
+          (stepsInput as HTMLInputElement).disabled = true;
+          stepsInput.style.opacity = "0.4";
+        }
+        return panel([
+          label("Steps"),
+          stepsInput,
+          el("div", {
+            text: turboActive
+              ? `Turbo is on — ${effectiveSteps(state, ctx.availability)} steps from the Turbo section are used instead.`
+              : "Used as-is.",
+            style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+          }),
+        ]);
+      })()
+    );
 
     leftOuter.appendChild(seedGenWrap);
   }

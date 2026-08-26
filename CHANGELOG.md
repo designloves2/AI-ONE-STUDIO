@@ -3,6 +3,53 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.1.0] — 2026-08-26
+
+First tagged release. Highlights since the last untagged snapshot (2026-08-18):
+
+### Added
+- **Next Gen FIFO queue** for MiniMax H3 — queue up follow-up runs (any clip count) while one
+  is in progress, with a popup to inspect/cancel individual queued entries
+- Run-state snapshot freeze: a run now reads only the panel state captured at its own start,
+  so editing the live panel for a queued Next Gen entry no longer affects a run in progress
+- Refresh-recovery hardening — `/history` polling fallback on reattach, so a genuine tab
+  close+reopen (not just a refresh) no longer leaves a resumed run stuck forever
+- Tab-close warning (checkbox, on by default) plus a "Force Stop Queue" escape hatch in the
+  restart popup for a job stuck past what the ordinary Stop button can clear
+- Stop button now checks whether the currently-running server job is actually this screen's
+  clip before interrupting, with a confirm if it looks like someone else's
+- Gallery clip metadata now records per-clip LoRA config (turbo + general slots) and actual
+  render time; gallery "Reuse" restores a clip's full generation settings, not just the prompt
+- Settings' "Avg minutes per clip" is now measured from past clips matching the current
+  settings, instead of a fixed manual guess
+- **MiniMax H3 pipeline axis redesign** (ported from ComfyUI-TJ_NODE_STUDIO_ONE v1.17.0) —
+  replaced the single Acceleration dropdown + scattered attention/cache checkboxes with one
+  control per patch layer (Turbo / Attention backend+forward / Block Cache / Spectrum / Model
+  Patches), each shown as a collapsible section in the left panel; blocked combinations are
+  greyed out with the reason shown inline instead of hidden. Fixes two silent no-op bugs found
+  in the audit (H3 SLA Attention could silently overwrite Sage/SolAttn; MemEff Sage could
+  silently disable whichever attention backend was selected). Adds the
+  `MiniMaxH3FusedModulation` and `MiniMaxH3ScheduledSolAttentionPatch` nodes. Saved workflows
+  migrate to the new axes automatically on load
+- Free Text Encoder VRAM optimization for MiniMax H3 (`TJ_FreeTextEncoderVRAM`) — frees the
+  text encoder right after conditioning is built, before the diffuse model needs full VRAM
+- H3 FirstBlockCache detail settings (mode presets + custom threshold/window/hits/temporal
+  guard), previously hardcoded
+- Local ComfyUI port is now configurable (`?comfy_port=` URL override, `public/comfy_port.txt`,
+  or `VITE_COMFY_PORT`) instead of a hardcoded 8188 — needed for running multiple ComfyUI
+  installs side by side
+- `install_comfyui_dependencies.bat` overhaul: rewritten fully in English, restructured to
+  avoid a class of `cmd.exe` parenthesis-parsing bugs, now upgrades pip/setuptools/wheel and
+  installs `wheel-stub` up front, retries a failed install with `--no-build-isolation`,
+  re-checks/updates (`git pull`) already-cloned repos instead of skipping them outright, and
+  adds the `ComfyUI-TJ_NODE` and `ComfyUI-PlagueKind-Nodes` dependencies that were missing
+
+### Fixed
+- Image gallery picker (used by MiniMax H3's frame/reference slots and the Ollama vision
+  picker) defaulted to the first image tool's gallery instead of the INPUT tab
+- Gallery hover-preview video was loading on touch-device taps due to synthesized mouseenter
+  events, silently eating the tap meant for the info icon next to it
+
 ## [Unreleased] — 2026-08-18
 
 ### Added

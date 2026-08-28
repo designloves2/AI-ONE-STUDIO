@@ -32,6 +32,9 @@ import {
   parseBrief,
   pddFileForMode,
   PDD_NFE_CHOICES,
+  PIPELINE_PRESETS,
+  matchPreset,
+  applyPreset,
   promptEnabled,
   promptFirstFrame,
   promptText,
@@ -1052,6 +1055,32 @@ export function renderMinimaxH3(container: HTMLElement) {
       ])
     );
     refreshPlan();
+
+    // Preset — sets six pipeline axes at once from a named, benchmarked combination
+    // (SPEC_MINIMAX_H3_PRESETS.md). The selection is derived, never stored: matchPreset()
+    // re-checks the axes on every render, so hand-editing any control underneath falls back
+    // to "— Custom —" on its own instead of going on naming a combination that no longer
+    // applies. Never touches steps/seed/length/resolution/model pickers.
+    {
+      const matched = matchPreset(state);
+      leftPanel.appendChild(
+        panel([
+          label("Preset"),
+          select(
+            [{ value: "", label: "— Custom —" }, ...PIPELINE_PRESETS.map((p) => ({ value: String(p.id), label: `${p.category} — ${p.label}` }))],
+            matched ? String(matched.id) : "",
+            (v) => {
+              const preset = PIPELINE_PRESETS.find((p) => String(p.id) === v);
+              if (!preset) return; // picking "— Custom —" itself changes nothing — there's nothing to apply
+              applyPreset(state, preset);
+              persist();
+              renderLeft();
+            }
+          ),
+          matched ? el("div", { text: matched.note, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null,
+        ])
+      );
+    }
 
     // Pipeline — Acceleration / Upscale / Continuity are separate boxes, not one long
     // panel, so each control group reads as its own thing.

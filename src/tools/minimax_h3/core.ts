@@ -312,6 +312,95 @@ export function pddFileForMode(state: MinimaxState): string {
   return pick && pick !== "none" ? pick : "";
 }
 
+// ── Pipeline presets (SPEC_MINIMAX_H3_PRESETS.md) ───────────────────────────────────────
+// New feature, not a bug port: sets six pipeline axes at once from a named, benchmarked
+// combination. Never touches steps/seed/length/resolution/model pickers — those are what a
+// comparison is held constant against. Numeric ids (1, 4, 5, 18, 31, 38) are carried over
+// from the node side's 39-configuration bench so a preset here and a row in that (private)
+// report are the same thing — kept as-is, not renumbered 1-6.
+export interface PipelinePreset {
+  id: number;
+  category: string;
+  label: string;
+  note: string;
+  turbo: string;
+  backend: string;
+  forward: string;
+  cache: string;
+  spectrum: boolean;
+  torch: boolean;
+  fused: boolean;
+  nfe?: string; // only meaningful for turbo === "pdd"
+}
+
+export const PIPELINE_PRESETS: PipelinePreset[] = [
+  {
+    id: 18, category: "Everyday", label: "Sage + MemEff + FirstBlockCache",
+    note: "The default. 17.5 min for an 8s clip at 1.0MP / 25 steps, against 30.4 with nothing on — the cache is the whole 44%. For fast camera or character motion raise steps to 40-50; that is the one change that visibly cleared smearing, and no accelerator here substitutes for it.",
+    turbo: "none", backend: "sage", forward: "memeff_sage", cache: "fbcache", spectrum: false, torch: true, fused: false,
+  },
+  {
+    id: 31, category: "Fast", label: "SLA Turbo (lightx2v)",
+    note: "6.3 min at the same quality as the 25-step stacks — the quickest configuration that held up. 64 s/step against larryvrh's 95, because the SLA kernel actually removes work. In Reference mode it needs the ref2v LoRA; the fl2v file silently does nothing.",
+    turbo: "lightx2v", backend: "sla", forward: "none", cache: "none", spectrum: false, torch: true, fused: false,
+  },
+  {
+    id: 38, category: "Fast", label: "PDD 8 nfe + Spectrum",
+    note: "8.2 min, eight evaluations instead of six, quality indistinguishable from the full stacks. PDD cannot use a block cache, which is exactly why Spectrum belongs here — with nothing else skipping steps it takes 27% off (11.3 -> 8.2).",
+    turbo: "pdd", backend: "none", forward: "none", cache: "none", spectrum: true, torch: true, fused: false, nfe: "8",
+  },
+  {
+    id: 4, category: "Cautious", label: "No cache, no forecasting",
+    note: "Dense attention only; nothing skips or approximates a step. 30.7 min against 17.5, and the bench found no quality difference to justify that — but its quality scores could not resolve anything under two points. Reach for this when output looks wrong and you want the caches ruled out.",
+    turbo: "none", backend: "sage", forward: "memeff_sage", cache: "none", spectrum: false, torch: true, fused: true,
+  },
+  {
+    id: 1, category: "Cautious", label: "Stock — no patches at all",
+    note: "Everything off, including the Torch patch. The honest floor, and the first thing to try when you need to know whether the pipeline caused a problem or the model did.",
+    turbo: "none", backend: "none", forward: "none", cache: "none", spectrum: false, torch: false, fused: false,
+  },
+  {
+    id: 5, category: "First-Last / Text", label: "larryvrh 4-step turbo",
+    note: "6.3 min, but only outside Reference mode: larryvrh publishes no reference-mode weights, and in Reference the LoRA does not take — it scored 2/5 with heavy blur across every run. Untested for first-last and text so far. Use preset 31 for fast Reference work.",
+    turbo: "larryvrh", backend: "sage", forward: "memeff_sage", cache: "none", spectrum: false, torch: true, fused: true,
+  },
+];
+
+/** Which preset (if any) the state's axes currently match — derived, never stored, so a
+ * hand-edited control falls back to "Custom" on its own instead of going on naming a
+ * combination that no longer applies. */
+export function matchPreset(state: MinimaxState): PipelinePreset | null {
+  return (
+    PIPELINE_PRESETS.find(
+      (p) =>
+        p.turbo === state.turboMode &&
+        p.backend === state.attnBackend &&
+        p.forward === state.attnForward &&
+        p.cache === state.blockCache &&
+        p.spectrum === !!state.useSpectrum &&
+        p.torch === (state.useTorchPatch !== false) &&
+        p.fused === !!state.useFusedModulation &&
+        // nfe only matters for pdd rows; null everywhere else so it never blocks a match
+        (p.nfe ?? null) === (state.turboMode === "pdd" ? String(state.pddNfe ?? "8") : null)
+    ) ?? null
+  );
+}
+
+/** Writes a preset's six axes onto state — nothing else (steps/seed/length/resolution/model
+ * pickers are left untouched; a preset that moved them would invalidate whatever comparison
+ * it was picked for). */
+export function applyPreset(state: MinimaxState, preset: PipelinePreset): void {
+  state.turboMode = preset.turbo;
+  state.attnBackend = preset.backend;
+  state.attnForward = preset.forward;
+  state.blockCache = preset.cache;
+  state.useSpectrum = preset.spectrum;
+  state.useTorchPatch = preset.torch;
+  state.useFusedModulation = preset.fused;
+  if (preset.nfe) state.pddNfe = preset.nfe;
+  state.fp16Accum = true; // rides along with the Torch patch on every preset that has it
+}
+
 export const ATTN_BACKENDS = [
   { key: "none", label: "None" },
   { key: "sage", label: "Sage", node: "PathchSageAttentionKJ" },

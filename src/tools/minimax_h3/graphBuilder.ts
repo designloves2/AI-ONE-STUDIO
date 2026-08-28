@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, PDD_NFE_CHOICES, pddFileForMode } from "./core";
 import type { NodeAvailability } from "./api";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
@@ -24,6 +24,7 @@ const N = {
   sol: "MM:solattn",
   spectrum: "MM:spectrum",
   turbo: "MM:turbo_lora",
+  pdd: "MM:pdd_acc",
   preview: "MM:preview",
   cond: "MM:cond",
   freeClipVram: "MM:free_clip_vram",
@@ -71,26 +72,41 @@ export function previewNodeKey(nodeId: string | number) {
   return `MMH3_preview_${nodeId}`;
 }
 
-/** Resolves turboMode "larryvrh" down to "none" if its LoRA or node isn't actually available. */
+/** Resolves turboMode "larryvrh"/"pdd" down to "none" if its file/node isn't actually available.
+ * PDD is not a LoRA — the checkpoint carries a trunk LoRA plus a 32-interval head bank, and
+ * loading it through an ordinary LoRA loader would drop the head bank and silently render
+ * nonsense, so a missing pack or file has to fall back rather than improvise (same shape as
+ * larryvrh's own fallback below). */
 export function turboEffective(state: MinimaxState, avail?: Avail): string {
-  if (state.turboMode !== "larryvrh") return state.turboMode || "none";
-  if (!turboLoraForMode(state)) return "none";
-  if (avail && Object.keys(avail).length && !avail.MiniMaxH3TurboLoRA) return "none";
-  return "larryvrh";
+  if (state.turboMode === "larryvrh") {
+    if (!turboLoraForMode(state)) return "none";
+    if (avail && Object.keys(avail).length && !avail.MiniMaxH3TurboLoRA) return "none";
+    return "larryvrh";
+  }
+  if (state.turboMode === "pdd") {
+    if (!pddFileForMode(state)) return "none";
+    if (avail && Object.keys(avail).length && !avail.MiniMaxH3PDDAccApply) return "none";
+    return "pdd";
+  }
+  return state.turboMode || "none";
 }
 
-function turboLoraForMode(state: MinimaxState): string {
+export function turboLoraForMode(state: MinimaxState): string {
   const name = state.turboLora;
   return name && name !== "none" ? name : "";
 }
 
 /** The step count a run will actually sample at — goes through turboEffective() first, so a
- * turbo that's selected but can't run (no LoRA set, pack missing) correctly falls back to the
- * normal step count instead of reporting a turbo number the run won't use. */
+ * turbo that's selected but can't run (no LoRA/file set, pack missing) correctly falls back to
+ * the normal step count instead of reporting a turbo number the run won't use. */
 export function effectiveSteps(state: MinimaxState, avail?: Avail): number {
   const eff = turboEffective(state, avail);
   if (eff === "larryvrh") return state.turboSteps ?? 4;
   if (eff === "lightx2v") return state.slaTurboSteps ?? 6;
+  // PDD's step count is not a preference — it's how the 32-interval grid was partitioned during
+  // training, and the apply node emits exactly this many sigmas. Anything else is off the
+  // trained envelope and renders as noise, so it's a fixed list, not a free number.
+  if (eff === "pdd") return PDD_NFE_CHOICES.includes(String(state.pddNfe)) ? Number(state.pddNfe) : 8;
   return state.steps ?? 20;
 }
 
@@ -227,7 +243,14 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
     m = [N.fusedMod, 0];
   }
 
-  g[N.shift] = { class_type: "MiniMaxH3SigmaShift", inputs: { model: m, shift_video: state.shiftVideo ?? 12, shift_audio: state.shiftAudio ?? 3 } };
+  // PDD's head bank is trained against a 12/3 shift and its wrapper hard-errors on anything
+  // else — mid-render, not at graph-build time — so pin it here rather than let a changed
+  // slider turn into a failed run partway through.
+  const pddShiftForced = turboEffective(state, avail) === "pdd";
+  g[N.shift] = {
+    class_type: "MiniMaxH3SigmaShift",
+    inputs: { model: m, shift_video: pddShiftForced ? 12 : state.shiftVideo ?? 12, shift_audio: pddShiftForced ? 3 : state.shiftAudio ?? 3 },
+  };
   m = [N.shift, 0];
 
   (state.loras || []).forEach((lora: LoraEntry, i: number) => {
@@ -262,11 +285,32 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
     }
   }
 
-  // ── Turbo (L8, weights) — larryvrh only; lightx2v is a regular LoRA, already applied above
-  // via the loras[] loop, gated to SLA attention entirely through the UI/attnBackend axis.
-  if (turboEffective(state, avail) === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
+  // ── Turbo (L8, weights) — larryvrh's own LoRA node, or PDD's model-patch+sigmas apply.
+  // lightx2v is a regular LoRA, already applied above via the loras[] loop, gated to SLA
+  // attention entirely through the UI/attnBackend axis.
+  const turboWeights = turboEffective(state, avail);
+  if (turboWeights === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
     g[N.turbo] = { class_type: "MiniMaxH3TurboLoRA", inputs: { model: m, lora_name: turboLoraForMode(state), strength: state.turboLoraStrength ?? 1.0, low_vram: !!state.turboLoraLowVram } };
     m = [N.turbo, 0];
+  } else if (turboWeights === "pdd" && has(avail, "MiniMaxH3PDDAccApply")) {
+    // Not a LoRA load: the apply node swaps the model's final projection for the trained
+    // 32-interval head bank and returns the sigmas sitting on that bank's block boundaries.
+    // Those sigmas are the whole contract — evaluating the model anywhere else is off the
+    // trained grid, which is why on_off_grid stays "error" rather than clamping a wrong
+    // schedule into something that silently renders as noise. The sampler reads them
+    // instead of BasicScheduler's — see the sigmas wiring in buildClipGraph below.
+    g[N.pdd] = {
+      class_type: "MiniMaxH3PDDAccApply",
+      inputs: {
+        model: m,
+        pdd_file: pddFileForMode(state),
+        nfe: String(state.pddNfe ?? "8"),
+        lora_strength: state.pddLoraStrength ?? 1.0,
+        head_strength: state.pddHeadStrength ?? 1.0,
+        on_off_grid: "error",
+      },
+    };
+    m = [N.pdd, 0];
   }
 
   // ── Spectrum (L1) — independent of attnBackend/blockCache; complementary with block
@@ -446,15 +490,28 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     condLink = [N.freeClipVram, 0];
   }
 
-  const useTurboSampler = turboEffective(state, avail) === "larryvrh" && has(avail, "MiniMaxH3TurboSampler");
+  const turboEff = turboEffective(state, avail);
+  const useTurboSampler = turboEff === "larryvrh" && has(avail, "MiniMaxH3TurboSampler");
   const steps = effectiveSteps(state, avail);
 
   g[N.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
+  let samplerUsed: string;
   if (useTurboSampler) {
     g[N.sampSel] = { class_type: "MiniMaxH3TurboSampler", inputs: {} };
+    samplerUsed = "MiniMaxH3TurboSampler";
+  } else if (turboEff === "pdd") {
+    // PDD distils a mean velocity per block, which is what one Euler step over that block's
+    // boundaries consumes — an ancestral or multistep sampler would evaluate between
+    // boundaries (off the trained grid), so the sampler isn't the user's to pick here, the
+    // same way the sigmas below aren't.
+    samplerUsed = "euler";
+    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
   } else {
-    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: state.sampler || "er_sde" } };
+    samplerUsed = state.sampler || "er_sde";
+    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: samplerUsed } };
   }
+  // Still built under PDD even though its output goes unused below — ComfyUI only executes
+  // what an output needs, so this is a harmless no-op node rather than something to special-case.
   g[N.sched] = { class_type: "BasicScheduler", inputs: { model: modelLink, scheduler: state.scheduler || "simple", steps, denoise: state.denoise ?? 1.0 } };
   g[N.guider] = { class_type: "BasicGuider", inputs: { model: modelLink, conditioning: condLink } };
 
@@ -462,7 +519,9 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   const preOneTakeLatent = lockAudio ? [N.audioLock, 0] : [N.cond, 1];
   const latentImage = buildOneTake(g, state, avail, clipIndex, prevCheckpointName, preOneTakeLatent);
 
-  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: [N.sched, 0], latent_image: latentImage } };
+  // PDD supplies its own sigmas — the block boundaries its head bank was distilled on.
+  // BasicScheduler's curve would put the model on timesteps no head was trained for.
+  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: turboEff === "pdd" ? [N.pdd, 1] : [N.sched, 0], latent_image: latentImage } };
   saveOneTakeCheckpoint(g, state, avail, checkpointName);
 
   g[N.decode] = { class_type: "VAEDecode", inputs: { samples: [N.sampler, 0], vae: [N.vaeV, 0] } };
@@ -493,7 +552,21 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     }
   }
 
-  return { graph: g, meta: { width, height, frames, steps, seed, videoNode: N.save, lastFrameNode: N.saveLF } };
+  return {
+    graph: g,
+    meta: {
+      width, height, frames, steps, seed, videoNode: N.save, lastFrameNode: N.saveLF,
+      // SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md #3 — steps/sampler alone are misleading on any
+      // turbo-mode clip (turbo overrides both); these make the clip self-describing after the
+      // fact instead of needing to re-derive it from turboMode + availability.
+      stepsEffective: steps, samplerUsed,
+      turboFile:
+        turboEff === "larryvrh" ? turboLoraForMode(state) || null
+        : turboEff === "pdd" ? pddFileForMode(state) || null
+        : null, // lightx2v has no dedicated file slot on this port — it's a regular LoRA entry
+      pddNfe: turboEff === "pdd" ? String(state.pddNfe ?? "8") : null,
+    },
+  };
 }
 
 // ── Gallery post-processing: Upscale / Interpolate on a single finished clip ──

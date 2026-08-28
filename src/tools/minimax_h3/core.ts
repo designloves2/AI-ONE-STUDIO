@@ -30,6 +30,15 @@ export interface MinimaxState {
   turboLoraReference: string;
   turboLoraStrength: number;
   turboLoraLowVram: boolean;
+  // PDD Acc (alibaba-pai) — SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md. Per-mode file slots (the
+  // release is split into Ref2VA/FL2VA, and pairing a file with the wrong UNET is a silent
+  // quality failure, not an error), plus the two blend strengths its apply node takes. nfe is
+  // a string because it's a choice from a fixed list (PDD_NFE_CHOICES), not a free number.
+  pddFile: string;
+  pddFileReference: string;
+  pddNfe: string;
+  pddLoraStrength: number;
+  pddHeadStrength: number;
   upscaleModel: string;
   targetLength: string;
   audioLock: boolean;
@@ -160,7 +169,7 @@ export interface MinimaxState {
   // These are now the source of truth for buildModelChain(); the legacy fields above
   // (accelMode, useSageAttn, useCkAttention, useSlaAttention, useMemEffSage, useCache,
   // useFirstBlockCache) are read only by migratePipelineState() to seed these once.
-  turboMode: string; // "none" | "larryvrh" | "lightx2v" (lightx2v is a regular LoRA — add it in the LoRA section; picking it here just forces attnBackend to "sla" and suggests 6 steps)
+  turboMode: string; // "none" | "larryvrh" | "lightx2v" | "pdd" (lightx2v is a regular LoRA — add it in the LoRA section; picking it here just forces attnBackend to "sla" and suggests 6 steps. pdd is not a LoRA either — it swaps the model's final projection via MiniMaxH3PDDAccApply and forces sampler=euler + SigmaShift 12/3, see SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md)
   attnBackend: string; // "none" | "sage" | "ck" | "solattn_kijai" | "sla" — L6/L7, single-select
   attnForward: string; // "none" | "memeff_sage" | "solattn_saganaki" — L5, blocked whenever attnBackend replaces attn.forward itself (ck/solattn_kijai/sla)
   blockCache: string; // "none" | "h3cache" | "fbcache" — L2/L3, blocked entirely under either Turbo mode
@@ -282,9 +291,25 @@ export const TURBO_MODES = [
   { key: "none", label: "None" },
   { key: "larryvrh", label: "Turbo LoRA (larryvrh)", modes: ["t2v", "firstlast", "reference"] },
   { key: "lightx2v", label: "SLA Turbo (lightx2v)" },
+  { key: "pdd", label: "PDD Acc (alibaba-pai)" },
 ] as const;
 export function turboModesFor(generationMode: string) {
   return TURBO_MODES.filter((m: any) => !m.modes || m.modes.includes(generationMode || "t2v"));
+}
+
+/** The evaluation counts the released PDD checkpoints were partitioned for — a fixed list,
+ * not a free number: the apply node's head bank was trained on this exact 32-interval grid,
+ * and any other step count is off the trained envelope (renders as noise). */
+export const PDD_NFE_CHOICES = ["8", "4", "6"];
+
+/** The PDD Acc file for the current generation mode. The release is per-variant (Ref2VA for
+ * reference, FL2VA for t2v/firstlast) — pairing a file with the wrong UNET is a silent quality
+ * failure rather than an error, so the two are kept in separate slots instead of one field the
+ * user has to remember to change. */
+export function pddFileForMode(state: MinimaxState): string {
+  const isRef = (state.generationMode || "t2v") === "reference";
+  const pick = isRef ? state.pddFileReference : state.pddFile;
+  return pick && pick !== "none" ? pick : "";
 }
 
 export const ATTN_BACKENDS = [
@@ -331,8 +356,8 @@ export function attnForwardBlockedReason(state: MinimaxState, key: string): stri
 /** Why a block-cache option is greyed out, or "" if it's fine. */
 export function blockCacheBlockedReason(state: MinimaxState, key: string): string {
   if (key === "none") return "";
-  if (state.turboMode === "larryvrh" || state.turboMode === "lightx2v") {
-    return "Block caches aren't validated with either Turbo mode.";
+  if (state.turboMode === "larryvrh" || state.turboMode === "lightx2v" || state.turboMode === "pdd") {
+    return "A turbo schedule is only a handful of steps — it never reaches the threshold these caches reuse steps at.";
   }
   return "";
 }
@@ -698,6 +723,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
     turboLoraStrength: saved.turboLoraStrength ?? 1.0,
     turboLoraLowVram: saved.turboLoraLowVram ?? false,
+    pddFile: saved.pddFile || "none",
+    pddFileReference: saved.pddFileReference || "none",
+    pddNfe: String(saved.pddNfe ?? "8"),
+    pddLoraStrength: saved.pddLoraStrength ?? 1.0,
+    pddHeadStrength: saved.pddHeadStrength ?? 1.0,
     solTau: saved.solTau ?? 1.3,
     solMinTokens: saved.solMinTokens ?? 4096,
     solStart: saved.solStart ?? 0.2,

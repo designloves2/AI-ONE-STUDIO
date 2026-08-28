@@ -82,6 +82,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     const vae = ["none", ...(modelData.vaes || []).filter((x) => x !== "none")];
     const lor = ["none", ...(modelData.loras || []).filter((x) => x !== "none")];
     const ups = ["none", ...(modelData.upscale_models || []).filter((x) => x !== "none")];
+    const pdd = ["none", ...(modelData.pdd_acc || []).filter((x) => x !== "none")];
 
     const uFL = searchableSelect(diff, state.unetFirstLast || "none", (v) => { state.unetFirstLast = v; ctx.persist(); ctx.refreshModes?.(); });
     const uRF = searchableSelect(diff, state.unetReference || "none", (v) => { state.unetReference = v; ctx.persist(); ctx.refreshModes?.(); });
@@ -107,11 +108,15 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
     const tl = searchableSelect(lor, state.turboLora || "none", (v) => { state.turboLora = v; ctx.persist(); ctx.refreshPlan?.(); });
     const um = searchableSelect(ups, state.upscaleModel || "none", (v) => { state.upscaleModel = v; ctx.persist(); });
+    const pf = searchableSelect(pdd, state.pddFile || "none", (v) => { state.pddFile = v; ctx.persist(); ctx.refreshPlan?.(); });
+    const pfRef = searchableSelect(pdd, state.pddFileReference || "none", (v) => { state.pddFileReference = v; ctx.persist(); ctx.refreshPlan?.(); });
     wrap.appendChild(
       panel([
         label("Model Files"),
         col([label("Turbo LoRA (larryvrh) file"), tl.el]),
         col([label("Upscale Model (used when Upscale = Upscale Model)"), um.el]),
+        row([col([label("PDD Acc file · First/Last & Text-only (FL2VA)"), pf.el]), col([label("PDD Acc file · Reference (Ref2VA)"), pfRef.el])]),
+        el("div", { html: "Pairing a file with the wrong UNET is a silent quality failure, not an error — keep FL2VA/Ref2VA matched to the generation mode. → <code>models/pdd_acc/</code>", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         el("div", {
           text: "Turbo mode, Attention backend/forward, Block Cache, Spectrum, and Model Patches (Fused Modulation/Torch/fp16) moved to the left panel's Pipeline accordion — they're per-run settings now, not fixed config.",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },

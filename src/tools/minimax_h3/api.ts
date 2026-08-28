@@ -19,6 +19,7 @@ export interface ModelLists {
   loras?: string[];
   upscale_models?: string[];
   vae_approx?: string[];
+  pdd_acc?: string[]; // MiniMaxH3PDDAccApply's models/pdd_acc folder — empty if the pack isn't installed, not an error.
   [key: string]: string[] | undefined;
 }
 
@@ -165,6 +166,8 @@ export const MMH3_OPTIONAL_NODES = [
   "TextGenerate",
   "TJStudioOneTextOutput",
   "TJ_FreeTextEncoderVRAM",
+  // PDD Acc turbo mode — SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md.
+  "MiniMaxH3PDDAccApply",
 ];
 export const MMH3_CORE_NODES = ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "CreateVideo", "SaveVideo"];
 

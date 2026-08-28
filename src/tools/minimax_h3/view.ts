@@ -30,6 +30,8 @@ import {
   groupShots,
   loadState,
   parseBrief,
+  pddFileForMode,
+  PDD_NFE_CHOICES,
   promptEnabled,
   promptFirstFrame,
   promptText,
@@ -786,12 +788,13 @@ export function renderMinimaxH3(container: HTMLElement) {
   function turboSummary() {
     if (state.turboMode === "none") return "Off";
     const eff = turboEffective(state, ctx.availability);
-    const label = state.turboMode === "larryvrh" ? "larryvrh" : "lightx2v";
+    const label = state.turboMode === "larryvrh" ? "larryvrh" : state.turboMode === "pdd" ? "PDD Acc" : "lightx2v";
     if (eff === state.turboMode) return `${label} · ${effectiveSteps(state, ctx.availability)} steps`;
-    const reason = state.turboMode === "larryvrh" && !turboLoraSet()
-      ? "no turbo LoRA set"
-      : state.turboMode === "larryvrh"
-      ? "MiniMaxH3TurboLoRA not installed"
+    const reason =
+      state.turboMode === "larryvrh" && !turboLoraSet() ? "no turbo LoRA set"
+      : state.turboMode === "larryvrh" ? "MiniMaxH3TurboLoRA not installed"
+      : state.turboMode === "pdd" && !pddFileForMode(state) ? "no PDD Acc file set for this mode"
+      : state.turboMode === "pdd" ? "MiniMaxH3PDDAccApply not installed"
       : "unavailable";
     return `${label} · inactive — ${reason}`;
   }
@@ -817,6 +820,27 @@ export function renderMinimaxH3(container: HTMLElement) {
           text: "This is a regular LoRA, not a dedicated node — add the SLA-turbo LoRA file itself in the LoRA section below. Selecting this here just locks Attention to SLA (required — the LoRA gives no speedup without it).",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
         }),
+      ];
+    }
+    if (state.turboMode === "pdd") {
+      return [
+        col([
+          label("Model evaluations (nfe)"),
+          select(PDD_NFE_CHOICES.map((s) => ({ value: s, label: s })), String(state.pddNfe ?? "8"), (v) => { state.pddNfe = v; persist(); }),
+        ]),
+        row([
+          col([label("LoRA strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
+          col([label("Head strength"), n(state.pddHeadStrength ?? 1.0, (v) => (state.pddHeadStrength = v))]),
+        ]),
+        el("div", {
+          text: "8 = trained block size 4. 4 regroups two blocks per step (faster, official); 6 uses the non-uniform default partition. Higher counts are off the training envelope and render as noise.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+        }),
+        el("div", {
+          text: "Not a LoRA — swaps the model's final head via MiniMaxH3PDDAccApply and forces sampler=euler + SigmaShift 12/3 regardless of the values set elsewhere. The PDD Acc file itself (per generation mode) is set in ⚙ Settings → Models.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+        }),
+        ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No PDD Acc file selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
     return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
@@ -961,6 +985,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.blockCache = "none";
     } else if (state.turboMode === "larryvrh") {
       if (attnBackendBlockedReason(state, state.attnBackend)) state.attnBackend = "none";
+      state.blockCache = "none";
+    } else if (state.turboMode === "pdd") {
       state.blockCache = "none";
     }
     if (attnForwardBlockedReason(state, state.attnForward)) state.attnForward = "none";
@@ -1501,6 +1527,10 @@ export function renderMinimaxH3(container: HTMLElement) {
       accel: rs.attnBackend || "none",
       turboMode: rs.turboMode, attnBackend: rs.attnBackend, attnForward: rs.attnForward,
       blockCache: rs.blockCache, useSpectrum: !!rs.useSpectrum, useFusedModulation: !!rs.useFusedModulation,
+      // SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md #3 — useTorchPatch was silently missing before:
+      // two clips differing only in it were indistinguishable after the fact. preset is always
+      // null on this port — the web tool has no preset list to match against (see spec #4).
+      useTorchPatch: !!rs.useTorchPatch, fp16Accum: rs.fp16Accum !== false, preset: null,
       seed: rs.seed,
       node: "minimax_h3", created: Date.now(), ...extra,
     };
@@ -1640,6 +1670,10 @@ export function renderMinimaxH3(container: HTMLElement) {
             turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
             turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
             loras: JSON.parse(JSON.stringify(rs.loras || [])),
+            // SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md #3 — from the graph actually built for this
+            // clip, not re-derived, so it can never drift from what really ran.
+            stepsEffective: built.meta.stepsEffective, samplerUsed: built.meta.samplerUsed,
+            turboFile: built.meta.turboFile, pddNfe: built.meta.pddNfe,
           }));
           showResultVideo(outputViewUrl(vid.filename, vid.subfolder || "", vid.type || "output"));
           badge.textContent = `CLIP ${curClip}/${totClip} done`;

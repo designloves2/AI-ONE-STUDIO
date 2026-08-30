@@ -25,6 +25,7 @@ export interface SettingsCtx {
   availableModels?: ModelLists;
   _rerenderImages?: () => void;
   audioFiles?: string[];
+  missingAssets?: Set<string>;
 }
 
 export interface SettingsHandle {

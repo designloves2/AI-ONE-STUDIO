@@ -12,6 +12,9 @@ export interface ImagesPanelCtx {
   persist: () => void;
   showPopup: (msg: string, isError?: boolean) => void;
   availability?: Record<string, boolean>;
+  // Filenames confirmed missing from ComfyUI's input/ folder (SPEC_MINIMAX_H3_PER_CLIP_
+  // OVERRIDE.md §8) — checked in one batch after a prompt-set load, not per-tile.
+  missingAssets?: Set<string>;
 }
 
 export interface ImageSlotHandle {
@@ -20,7 +23,7 @@ export interface ImageSlotHandle {
   getFilename(): string | null;
 }
 
-export function imageSlot(labelText: string, initialFile: string | null, onSet: (name: string | null) => void, opts: { box?: number } = {}): ImageSlotHandle {
+export function imageSlot(labelText: string, initialFile: string | null, onSet: (name: string | null) => void, opts: { box?: number; missing?: boolean } = {}): ImageSlotHandle {
   const box = opts.box ?? 132;
   const wrap = el("div", { class: "flex flex-col gap-1 items-center" });
   const frame = el("div", {
@@ -29,6 +32,18 @@ export function imageSlot(labelText: string, initialFile: string | null, onSet: 
   });
   const hint = el("div", { text: labelText, class: "text-center pointer-events-none", style: { color: C.muted, fontSize: "10px", padding: "0 6px", whiteSpace: "pre-line" } });
   const img = el("img", { class: "absolute inset-0 w-full h-full pointer-events-none", style: { objectFit: "contain", display: "none" } });
+  // Ghost tile (§8) — the filename is remembered but the file itself is gone from input/. A
+  // blank slot would be indistinguishable from "never had a picture here" and the count
+  // (3 photos vs. 0) would silently be lost. Keeps the number badge/✕ and stays clickable —
+  // this is a "needs attention" marker, not a locked cell.
+  const ghost = el("div", {
+    class: "absolute inset-0 flex flex-col items-center justify-center gap-1 pointer-events-none text-center",
+    style: { display: "none", padding: "4px" },
+  });
+  ghost.append(
+    el("div", { text: "⚠", style: { fontSize: "16px", color: C.warn } }),
+    el("div", { class: "leading-tight break-all", style: { color: C.warn, fontSize: "8.5px" } })
+  );
   const clearBtn = el("button", {
     type: "button", text: "✕", title: "Clear",
     class: "absolute top-1 right-1 z-[3] hidden",
@@ -47,18 +62,36 @@ export function imageSlot(labelText: string, initialFile: string | null, onSet: 
   let current: string | null = null;
   function setFilename(name: string | null) {
     current = name || null;
-    if (current) {
+    const missing = !!current && !!opts.missing;
+    if (current && !missing) {
       img.setAttribute("src", viewUrl(current) + `&t=${Date.now()}`);
       img.style.display = "block";
       hint.style.display = "none";
+      ghost.style.display = "none";
       clearBtn.classList.remove("hidden");
+      frame.style.borderStyle = "solid";
+      frame.style.borderColor = C.border;
+      frame.title = "";
+    } else if (missing) {
+      img.style.display = "none";
+      hint.style.display = "none";
+      ghost.style.display = "flex";
+      (ghost.lastChild as HTMLElement).textContent = current;
+      clearBtn.classList.remove("hidden");
+      frame.style.borderStyle = "dashed";
+      frame.style.borderColor = C.warn;
+      frame.title = `Missing from the input folder:\n${current}`;
     } else {
       img.style.display = "none";
       hint.style.display = "";
+      ghost.style.display = "none";
       clearBtn.classList.add("hidden");
+      frame.style.borderStyle = "solid";
+      frame.style.borderColor = C.border;
+      frame.title = "";
     }
   }
-  frame.append(hint, img, clearBtn, galleryBtn);
+  frame.append(hint, img, ghost, clearBtn, galleryBtn);
   wrap.appendChild(frame);
 
   const inp = el("input", { type: "file", accept: "image/*", style: { display: "none" } }) as HTMLInputElement;
@@ -287,8 +320,8 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
     }
 
     if (mode === "firstlast") {
-      const first = imageSlot("① First frame\n(click / drop)", state.firstFrameImage, (n) => { state.firstFrameImage = n; ctx.persist(); });
-      const last = imageSlot("② Last frame\n(optional)", state.lastFrameImage, (n) => { state.lastFrameImage = n; ctx.persist(); });
+      const first = imageSlot("① First frame\n(click / drop)", state.firstFrameImage, (n) => { state.firstFrameImage = n; ctx.persist(); }, { missing: !!state.firstFrameImage && ctx.missingAssets?.has(state.firstFrameImage) });
+      const last = imageSlot("② Last frame\n(optional)", state.lastFrameImage, (n) => { state.lastFrameImage = n; ctx.persist(); }, { missing: !!state.lastFrameImage && ctx.missingAssets?.has(state.lastFrameImage) });
       const firstMp = numberField(state.firstFrameMp ?? 1.0, (v) => { state.firstFrameMp = Math.max(0, v); ctx.persist(); }, 0.1);
       const lastMp = numberField(state.lastFrameMp ?? 1.0, (v) => { state.lastFrameMp = Math.max(0, v); ctx.persist(); }, 0.1);
       firstMp.style.width = "60px";
@@ -330,7 +363,7 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
             ctx.persist();
             render();
           },
-          { box: 92 }
+          { box: 92, missing: !!refs[i] && ctx.missingAssets?.has(refs[i]) }
         );
         const cell = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", alignItems: "center" } }, [s.el]);
         if (refs[i]) {

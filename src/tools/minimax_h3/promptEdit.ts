@@ -54,7 +54,16 @@ export interface PromptEditHandle {
 
 export function createPromptEditOverlay(
   state: MinimaxState,
-  ctx: { persist: () => void; showPopup: (msg: string, isError?: boolean) => void; currentPlan: () => { count: number; clipSec: number; promptCount: number; actualSeconds: number } },
+  ctx: {
+    persist: () => void;
+    showPopup: (msg: string, isError?: boolean) => void;
+    currentPlan: () => { count: number; clipSec: number; promptCount: number; actualSeconds: number };
+    // Filenames confirmed missing from ComfyUI's input/ folder (SPEC_MINIMAX_H3_PER_CLIP_
+    // OVERRIDE.md §8) — same set the left panel's Images accordion uses.
+    missingAssets?: Set<string>;
+    // Re-runs the missing-asset check (one batch, common + every clip's own set) and re-renders.
+    checkMissingAssets?: () => void;
+  },
   onApply?: () => void
 ): PromptEditHandle {
   const ov = el("div", {
@@ -141,14 +150,29 @@ export function createPromptEditOverlay(
     if (!name) return;
     try {
       const s = await getPromptSet(name);
+      // Restore each entry whole (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7) — trimming to just
+      // text/firstFrame/enabled is exactly the bug that made override/refImages/etc. save fine
+      // but vanish on the next load.
       state.prompts = (Array.isArray(s.prompts) && s.prompts.length ? s.prompts : [{ text: "", firstFrame: "", enabled: true }]).map((p: any) =>
-        typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : { text: p?.text || "", firstFrame: p?.firstFrame || "", enabled: p?.enabled !== false }
+        typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : { ...p, text: p?.text || "", firstFrame: p?.firstFrame || "", enabled: p?.enabled !== false }
       );
       state.promptHeader = s.promptHeader || "";
       state.promptFooter = s.promptFooter || "";
+      // Guarded on presence, not just truthiness — a set saved before §7 has none of these
+      // fields at all, and loading it must not wipe whatever is already on screen.
+      if (s.generationMode) state.generationMode = s.generationMode;
+      if (s.refTypes) (state as any).refTypes = s.refTypes;
+      if (Array.isArray(s.refImages)) state.refImages = s.refImages.slice();
+      if (Array.isArray(s.refImagesMp)) state.refImagesMp = s.refImagesMp.slice();
+      if (s.firstFrameImage !== undefined) state.firstFrameImage = s.firstFrameImage || null;
+      if (s.lastFrameImage !== undefined) state.lastFrameImage = s.lastFrameImage || null;
+      if (Array.isArray(s.refVideos)) state.refVideos = JSON.parse(JSON.stringify(s.refVideos));
+      if (Array.isArray(s.refAudios)) state.refAudios = JSON.parse(JSON.stringify(s.refAudios));
       selected = 0;
       ctx.persist();
       renderAll();
+      onApply?.(); // generationMode may have just changed — the main view's mode buttons/Images panel need to see it
+      ctx.checkMissingAssets?.(); // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §8 — loaded filenames may no longer exist in input/
       const framesNote = s.clipFrames && s.clipFrames !== (state as any).clipFrames ? ` — saved at a different clip length (${s.clipFrames} frames vs current ${(state as any).clipFrames})` : "";
       ctx.showPopup(`Loaded "${name}"${framesNote}`, false);
     } catch (e: any) {
@@ -171,6 +195,17 @@ export function createPromptEditOverlay(
         promptHeader: state.promptHeader || "",
         promptFooter: state.promptFooter || "",
         prompts: (state.prompts || []).map((p) => (typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : p)),
+        // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7 — photos and clips are part of the set itself,
+        // not an afterthought: reloading a Reference-mode set with none of this reproduces
+        // nothing.
+        generationMode: state.generationMode,
+        refTypes: (state as any).refTypes,
+        refImages: state.refImages || [],
+        refImagesMp: state.refImagesMp || [],
+        firstFrameImage: state.firstFrameImage || null,
+        lastFrameImage: state.lastFrameImage || null,
+        refVideos: JSON.parse(JSON.stringify(state.refVideos || [])),
+        refAudios: JSON.parse(JSON.stringify(state.refAudios || [])),
       });
       await refreshSetsList(trimmed);
       ctx.showPopup(`Saved "${trimmed}".`, false);
@@ -539,8 +574,27 @@ export function createPromptEditOverlay(
     function slot(i: number) {
       const images = assets.refImages;
       const name = images[i];
-      const box = el("div", { class: "relative w-[54px] h-[54px] shrink-0 rounded-md overflow-hidden flex items-center justify-center", style: { background: "#000", border: `1px solid ${C.border}`, cursor: name ? "default" : "pointer" } });
-      if (name) {
+      // Ghost tile (§8) — the filename is remembered but gone from input/.
+      const missing = !!name && !!ctx.missingAssets?.has(name);
+      const box = el("div", {
+        class: "relative w-[54px] h-[54px] shrink-0 rounded-md overflow-hidden flex items-center justify-center",
+        style: { background: "#000", border: `1px ${missing ? "dashed" : "solid"} ${missing ? C.warn : C.border}`, cursor: name ? "default" : "pointer" },
+        title: missing ? `Missing from the input folder:\n${name}` : "",
+      });
+      if (missing) {
+        box.append(
+          el("div", { text: "⚠", style: { fontSize: "13px", color: C.warn } }),
+          el("div", { text: name, class: "absolute bottom-0 inset-x-0 leading-tight break-all pointer-events-none", style: { color: C.warn, fontSize: "6.5px", background: "rgba(0,0,0,0.6)" } })
+        );
+        const x = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "0", right: "0", cursor: "pointer", fontSize: "11px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "1px 4px" } });
+        x.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const list = images.slice();
+          list.splice(i, 1);
+          setImages(list);
+        });
+        box.appendChild(x);
+      } else if (name) {
         box.appendChild(el("img", { src: viewUrl(name), class: "w-full h-full object-cover" }));
         const x = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "0", right: "0", cursor: "pointer", fontSize: "11px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "1px 4px" } });
         x.addEventListener("click", (e) => {

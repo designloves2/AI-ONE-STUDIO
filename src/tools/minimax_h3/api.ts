@@ -196,11 +196,25 @@ export interface PromptSetSummary {
   name: string;
   count: number;
 }
+// v2 (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7) — a prompt set now also carries the images/
+// video/audio it takes to reproduce a Reference/First-Last piece, not just the text. `prompts[]`
+// entries are saved whole (override/refImages/etc. included), not trimmed to text/firstFrame/
+// enabled, so a set built with per-clip overrides round-trips intact. The server route this
+// posts to is shared with the node build, which already writes/reads all of these fields — see
+// that side's payload version bump for the matching whitelist fix.
 export interface PromptSetData {
   clipFrames?: number;
   promptHeader?: string;
   promptFooter?: string;
-  prompts: { text: string; firstFrame?: string; enabled?: boolean }[];
+  prompts: Record<string, any>[];
+  generationMode?: string;
+  refTypes?: { images?: boolean; videos?: boolean; audios?: boolean };
+  refImages?: string[];
+  refImagesMp?: number[];
+  firstFrameImage?: string | null;
+  lastFrameImage?: string | null;
+  refVideos?: { file: string; start: number; end: number; withAudio?: boolean }[];
+  refAudios?: { file: string; start: number; end: number }[];
 }
 
 export async function listPromptSets(): Promise<PromptSetSummary[]> {
@@ -224,6 +238,26 @@ export async function deletePromptSet(name: string) {
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || "delete failed");
   return d;
+}
+
+/** Which of these input/-folder filenames no longer exist — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md
+ * §8. A prompt set remembers filenames, and input/ gets cleaned out independently of any set, so
+ * a name can go stale silently. One batched call (not one HEAD per file) against a shared,
+ * cross-tool route — not under the minimax_h3-specific API prefix. Names come from saved state,
+ * not a trusted path, so this never assumes they're safe to use as-is beyond the existence check
+ * itself. On any failure, nothing is reported missing — a ghost badge is a nuisance, but wrongly
+ * flagging every image as missing because the route was briefly unreachable is worse. */
+export async function checkInputExists(names: string[]): Promise<string[]> {
+  const unique = [...new Set((names || []).filter(Boolean))];
+  if (!unique.length) return [];
+  try {
+    const r = await fetchApi("/tj_shared/input_exists", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names: unique }) });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return Array.isArray(d.missing) ? d.missing : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getLoraTriggers(loraName: string): Promise<{ ok: boolean; triggers?: string[] }> {

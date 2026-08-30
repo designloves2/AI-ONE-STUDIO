@@ -38,6 +38,7 @@ import {
   applyPreset,
   composeStitchedPrompt,
   clipAssets,
+  promptOverrides,
   promptEnabled,
   promptText,
   randomSeed,
@@ -54,6 +55,7 @@ import { createGalleryOverlay } from "./galleryOverlay";
 import { mountImagePanel } from "./imagesPanel";
 import { createCommonPromptOverlay } from "./commonPromptOverlay";
 import {
+  checkInputExists,
   copyOutputToInput,
   freeMemory,
   getLoraTriggers,
@@ -129,6 +131,38 @@ export function renderMinimaxH3(container: HTMLElement) {
     popTimer = window.setTimeout(() => (pop.style.opacity = "0"), 4000);
   }
 
+  // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §8 — filenames confirmed missing from ComfyUI's
+  // input/ folder, checked in one batch (not per-tile) right after a prompt-set load. A getter
+  // (not a plain field copied at construction time) so every ctx holding a reference — the
+  // shared one below and Prompt Edit's own — sees the same up-to-date set without restaging.
+  let missingAssets = new Set<string>();
+  async function refreshMissingAssets() {
+    const names = new Set<string>();
+    const addAll = (list: (string | null | undefined)[]) => list.forEach((n) => n && names.add(n));
+    addAll([state.firstFrameImage, state.lastFrameImage, ...(state.refImages || [])]);
+    (state.refVideos || []).forEach((v) => v?.file && names.add(v.file));
+    (state.refAudios || []).forEach((a) => a?.file && names.add(a.file));
+    (state.prompts || []).forEach((raw) => {
+      const p = raw as any;
+      if (typeof p === "string" || !p) return;
+      if (promptOverrides(p)) {
+        addAll([p.firstFrame, p.lastFrame, ...(p.refImages || [])]);
+        (p.refVideos || []).forEach((v: any) => v?.file && names.add(v.file));
+        (p.refAudios || []).forEach((a: any) => a?.file && names.add(a.file));
+      } else if (p.firstFrame) {
+        names.add(p.firstFrame);
+      }
+    });
+    const missing = await checkInputExists([...names]);
+    missingAssets = new Set(missing);
+    if (missing.length) {
+      const shown = missing.slice(0, 4).join(", ");
+      const more = missing.length > 4 ? ` and ${missing.length - 4} more` : "";
+      showPopup(`${missing.length} file(s) missing from the input folder: ${shown}${more}`, true);
+    }
+    renderLeft();
+  }
+
   // 도구 전역에서 공유하는 컨텍스트 — Settings/Prompt Edit/(이후) Generate 루프가 같이 씀
   const ctx: SettingsCtx = {
     persist,
@@ -136,6 +170,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     refreshModes: () => { renderPills(); renderLeft(); refreshPreviewToggleBtn(); },
     availability: {},
     availableModels: undefined,
+    get missingAssets() { return missingAssets; },
   };
 
   // ── 도구 서브바(모드 필/아이콘 버튼) ─────────────────────────────────
@@ -1964,8 +1999,10 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   const promptEditOv = createPromptEditOverlay(
     state,
-    { persist, showPopup, currentPlan },
-    () => refreshPlan()
+    { persist, showPopup, currentPlan, get missingAssets() { return missingAssets; }, checkMissingAssets: refreshMissingAssets },
+    // Loading a prompt set (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7) can change generationMode,
+    // which the left panel's mode buttons and Images accordion need to see, not just the plan line.
+    () => { refreshPlan(); renderLeft(); }
   );
   editBtn.addEventListener("click", () => promptEditOv.show());
 

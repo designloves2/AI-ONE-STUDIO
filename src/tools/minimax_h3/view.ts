@@ -30,13 +30,14 @@ import {
   groupShots,
   loadState,
   parseBrief,
+  promptFirstFrame,
   pddFileForMode,
   PDD_NFE_CHOICES,
   PIPELINE_PRESETS,
   matchPreset,
   applyPreset,
+  composeStitchedPrompt,
   promptEnabled,
-  promptFirstFrame,
   promptText,
   randomSeed,
   resolveResolution,
@@ -1560,6 +1561,13 @@ export function renderMinimaxH3(container: HTMLElement) {
       // two clips differing only in it were indistinguishable after the fact. preset is always
       // null on this port — the web tool has no preset list to match against (see spec #4).
       useTorchPatch: !!rs.useTorchPatch, fp16Accum: rs.fp16Accum !== false, preset: null,
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — refImages/refImagesMp/firstFrameImage/
+      // lastFrameImage/refVideos/refAudios were never saved before, so Reuse on a Reference-mode
+      // clip restored nothing. Defaults here are the common set; per-clip callers override with
+      // the clip's own resolved assets via `extra`.
+      refImages: rs.refImages || [], refImagesMp: rs.refImagesMp || [],
+      firstFrameImage: rs.firstFrameImage || null, lastFrameImage: rs.lastFrameImage || null,
+      refVideos: rs.refVideos || [], refAudios: rs.refAudios || [],
       seed: rs.seed,
       node: "minimax_h3", created: Date.now(), ...extra,
     };
@@ -1637,6 +1645,11 @@ export function renderMinimaxH3(container: HTMLElement) {
         badge.classList.remove("hidden");
         badge.textContent = `● CLIP ${curClip}/${totClip}`;
 
+        // Per-clip first-frame override (existing mechanism, ungated by the §1 override
+        // checkbox — see SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md's own note that this is a
+        // separate, always-on control). Reference conditioning (refImages/refVideos/refAudios)
+        // stays common-only on this port — no per-clip override was built for it (§1's override
+        // reuses the existing Enhance attachment images instead; see clipEnhanceImages()).
         const isRef = rs.generationMode === "reference";
         let firstFrame: string | null = isRef ? null : rs.firstFrameImage || null;
         let refImages: string[] = rs.refImages || [];
@@ -1699,6 +1712,9 @@ export function renderMinimaxH3(container: HTMLElement) {
             turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
             turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
             loras: JSON.parse(JSON.stringify(rs.loras || [])),
+            // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — this clip's own resolved first-frame
+            // override (base metaForVideo already carries the common refImages/refVideos/etc.).
+            firstFrameImage: firstFrame || null,
             // SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md #3 — from the graph actually built for this
             // clip, not re-derived, so it can never drift from what really ran.
             stepsEffective: built.meta.stepsEffective, samplerUsed: built.meta.samplerUsed,
@@ -1752,7 +1768,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           const totalSeconds = clipRecords.length * framesToSeconds(rs.clipFrames || 192) - (clipRecords.length - 1) * overlapSec;
           saveMeta(out.filename, out.subfolder || "", metaForVideo(
             rs,
-            active.map(({ i }) => promptForClip(rs, i)).join("\n\n"),
+            composeStitchedPrompt(active.map(({ i }) => promptForClip(rs, i))),
             { clips: clipRecords.length, stitched: true, onetake: true, overlapSeconds: overlapSec, frames: null, durationSeconds: totalSeconds, prompts: (rs.prompts || []).map(promptText) }
           ));
           showResultVideo(url);
@@ -1914,6 +1930,16 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.turboLoraStrength != null) state.turboLoraStrength = meta.turboLoraStrength;
       if (meta.turboLoraLowVram != null) state.turboLoraLowVram = meta.turboLoraLowVram;
       if (Array.isArray(meta.loras)) state.loras = meta.loras.map((l: any) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }));
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — restore the actual image/video/audio inputs.
+      // Array.isArray/!== undefined guards (not a bare truthy check) so a clip saved before this
+      // fix — which has none of these fields at all — leaves whatever is already on screen alone
+      // instead of wiping it to empty.
+      if (Array.isArray(meta.refImages)) state.refImages = meta.refImages.slice();
+      if (Array.isArray(meta.refImagesMp)) state.refImagesMp = meta.refImagesMp.slice();
+      if (meta.firstFrameImage !== undefined) state.firstFrameImage = meta.firstFrameImage || null;
+      if (meta.lastFrameImage !== undefined) state.lastFrameImage = meta.lastFrameImage || null;
+      if (Array.isArray(meta.refVideos)) state.refVideos = JSON.parse(JSON.stringify(meta.refVideos));
+      if (Array.isArray(meta.refAudios)) state.refAudios = JSON.parse(JSON.stringify(meta.refAudios));
       persist();
       refreshPlan();
       renderPills();

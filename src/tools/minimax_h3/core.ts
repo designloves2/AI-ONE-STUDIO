@@ -9,8 +9,23 @@ export const FPS = 24;
 
 export interface PromptEntry {
   text: string;
+  // Always-on, ungated per-clip first-frame override — independent of `override` below. Forces
+  // this one clip into First/Last mode (even during a Reference-mode run) regardless of the
+  // override checkbox; used e.g. to resume a stopped Last-Frame-Chain run from a saved frame.
   firstFrame: string;
   enabled: boolean;
+  // Per-clip override (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1/§2) — all-or-nothing: when
+  // `override` is on, this clip uses its own header/footer/Enhance-attachment images instead of
+  // the common state.promptHeader/promptFooter/ollamaImages. This reuses the *existing* Image →
+  // Brief attachment mechanism (ollamaImages/ollamaImageMode) rather than a new reference set —
+  // there is no separate render-time per-clip reference override on this port; state.refImages
+  // (the actual Reference-mode conditioning, edited in the left panel) stays common-only, same
+  // as before this feature.
+  override?: boolean;
+  ollamaImages?: string[];
+  ollamaImageMode?: string;
+  header?: string;
+  footer?: string;
 }
 
 export interface LoraEntry {
@@ -94,14 +109,12 @@ export interface MinimaxState {
   filenamePrefix: string;
   stitchAtEnd: boolean;
   targetLengthSeconds?: string;
-  ollamaUrl: string;
-  ollamaModel: string;
-  ollamaVisionModel: string;
-  ollamaTemperature: number;
-  ollamaTopP: number;
+  // ollamaImages/ollamaImageMode names are kept as-is (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6 —
+  // the node side left them too): they're the Image → Brief attachment slots, unrelated to the
+  // Ollama backend those field names originally shared. Only the external-server path is gone.
   ollamaImageMode: string;
   ollamaImages: string[];
-  visionSource: string; // "ollama" | "native"
+  visionSource: string; // was "ollama" | "native" — Ollama removed, always native now; field kept for saved-state compat
   nativeVisionClip: string;
   nativeBriefClip: string;
 
@@ -601,6 +614,43 @@ export function formatClock(ms: number) {
 export const promptText = (p: PromptEntry | string) => (typeof p === "string" ? p : p?.text || "");
 export const promptEnabled = (p: PromptEntry | string) => (typeof p === "string" ? true : p?.enabled !== false);
 export const promptFirstFrame = (p: PromptEntry | string) => (typeof p === "string" ? "" : p?.firstFrame || "");
+export const promptOverrides = (p: PromptEntry | string | undefined): boolean => typeof p !== "string" && !!p?.override;
+
+/** The Image → Brief attachment images for this clip — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1,
+ * reusing the *existing* Enhance attachment mechanism (ollamaImages/ollamaImageMode) rather than
+ * a new reference set. Render-time Reference-mode conditioning (state.refImages, edited in the
+ * left panel) is unrelated to this and stays common-only. */
+export function clipEnhanceImages(state: MinimaxState, i: number): { own: boolean; images: string[]; mode: string } {
+  const p = (state.prompts || [])[i];
+  if (promptOverrides(p)) {
+    const e = p as PromptEntry;
+    return { own: true, images: e.ollamaImages || [], mode: e.ollamaImageMode || state.ollamaImageMode || "ref" };
+  }
+  return { own: false, images: state.ollamaImages || [], mode: state.ollamaImageMode || "ref" };
+}
+
+/** Header/footer counterpart to clipEnhanceImages() — same all-or-nothing rule (SPEC_MINIMAX_H3_
+ * PER_CLIP_OVERRIDE.md §2): a clip that changed its reference images but kept the common
+ * header/tail would render the previous shot's visual style and music over the new scene,
+ * silently. */
+export function clipFraming(state: MinimaxState, i: number): { own: boolean; header: string; footer: string } {
+  const p = (state.prompts || [])[i];
+  if (promptOverrides(p)) {
+    const e = p as PromptEntry;
+    return { own: true, header: e.header || "", footer: e.footer || "" };
+  }
+  return { own: false, header: state.promptHeader || "", footer: state.promptFooter || "" };
+}
+
+/** Joins each source clip's already-composed prompt (header+body+tail) with a `[Clip N]`
+ * marker so a stitched result's saved prompt says where one shot ends and the next begins —
+ * a blank line alone doesn't survive a later Reuse or a human re-reading the sidecar
+ * (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5). */
+export function composeStitchedPrompt(clipPrompts: (string | null | undefined)[]): string {
+  const parts = (clipPrompts || []).map((t) => String(t || "").trim()).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "";
+  return parts.map((t, i) => `[Clip ${i + 1}]\n${t}`).join("\n\n");
+}
 
 export function parseTargetSeconds(text: string): number {
   const raw = String(text || "").trim().toLowerCase();
@@ -656,7 +706,8 @@ export function composeClipPrompt(state: MinimaxState, i: number) {
       break;
     }
   }
-  return [state.promptHeader, body, state.promptFooter, loraTriggers(state), state.promptSuffix]
+  const { header, footer } = clipFraming(state, i);
+  return [header, body, footer, loraTriggers(state), state.promptSuffix]
     .map((s) => (s || "").trim())
     .filter(Boolean)
     .join("\n\n");
@@ -800,14 +851,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     saveSubfolder: saved.saveSubfolder || "",
     filenamePrefix: saved.filenamePrefix || "MMH3",
     stitchAtEnd: saved.stitchAtEnd ?? true,
-    ollamaUrl: saved.ollamaUrl || "http://127.0.0.1:11434",
-    ollamaModel: saved.ollamaModel || "",
-    ollamaVisionModel: saved.ollamaVisionModel || "",
-    ollamaTemperature: saved.ollamaTemperature ?? 0.7,
-    ollamaTopP: saved.ollamaTopP ?? 0.9,
     ollamaImageMode: saved.ollamaImageMode || "ref",
     ollamaImages: Array.isArray(saved.ollamaImages) ? saved.ollamaImages.slice() : [],
-    visionSource: saved.visionSource || "ollama",
+    visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
     turboLoraStrength: saved.turboLoraStrength ?? 1.0,

@@ -97,11 +97,6 @@ export interface MmhConfig {
   cache_start?: number;
   cache_end?: number;
   cache_max_steps?: number;
-  ollama_url?: string;
-  ollama_model?: string;
-  ollama_vision_model?: string;
-  ollama_temperature?: number;
-  ollama_top_p?: number;
   vision_source?: string;
   native_vision_clip?: string;
   filename_prefix?: string;
@@ -240,17 +235,6 @@ export async function getLoraTriggers(loraName: string): Promise<{ ok: boolean; 
   }
 }
 
-export async function getOllamaModels(serverUrl?: string) {
-  try {
-    const q = serverUrl ? `?server_url=${encodeURIComponent(serverUrl)}` : "";
-    const r = await fetchApi(`${API}/llm/ollama_models${q}`);
-    if (r.status === 404) return { ok: false, models: [], error: "restart ComfyUI to enable Ollama enhance", needsRestart: true };
-    return await r.json();
-  } catch (e: any) {
-    return { ok: false, models: [], error: String(e?.message || e) };
-  }
-}
-
 export async function getSystemPrompt(name = "minimax") {
   try {
     const r = await fetchApi(`${API}/llm/system_prompt?name=${encodeURIComponent(name)}`);
@@ -259,28 +243,6 @@ export async function getSystemPrompt(name = "minimax") {
   } catch {
     return { ok: false, instruction: "" };
   }
-}
-
-export interface EnhancePayload {
-  server_url?: string;
-  model: string;
-  system_prompt: string;
-  user_prompt: string;
-  image_b64?: string;
-  temperature?: number;
-  top_p?: number;
-  think?: boolean;
-}
-
-export async function enhancePrompt(payload: EnhancePayload) {
-  const r = await fetchApi(`${API}/llm/enhance`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const d = await r.json();
-  if (!d.ok) throw new Error(d.error || "enhance failed");
-  return d;
 }
 
 export async function uploadImage(file: File): Promise<string> {
@@ -292,16 +254,6 @@ export async function uploadImage(file: File): Promise<string> {
   if (!r.ok) throw new Error(`upload failed (${r.status})`);
   const d = await r.json();
   return d.name;
-}
-
-export async function imageToB64(filename: string): Promise<string> {
-  const resp = await fetchApi(`/view?filename=${encodeURIComponent(filename)}&type=input`);
-  const blob = await resp.blob();
-  return new Promise((resolve) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
-    fr.readAsDataURL(blob);
-  });
 }
 
 export function viewUrl(filename: string) {

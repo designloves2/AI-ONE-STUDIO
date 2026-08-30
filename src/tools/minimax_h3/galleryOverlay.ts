@@ -3,7 +3,7 @@
 // 썸네일 지연로딩, 호버 미리재생, 더블클릭 풀스크린, 프롬프트 표시/Reuse/Copy, 삭제,
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
-import { SUBFOLDER, FPS, UPSCALE_MODES, framesToSeconds } from "./core";
+import { SUBFOLDER, FPS, UPSCALE_MODES, framesToSeconds, composeStitchedPrompt } from "./core";
 import { button, el, clear, confirmDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import {
@@ -337,8 +337,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       const known = picked.map((v) => ((v as any).meta?.frames ? framesToSeconds((v as any).meta.frames) : null));
       const rawTotal = known.every((s) => s != null) ? known.reduce((a, b) => a! + b!, 0) : null;
       const durationSeconds = rawTotal != null && overlapSec ? rawTotal! - (picked.length - 1) * overlapSec : rawTotal;
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — copy the first clip's meta as the base (pipeline
+      // settings are normally the same across one run's clips) so a manual gallery stitch is just
+      // as self-describing as the auto-stitch-at-run-end path; only the prompt/clip-count fields
+      // get rebuilt. [Clip N] markers via composeStitchedPrompt so the joined prompt says where
+      // one shot ends and the next begins — a blank line alone doesn't survive a later Reuse or a
+      // human re-reading the sidecar.
+      const baseMeta = (picked[0] as any).meta || {};
       await saveMeta(out.filename, out.subfolder || "", {
-        v: 1, prompt: picked.map((v) => (v as any).prompt || "").filter(Boolean).join("\n\n"),
+        ...baseMeta,
+        v: 1, prompt: composeStitchedPrompt(picked.map((v) => (v as any).prompt || "")),
         clips: picked.length, stitched: true, onetake: !!overlapSec, node: "minimax_h3", created: Date.now(), durationSeconds,
         prompts: picked.map((v) => (v as any).prompt || ""),
       });
@@ -385,9 +393,17 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     let copied: string | null = null;
     try {
       copied = await copyOutputToInput(v.filename, v.subfolder || "", "output");
-      const { graph } = buildGraph(copied);
+      const { graph, saveNode } = buildGraph(copied);
       readout.start("queued…");
-      await queuePrompt(graph, { onProgress: (val, max) => readout.progress(val, max) });
+      const res = await queuePrompt(graph, { onProgress: (val, max) => readout.progress(val, max) });
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — upscale/interpolate results copy the source
+      // clip's meta verbatim (same settings, same prompt — only the pixels/frame-rate changed),
+      // so the gallery info popup isn't blank for a clip that actually has a full history.
+      const out = res.byNode?.[saveNode];
+      const outVid = (out?.images || out?.gifs || [])[0];
+      if (outVid) {
+        await saveMeta(outVid.filename, outVid.subfolder || "", { ...((v as any).meta || {}), node: "minimax_h3", created: Date.now() }).catch(() => {});
+      }
       readout.done();
       await refresh();
       ctx.showPopup("Done.", false);

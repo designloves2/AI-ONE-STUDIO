@@ -175,7 +175,7 @@ function refTypeDropdown(state: MinimaxState, ctx: ImagesPanelCtx, onChange: () 
   return { el: wrap, refreshLabel };
 }
 
-function mediaRow(kind: "video" | "audio", entry: any, idx: number, files: string[], ctx: ImagesPanelCtx, state: MinimaxState, onRefresh: () => void) {
+export function mediaRow(kind: "video" | "audio", entry: any, idx: number, files: string[], ctx: ImagesPanelCtx, list: any[], onRefresh: () => void) {
   const isVideo = kind === "video";
   const box = el("div", { class: "flex flex-col gap-1", style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px" } });
 
@@ -183,7 +183,6 @@ function mediaRow(kind: "video" | "audio", entry: any, idx: number, files: strin
   hdr.appendChild(el("div", { text: `<${isVideo ? "Video" : "Audio"} ${idx + 1}>`, class: "flex-1", style: { fontSize: "10px", fontWeight: "700", color: BRAND } }));
   const del = el("button", { type: "button", text: "✕", title: "Remove", style: { cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "10px" } });
   del.addEventListener("click", () => {
-    const list = isVideo ? (state as any).refVideos : (state as any).refAudios;
     list.splice(idx, 1);
     ctx.persist();
     onRefresh();
@@ -372,7 +371,7 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
       if (ctx.availability && Object.keys(ctx.availability).length && !ctx.availability.VHS_LoadVideo) {
         kids.push(el("div", { html: "⚠ <code>VHS_LoadVideo</code> (VideoHelperSuite) is not installed — reference videos are skipped.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
       }
-      vids.slice(0, 3).forEach((v: any, i: number) => kids.push(mediaRow("video", v, i, mediaFiles.videos, ctx, state, render)));
+      vids.slice(0, 3).forEach((v: any, i: number) => kids.push(mediaRow("video", v, i, mediaFiles.videos, ctx, vids, render)));
       if (vids.length < 3) {
         const add = el("button", { type: "button", text: "+ Add reference video", class: "w-full", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
         add.addEventListener("click", () => { vids.push({ file: "", start: 0, end: 5, withAudio: true }); ctx.persist(); render(); });
@@ -387,7 +386,7 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
       if (ctx.availability && Object.keys(ctx.availability).length && !ctx.availability.TrimAudioDuration) {
         kids.push(el("div", { html: "⚠ <code>TrimAudioDuration</code> missing — audio is used whole, in/out is ignored.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
       }
-      auds.slice(0, 3).forEach((a: any, i: number) => kids.push(mediaRow("audio", a, i, mediaFiles.audios, ctx, state, render)));
+      auds.slice(0, 3).forEach((a: any, i: number) => kids.push(mediaRow("audio", a, i, mediaFiles.audios, ctx, auds, render)));
       if (auds.length < 3) {
         const add = el("button", { type: "button", text: "+ Add reference audio", class: "w-full", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
         add.addEventListener("click", () => { auds.push({ file: "", start: 0, end: 5 }); ctx.persist(); render(); });

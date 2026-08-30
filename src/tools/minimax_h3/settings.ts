@@ -9,7 +9,6 @@ import {
   getConfig,
   getModels,
   getNodeAvailability,
-  getOllamaModels,
   getPreviewTinyVaeOptions,
   listVideos,
   saveConfig,
@@ -164,45 +163,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     );
     wrap.appendChild(
       panel([
-        label("Ollama server"),
-        col([
-          label("Server URL"),
-          (() => {
-            const inp = el("input", { type: "text", placeholder: "http://127.0.0.1:11434", style: numInputStyle() }) as HTMLInputElement;
-            inp.value = state.ollamaUrl || "http://127.0.0.1:11434";
-            inp.addEventListener("input", () => { state.ollamaUrl = inp.value.trim(); ctx.persist(); });
-            return inp;
-          })(),
-        ]),
-        row([
-          col([label("Temperature"), el("input", { type: "number", step: "0.01", value: String(state.ollamaTemperature ?? 0.7), style: numInputStyle(), oninput: (e: any) => { state.ollamaTemperature = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-          col([label("Top P"), el("input", { type: "number", step: "0.01", value: String(state.ollamaTopP ?? 0.9), style: numInputStyle(), oninput: (e: any) => { state.ollamaTopP = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-        ]),
-        el("div", { text: "Only read when Vision source below is set to Ollama.", style: { fontSize: "10px", color: C.muted } }),
-      ])
-    );
-
-    wrap.appendChild(
-      panel([
-        label("Image → Brief — vision source"),
-        (() => {
-          const srcRow = el("div", { class: "flex gap-1" });
-          const SOURCES = [
-            { key: "ollama", label: "Ollama" },
-            { key: "native", label: "Native (CLIP, no server)" },
-          ];
-          function renderSrc() {
-            clear(srcRow);
-            SOURCES.forEach((s) => {
-              const active = (state.visionSource || "ollama") === s.key;
-              const b = el("button", { type: "button", text: s.label, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", fontWeight: active ? "700" : "400", background: active ? BRAND : C.bg2, color: "#fff", border: `1px solid ${active ? BRAND : C.border}` } });
-              b.addEventListener("click", () => { state.visionSource = s.key; ctx.persist(); renderModelPickers(); });
-              srcRow.appendChild(b);
-            });
-          }
-          renderSrc();
-          return srcRow;
-        })(),
+        label("Image → Brief — LOCAL ENHANCE (native CLIP)"),
+        el("div", { text: "Runs through ComfyUI's own model loading — no external server. Ollama support was removed (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6): one LLM backend keeps the per-clip override work from getting needlessly complicated.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         (() => {
           const pickWrap = el("div", { class: "flex flex-col gap-1.5 mt-1.5" });
           renderModelPickersInto = pickWrap;
@@ -218,51 +180,21 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     const wrap2 = renderModelPickersInto;
     if (!wrap2) return;
     clear(wrap2);
-    const source = state.visionSource || "ollama";
-
-    if (source === "ollama") {
-      const briefWrap = el("div"),
-        visionWrap = el("div");
-      const statusRow = el("div", { style: { fontSize: "10px", color: C.muted } });
-      let models: string[] = [];
-      function renderPickers() {
-        clear(briefWrap);
-        clear(visionWrap);
-        const opts = ["", ...models];
-        const mk = (val: string, onChange: (v: string) => void) => select(opts.map((m) => ({ value: m, label: m || "(none)" })), models.includes(val) ? val : "", onChange);
-        briefWrap.appendChild(mk(state.ollamaModel, (v) => { state.ollamaModel = v; ctx.persist(); }));
-        visionWrap.appendChild(mk(state.ollamaVisionModel, (v) => { state.ollamaVisionModel = v; ctx.persist(); }));
-      }
-      (async () => {
-        statusRow.textContent = "connecting to Ollama…";
-        const d = await getOllamaModels(state.ollamaUrl);
-        models = d.models || [];
-        statusRow.textContent = d.ok ? `${models.length} model(s) available` : `⚠ ${String(d.error || "unreachable").slice(0, 80)}`;
-        statusRow.style.color = d.ok ? C.muted : C.warn;
-        renderPickers();
-      })().catch(() => { statusRow.textContent = "⚠ could not reach Ollama"; statusRow.style.color = C.warn; });
-      wrap2.append(
-        row([col([label("Brief model (writes the prompt)"), briefWrap]), col([label("Vision model (reads images)"), visionWrap])]),
-        statusRow,
-        el("div", { text: "The brief writer never sees an image, so any text model works there. A single Ollama call with several images attached was tested and only one was ever attended to — images are analyzed one at a time and merged as text before the brief model sees them.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } })
-      );
-    } else {
-      const missing: string[] = [];
-      if (!availability.available?.TJ_MultiImageLoader) missing.push("TJ_MultiImageLoader (TJ_NODE)");
-      if (!availability.available?.TextGenerate) missing.push("TextGenerate (ComfyUI core — update ComfyUI)");
-      if (!availability.available?.TJStudioOneTextOutput) missing.push("TJStudioOneTextOutput (this package)");
-      if (missing.length) {
-        wrap2.appendChild(el("div", { text: `⚠ Native vision needs: ${missing.join(", ")}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
-        return;
-      }
-      const clipList = ["none", ...(modelData.text_encoders || []).filter((x) => x !== "none")];
-      const briefPick = searchableSelect(clipList, state.nativeBriefClip || "none", (v) => { state.nativeBriefClip = v === "none" ? "" : v; ctx.persist(); });
-      const visionPick = searchableSelect(clipList, state.nativeVisionClip || "none", (v) => { state.nativeVisionClip = v === "none" ? "" : v; ctx.persist(); });
-      wrap2.append(
-        row([col([label("Brief CLIP (writes the prompt)"), briefPick.el]), col([label("Vision CLIP (reads images)"), visionPick.el])]),
-        el("div", { text: "Both run through TextGenerate on ComfyUI's own model loading — no external server. A Qwen3-VL checkpoint (the kind already used for MiniMax H3 text encoding) can be picked for either or both roles; the same file works for both if you don't want two loaded at once.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } })
-      );
+    const missing: string[] = [];
+    if (!availability.available?.TJ_MultiImageLoader) missing.push("TJ_MultiImageLoader (TJ_NODE)");
+    if (!availability.available?.TextGenerate) missing.push("TextGenerate (ComfyUI core — update ComfyUI)");
+    if (!availability.available?.TJStudioOneTextOutput) missing.push("TJStudioOneTextOutput (this package)");
+    if (missing.length) {
+      wrap2.appendChild(el("div", { text: `⚠ Native vision needs: ${missing.join(", ")}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
+      return;
     }
+    const clipList = ["none", ...(modelData.text_encoders || []).filter((x) => x !== "none")];
+    const briefPick = searchableSelect(clipList, state.nativeBriefClip || "none", (v) => { state.nativeBriefClip = v === "none" ? "" : v; ctx.persist(); });
+    const visionPick = searchableSelect(clipList, state.nativeVisionClip || "none", (v) => { state.nativeVisionClip = v === "none" ? "" : v; ctx.persist(); });
+    wrap2.append(
+      row([col([label("Brief CLIP (writes the prompt)"), briefPick.el]), col([label("Vision CLIP (reads images)"), visionPick.el])]),
+      el("div", { text: "Both run through TextGenerate on ComfyUI's own model loading — no external server. A Qwen3-VL checkpoint (the kind already used for MiniMax H3 text encoding) can be picked for either or both roles; the same file works for both if you don't want two loaded at once.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } })
+    );
   }
 
   // ══ Preview tab ═════════════════════════════════════════════════════════
@@ -456,12 +388,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       cache_start: state.cacheStart ?? 0.15,
       cache_end: state.cacheEnd ?? 0.9,
       cache_max_steps: state.cacheMaxSteps ?? 2,
-      ollama_url: state.ollamaUrl || "http://127.0.0.1:11434",
-      ollama_model: state.ollamaModel || "",
-      ollama_vision_model: state.ollamaVisionModel || "",
-      ollama_temperature: state.ollamaTemperature ?? 0.7,
-      ollama_top_p: state.ollamaTopP ?? 0.9,
-      vision_source: state.visionSource || "ollama",
+      vision_source: state.visionSource || "native",
       native_vision_clip: state.nativeVisionClip || "",
       filename_prefix: state.filenamePrefix || "MMH3",
       stitch_at_end: state.stitchAtEnd ?? true,
@@ -540,12 +467,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.cache_start != null) state.cacheStart = cfg.cache_start;
       if (cfg.cache_end != null) state.cacheEnd = cfg.cache_end;
       if (cfg.cache_max_steps != null) state.cacheMaxSteps = cfg.cache_max_steps;
-      if (cfg.ollama_url) state.ollamaUrl = cfg.ollama_url;
-      if (cfg.ollama_model) state.ollamaModel = cfg.ollama_model;
-      if (cfg.ollama_vision_model) state.ollamaVisionModel = cfg.ollama_vision_model;
-      if (cfg.ollama_temperature != null) state.ollamaTemperature = cfg.ollama_temperature;
-      if (cfg.ollama_top_p != null) state.ollamaTopP = cfg.ollama_top_p;
-      if (cfg.vision_source) state.visionSource = cfg.vision_source;
+      // vision_source ignored on load — Ollama removed, always native regardless of what a
+      // config saved before this change says.
       if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;
       if (cfg.filename_prefix) state.filenamePrefix = cfg.filename_prefix;
       if (cfg.stitch_at_end != null) state.stitchAtEnd = cfg.stitch_at_end;

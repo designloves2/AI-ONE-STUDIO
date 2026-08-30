@@ -15,15 +15,19 @@ export interface PromptEntry {
   firstFrame: string;
   enabled: boolean;
   // Per-clip override (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1/§2) — all-or-nothing: when
-  // `override` is on, this clip uses its own header/footer/Enhance-attachment images instead of
-  // the common state.promptHeader/promptFooter/ollamaImages. This reuses the *existing* Image →
-  // Brief attachment mechanism (ollamaImages/ollamaImageMode) rather than a new reference set —
-  // there is no separate render-time per-clip reference override on this port; state.refImages
-  // (the actual Reference-mode conditioning, edited in the left panel) stays common-only, same
-  // as before this feature.
+  // `override` is on, this clip renders with its own refImages/refVideos/refAudios/lastFrame
+  // and header/footer instead of the common state.* set. This is the actual render-time
+  // reference set (same one the left panel's Images accordion edits) — Enhance's vision step
+  // reads the same resolved list (via clipAssets()) rather than a separate copy, so there is
+  // only ever one active image set per clip, seen by both sides. ollamaImageMode (how many of
+  // those images vision actually reads — 2 for First/Last-style briefs, 8 for Reference-style)
+  // is a vision-only cap, not a render input, so it stays common-only and outside this override.
   override?: boolean;
-  ollamaImages?: string[];
-  ollamaImageMode?: string;
+  refImages?: string[];
+  refImagesMp?: number[];
+  refVideos?: MinimaxState["refVideos"];
+  refAudios?: MinimaxState["refAudios"];
+  lastFrame?: string;
   header?: string;
   footer?: string;
 }
@@ -109,11 +113,14 @@ export interface MinimaxState {
   filenamePrefix: string;
   stitchAtEnd: boolean;
   targetLengthSeconds?: string;
-  // ollamaImages/ollamaImageMode names are kept as-is (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6 —
-  // the node side left them too): they're the Image → Brief attachment slots, unrelated to the
-  // Ollama backend those field names originally shared. Only the external-server path is gone.
+  // ollamaImageMode's name is kept as-is (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6 — the node
+  // side left it too): it's the Image → Brief cap ("First/Last" 2 vs "Reference" 8 — how many
+  // of a clip's resolved refImages the vision step actually reads), unrelated to the Ollama
+  // backend the name originally shared. Only the external-server path is gone. There is no
+  // separate ollamaImages array — Enhance reads clipAssets().refImages directly (§1's "one
+  // active set, seen by both rendering and vision" design), so a dedicated vision-only copy
+  // would just be a second place for the same picture to go stale in.
   ollamaImageMode: string;
-  ollamaImages: string[];
   visionSource: string; // was "ollama" | "native" — Ollama removed, always native now; field kept for saved-state compat
   nativeVisionClip: string;
   nativeBriefClip: string;
@@ -616,20 +623,43 @@ export const promptEnabled = (p: PromptEntry | string) => (typeof p === "string"
 export const promptFirstFrame = (p: PromptEntry | string) => (typeof p === "string" ? "" : p?.firstFrame || "");
 export const promptOverrides = (p: PromptEntry | string | undefined): boolean => typeof p !== "string" && !!p?.override;
 
-/** The Image → Brief attachment images for this clip — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1,
- * reusing the *existing* Enhance attachment mechanism (ollamaImages/ollamaImageMode) rather than
- * a new reference set. Render-time Reference-mode conditioning (state.refImages, edited in the
- * left panel) is unrelated to this and stays common-only. */
-export function clipEnhanceImages(state: MinimaxState, i: number): { own: boolean; images: string[]; mode: string } {
+export interface ClipAssets {
+  own: boolean; // true = this clip's own set (from the prompt entry), false = the common set
+  refImages: string[];
+  refImagesMp: number[];
+  refVideos: MinimaxState["refVideos"];
+  refAudios: MinimaxState["refAudios"];
+  lastFrame: string;
+}
+
+/** Single resolver for "what does this clip actually render with" — the render loop, the
+ * Prompt Edit attachment area (which Enhance's vision step also reads from, so vision and
+ * rendering can never disagree about which images a clip used), and saved metadata all go
+ * through this. All-or-nothing per SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1. */
+export function clipAssets(state: MinimaxState, i: number): ClipAssets {
   const p = (state.prompts || [])[i];
   if (promptOverrides(p)) {
     const e = p as PromptEntry;
-    return { own: true, images: e.ollamaImages || [], mode: e.ollamaImageMode || state.ollamaImageMode || "ref" };
+    return {
+      own: true,
+      refImages: (e.refImages || []).filter(Boolean),
+      refImagesMp: e.refImagesMp || [],
+      refVideos: e.refVideos || [],
+      refAudios: e.refAudios || [],
+      lastFrame: e.lastFrame || "",
+    };
   }
-  return { own: false, images: state.ollamaImages || [], mode: state.ollamaImageMode || "ref" };
+  return {
+    own: false,
+    refImages: (state.refImages || []).filter(Boolean),
+    refImagesMp: state.refImagesMp || [],
+    refVideos: state.refVideos || [],
+    refAudios: state.refAudios || [],
+    lastFrame: state.lastFrameImage || "",
+  };
 }
 
-/** Header/footer counterpart to clipEnhanceImages() — same all-or-nothing rule (SPEC_MINIMAX_H3_
+/** Header/footer counterpart to clipAssets() — same all-or-nothing rule (SPEC_MINIMAX_H3_
  * PER_CLIP_OVERRIDE.md §2): a clip that changed its reference images but kept the common
  * header/tail would render the previous shot's visual style and music over the new scene,
  * silently. */
@@ -852,7 +882,6 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     filenamePrefix: saved.filenamePrefix || "MMH3",
     stitchAtEnd: saved.stitchAtEnd ?? true,
     ollamaImageMode: saved.ollamaImageMode || "ref",
-    ollamaImages: Array.isArray(saved.ollamaImages) ? saved.ollamaImages.slice() : [],
     visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",

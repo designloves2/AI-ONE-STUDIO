@@ -37,6 +37,7 @@ import {
   matchPreset,
   applyPreset,
   composeStitchedPrompt,
+  clipAssets,
   promptEnabled,
   promptText,
   randomSeed,
@@ -1645,14 +1646,14 @@ export function renderMinimaxH3(container: HTMLElement) {
         badge.classList.remove("hidden");
         badge.textContent = `● CLIP ${curClip}/${totClip}`;
 
-        // Per-clip first-frame override (existing mechanism, ungated by the §1 override
-        // checkbox — see SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md's own note that this is a
-        // separate, always-on control). Reference conditioning (refImages/refVideos/refAudios)
-        // stays common-only on this port — no per-clip override was built for it (§1's override
-        // reuses the existing Enhance attachment images instead; see clipEnhanceImages()).
+        // clipAssets() resolves this clip's actual render input — its own refImages/refVideos/
+        // refAudios/lastFrame when overridden (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1), else
+        // the common set. The per-clip first-frame override (prompts[i].firstFrame) is a
+        // separate, always-on mechanism, ungated by the §1 override checkbox.
+        const assets = clipAssets(rs, i);
         const isRef = rs.generationMode === "reference";
         let firstFrame: string | null = isRef ? null : rs.firstFrameImage || null;
-        let refImages: string[] = rs.refImages || [];
+        let refImages: string[] = assets.refImages;
         const continued = pos > 0 && rs.continuityMode === "lastframe" && !!chainFrame;
         if (pos > 0) firstFrame = continued ? chainFrame : null;
         if (continued) refImages = [];
@@ -1662,7 +1663,10 @@ export function renderMinimaxH3(container: HTMLElement) {
         if (override) { firstFrame = override; refImages = []; overridden = true; }
 
         const modeForClip = continued || overridden ? "firstlast" : rs.generationMode;
-        const clipState: MinimaxState = { ...rs, generationMode: modeForClip };
+        // Per-clip refImagesMp/refVideos/refAudios ride along on this shallow-copied clipState —
+        // buildConditioning() already reads all three straight off `state`, so no graphBuilder.ts
+        // change is needed to make the per-clip set actually render.
+        const clipState: MinimaxState = { ...rs, generationMode: modeForClip, refImagesMp: assets.refImagesMp, refVideos: assets.refVideos, refAudios: assets.refAudios };
 
         const isOneTake = rs.continuityMode === "onetake";
         const checkpointName = isOneTake ? `${instanceId}_${i}` : null;
@@ -1672,7 +1676,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           promptText: promptForClip(rs, i),
           seed: seedForClip(rs, i),
           firstFrame,
-          lastFrame: pos === active.length - 1 ? rs.lastFrameImage || null : null,
+          lastFrame: pos === active.length - 1 ? (assets.lastFrame || rs.lastFrameImage || null) : null,
           refImages,
           clipIndex: i,
           saveLastFrame: true,
@@ -1712,9 +1716,12 @@ export function renderMinimaxH3(container: HTMLElement) {
             turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
             turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
             loras: JSON.parse(JSON.stringify(rs.loras || [])),
-            // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — this clip's own resolved first-frame
-            // override (base metaForVideo already carries the common refImages/refVideos/etc.).
-            firstFrameImage: firstFrame || null,
+            // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — the assets this clip actually rendered
+            // with (post-override via clipAssets()), not just the common set, so Reuse can put
+            // back exactly what made this clip instead of nothing at all.
+            refImages: assets.refImages, refImagesMp: assets.refImagesMp,
+            firstFrameImage: firstFrame || null, lastFrameImage: pos === active.length - 1 ? (assets.lastFrame || rs.lastFrameImage || null) : null,
+            refVideos: JSON.parse(JSON.stringify(assets.refVideos || [])), refAudios: JSON.parse(JSON.stringify(assets.refAudios || [])),
             // SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md #3 — from the graph actually built for this
             // clip, not re-derived, so it can never drift from what really ran.
             stepsEffective: built.meta.stepsEffective, samplerUsed: built.meta.samplerUsed,

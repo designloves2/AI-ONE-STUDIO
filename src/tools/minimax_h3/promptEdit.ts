@@ -5,7 +5,7 @@
 import type { MinimaxState, PromptEntry } from "./core";
 import {
   IMAGE_BRIEF_MODES,
-  clipEnhanceImages,
+  clipAssets,
   clipFraming,
   evenBreaks,
   groupShotsWithBreaks,
@@ -17,12 +17,14 @@ import {
   promptOverrides,
   promptText,
 } from "./core";
-import { button, clear, el, searchableSelect, confirmDialog, promptDialog } from "../../shared/ui";
+import { button, clear, el, confirmDialog, promptDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
+import { mediaRow } from "./imagesPanel";
 import {
   analyzeImagesNative,
   deletePromptSet,
+  getMediaFiles,
   getModels,
   getPromptSet,
   getSystemPrompt,
@@ -417,7 +419,6 @@ export function createPromptEditOverlay(
   }
   enhTop.appendChild(modeWrap);
 
-  const modelSelWrap = el("div", { class: "min-w-[200px]" });
   const targetSel = el("select", { style: { background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } }, [
     el("option", { value: "one", text: "→ this clip" }),
     el("option", { value: "all", text: "→ split into all clips" }),
@@ -458,23 +459,31 @@ export function createPromptEditOverlay(
     renderLenTag();
   });
 
-  // Per-clip override (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1) — reuses this *existing*
-  // Enhance attachment mechanism (ollamaImages/ollamaImageMode) rather than a new reference
-  // set: unchecked reads/writes the common state.ollamaImages/ollamaImageMode (shared by every
-  // clip), checked reads/writes this clip's own prompts[selected].ollamaImages/ollamaImageMode.
-  // First check seeds the clip's own copy from the common one.
-  const overrideLabel = el("label", { class: "flex items-center gap-1.5 cursor-pointer text-[10.5px] font-semibold", style: { color: C.muted } });
+  // Per-clip override (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1) — the actual render-time
+  // reference set (refImages/refImagesMp/refVideos/refAudios/lastFrame), the same fields the
+  // left panel's Images accordion edits. Enhance's vision step reads the same resolved list via
+  // clipAssets() rather than a separate copy, so there is only ever one active image set per
+  // clip, seen by both rendering and vision. Unchecked reads/writes the common state.* set,
+  // checked reads/writes this clip's own prompts[selected].* copy, seeded from common on first
+  // check. Row ② (this status line + the checkbox) is its own row, separate from the
+  // First/Last|Reference mode buttons in row ③ below — those two are unrelated axes (how many
+  // images vision reads vs. whether this clip has its own set at all).
+  const overrideStatusText = el("span", { text: "Common (shared by all clips)", class: "text-[10.5px] font-semibold" });
+  const overrideLabel = el("label", { class: "flex items-center gap-1.5 cursor-pointer text-[10.5px]", style: { color: C.muted } });
   const overrideCb = el("input", { type: "checkbox" }) as HTMLInputElement;
   overrideCb.style.cursor = "pointer";
-  const overrideText = el("span", { text: "override for this clip" });
-  overrideLabel.append(overrideCb, overrideText);
+  overrideLabel.append(overrideCb, el("span", { text: "override for this clip" }));
+  const overrideRow = el("div", { class: "flex items-center justify-between gap-2" }, [overrideStatusText, overrideLabel]);
   overrideCb.addEventListener("change", () => {
     const p = normPrompt(state.prompts[selected]) as PromptEntry;
     state.prompts[selected] = p;
     if (overrideCb.checked && !p.override) {
       p.override = true;
-      p.ollamaImages = (state.ollamaImages || []).slice();
-      p.ollamaImageMode = state.ollamaImageMode || "ref";
+      p.refImages = (state.refImages || []).slice();
+      p.refImagesMp = (state.refImagesMp || []).slice();
+      p.refVideos = JSON.parse(JSON.stringify(state.refVideos || []));
+      p.refAudios = JSON.parse(JSON.stringify(state.refAudios || []));
+      p.lastFrame = state.lastFrameImage || "";
       p.header = state.promptHeader || "";
       p.footer = state.promptFooter || "";
     } else {
@@ -484,55 +493,56 @@ export function createPromptEditOverlay(
     refreshFraming();
     renderImageRow();
   });
-  function renderOverrideCb() {
+  function renderOverrideRow() {
     const own = promptOverrides(state.prompts[selected]);
     overrideCb.checked = own;
-    overrideLabel.style.color = own ? BRAND : C.muted;
+    overrideStatusText.textContent = own ? "This clip only" : "Common (shared by all clips)";
+    overrideStatusText.style.color = own ? BRAND : C.muted;
   }
 
+  let mediaFilesCache: { videos: string[]; audios: string[] } | null = null;
   const imgRow = el("div", { style: { display: "none", flexDirection: "column", gap: "6px" } });
   function renderImageRow() {
     clear(imgRow);
     imgRow.style.display = enhMode === "image" ? "flex" : "none";
     if (enhMode !== "image") return;
-    renderOverrideCb();
-    const own = promptOverrides(state.prompts[selected]);
-    const enh = clipEnhanceImages(state, selected);
-    const max = imageBriefMax(enh.mode);
-    let images = enh.images.slice(0, max);
-    function setImages(list: string[]) {
-      const p = normPrompt(state.prompts[selected]) as PromptEntry;
-      state.prompts[selected] = p;
-      if (own) p.ollamaImages = list; else state.ollamaImages = list;
-      ctx.persist();
-      renderImageRow();
-    }
-    if (enh.images.length > max) setImages(images);
+    renderOverrideRow();
+    const assets = clipAssets(state, selected);
+    const max = imageBriefMax(state.ollamaImageMode);
 
     const modeRow = el("div", { class: "flex gap-1 items-center flex-wrap" });
     IMAGE_BRIEF_MODES.forEach((m) => {
-      const active = enh.mode === m.key;
+      const active = state.ollamaImageMode === m.key;
       const b = el("button", { type: "button", text: m.label, title: m.hint, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 8px", borderRadius: "5px", fontWeight: active ? "700" : "400", background: active ? BRAND : C.bg2, color: "#fff", border: `1px solid ${active ? BRAND : C.border}` } });
       b.addEventListener("click", () => {
-        const p = normPrompt(state.prompts[selected]) as PromptEntry;
-        state.prompts[selected] = p;
-        if (own) p.ollamaImageMode = m.key; else state.ollamaImageMode = m.key;
-        const cap = imageBriefMax(m.key);
-        if (images.length > cap) { if (own) p.ollamaImages = images.slice(0, cap); else state.ollamaImages = images.slice(0, cap); }
+        state.ollamaImageMode = m.key;
         ctx.persist();
         renderImageRow();
       });
       modeRow.appendChild(b);
     });
-    modeRow.appendChild(overrideLabel);
 
-    const grid = el("div", { class: "flex gap-1.5 flex-wrap" });
+    // Row ③ — three columns: images (always) / reference video / reference audio (the latter
+    // two only when this clip has its own set — editing the common ones is the left panel's job).
+    const cols = el("div", { class: "flex gap-3 items-start flex-wrap" });
+
+    const imgCol = el("div", { class: "flex flex-col gap-1.5", style: { minWidth: "0" } });
+    const grid = el("div", { class: "flex gap-1.5 flex-wrap", style: { maxWidth: "534px" } });
+    function setImages(list: string[]) {
+      const p = normPrompt(state.prompts[selected]) as PromptEntry;
+      state.prompts[selected] = p;
+      const filtered = list.filter(Boolean).slice(0, 9);
+      if (assets.own) p.refImages = filtered; else state.refImages = filtered;
+      ctx.persist();
+      renderImageRow();
+    }
     function slot(i: number) {
+      const images = assets.refImages;
       const name = images[i];
-      const box = el("div", { class: "relative w-[108px] h-[108px] shrink-0 rounded-md overflow-hidden flex items-center justify-center", style: { background: "#000", border: `1px solid ${C.border}`, cursor: name ? "default" : "pointer" } });
+      const box = el("div", { class: "relative w-[54px] h-[54px] shrink-0 rounded-md overflow-hidden flex items-center justify-center", style: { background: "#000", border: `1px solid ${C.border}`, cursor: name ? "default" : "pointer" } });
       if (name) {
         box.appendChild(el("img", { src: viewUrl(name), class: "w-full h-full object-cover" }));
-        const x = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "0", right: "0", cursor: "pointer", fontSize: "13px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "2px 6px" } });
+        const x = el("button", { type: "button", text: "✕", title: "Remove", style: { position: "absolute", top: "0", right: "0", cursor: "pointer", fontSize: "11px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "1px 4px" } });
         x.addEventListener("click", (e) => {
           e.stopPropagation();
           const list = images.slice();
@@ -541,7 +551,7 @@ export function createPromptEditOverlay(
         });
         box.appendChild(x);
       } else {
-        box.appendChild(el("div", { text: "+img", class: "text-[10px] pointer-events-none", style: { color: C.muted } }));
+        box.appendChild(el("div", { text: "+img", class: "text-[9px] pointer-events-none", style: { color: C.muted } }));
         const inp = el("input", { type: "file", accept: "image/*", style: { display: "none" } }) as HTMLInputElement;
         async function take(f: File) {
           if (!f) return;
@@ -571,7 +581,7 @@ export function createPromptEditOverlay(
         box.appendChild(inp);
 
         // 다른 도구들의 이미지 업로드 슬롯과 동일한 갤러리 선택 버튼 — 여기만 빠져 있었다.
-        const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "2px", left: "2px", zIndex: "1", cursor: "pointer", fontSize: "12px", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "20px", height: "20px", padding: "0" } });
+        const galleryBtn = el("button", { type: "button", text: "🖼", title: "Pick from gallery", style: { position: "absolute", bottom: "1px", left: "1px", zIndex: "1", cursor: "pointer", fontSize: "9px", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "3px", width: "16px", height: "16px", padding: "0" } });
         galleryBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           openImageGalleryPicker((name) => {
@@ -584,53 +594,77 @@ export function createPromptEditOverlay(
       }
       return box;
     }
-    const filled = images.length;
-    for (let i = 0; i < filled; i++) grid.appendChild(slot(i));
-    if (filled < max) grid.appendChild(slot(filled));
+    const filled = assets.refImages.length;
+    const count = Math.min(9, filled + 1);
+    for (let i = 0; i < count; i++) grid.appendChild(slot(i));
 
     const note = el("div", { class: "text-[10px] leading-relaxed", style: { color: C.muted } });
-    note.textContent = (filled ? `${filled}/${max} image(s) — analyzed one at a time, then written into a brief. ` : `Add up to ${max} image(s). `) + (own ? "This clip only." : "Common (shared by all clips).");
-    imgRow.append(modeRow, grid, note);
+    note.textContent = `${filled}/9 image(s) for this clip. Enhance reads the first ${Math.min(filled, max)}.`;
+    const modelLine = el("div", { class: "text-[10px]", style: { color: C.muted, cursor: "help" } });
+    modelLine.title = "Change these in Settings → LLM Setting";
+    imgCol.append(grid, note, modelLine);
+    cols.appendChild(imgCol);
+
+    if (assets.own) {
+      const vids = (assets.refVideos as any[]) || [];
+      const vidCol = el("div", { class: "flex flex-col gap-1.5" }, [el("div", { text: "Reference video (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } })]);
+      vids.slice(0, 3).forEach((v, i) => vidCol.appendChild(mediaRow("video", v, i, mediaFilesCache?.videos || [], ctx, vids, renderImageRow)));
+      if (vids.length < 3) {
+        const add = el("button", { type: "button", text: "+ Add video", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+        add.addEventListener("click", () => {
+          const p = normPrompt(state.prompts[selected]) as PromptEntry;
+          state.prompts[selected] = p;
+          p.refVideos = vids;
+          vids.push({ file: "", start: 0, end: 5, withAudio: true });
+          ctx.persist();
+          renderImageRow();
+        });
+        vidCol.appendChild(add);
+      }
+      cols.appendChild(vidCol);
+
+      const auds = (assets.refAudios as any[]) || [];
+      const audCol = el("div", { class: "flex flex-col gap-1.5" }, [el("div", { text: "Reference audio (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } })]);
+      auds.slice(0, 3).forEach((a, i) => audCol.appendChild(mediaRow("audio", a, i, mediaFilesCache?.audios || [], ctx, auds, renderImageRow)));
+      if (auds.length < 3) {
+        const add = el("button", { type: "button", text: "+ Add audio", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+        add.addEventListener("click", () => {
+          const p = normPrompt(state.prompts[selected]) as PromptEntry;
+          state.prompts[selected] = p;
+          p.refAudios = auds;
+          auds.push({ file: "", start: 0, end: 5 });
+          ctx.persist();
+          renderImageRow();
+        });
+        audCol.appendChild(add);
+      }
+      cols.appendChild(audCol);
+
+      if (!mediaFilesCache) {
+        mediaFilesCache = { videos: [], audios: [] };
+        getMediaFiles().then((f) => { mediaFilesCache = f; renderImageRow(); }).catch(() => {});
+      }
+    }
+
+    imgRow.append(overrideRow, modeRow, cols);
+    renderModelLine(modelLine);
   }
 
   const enhBottom = el("div", { class: "flex items-center gap-2 flex-wrap" });
-  enhBottom.append(modelSelWrap, targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, enhStopBtn);
+  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, enhStopBtn);
   enhWrap.append(enhTop, imgRow, enhBottom);
 
-  function pickerField(labelText: string, options: string[], value: string, onChange: (v: string) => void) {
-    // flex:1 1 220px + minWidth:0 대신 고정 minWidth만 있으면, native CLIP 파일명처럼 옵션 텍스트가
-    // 길 때 이 wrap div가 그 텍스트 폭만큼 넓어져서(내용 기반 크기) 두 필드가 한 줄에 안 들어가고
-    // 다음 줄로 밀린다(Ollama는 모델명이 짧아서 우연히 안 겪던 문제). minWidth:0으로 내용 크기보다
-    // 작게 줄어들 수 있게 해야 flex-wrap 컨테이너 폭 안에서 균등하게 나눠 갖고, select 텍스트는
-    // 넘치는 부분만 잘려 보인다.
-    const wrap = el("div", { class: "flex flex-col gap-0.5", style: { flex: "1 1 220px", minWidth: "0" } });
-    wrap.appendChild(el("div", { text: labelText, class: "text-[9px]", style: { color: C.muted } }));
-    const picker = searchableSelect(options.length ? options : ["(no models found)"], value || options[0] || "", onChange);
-    wrap.appendChild(picker.el);
-    return wrap;
-  }
-
-  function renderModelSel() {
-    clear(modelSelWrap);
-    modelSelWrap.className = "flex gap-2 flex-wrap min-w-[280px]";
+  // Read-only — Settings → Models is where these are actually changed (SPEC_MINIMAX_H3_PER_CLIP_
+  // OVERRIDE.md peer note: a picker here just eats two rows of vertical space that come straight
+  // out of the clip editor's height, for a setting that's shared by every clip anyway).
+  function renderModelLine(target: HTMLElement) {
     if (!clipModels.length) {
-      modelSelWrap.appendChild(el("div", { text: "Could not load the CLIP list — check the ComfyUI connection", class: "text-[10.5px]", style: { color: C.warn } }));
+      target.textContent = "Could not load the CLIP list — check the ComfyUI connection";
+      target.style.color = C.warn;
       return;
     }
-    modelSelWrap.appendChild(
-      pickerField("BRIEF CLIP (writes the shot list)", clipModels, state.nativeBriefClip, (v) => {
-        state.nativeBriefClip = v;
-        ctx.persist();
-      })
-    );
-    modelSelWrap.appendChild(
-      pickerField("VISION CLIP (Image → Brief only)", clipModels, state.nativeVisionClip, (v) => {
-        state.nativeVisionClip = v;
-        ctx.persist();
-      })
-    );
-    statusTag.textContent = clipModels.length ? "runs through ComfyUI's own model loading — no external server" : statusTag.textContent;
-    statusTag.style.color = C.muted;
+    target.textContent = `Brief: ${state.nativeBriefClip || "(none)"} . Vision: ${state.nativeVisionClip || "(none)"}`;
+    target.style.color = C.muted;
   }
 
   async function refreshEnhanceModels() {
@@ -641,7 +675,7 @@ export function createPromptEditOverlay(
       statusTag.textContent = clipModels.length ? `${clipModels.length} CLIP(s) found` : "⚠ Could not fetch the text encoder list from ComfyUI";
       statusTag.style.color = clipModels.length ? C.muted : C.warn;
     }
-    renderModelSel();
+    renderImageRow();
   }
 
   async function loadSystemPrompt() {
@@ -693,7 +727,7 @@ export function createPromptEditOverlay(
 
   enhBtn.addEventListener("click", async () => {
     if (busy) return;
-    const images = enhMode === "image" ? clipEnhanceImages(state, selected).images.filter(Boolean) : [];
+    const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.ollamaImageMode)).filter(Boolean) : [];
 
     if (!state.nativeBriefClip) {
       ctx.showPopup("Enter a Brief CLIP filename.", true);
@@ -943,6 +977,11 @@ export function createPromptEditOverlay(
       ov.style.display = "flex";
       if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
       if (selected >= state.prompts.length) selected = 0;
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §3 — opens in the enhance mode that matches the
+      // node's mode: Reference/First-Last already has images attached, so opening in
+      // Text → Brief would hide the attachment area (and the override checkbox with it) behind
+      // an extra click.
+      enhMode = (state.generationMode || "t2v") === "t2v" ? "text" : "image";
       renderModes();
       renderImageRow();
       renderAll();

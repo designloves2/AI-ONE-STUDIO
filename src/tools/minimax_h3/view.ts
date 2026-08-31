@@ -2243,6 +2243,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     state.promptFooter = "";
     state.generationMode = "firstlast";
     state.continuityMode = "none";
+    // Extend always renders First/Last. A source made in Reference mode keeps its turbo files
+    // in the *reference* slots, which firstlast never reads — carry them over (node v1.21.1).
+    if (!state.pddFile || state.pddFile === "none") state.pddFile = state.pddFileReference || state.pddFile;
+    if (!state.turboLora || state.turboLora === "none") state.turboLora = state.turboLoraReference || state.turboLora;
     if (!generationModesFor(state).find((m) => m.key === "firstlast")?.enabled) {
       showPopup("Set the First/Last UNET in ⚙ Settings → Models to use Extend.", true);
       return;

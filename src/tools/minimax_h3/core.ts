@@ -19,7 +19,7 @@ export interface PromptEntry {
   // and header/footer instead of the common state.* set. This is the actual render-time
   // reference set (same one the left panel's Images accordion edits) — Enhance's vision step
   // reads the same resolved list (via clipAssets()) rather than a separate copy, so there is
-  // only ever one active image set per clip, seen by both sides. ollamaImageMode (how many of
+  // only ever one active image set per clip, seen by both sides. briefImageMode (how many of
   // those images vision actually reads — 2 for First/Last-style briefs, 8 for Reference-style)
   // is a vision-only cap, not a render input, so it stays common-only and outside this override.
   override?: boolean;
@@ -118,14 +118,15 @@ export interface MinimaxState {
   filenamePrefix: string;
   stitchAtEnd: boolean;
   targetLengthSeconds?: string;
-  // ollamaImageMode's name is kept as-is (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6 — the node
-  // side left it too): it's the Image → Brief cap ("First/Last" 2 vs "Reference" 8 — how many
-  // of a clip's resolved refImages the vision step actually reads), unrelated to the Ollama
-  // backend the name originally shared. Only the external-server path is gone. There is no
-  // separate ollamaImages array — Enhance reads clipAssets().refImages directly (§1's "one
-  // active set, seen by both rendering and vision" design), so a dedicated vision-only copy
-  // would just be a second place for the same picture to go stale in.
-  ollamaImageMode: string;
+  // Renamed from ollamaImageMode (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6 removed the Ollama
+  // backend but this field lived on — it's the Image → Brief cap: "First/Last" 2 vs
+  // "Reference" 8, how many of a clip's resolved refImages the vision step actually reads).
+  // Node side (comfyui-tj-node-studio-one) made the same rename; migrated from the old key in
+  // defaultState(). There is no separate ollamaImages array — Enhance reads
+  // clipAssets().refImages directly (§1's "one active set, seen by both rendering and vision"
+  // design), so a dedicated vision-only copy would just be a second place for the same
+  // picture to go stale in.
+  briefImageMode: string;
   visionSource: string; // was "ollama" | "native" — Ollama removed, always native now; field kept for saved-state compat
   nativeVisionClip: string;
   nativeBriefClip: string;
@@ -940,7 +941,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     saveSubfolder: saved.saveSubfolder || "",
     filenamePrefix: saved.filenamePrefix || "MMH3",
     stitchAtEnd: saved.stitchAtEnd ?? true,
-    ollamaImageMode: saved.ollamaImageMode || "ref",
+    briefImageMode: saved.briefImageMode || (saved as any).ollamaImageMode || "ref",
     visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",

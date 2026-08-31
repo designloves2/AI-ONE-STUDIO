@@ -559,14 +559,14 @@ export function createPromptEditOverlay(
     if (enhMode !== "image") return;
     renderOverrideRow();
     const assets = clipAssets(state, selected);
-    const max = imageBriefMax(state.ollamaImageMode);
+    const max = imageBriefMax(state.briefImageMode);
 
     const modeRow = el("div", { class: "flex gap-1 items-center flex-wrap" });
     IMAGE_BRIEF_MODES.forEach((m) => {
-      const active = state.ollamaImageMode === m.key;
+      const active = state.briefImageMode === m.key;
       const b = el("button", { type: "button", text: m.label, title: m.hint, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 8px", borderRadius: "5px", fontWeight: active ? "700" : "400", background: active ? BRAND : C.bg2, color: "#fff", border: `1px solid ${active ? BRAND : C.border}` } });
       b.addEventListener("click", () => {
-        state.ollamaImageMode = m.key;
+        state.briefImageMode = m.key;
         ctx.persist();
         renderImageRow();
       });
@@ -778,7 +778,7 @@ export function createPromptEditOverlay(
 
   enhBtn.addEventListener("click", async () => {
     if (busy) return;
-    const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.ollamaImageMode)).filter(Boolean) : [];
+    const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean) : [];
 
     if (!state.nativeBriefClip) {
       ctx.showPopup("Enter a Brief CLIP filename.", true);

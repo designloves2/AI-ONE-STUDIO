@@ -57,7 +57,7 @@ not a coding failure.
 |---|---|---|---|---|---|
 | Move Sampler / Scheduler / Denoise / Sigma-Shift into a left-panel Sampling accordion | — | `d4d4fe6` | 2026-08-31 | user | Asked for on the web side, never relayed to the node in either direction. Node still has these where they were — **open port, web→node**, if the node should match. |
 | Panel keeps the settings you last used, not a workflow's older serialised copy (`preferNewerThan`, queue-time stamping) | `3cdca12` | — | 2026-08-31 | node | Node-only so far. Check whether the web twin has the same stale-restore path. |
-| Startup banner when dependency node packs are missing (`dependency_check.py`, `__init__.py`) | `291d84a` (v1.20.1) | n/a | 2026-08-31 | node | **No web counterpart** — the web twin runs against a plain ComfyUI with no node install, so it has no dependency-pack concept. Recorded so the ledger stays complete. Reads only `custom_nodes/` dir names; no subprocess/network. |
+| Missing-dependency-pack warnings: startup console banner (`dependency_check.py`), then a persistent red/amber strip on the MiniMax H3 node with the installer's absolute path, per-line Copy buttons and a step-by-step run-it popup; `/minimax_h3_one/node_availability` returns `install_dir` + script names; `install_requirements.*` now also clone `ComfyUI-TJ_NODE` and restore numpy | `291d84a` (v1.20.1) → `v1.20.3` | n/a | 2026-08-31 | node | **No web counterpart** — the web twin runs against a plain ComfyUI with no node install, so it has no dependency-pack concept. Recorded so the ledger stays complete. The console check reads only `custom_nodes/` dir names; no subprocess/network. |
 
 ## Upstream (ComfyUI-TJ_NODE — the third repo)
 

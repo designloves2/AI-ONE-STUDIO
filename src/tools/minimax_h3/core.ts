@@ -71,6 +71,11 @@ export interface MinimaxState {
   generationMode: string;
   accelMode: string;
   upscaleMode: string;
+  // RTX Deblur (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15) — a pre-pass before upscale, not one
+  // of its options: each has its own "none", so "Deblur only, no upscale" is a real, valid
+  // combination. Same-resolution by definition — never derived from a scale factor.
+  // "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA"
+  deblurStrength: string;
   continuityMode: string;
   oneTakeLockAudio: boolean;
   oneTakeAutoStitch: boolean;
@@ -888,6 +893,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     generationMode: saved.generationMode || "t2v",
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",
+    deblurStrength: saved.deblurStrength || "none",
     continuityMode: saved.continuityMode || "onetake",
     oneTakeLockAudio: saved.oneTakeLockAudio ?? false,
     oneTakeAutoStitch: saved.oneTakeAutoStitch ?? true,

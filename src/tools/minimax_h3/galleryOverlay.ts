@@ -418,17 +418,32 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   }
 
   // ── Upscale bar ───────────────────────────────────────────────────────────
-  const upscaleMethods = UPSCALE_MODES.filter((m) => m.key !== "none");
-  let upscaleMethod: string = state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : upscaleMethods[0]?.key || "model";
+  // "None" belongs in the method list — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15: with deblur
+  // beside it, "no upscale" is a real choice, and it's what lets ⬆ Run do a deblur-only pass.
+  const upscaleMethods = UPSCALE_MODES;
+  let upscaleMethod: string = state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "model";
   let upscaleModelVal = state.upscaleModel || "";
   let upscaleRtxScale = state.rtxScale ?? 2.0;
   let upscaleRtxQuality = state.rtxQuality || "ULTRA";
+  // Deblur sharpens at the clip's own resolution and is a separate job from upscaling: its own
+  // button runs it alone, and the same select also feeds the Upscale button so one pass can
+  // deblur then upscale without writing an intermediate file. Pressing one never triggers the
+  // other's work.
+  let deblurStrength = "none";
 
   const upscaleMethodWrap = el("div", { style: { minWidth: "140px" } });
   const upscaleModelWrap = el("div", { style: { minWidth: "180px" } });
   const upscaleRtxWrap = el("div", { class: "flex items-center gap-2" });
+  const deblurWrap = el("div", { style: { minWidth: "100px" } });
   const upscaleReadout = makeProgressReadout();
-  const upscaleRunBtn = button("⬆ Run", () => { const v = findPost(); if (v) runPost(v, (f) => buildUpscaleGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { method: upscaleMethod as "model" | "rtx", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality }), upscaleReadout, upscaleRunBtn); }, "primary") as HTMLButtonElement;
+  const upscaleRunBtn = button("⬆ Run", () => {
+    const v = findPost();
+    if (v) runPost(v, (f) => buildUpscaleGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { method: upscaleMethod as "model" | "rtx" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality, deblur: deblurStrength }, ctx.availability), upscaleReadout, upscaleRunBtn);
+  }, "primary") as HTMLButtonElement;
+  const deblurRunBtn = button("✦ Deblur", () => {
+    const v = findPost();
+    if (v) runPost(v, (f) => buildUpscaleGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { method: "none", deblur: deblurStrength }, ctx.availability), upscaleReadout, deblurRunBtn);
+  }) as HTMLButtonElement;
   const upscaleBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
 
   function renderUpscaleMethod() {
@@ -456,18 +471,35 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       el("span", { text: "quality", class: "text-[10.5px]", style: { color: C.muted } }), qualitySel
     );
   }
+  function renderDeblur() {
+    clear(deblurWrap);
+    const sel = select([{ value: "none", label: "off" }, { value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }, { value: "ULTRA", label: "Ultra" }], deblurStrength, (v) => { deblurStrength = v; renderUpscaleControls(); });
+    (sel as HTMLElement).style.fontSize = "10.5px";
+    deblurWrap.append(el("span", { text: "deblur ", class: "text-[10.5px]", style: { color: C.muted } }), sel);
+  }
   function refreshUpscaleAvailability() {
     const avail = ctx.availability;
+    const deblurOn = deblurStrength !== "none";
+    const deblurOk = !avail || !Object.keys(avail).length || !!avail.TJ_RTXDeblur;
+    const isNone = upscaleMethod === "none";
     const nodeName = upscaleMethod === "rtx" ? "RTXVideoSuperResolution" : "ImageUpscaleWithModel";
-    const missing = avail && Object.keys(avail).length && !avail[nodeName];
-    upscaleRunBtn.disabled = !postPick || !!missing || postRunning;
+    const upscalerOk = !avail || !Object.keys(avail).length || !!avail[nodeName];
+    // With Upscale = None, Run needs deblur set rather than a model or the RTX node.
+    const upMissing = isNone ? !(deblurOn && deblurOk) : !upscalerOk;
+    upscaleRunBtn.disabled = !postPick || upMissing || postRunning;
     upscaleRunBtn.style.opacity = upscaleRunBtn.disabled ? "0.5" : "1";
-    upscaleRunBtn.title = missing ? `Missing node: ${nodeName}` : "";
+    upscaleRunBtn.title = isNone ? (deblurOk ? "" : "Missing node: TJ_RTXDeblur") : upscalerOk ? "" : `Missing node: ${nodeName}`;
+
+    const deblurMissing = !deblurOn || !deblurOk;
+    deblurRunBtn.disabled = !postPick || deblurMissing || postRunning;
+    deblurRunBtn.style.opacity = deblurRunBtn.disabled ? "0.5" : "1";
+    deblurRunBtn.title = !deblurOk ? "Missing node: TJ_RTXDeblur" : !deblurOn ? "Pick a deblur strength first" : "";
   }
   function renderUpscaleControls() {
     renderUpscaleMethod();
+    renderDeblur();
     upscaleRtxWrap.style.display = upscaleMethod === "rtx" ? "flex" : "none";
-    upscaleModelWrap.style.display = upscaleMethod === "rtx" ? "none" : "block";
+    upscaleModelWrap.style.display = upscaleMethod === "rtx" || upscaleMethod === "none" ? "none" : "block";
     if (upscaleMethod === "rtx") renderUpscaleRtx();
     refreshUpscaleAvailability();
   }
@@ -480,7 +512,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   renderUpscaleModel(upscaleModelVal ? [upscaleModelVal] : []);
   upscaleBar.append(
     el("div", { text: "Upscale:", class: "text-[10.5px] font-bold", style: { color: C.text } }),
-    upscaleMethodWrap, upscaleModelWrap, upscaleRtxWrap, upscaleReadout.wrap, upscaleRunBtn
+    deblurWrap, deblurRunBtn, upscaleMethodWrap, upscaleModelWrap, upscaleRtxWrap, upscaleReadout.wrap, upscaleRunBtn
   );
 
   // ── Interpolate bar ───────────────────────────────────────────────────────

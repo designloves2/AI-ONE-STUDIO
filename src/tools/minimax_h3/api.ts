@@ -174,6 +174,8 @@ export const MMH3_OPTIONAL_NODES = [
   "TJ_FreeTextEncoderVRAM",
   // PDD Acc turbo mode — SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md.
   "MiniMaxH3PDDAccApply",
+  // RTX Deblur — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15.
+  "TJ_RTXDeblur",
 ];
 export const MMH3_CORE_NODES = ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "CreateVideo", "SaveVideo"];
 

@@ -38,6 +38,7 @@ const N = {
   upModel: "MM:upscale_model",
   upApply: "MM:upscale",
   rtx: "MM:rtx",
+  deblurR: "MM:deblur",
   video: "MM:video",
   save: "MM:save_video",
   lastF: "MM:last_frame",
@@ -528,6 +529,12 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   g[N.decodeA] = { class_type: "VAEDecodeAudio", inputs: { samples: [N.sampler, 0], vae: [N.vaeA, 0] } };
 
   let images: any = [N.decode, 0];
+  // Deblur runs on the decoded frames before any upscale, at their own resolution. It is
+  // independent of the upscale setting: Upscale = None still deblurs.
+  if (state.deblurStrength && state.deblurStrength !== "none" && has(avail, "TJ_RTXDeblur")) {
+    g[N.deblurR] = { class_type: "TJ_RTXDeblur", inputs: { images, strength: state.deblurStrength } };
+    images = [N.deblurR, 0];
+  }
   const up = state.upscaleMode || "none";
   if (up === "model" && state.upscaleModel && state.upscaleModel !== "none") {
     g[N.upModel] = { class_type: "UpscaleModelLoader", inputs: { model_name: state.upscaleModel } };
@@ -574,18 +581,36 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
 // pipeline above, so they get their own plain node-id strings instead of sharing the N map.
 
 export interface UpscaleGraphOpts {
-  method: "model" | "rtx";
+  // "none" is a real choice, not an absence — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15: with
+  // deblur beside it, Upscale = None is what lets this graph run a deblur-only pass.
+  method: "model" | "rtx" | "none";
   upscaleModel?: string;
   rtxScale?: number;
   rtxQuality?: string;
+  // RTX Deblur — a pre-pass before upscale, at the input's own resolution, independent of
+  // whether an upscale follows. "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA".
+  deblur?: string;
 }
 
-export function buildUpscaleGraph(inputFilename: string, folder: string, stem: string, opts: UpscaleGraphOpts) {
+export function buildUpscaleGraph(inputFilename: string, folder: string, stem: string, opts: UpscaleGraphOpts, avail?: Avail) {
   const g: Record<string, any> = {};
   g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: FPS, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } };
   let images: any = ["load", 0];
 
-  if (opts.method === "rtx") {
+  // Deblur is a pre-pass, not part of upscaling: it sharpens at the input's own resolution and
+  // runs whether or not an upscale follows. A separate `if` (not nested in the upscale branch)
+  // is what lets the caller ask for deblur alone via method:"none" below.
+  const deblurOn = !!opts.deblur && opts.deblur !== "none";
+  if (deblurOn) {
+    if (!has(avail, "TJ_RTXDeblur")) throw new Error("TJ_RTXDeblur is not installed — restart ComfyUI after updating this pack.");
+    g.deblur = { class_type: "TJ_RTXDeblur", inputs: { images, strength: opts.deblur } };
+    images = ["deblur", 0];
+  }
+
+  if (opts.method === "none") {
+    // deblur-only: nothing else touches the frames
+    if (!deblurOn) throw new Error("Nothing to do — pick deblur, an upscale, or both.");
+  } else if (opts.method === "rtx") {
     g.rtx = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": opts.rtxScale ?? 2.0, quality: opts.rtxQuality || "ULTRA" } };
     images = ["rtx", 0];
   } else {
@@ -594,8 +619,11 @@ export function buildUpscaleGraph(inputFilename: string, folder: string, stem: s
     images = ["upApply", 0];
   }
 
+  // deblur-only gets its own suffix — otherwise a "_upscaled" file that never touched the
+  // upscaler would misname what actually happened to it.
+  const suffix = opts.method === "none" ? "_deblur" : "_upscaled";
   g.video = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: ["load", 2] } };
-  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}_upscaled`, format: "auto", codec: "auto" } };
+  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
   return { graph: g, saveNode: "save" };
 }
 

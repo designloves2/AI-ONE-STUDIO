@@ -1332,17 +1332,38 @@ export function renderMinimaxH3(container: HTMLElement) {
     );
 
     leftPanel.appendChild(
-      accordion("upscale", "Upscale", UPSCALE_MODES.find((m) => m.key === state.upscaleMode)?.label || "None", () => [
-        col([select(UPSCALE_MODES.map((m) => ({ value: m.key, label: m.label })), state.upscaleMode, (v) => { state.upscaleMode = v; persist(); renderLeft(); })]),
-        ...(state.upscaleMode === "rtx"
-          ? [
-              row([
-                col([label("RTX scale"), numberField(state.rtxScale ?? 2, (v) => { state.rtxScale = v; persist(); }, 0.5)]),
-                col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })), state.rtxQuality || "ULTRA", (v) => { state.rtxQuality = v; persist(); })]),
-              ]),
-            ]
-          : []),
-      ])
+      accordion(
+        "upscale",
+        "Upscale",
+        [
+          state.deblurStrength && state.deblurStrength !== "none" ? `Deblur ${state.deblurStrength}` : null,
+          UPSCALE_MODES.find((m) => m.key === state.upscaleMode)?.label || "None",
+        ]
+          .filter(Boolean)
+          .join(" + "),
+        () => [
+          // Deblur is a pre-pass before upscale, not one of its options — each has its own
+          // "none", so "Deblur only, no upscale" is a valid, real combination (SPEC_MINIMAX_H3_
+          // PER_CLIP_OVERRIDE.md §15). Same resolution either way; this never touches width/height.
+          col([
+            label("Deblur (before upscale)"),
+            select(
+              [{ value: "none", label: "None" }, { value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }, { value: "ULTRA", label: "Ultra" }],
+              state.deblurStrength || "none",
+              (v) => { state.deblurStrength = v; persist(); renderLeft(); }
+            ),
+          ]),
+          col([label("Upscale"), select(UPSCALE_MODES.map((m) => ({ value: m.key, label: m.label })), state.upscaleMode, (v) => { state.upscaleMode = v; persist(); renderLeft(); })]),
+          ...(state.upscaleMode === "rtx"
+            ? [
+                row([
+                  col([label("RTX scale"), numberField(state.rtxScale ?? 2, (v) => { state.rtxScale = v; persist(); }, 0.5)]),
+                  col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })), state.rtxQuality || "ULTRA", (v) => { state.rtxQuality = v; persist(); })]),
+                ]),
+              ]
+            : []),
+        ]
+      )
     );
 
     leftPanel.appendChild(

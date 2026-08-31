@@ -100,7 +100,14 @@ export interface QueueResult {
  */
 export function queuePrompt(
   promptGraph: Record<string, any> | null,
-  opts?: { onProgress?: (v: number, m: number) => void; onQueued?: (promptId: string) => void; existingPromptId?: string }
+  opts?: {
+    onProgress?: (v: number, m: number) => void;
+    onQueued?: (promptId: string) => void;
+    existingPromptId?: string;
+    /** Fired on each /history poll tick while the job is still running — a heartbeat for when
+     *  the WS has gone quiet (mobile background throttling) and the poll is all that's left. */
+    onPoll?: () => void;
+  }
 ): Promise<QueueResult> {
   return new Promise(async (resolve, reject) => {
     await connect();
@@ -254,6 +261,8 @@ export function queuePrompt(
             } else if (entry?.status?.status_str === "error") {
               cleanup();
               reject(new Error(entry.status?.messages?.map((m: any) => m?.[1]?.exception_message || "").filter(Boolean).join(" ") || "generation failed"));
+            } else {
+              opts?.onPoll?.(); // still running — heartbeat for a WS-quiet mobile tab
             }
           } catch {
             // transient fetch failure — retry next tick

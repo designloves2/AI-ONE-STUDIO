@@ -391,6 +391,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         fill.style.width = `${pct.toFixed(1)}%`;
         label.textContent = count > 1 ? `chunk ${idx + 1}/${count} · ${Math.round(within * 100)}% (${Math.round(pct)}% overall)` : `${Math.round(pct)}% · ${v} / ${m}`;
       },
+      // Label-only update — no change to the fill. Used for the "still working" heartbeat while
+      // the WS is quiet on mobile and only the /history poll is reporting.
+      note(msg: string) { wrap.style.display = "flex"; label.textContent = msg; },
       done() { wrap.style.display = "none"; },
       fail(msg: string) { label.textContent = `✕ ${msg}`; fill.style.width = "0%"; },
     };
@@ -480,7 +483,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       if (chunkCount === 1) {
         const { graph, saveNode } = buildFn(copied, stem, {});
         readout.start(`${label}…`);
-        const res = await queuePrompt(graph, { onProgress: (val, max) => readout.chunkStep(0, 1, val, max) });
+        const res = await queuePrompt(graph, {
+          onProgress: (val, max) => readout.chunkStep(0, 1, val, max),
+          onPoll: () => readout.note(`${label} · still working (connection quiet)…`),
+        });
         const out = res.byNode?.[saveNode];
         const o = (out?.images || out?.gifs || [])[0];
         if (o) outFile = { filename: o.filename, subfolder: o.subfolder || outFolder };
@@ -495,7 +501,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           const cap = Math.min(chunkFrames, totalFrames - skip);
           const { graph, saveNode } = buildFn(copied, `${stem}_c${String(i).padStart(3, "0")}`, { folder: chunkSub, skipFirstFrames: skip, frameLoadCap: cap, saveSuffix: "" });
           readout.start(`${label} — preparing chunk ${i + 1}/${chunkCount}…`);
-          const res = await queuePrompt(graph, { onProgress: (val, max) => readout.chunkStep(i, chunkCount, val, max) });
+          const res = await queuePrompt(graph, {
+            onProgress: (val, max) => readout.chunkStep(i, chunkCount, val, max),
+            onPoll: () => readout.note(`${label} · chunk ${i + 1}/${chunkCount} · still working (connection quiet)…`),
+          });
           const out = res.byNode?.[saveNode];
           const o = (out?.images || out?.gifs || [])[0];
           if (!o) throw new Error(`chunk ${i + 1}/${chunkCount} produced no output`);

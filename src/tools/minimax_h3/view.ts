@@ -1934,6 +1934,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             onProgress: (v, m) => setStepProgress(v, m),
             existingPromptId: reattachId,
             onQueued: (promptId) => saveRunProgress({ pos, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId, savedAt: Date.now(), runState: rs }),
+            onPoll: () => setStatus(`Clip ${curClip}/${totClip} · still rendering (connection quiet)…`),
           });
         } finally {
           samplingActive = false;

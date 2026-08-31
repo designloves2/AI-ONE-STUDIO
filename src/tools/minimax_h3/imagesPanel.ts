@@ -5,8 +5,9 @@
 import type { MinimaxState } from "./core";
 import { button, col, el, clear, label, numberField, panel, row, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
-import { getMediaFiles, getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
+import { getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
+import { openVideoGalleryPicker } from "./videoPicker";
 
 export interface ImagesPanelCtx {
   persist: () => void;
@@ -208,95 +209,268 @@ function refTypeDropdown(state: MinimaxState, ctx: ImagesPanelCtx, onChange: () 
   return { el: wrap, refreshLabel };
 }
 
-export function mediaRow(kind: "video" | "audio", entry: any, idx: number, files: string[], ctx: ImagesPanelCtx, list: any[], onRefresh: () => void) {
-  const isVideo = kind === "video";
-  const box = el("div", { class: "flex flex-col gap-1", style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px" } });
+// ui_clip_media_slots.js 원본을 그대로 옮긴 것 — 왼쪽 패널(공통)과 Prompt Edit(클립 전용)
+// 양쪽에서 이 한 모듈을 쓴다. 이미지 타일과 같은 조립: 클릭해서 채우는 작은 사각형 + 그
+// 아래 한 줄씩 쌓이는 컨트롤. 두 미디어 타일 다 정사각이 아니라 가로가 긴 직사각형이다 —
+// 영상 프레임은 16:9라 정사각으로 자르면 양옆이 날아가고, 오디오는 파일명을 보여줄
+// 가로 폭이 필요하다.
+const MEDIA_TILE = 54; // 이미지 타일과 같은 높이
+const MEDIA_TILE_W = 72;
+const TINY = "9.5px"; // "source 59.40s · 30fps" 크기
 
-  const hdr = el("div", { class: "flex items-center gap-1.5" });
-  hdr.appendChild(el("div", { text: `<${isVideo ? "Video" : "Audio"} ${idx + 1}>`, class: "flex-1", style: { fontSize: "10px", fontWeight: "700", color: BRAND } }));
-  const del = el("button", { type: "button", text: "✕", title: "Remove", style: { cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "10px" } });
-  del.addEventListener("click", () => {
-    list.splice(idx, 1);
-    ctx.persist();
-    onRefresh();
+// 슬라이더 핸들은 인라인 스타일로 못 줄인다 — 스타일시트가 한 번 있어야 한다.
+let sliderCssInjected = false;
+function ensureSliderCss() {
+  if (sliderCssInjected) return;
+  sliderCssInjected = true;
+  const st = document.createElement("style");
+  st.textContent = `
+    .aos-mmh3-scrub { -webkit-appearance: none; appearance: none; background: transparent; }
+    .aos-mmh3-scrub::-webkit-slider-runnable-track { height: 3px; background: ${C.border}; border-radius: 2px; }
+    .aos-mmh3-scrub::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 6px; height: 6px; border-radius: 50%; background: ${BRAND}; border: none; margin-top: -1.5px; }
+    .aos-mmh3-scrub::-moz-range-track { height: 3px; background: ${C.border}; border-radius: 2px; }
+    .aos-mmh3-scrub::-moz-range-thumb { width: 6px; height: 6px; border-radius: 50%; background: ${BRAND}; border: none; }
+  `;
+  document.head.appendChild(st);
+}
+
+/** m:ss — the transport and the length readout share this form. */
+function clock(sec: number): string {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** A one-line labelled number field, as small as it can be and still be clickable. */
+function tinyNum(labelText: string, value: number, onChange: (v: number) => void, clamp?: (v: number) => number) {
+  const inp = el("input", { type: "number", step: "0.5", style: { width: "44px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "4px", padding: "1px 3px", fontSize: TINY, fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+  inp.value = String(value ?? 0);
+  inp.addEventListener("change", () => {
+    // Correcting the stored number but leaving the box showing the rejected one reads as
+    // the edit having been accepted, so the field is written back too.
+    const v = (clamp || ((x: number) => Math.max(0, x)))(Number(inp.value) || 0);
+    inp.value = String(v);
+    onChange(v);
   });
-  hdr.appendChild(del);
+  const wrap = el("div", { class: "flex items-center justify-center gap-1", style: { fontSize: TINY, color: C.muted } }, [el("span", { text: labelText }), inp]);
+  return { el: wrap, input: inp };
+}
 
-  const opts = ["", ...files];
-  const sel = select(opts.map((f) => ({ value: f, label: f || "— pick a file —" })), entry.file || "", (v) => { entry.file = v; ctx.persist(); onRefresh(); });
+/**
+ * One slot. `kind` is "video" or "audio".
+ *
+ * Video shows a frame of the file and previews muted on hover, the way the gallery does — a
+ * still frame alone doesn't tell you which take you grabbed. Audio has no frame to show, so
+ * the tile carries the filename instead, wrapped, with the full name on hover.
+ */
+function mediaSlot(kind: "video" | "audio", list: any[], idx: number, ctx: ImagesPanelCtx, onRefresh: () => void, onPickFromGallery: ((onPicked: (name: string) => void) => void) | null, missing?: Set<string>) {
+  const isVideo = kind === "video";
+  const entry = list[idx] || {};
+  const isGone = !!entry.file && !!missing?.has(entry.file);
+  const wrap = el("div", { class: "flex flex-col gap-0.5 items-center shrink-0", style: { width: `${MEDIA_TILE_W}px` } });
 
-  const up = el("button", { type: "button", text: "⬆ upload", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "5px", background: C.bg3, color: C.text, border: `1px solid ${C.border}` } });
-  const inp = el("input", { type: "file", accept: isVideo ? "video/*" : "audio/*", style: { display: "none" } }) as HTMLInputElement;
-  up.addEventListener("click", () => inp.click());
-  inp.addEventListener("change", async () => {
-    const f = inp.files?.[0];
-    inp.value = "";
+  const tile = el("div", { class: "relative overflow-hidden rounded-md cursor-pointer flex items-center justify-center shrink-0", style: { width: `${MEDIA_TILE_W}px`, height: `${MEDIA_TILE}px`, border: `1px solid ${C.border}`, background: "#000" } });
+
+  let media: HTMLVideoElement | HTMLAudioElement | null = null;
+  if (isGone) {
+    // The file this slot was saved with is no longer in input/. Say which one, rather than
+    // showing an empty tile that looks like nothing was ever attached.
+    tile.style.border = `1px dashed ${C.warn}`;
+    tile.style.background = "#1a1206";
+    tile.title = `Missing from the input folder:\n${entry.file}`;
+    tile.appendChild(
+      el("div", { class: "flex flex-col items-center justify-center gap-0.5", style: { width: "100%", height: "100%", padding: "2px", boxSizing: "border-box" } }, [
+        el("div", { text: "⚠", style: { fontSize: "13px", color: C.warn, lineHeight: "1" } }),
+        el("div", { text: entry.file, class: "text-center break-all overflow-hidden", style: { fontSize: "6.5px", color: C.warn, lineHeight: "1.1", maxHeight: "22px" } }),
+      ])
+    );
+    const gx = el("button", { type: "button", text: "✕", title: "Remove this missing entry", class: "absolute top-0 right-0 z-[3]", style: { cursor: "pointer", fontSize: "10px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "1px 4px" } });
+    gx.addEventListener("click", (e) => { e.stopPropagation(); list.splice(idx, 1); ctx.persist(); onRefresh(); });
+    tile.appendChild(gx);
+  } else if (entry.file) {
+    if (isVideo) {
+      const v = el("video", { muted: "", playsinline: "", preload: "metadata", class: "w-full h-full", style: { objectFit: "cover" } }) as HTMLVideoElement;
+      v.src = viewUrl(entry.file);
+      v.muted = true;
+      // Hover-scrub, same affordance as the gallery: it costs nothing until pointed at.
+      tile.addEventListener("mouseenter", () => { v.currentTime = Math.max(0, Number(entry.start) || 0); v.play().catch(() => {}); });
+      tile.addEventListener("mouseleave", () => { v.pause(); v.currentTime = Math.max(0, Number(entry.start) || 0); });
+      tile.appendChild(v);
+      media = v;
+    } else {
+      const a = el("audio", { preload: "metadata" }) as HTMLAudioElement;
+      a.src = viewUrl(entry.file);
+      wrap.appendChild(a);
+      tile.appendChild(el("div", { text: entry.file, title: entry.file, class: "text-center break-all overflow-hidden", style: { fontSize: "8px", lineHeight: "1.25", color: C.text, padding: "3px" } }));
+      media = a;
+    }
+    tile.appendChild(el("div", { text: String(idx + 1), class: "absolute top-0.5 left-1 pointer-events-none font-bold", style: { fontSize: "9px", color: "#fff", textShadow: "0 0 3px #000" } }));
+    const x = el("button", { type: "button", text: "✕", title: "Remove", class: "absolute top-0 right-0 z-[3]", style: { cursor: "pointer", fontSize: "10px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "1px 4px" } });
+    x.addEventListener("click", (e) => { e.stopPropagation(); list.splice(idx, 1); ctx.persist(); onRefresh(); });
+    tile.appendChild(x);
+  } else {
+    tile.appendChild(el("div", { text: isVideo ? "+vid" : "+aud", class: "pointer-events-none", style: { color: C.muted, fontSize: "10px" } }));
+  }
+
+  // Writing past the end of the array would leave holes that persist as nulls, so an empty
+  // tile appends instead of assigning at its own index.
+  const setFile = (name: string) => {
+    const base = { file: name, start: 0, end: 0, ...(isVideo ? { withAudio: true } : {}) };
+    if (idx < list.length) list[idx] = { ...(list[idx] || {}), ...base };
+    else list.push(base);
+  };
+
+  // Click to upload; the gallery button only exists for video, which is what the MiniMax
+  // gallery holds — there is no audio gallery to pick from.
+  const fileInp = el("input", { type: "file", accept: isVideo ? "video/*" : "audio/*", style: { display: "none" } }) as HTMLInputElement;
+  fileInp.addEventListener("change", async () => {
+    const f = fileInp.files?.[0];
+    fileInp.value = "";
     if (!f) return;
-    up.textContent = "…";
     try {
-      entry.file = await uploadMedia(f);
+      const name = await uploadMedia(f);
+      setFile(name);
       ctx.persist();
       onRefresh();
     } catch (e: any) {
       ctx.showPopup(e.message, true);
-      up.textContent = "⬆ upload";
     }
   });
+  tile.addEventListener("click", () => fileInp.click());
+  wrap.append(tile, fileInp);
 
-  const dur = Math.max(0, (Number(entry.end) || 0) - (Number(entry.start) || 0));
-  const durTag = el("div", { text: `${dur.toFixed(2)}s`, class: "text-center", style: { fontSize: "10px", color: dur > 0 ? C.muted : C.warn, paddingTop: "6px" } });
-
-  box.append(hdr, row([col([sel]), col([up])]));
-  box.appendChild(
-    row([
-      col([label("in (s)"), numberField(entry.start ?? 0, (v) => { entry.start = Math.max(0, v); ctx.persist(); onRefresh(); }, 0.5)]),
-      col([label("out (s)"), numberField(entry.end ?? 5, (v) => { entry.end = Math.max(0, v); ctx.persist(); onRefresh(); }, 0.5)]),
-      col([durTag]),
-    ])
-  );
-
-  const infoTag = el("div", { style: { fontSize: "9.5px", color: C.muted } });
-  box.appendChild(infoTag);
-  let sndLabel: HTMLElement | null = null;
-  let sndChk: HTMLInputElement | null = null;
-  if (isVideo) {
-    const chk = el("input", { type: "checkbox" }) as HTMLInputElement;
-    chk.checked = entry.withAudio !== false;
-    chk.addEventListener("change", () => { entry.withAudio = chk.checked; ctx.persist(); });
-    sndChk = chk;
-    sndLabel = el("label", { class: "flex items-center gap-1.5 cursor-pointer", style: { fontSize: "10px", color: C.text } }, [chk, el("span", { text: "also use this clip's soundtrack" })]);
-    box.appendChild(sndLabel);
-  }
-
-  if (entry.file) {
-    getMediaInfo(entry.file).then((info) => {
-      if (!info.ok) { infoTag.textContent = ""; return; }
-      const bits = [`source ${(info.duration ?? 0).toFixed(2)}s`];
-      if (isVideo && info.fps) bits.push(`${info.fps}fps → resampled to 24`);
-      if (isVideo) bits.push(info.has_audio ? "has audio" : "no audio track");
-      infoTag.textContent = bits.join(" · ");
-
-      if ((info.duration ?? 0) > 0 && (Number(entry.end) || 0) > (info.duration ?? 0)) {
-        entry.end = +(info.duration ?? 0).toFixed(2);
-        ctx.persist();
-        onRefresh();
-        return;
-      }
-      if (isVideo && !info.has_audio && sndLabel && sndChk) {
-        entry.withAudio = false;
-        ctx.persist();
-        sndChk.checked = false;
-        sndChk.disabled = true;
-        sndLabel.style.opacity = "0.45";
-        sndLabel.style.cursor = "default";
-        (sndLabel.lastChild as HTMLElement).textContent = "no soundtrack in this file";
-        infoTag.style.color = C.warn;
-      }
+  if (isVideo && onPickFromGallery) {
+    const gal = el("button", { type: "button", text: "🖼", title: "Pick from the gallery", class: "absolute z-[3]", style: { bottom: "1px", left: "1px", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "3px", width: "16px", height: "16px", cursor: "pointer", fontSize: "9px", padding: "0" } });
+    gal.addEventListener("click", (e) => {
+      e.stopPropagation();
+      onPickFromGallery((name) => { setFile(name); ctx.persist(); onRefresh(); });
     });
+    tile.appendChild(gal);
   }
 
-  box.appendChild(inp);
-  return box;
+  // Clicking a ghost re-opens the file picker, which is the repair the warning asks for.
+  if (isGone || !entry.file || !media) return wrap; // nothing to transport or trim
+
+  // ── transport: play/stop toggle + restart ──────────────────────────────────
+  const btnCss = { cursor: "pointer", fontFamily: "inherit", fontSize: TINY, lineHeight: "1", padding: "2px 4px", borderRadius: "4px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` };
+  const playBtn = el("button", { type: "button", text: "▶", title: "Play / stop", style: btnCss });
+  const restartBtn = el("button", { type: "button", text: "⏮", title: "Play from the start", style: btnCss });
+  const timeTag = el("div", { text: "0:00", class: "text-center", style: { fontSize: TINY, color: C.muted, width: "100%" } });
+
+  // in/out are not just numbers sent to the render — they are what this tile plays. The
+  // point of setting them is hearing or seeing the window you picked, so the transport, the
+  // clock and the scrub bar all work inside [in, out] and follow an edit immediately.
+  const winStart = () => Math.max(0, Number(entry.start) || 0);
+  const winEnd = () => {
+    const e = Number(entry.end) || 0;
+    const dur = Number.isFinite(media!.duration) ? media!.duration : Infinity;
+    return e > winStart() ? Math.min(e, dur) : dur;
+  };
+  const winLen = () => Math.max(0, winEnd() - winStart());
+
+  const stop = () => { media!.pause(); playBtn.textContent = "▶"; };
+  const playFromStart = () => {
+    media!.currentTime = winStart();
+    media!.play().catch(() => {});
+    playBtn.textContent = "■";
+  };
+  playBtn.addEventListener("click", () => {
+    if (!media!.paused) { stop(); return; }
+    // Outside the window (or sitting on its end) means "start this window again".
+    if (media!.currentTime < winStart() || media!.currentTime >= winEnd() - 0.02) playFromStart();
+    else { media!.play().catch(() => {}); playBtn.textContent = "■"; }
+  });
+  restartBtn.addEventListener("click", playFromStart);
+  media.addEventListener("ended", stop);
+  media.addEventListener("pause", () => (playBtn.textContent = "▶"));
+
+  // Two lines: the buttons, then the clock under them. Side by side, the clock's width
+  // changing as it counts would shove the buttons around.
+  wrap.appendChild(el("div", { class: "flex items-center justify-center gap-1.5" }, [playBtn, restartBtn]));
+  wrap.appendChild(timeTag);
+
+  // Audio gets a scrub bar; a video already shows its position in the tile itself.
+  let bar: HTMLInputElement | null = null;
+  if (!isVideo) {
+    ensureSliderCss();
+    bar = el("input", { type: "range", min: "0", max: "100", value: "0", class: "aos-mmh3-scrub", style: { width: `${MEDIA_TILE_W}px`, height: "6px", cursor: "pointer", margin: "0" } }) as HTMLInputElement;
+    bar.addEventListener("input", () => { if (winLen() > 0) media!.currentTime = winStart() + (Number(bar!.value) / 100) * winLen(); });
+    wrap.appendChild(bar);
+  }
+  function paintTime() {
+    const pos = Math.min(Math.max(media!.currentTime - winStart(), 0), winLen());
+    timeTag.textContent = `${clock(pos)} / ${clock(winLen())}`;
+    if (bar && winLen() > 0) bar.value = String((pos / winLen()) * 100);
+  }
+  media.addEventListener("timeupdate", () => {
+    if (media!.currentTime >= winEnd() - 0.02 && !media!.paused) { stop(); media!.currentTime = winEnd(); }
+    paintTime();
+  });
+  media.addEventListener("loadedmetadata", paintTime);
+
+  // ── trim window ────────────────────────────────────────────────────────────
+  const onWindowEdit = () => {
+    if (media!.currentTime < winStart() || media!.currentTime > winEnd()) media!.currentTime = winStart();
+    paintTime();
+    ctx.persist();
+  };
+  // A trim window cannot run past the end of the file — asking for frames that aren't there
+  // fails the render, and the number gives no hint that it was the problem.
+  const srcLen = () => (Number.isFinite(media!.duration) && media!.duration > 0 ? media!.duration : Number(entry._srcLen) || Infinity);
+  const inRow = tinyNum("in", entry.start ?? 0, (v) => { entry.start = v; onWindowEdit(); }, (v) => {
+    const cap = srcLen();
+    // "in" has to leave room for at least a moment of clip after it.
+    const top = Number.isFinite(cap) ? Math.max(0, cap - 0.1) : Infinity;
+    return Math.min(Math.max(0, v), top);
+  });
+  const outRow = tinyNum("out", entry.end ?? 0, (v) => { entry.end = v; onWindowEdit(); }, (v) => Math.min(Math.max(0, v), srcLen()));
+  wrap.append(inRow.el, outRow.el);
+
+  // Source facts, at the same size — a silent video can't lend its soundtrack, and that's
+  // worth saying here rather than failing the prompt later.
+  const info = el("div", { class: "text-center", style: { fontSize: TINY, color: C.muted, lineHeight: "1.3", width: "100%" } });
+  wrap.appendChild(info);
+  getMediaInfo(entry.file).then((d) => {
+    if (!d.ok) return;
+    const bits = [`${(d.duration || 0).toFixed(2)}s`];
+    if (isVideo && d.fps) bits.push(`${d.fps}fps→24`);
+    if (isVideo) bits.push(d.has_audio ? "has audio" : "silent");
+    // One fact per line: dot-separated wrapped at arbitrary points in a 72px column.
+    clear(info);
+    bits.forEach((b) => info.appendChild(el("div", { text: b })));
+    // A freshly added file should read "the whole thing" — in 0, out the full length —
+    // rather than an arbitrary window the user has to notice and correct. Only fills a slot
+    // that has never been set, so an edited trim is never overwritten.
+    if ((d.duration ?? 0) > 0) {
+      entry._srcLen = +(d.duration as number).toFixed(2);
+      // A max on the input stops the spinner arrows walking past the end as well.
+      outRow.input.max = String(entry._srcLen);
+      inRow.input.max = String(entry._srcLen);
+      if (!(Number(entry.end) > 0)) {
+        entry.end = entry._srcLen;
+        outRow.input.value = String(entry.end);
+      } else if (Number(entry.end) > entry._srcLen) {
+        // A window saved against a different file, or typed before the length was known.
+        entry.end = entry._srcLen;
+        outRow.input.value = String(entry.end);
+      }
+      ctx.persist();
+    }
+    paintTime();
+    if (isVideo && !d.has_audio && entry.withAudio !== false) { entry.withAudio = false; ctx.persist(); }
+  });
+
+  return wrap;
+}
+
+/**
+ * The three slots for one clip's own media list, as a row — always three columns wide
+ * whether or not they're filled, so the block beside it doesn't shift every time a file is
+ * added or cleared (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §11).
+ */
+export function buildClipMediaSlots(kind: "video" | "audio", list: any[], ctx: ImagesPanelCtx, onRefresh: () => void, onPickFromGallery: ((onPicked: (name: string) => void) => void) | null, missing?: Set<string>) {
+  const rowEl = el("div", { class: "flex flex-nowrap", style: { gap: "24px" } });
+  for (let i = 0; i < 3; i++) rowEl.appendChild(mediaSlot(kind, list, i, ctx, onRefresh, onPickFromGallery, missing));
+  return rowEl;
 }
 
 export interface ImagesPanelHandle {
@@ -307,8 +481,6 @@ export interface ImagesPanelHandle {
 /** 모드별 이미지 입력 패널. state에 직접 쓴다. */
 export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): ImagesPanelHandle {
   const wrap = el("div");
-  let mediaFiles: { videos: string[]; audios: string[] } = { videos: [], audios: [] };
-  let mediaLoaded = false;
 
   function render() {
     clear(wrap);
@@ -404,12 +576,7 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
       if (ctx.availability && Object.keys(ctx.availability).length && !ctx.availability.VHS_LoadVideo) {
         kids.push(el("div", { html: "⚠ <code>VHS_LoadVideo</code> (VideoHelperSuite) is not installed — reference videos are skipped.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
       }
-      vids.slice(0, 3).forEach((v: any, i: number) => kids.push(mediaRow("video", v, i, mediaFiles.videos, ctx, vids, render)));
-      if (vids.length < 3) {
-        const add = el("button", { type: "button", text: "+ Add reference video", class: "w-full", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-        add.addEventListener("click", () => { vids.push({ file: "", start: 0, end: 5, withAudio: true }); ctx.persist(); render(); });
-        kids.push(add);
-      }
+      kids.push(buildClipMediaSlots("video", vids, ctx, render, (onPicked) => openVideoGalleryPicker(onPicked), ctx.missingAssets));
       kids.push(el("div", { html: "Frames are pulled at 24fps between <b>in</b> and <b>out</b>; the model was trained on ~2-15s references.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
     }
 
@@ -419,21 +586,11 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
       if (ctx.availability && Object.keys(ctx.availability).length && !ctx.availability.TrimAudioDuration) {
         kids.push(el("div", { html: "⚠ <code>TrimAudioDuration</code> missing — audio is used whole, in/out is ignored.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
       }
-      auds.slice(0, 3).forEach((a: any, i: number) => kids.push(mediaRow("audio", a, i, mediaFiles.audios, ctx, auds, render)));
-      if (auds.length < 3) {
-        const add = el("button", { type: "button", text: "+ Add reference audio", class: "w-full", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-        add.addEventListener("click", () => { auds.push({ file: "", start: 0, end: 5 }); ctx.persist(); render(); });
-        kids.push(add);
-      }
+      kids.push(buildClipMediaSlots("audio", auds, ctx, render, null, ctx.missingAssets));
     }
 
     kids.push(el("div", { html: "Prompt tags follow input order per type: <code>&lt;Picture i&gt;</code> · <code>&lt;Video k&gt;</code> · <code>&lt;Audio j&gt;</code>.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
     wrap.appendChild(panel(kids));
-
-    if (!mediaLoaded && (types.videos || types.audios)) {
-      mediaLoaded = true;
-      getMediaFiles().then((f) => { mediaFiles = f; render(); }).catch(() => {});
-    }
   }
 
   render();

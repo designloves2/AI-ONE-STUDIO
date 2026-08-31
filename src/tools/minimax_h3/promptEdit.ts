@@ -20,11 +20,11 @@ import {
 import { button, clear, el, confirmDialog, promptDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
-import { mediaRow } from "./imagesPanel";
+import { buildClipMediaSlots } from "./imagesPanel";
+import { openVideoGalleryPicker } from "./videoPicker";
 import {
   analyzeImagesNative,
   deletePromptSet,
-  getMediaFiles,
   getModels,
   getPromptSet,
   getSystemPrompt,
@@ -535,7 +535,6 @@ export function createPromptEditOverlay(
     overrideStatusText.style.color = own ? BRAND : C.muted;
   }
 
-  let mediaFilesCache: { videos: string[]; audios: string[] } | null = null;
   const imgRow = el("div", { style: { display: "none", flexDirection: "column", gap: "6px" } });
   function renderImageRow() {
     clear(imgRow);
@@ -660,44 +659,24 @@ export function createPromptEditOverlay(
     cols.appendChild(imgCol);
 
     if (assets.own) {
-      const vids = (assets.refVideos as any[]) || [];
-      const vidCol = el("div", { class: "flex flex-col gap-1.5" }, [el("div", { text: "Reference video (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } })]);
-      vids.slice(0, 3).forEach((v, i) => vidCol.appendChild(mediaRow("video", v, i, mediaFilesCache?.videos || [], ctx, vids, renderImageRow)));
-      if (vids.length < 3) {
-        const add = el("button", { type: "button", text: "+ Add video", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-        add.addEventListener("click", () => {
-          const p = normPrompt(state.prompts[selected]) as PromptEntry;
-          state.prompts[selected] = p;
-          p.refVideos = vids;
-          vids.push({ file: "", start: 0, end: 5, withAudio: true });
-          ctx.persist();
-          renderImageRow();
-        });
-        vidCol.appendChild(add);
-      }
+      // Render inputs, never shown to the vision model — feeding clips to it would restrict
+      // which model can be used and cost far more time, for something that helps write a
+      // prompt rather than make the video. Same slots the left panel uses (buildClipMediaSlots),
+      // pointed at this clip's own arrays.
+      const p = normPrompt(state.prompts[selected]) as PromptEntry;
+      state.prompts[selected] = p;
+      const vids = p.refVideos || (p.refVideos = []);
+      const auds = p.refAudios || (p.refAudios = []);
+      const vidCol = el("div", { class: "flex flex-col gap-1.5" }, [
+        el("div", { text: "Reference video (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } }),
+        buildClipMediaSlots("video", vids, ctx, renderImageRow, (onPicked) => openVideoGalleryPicker(onPicked), ctx.missingAssets),
+      ]);
       cols.appendChild(vidCol);
-
-      const auds = (assets.refAudios as any[]) || [];
-      const audCol = el("div", { class: "flex flex-col gap-1.5" }, [el("div", { text: "Reference audio (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } })]);
-      auds.slice(0, 3).forEach((a, i) => audCol.appendChild(mediaRow("audio", a, i, mediaFilesCache?.audios || [], ctx, auds, renderImageRow)));
-      if (auds.length < 3) {
-        const add = el("button", { type: "button", text: "+ Add audio", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-        add.addEventListener("click", () => {
-          const p = normPrompt(state.prompts[selected]) as PromptEntry;
-          state.prompts[selected] = p;
-          p.refAudios = auds;
-          auds.push({ file: "", start: 0, end: 5 });
-          ctx.persist();
-          renderImageRow();
-        });
-        audCol.appendChild(add);
-      }
+      const audCol = el("div", { class: "flex flex-col gap-1.5" }, [
+        el("div", { text: "Reference audio (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } }),
+        buildClipMediaSlots("audio", auds, ctx, renderImageRow, null, ctx.missingAssets),
+      ]);
       cols.appendChild(audCol);
-
-      if (!mediaFilesCache) {
-        mediaFilesCache = { videos: [], audios: [] };
-        getMediaFiles().then((f) => { mediaFilesCache = f; renderImageRow(); }).catch(() => {});
-      }
     }
 
     imgRow.append(overrideRow, modeRow, cols);

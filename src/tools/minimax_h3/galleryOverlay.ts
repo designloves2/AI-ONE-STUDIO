@@ -415,6 +415,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const CHUNK_MIN_FRAMES = 8;
   const CHUNK_MAX_FRAMES = 240;
 
+  // Per-method chunk policy for Upscale/Deblur (user rule, 2026-09-01). Returns chunk length
+  // in seconds; 0 = run the whole file in one shot. RTX VSR and the RTX-based deblur run
+  // single-shot below 15s and slice into 15s chunks at/above it; the upscale-model path is
+  // heavier, so it slices into 5s chunks once the clip is 10s or longer. Overrides the
+  // byte-budget sizing below when supplied.
+  function upscaleChunkSeconds(method: "rtx" | "model" | "none", durationSec: number): number {
+    if (method === "model") return durationSec >= 10 ? 5 : 0;
+    return durationSec >= 15 ? 15 : 0; // rtx, or deblur-only — both RTX-based
+  }
+
   type ChunkOpts = { folder?: string; skipFirstFrames?: number; frameLoadCap?: number; saveSuffix?: string };
 
   /** Shared run wrapper: copy the source into input/, queue the graph (chunked if the source
@@ -424,7 +434,17 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
    * a plain single-shot job, or carries the chunk slice when chunking — both graph builders
    * default those fields to their old whole-file behavior, so a caller that ignores chunkOpts
    * still works unchanged. */
-  async function runPost(v: GalleryVideo, buildFn: (inputFilename: string, stem: string, chunkOpts: ChunkOpts) => { graph: Record<string, any>; saveNode: string }, readout: ReturnType<typeof makeProgressReadout>, runBtn: HTMLButtonElement, label: string, finalSuffix: string) {
+  async function runPost(
+    v: GalleryVideo,
+    buildFn: (inputFilename: string, stem: string, chunkOpts: ChunkOpts) => { graph: Record<string, any>; saveNode: string },
+    readout: ReturnType<typeof makeProgressReadout>,
+    runBtn: HTMLButtonElement,
+    label: string,
+    finalSuffix: string,
+    /** Chunk length in seconds for this run; 0 = whole file. When given, overrides the
+     *  byte-budget sizing (Upscale/Deblur pass a per-method rule — see upscaleChunkSeconds). */
+    chunkPlan?: (durationSec: number) => number,
+  ) {
     postRunning = true;
     runBtn.disabled = true;
     readout.start(`Preparing ${v.filename}…`);
@@ -443,9 +463,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       let chunkFrames = 0, totalFrames = 0;
       try {
         const info = await getVideoInfo(copied, "", "input");
-        const perFrameBytes = Math.max(1, (info.width || 0) * (info.height || 0) * 16);
-        chunkFrames = Math.max(CHUNK_MIN_FRAMES, Math.min(CHUNK_MAX_FRAMES, Math.floor(CHUNK_BUDGET_BYTES / perFrameBytes)));
         totalFrames = info.frames || 0;
+        const fps = info.fps || FPS;
+        if (chunkPlan) {
+          const durationSec = info.duration || (totalFrames ? totalFrames / fps : 0);
+          const secs = chunkPlan(durationSec);
+          chunkFrames = secs > 0 ? Math.max(1, Math.round(secs * fps)) : (totalFrames || 1);
+        } else {
+          const perFrameBytes = Math.max(1, (info.width || 0) * (info.height || 0) * 16);
+          chunkFrames = Math.max(CHUNK_MIN_FRAMES, Math.min(CHUNK_MAX_FRAMES, Math.floor(CHUNK_BUDGET_BYTES / perFrameBytes)));
+        }
       } catch { /* chunkCount defaults to 1 below */ }
       const chunkCount = totalFrames > 0 && chunkFrames > 0 ? Math.max(1, Math.ceil(totalFrames / chunkFrames)) : 1;
 
@@ -534,7 +561,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
           saveSuffix: upscaleMethod === "none" && chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
         }, ctx.availability),
-        upscaleReadout, upscaleRunBtn, "Upscale", upscaleMethod === "none" ? "_deblur" : "_upscaled"
+        upscaleReadout, upscaleRunBtn, "Upscale", upscaleMethod === "none" ? "_deblur" : "_upscaled",
+        (durationSec) => upscaleChunkSeconds(upscaleMethod as "rtx" | "model" | "none", durationSec),
       );
   }, "primary") as HTMLButtonElement;
   /** Deblur with no upscale: method "none" makes the graph builder skip both upscalers. */
@@ -548,7 +576,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
           saveSuffix: chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
         }, ctx.availability),
-        upscaleReadout, deblurRunBtn, "Deblur", "_deblur"
+        upscaleReadout, deblurRunBtn, "Deblur", "_deblur",
+        (durationSec) => upscaleChunkSeconds("none", durationSec), // deblur is RTX-based → 15s rule
       );
   }) as HTMLButtonElement;
   const upscaleBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });

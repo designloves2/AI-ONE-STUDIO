@@ -224,6 +224,9 @@ export interface MinimaxState {
   // "none"(기본, Latent2RGB로 폴백) 또는 models/vae_approx의 파일명 — 지정하면 진짜 VAE로
   // 디코드한 실시간 프리뷰가 나온다(Latent2RGB보다 정확하지만 스텝마다 약간 더 느림).
   previewTinyVae: string;
+  // Prompt Edit's LOCAL ENHANCE block collapsed state (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md
+  // §10) — collapsing it hands its whole height to the clip editor above.
+  enhCollapsed: boolean;
 }
 
 export const CLIP_LENGTHS = (() => {
@@ -995,6 +998,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     previewMaxRes: saved.previewMaxRes ?? 512,
     previewQuality: saved.previewQuality ?? 85,
     previewTinyVae: saved.previewTinyVae || "none",
+    enhCollapsed: !!saved.enhCollapsed,
     turboMode: saved.turboMode || "none",
     attnBackend: saved.attnBackend || "none",
     attnForward: saved.attnForward || "none",

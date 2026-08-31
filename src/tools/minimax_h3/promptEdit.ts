@@ -427,10 +427,26 @@ export function createPromptEditOverlay(
   });
 
   // ── LOCAL ENHANCE bar (native CLIP — Ollama support removed, SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §6) ──
+  // Collapsible (§10) — collapsing hands this whole block's height to the clip editor above it.
   const enhWrap = el("div", { class: "shrink-0 rounded-lg p-2.5 flex flex-col gap-2", style: { background: C.bg1, border: `1px solid ${C.border}` } });
   const enhTop = el("div", { class: "flex items-center gap-2 flex-wrap" });
+  const enhCollapseBtn = el("button", { type: "button", text: "▾", title: "Collapse", style: { cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "11px", padding: "0 2px" } });
   const enhTitle = el("div", { text: "LOCAL ENHANCE (native CLIP)", class: "text-[10px] font-bold tracking-wide", style: { color: BRAND } });
-  enhTop.appendChild(enhTitle);
+  enhTop.append(enhCollapseBtn, enhTitle);
+  function renderEnhCollapse() {
+    const collapsed = !!state.enhCollapsed;
+    enhCollapseBtn.textContent = collapsed ? "▸" : "▾";
+    enhCollapseBtn.title = collapsed ? "Expand" : "Collapse";
+    // Overrides renderImageRow()'s own enhMode-based display — a mode change while collapsed
+    // must not silently reopen the image row underneath it.
+    imgRow.style.display = collapsed || enhMode !== "image" ? "none" : "flex";
+    enhBottom.style.display = collapsed ? "none" : "flex";
+  }
+  enhCollapseBtn.addEventListener("click", () => {
+    state.enhCollapsed = !state.enhCollapsed;
+    ctx.persist();
+    renderEnhCollapse();
+  });
 
   const statusTag = el("div", { text: "", class: "text-[10px] flex-1", style: { color: C.muted } });
   enhTop.appendChild(statusTag);
@@ -539,6 +555,7 @@ export function createPromptEditOverlay(
   function renderImageRow() {
     clear(imgRow);
     imgRow.style.display = enhMode === "image" ? "flex" : "none";
+    renderEnhCollapse();
     if (enhMode !== "image") return;
     renderOverrideRow();
     const assets = clipAssets(state, selected);
@@ -681,6 +698,7 @@ export function createPromptEditOverlay(
 
     imgRow.append(overrideRow, modeRow, cols);
     renderModelLine(modelLine);
+    renderEnhCollapse();
   }
 
   const enhBottom = el("div", { class: "flex items-center gap-2 flex-wrap" });

@@ -69,6 +69,18 @@ if "%PYTHON%"=="" (
 )
 echo.
 
+rem ── numpy guard ─────────────────────────────────────────────────────────
+rem ComfyUI core and many nodes still need numpy 1.x, but insightface / onnx /
+rem older RTX deps happily drag it to 2.x mid-install. Record the version we
+rem start with and pin it back at the end if anything moved it. Mirrors the
+rem node pack's install_requirements (v1.20.2).
+set "NUMPY_BEFORE="
+if not "%PYTHON%"=="" (
+    for /f "tokens=2" %%v in ('"%PYTHON%" -m pip show numpy 2^>nul ^| findstr /b /c:"Version:"') do set "NUMPY_BEFORE=%%v"
+    if not "!NUMPY_BEFORE!"=="" echo [INFO] numpy at start: !NUMPY_BEFORE! ^(will restore this if a dependency changes it^)
+)
+echo.
+
 if "%PYTHON%"=="" goto SKIP_PIP_UPGRADE
 echo [PIP] Upgrading pip, setuptools, and wheel to the latest versions...
 "%PYTHON%" -m pip install --upgrade pip --quiet
@@ -242,6 +254,27 @@ echo.
 exit /b 0
 
 :AFTER_REPOS
+
+rem ── numpy restore ───────────────────────────────────────────────────────
+if "%PYTHON%"=="" goto SKIP_NUMPY_RESTORE
+if "%NUMPY_BEFORE%"=="" goto SKIP_NUMPY_RESTORE
+set "NUMPY_AFTER="
+for /f "tokens=2" %%v in ('"%PYTHON%" -m pip show numpy 2^>nul ^| findstr /b /c:"Version:"') do set "NUMPY_AFTER=%%v"
+if "%NUMPY_AFTER%"=="%NUMPY_BEFORE%" (
+    echo [OK] numpy still %NUMPY_BEFORE% - no restore needed.
+    goto SKIP_NUMPY_RESTORE
+)
+echo [FIX] numpy moved %NUMPY_BEFORE% -^> %NUMPY_AFTER% during install. Restoring %NUMPY_BEFORE%...
+"%PYTHON%" -m pip install "numpy==%NUMPY_BEFORE%" --quiet
+if errorlevel 1 (
+    echo [WARN] Could not auto-restore numpy. Run this yourself:
+    echo        "%PYTHON%" -m pip install "numpy==%NUMPY_BEFORE%"
+) else (
+    echo [OK] numpy restored to %NUMPY_BEFORE%.
+)
+:SKIP_NUMPY_RESTORE
+echo.
+
 echo ========================================================================
 echo  Done! Restart ComfyUI to load every node.
 echo ========================================================================

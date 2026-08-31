@@ -53,8 +53,12 @@ function fmtElapsed(sec?: number) {
 function metaInfoLines(meta: any): string[] {
   if (!meta) return ["No settings saved for this clip."];
   const lines: string[] = [];
+  if (meta.postProcess) {
+    const from = meta.sourceW && meta.sourceH ? ` (from ${meta.sourceW}×${meta.sourceH})` : "";
+    lines.push(`⚙ ${meta.postProcess}${from}`);
+  }
   if (meta.w && meta.h) lines.push(`${meta.w}×${meta.h}`);
-  if (meta.frames != null) lines.push(`${meta.frames} frames`);
+  if (meta.frames != null) lines.push(`${meta.frames} frames${meta.fps ? ` @ ${Math.round(meta.fps)}fps` : ""}`);
   if (meta.steps != null) lines.push(`${meta.steps} steps`);
   if (meta.sampler) lines.push(String(meta.sampler));
   if (meta.accel) lines.push(`accel: ${meta.accel}`);
@@ -519,11 +523,30 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         if (joined?.filename) outFile = { filename: joined.filename, subfolder: joined.subfolder || outFolder };
       }
 
-      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — the new file is the same shot with the same
-      // settings, only the pixels changed; without this it lands in the gallery with no
-      // prompt, no seed, no pipeline record, and Reuse can't rebuild it.
-      if (outFile && (v as any).meta) {
-        await saveMeta(outFile.filename, outFile.subfolder || "", { ...((v as any).meta || {}), created: Date.now(), postProcess: label.toLowerCase(), postSource: v.filename }).catch(() => {});
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — carry the source's prompt / seed / pipeline
+      // so Reuse can still rebuild the original, BUT the post-processed file's own pixels and
+      // frame count are not the source's: an upscale changes w/h, interpolation changes the
+      // frame count and fps. Probe the actual output and overwrite those, drop the source's
+      // render time (elapsedSec — a different job), and record what it was made from.
+      if (outFile) {
+        const base: any = { ...((v as any).meta || {}) };
+        try {
+          const oi = await getVideoInfo(outFile.filename, outFile.subfolder || "", "output");
+          if (oi.width) base.w = oi.width;
+          if (oi.height) base.h = oi.height;
+          if (oi.frames) base.frames = oi.frames;
+          if (oi.fps) base.fps = oi.fps;
+          if (oi.duration) base.durationSeconds = oi.duration;
+        } catch { /* probe failed — leave whatever the source meta had */ }
+        delete base.elapsedSec;
+        await saveMeta(outFile.filename, outFile.subfolder || "", {
+          ...base,
+          created: Date.now(),
+          postProcess: label.toLowerCase(),
+          postSource: v.filename,
+          sourceW: (v as any).meta?.w,
+          sourceH: (v as any).meta?.h,
+        }).catch(() => {});
       }
       readout.done();
       await refresh();

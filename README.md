@@ -192,13 +192,38 @@ installer** — the site can be exposed over a public tunnel, so no backend rout
 script. When backend node packs are missing, MiniMax H3 shows a banner and
 **Settings ⚙ → Third-party pack status** names the script to run.</sub>
 
-### 지원되는 설치 순서 / Supported setup order
+### 최초 설치 순서 / First-time setup
 
-1. ComfyUI 설치 / Install ComfyUI
-2. 이 저장소(AI-ONE-STUDIO) 클론 / Clone this repo
-3. `install_comfyui_dependencies.bat` 실행 (의존성 + numpy 복원) / run it
-4. ComfyUI 서버 시작 / Start the ComfyUI server
-5. `npm install && npm run dev` 후 웹 앱 열기 / then open the web app
+1. **ComfyUI 설치** — 설치 경로와 실행 포트 번호를 알아 둘 것 (아래 3~5단계에서 필요)
+   <br><sub>**Install ComfyUI** — note its folder path and the port it runs on (needed in steps 4–5).</sub>
+2. **원하는 위치에 이 저장소(AI-ONE-STUDIO)를 `git clone`**
+   <br><sub>**`git clone` this repo (AI-ONE-STUDIO)** wherever you want it.</sub>
+3. **`install_comfyui_dependencies.bat` 실행**
+   <br><sub>**Run `install_comfyui_dependencies.bat`.**</sub>
+4. **ComfyUI 경로 입력** / **Enter the ComfyUI folder path** when asked.
+5. **포트 번호 입력** (기본 8188 — Enter로 넘기면 8188) → `public/comfy_port.txt`에 기록됨
+   <br><sub>**Enter the port** (Enter = 8188) → written to `public/comfy_port.txt`.</sub>
+6. **설치 완료 대기** (노드 clone + pip install + numpy 복원)
+   <br><sub>**Let the install finish** (node clone + pip install + numpy restore).</sub>
+7. **ComfyUI 서버 실행** — `--enable-cors-header` 플래그 필요
+   <br><sub>**Start the ComfyUI server** — needs the `--enable-cors-header` flag.</sub>
+8. **웹 서버 실행** — `npm install` 후 `npm run dev` (또는 `ai-one-studio-run.bat` 더블클릭)
+   <br><sub>**Start the web server** — `npm install` then `npm run dev` (or double-click `ai-one-studio-run.bat`).</sub>
+9. **모델 파일 다운로드 후 직접 배치** — `models\` 아래로. 목록은 `ComfyUI-TJ_NODE_STUDIO_ONE`의 README 참고
+   <br><sub>**Download the model files and drop them in** under `models\` — list is in `ComfyUI-TJ_NODE_STUDIO_ONE`'s README.</sub>
+10. **`http://127.0.0.1:8774` 접속해서 사용**
+    <br><sub>**Open `http://127.0.0.1:8774` and use it.**</sub>
+
+### 최초 설치 이후 / Everyday start (after first-time setup)
+
+1. ComfyUI 서버 시작 / Start the ComfyUI server
+2. 웹 서버 시작 (`npm run dev` 또는 `ai-one-studio-run.bat`) / Start the web server
+3. `http://127.0.0.1:8774` 접속해서 사용 / Open the site and use it
+
+(`ai-one-studio-run.bat`은 ComfyUI가 `127.0.0.1:8188`에 뜰 때까지 최대 3분 기다렸다가
+브라우저를 자동으로 엽니다. ComfyUI 자체를 실행하지는 않습니다.)
+<br><sub>(`ai-one-studio-run.bat` waits up to 3 min for ComfyUI on `127.0.0.1:8188`, then opens
+the browser. It does not start ComfyUI itself.)</sub>
 
 ## 시작하기 / Getting Started
 

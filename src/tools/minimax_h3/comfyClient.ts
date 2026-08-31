@@ -232,6 +232,34 @@ export function queuePrompt(
       }
       promptId = data.prompt_id;
       if (promptId) opts?.onQueued?.(promptId);
+
+      // /history poll as a completion fallback for the fresh-submission path too — not just
+      // reattach. iOS Safari (and any browser) throttles or drops the WS on a long-running
+      // backgrounded tab, especially over a tunnel; the job finishes server-side and the result
+      // sits in /history but no `executed`/`execution_success` event ever reaches this socket,
+      // so the promise would hang forever. Symptom seen in the wild: gallery chunked upscale
+      // stuck on "preparing chunk 1/N" while the ComfyUI console shows "Prompt executed".
+      if (promptId && !pollTimer) {
+        const pid = promptId;
+        pollTimer = setInterval(async () => {
+          try {
+            const h = await comfyApi.fetchApi(`/history/${pid}`);
+            const hd = await h.json();
+            const entry = hd?.[pid];
+            if (entry?.status?.completed) {
+              cleanup();
+              const outs: Record<string, any> = { ...outputs };
+              for (const nodeId in entry.outputs || {}) outs[nodeId] = entry.outputs[nodeId];
+              resolve({ byNode: outs });
+            } else if (entry?.status?.status_str === "error") {
+              cleanup();
+              reject(new Error(entry.status?.messages?.map((m: any) => m?.[1]?.exception_message || "").filter(Boolean).join(" ") || "generation failed"));
+            }
+          } catch {
+            // transient fetch failure — retry next tick
+          }
+        }, 5000);
+      }
     } catch (e) {
       cleanup();
       reject(e);

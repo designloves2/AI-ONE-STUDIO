@@ -1792,6 +1792,15 @@ export function renderMinimaxH3(container: HTMLElement) {
       // two clips differing only in it were indistinguishable after the fact. preset is always
       // null on this port — the web tool has no preset list to match against (see spec #4).
       useTorchPatch: !!rs.useTorchPatch, fp16Accum: rs.fp16Accum !== false, preset: null,
+      // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §4 / node v1.21.2 — the turbo section's own step
+      // counts and model files were never written, so Reuse of a PDD clip restored
+      // turboMode="pdd" with no file and effectiveTurbo fell back to normal steps. (The restore
+      // branch in applyClipSettings for the turboLora fields was dead for the same reason.)
+      pddFile: rs.pddFile, pddFileReference: rs.pddFileReference, pddNfe: rs.pddNfe,
+      turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
+      turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
+      turboSteps: rs.turboSteps, slaTurboSteps: rs.slaTurboSteps,
+      scheduler: rs.scheduler, denoise: rs.denoise, shiftVideo: rs.shiftVideo, shiftAudio: rs.shiftAudio,
       // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — refImages/refImagesMp/firstFrameImage/
       // lastFrameImage/refVideos/refAudios were never saved before, so Reuse on a Reference-mode
       // clip restored nothing. Defaults here are the common set; per-clip callers override with
@@ -2197,6 +2206,19 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.turboLoraReference != null) state.turboLoraReference = meta.turboLoraReference;
       if (meta.turboLoraStrength != null) state.turboLoraStrength = meta.turboLoraStrength;
       if (meta.turboLoraLowVram != null) state.turboLoraLowVram = meta.turboLoraLowVram;
+      // node v1.21.2 — the turbo section's own step counts + model files + the sampling row.
+      // Same bug class as the presets: Reuse of a PDD clip restored turboMode="pdd" with no
+      // file → effectiveTurbo fell back to normal steps. != null so a pre-v1.21.2 clip (none of
+      // these fields) leaves the panel alone. slaTurboLora is skipped — plain LoRA entry here.
+      if (meta.pddFile != null) state.pddFile = meta.pddFile;
+      if (meta.pddFileReference != null) state.pddFileReference = meta.pddFileReference;
+      if (meta.pddNfe != null) state.pddNfe = String(meta.pddNfe);
+      if (meta.turboSteps != null) state.turboSteps = meta.turboSteps;
+      if (meta.slaTurboSteps != null) state.slaTurboSteps = meta.slaTurboSteps;
+      if (meta.scheduler != null) state.scheduler = meta.scheduler;
+      if (meta.denoise != null) state.denoise = meta.denoise;
+      if (meta.shiftVideo != null) state.shiftVideo = meta.shiftVideo;
+      if (meta.shiftAudio != null) state.shiftAudio = meta.shiftAudio;
       if (Array.isArray(meta.loras)) state.loras = meta.loras.map((l: any) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }));
       // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — restore the actual image/video/audio inputs.
       // Array.isArray/!== undefined guards (not a bare truthy check) so a clip saved before this

@@ -194,7 +194,10 @@ Image → Brief의 백엔드 둘 중 외부 Ollama 서버를 없애고 ComfyUI �
 > 노드에서는 설정 파일에 `ollama_url` 등 5개 키가 **사문화된 채로 남아 있다**. 읽는 코드가
 > 없어 동작에는 영향이 없지만, 웹에서는 마이그레이션 때 지우는 편이 낫다.
 
-내부 변수명 `ollamaImages` / `ollamaImageMode`는 노드에서 아직 그대로다(동작 무관, 정리 예정).
+**정리 완료(2026-08-31, 노드 `cc644fe`).** `ollamaImages`는 쓰기 전용 죽은 상태여서
+제거했고(`syncImageLists()`와 호출부 2곳 포함), `ollamaImageMode`는 살아 있는 값이라
+`briefImageMode`로 이름만 바꿨다 — 마이그레이션은
+`saved.briefImageMode || saved.ollamaImageMode || "ref"`.
 
 ---
 

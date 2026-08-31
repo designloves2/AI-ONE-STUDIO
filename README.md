@@ -156,19 +156,24 @@ This site can't do anything on its own. You need both of these first:
    model listing, actual generation, and even saving Settings all go through it. Without this
    custom node installed, **this site is an empty shell with a UI and no functionality.**</sub>
 
-저장소에 포함된 `install_comfyui_dependencies.bat`을 실행하면 기존 ComfyUI 설치 경로를
-입력받아 `ComfyUI-TJ_NODE_STUDIO_ONE`과 필요한 의존 커스텀 노드 전부를(상단바 실시간
-모니터에 쓰이는 `ComfyUI-Crystools` 포함) 자동으로 설치합니다(이미 설치된 항목은 건너뜁니다).
-모델 파일(체크포인트 등)은 용량 문제로 이 스크립트가 다루지 않으며, 자세한 목록은
-`ComfyUI-TJ_NODE_STUDIO_ONE`의 README를 참고하세요. 설치 후에는 **ComfyUI를 반드시 재시작**해야
-새 커스텀 노드가 로드됩니다.
+저장소에 포함된 `install_comfyui_dependencies.bat`을 실행하면 기존 ComfyUI 설치 경로와
+서버 포트(기본 8188)를 입력받아 `ComfyUI-TJ_NODE_STUDIO_ONE`과 필요한 의존 커스텀 노드
+전부를(상단바 실시간 모니터에 쓰이는 `ComfyUI-Crystools` 포함) 자동으로 설치합니다(이미
+설치된 항목은 건너뜁니다). 입력한 포트는 `public/comfy_port.txt`에 기록되어 웹 앱이 로컬
+접속 시 그 포트로 ComfyUI에 붙습니다. 이 스크립트는 실행 배치를 생성하지 않습니다 —
+`ai-one-studio-run.bat`은 저장소에 이미 포함돼 있습니다. 모델 파일(체크포인트 등)은 용량
+문제로 다루지 않으며, 자세한 목록은 `ComfyUI-TJ_NODE_STUDIO_ONE`의 README를 참고하세요.
+설치 후에는 **ComfyUI를 반드시 재시작**해야 새 커스텀 노드가 로드됩니다.
 
 Running the included `install_comfyui_dependencies.bat` asks for your existing ComfyUI install
-path and automatically installs `ComfyUI-TJ_NODE_STUDIO_ONE` plus every required dependency
-custom node — including `ComfyUI-Crystools`, which powers the top bar's live monitor —
-(already-installed ones are skipped). Model files (checkpoints, etc.) are out of scope for this
-script due to their size — see `ComfyUI-TJ_NODE_STUDIO_ONE`'s README for the full list. You must
-**restart ComfyUI** afterward for the new custom nodes to load.
+path and its server port (8188 by default), then installs `ComfyUI-TJ_NODE_STUDIO_ONE` plus
+every required dependency custom node — including `ComfyUI-Crystools`, which powers the top
+bar's live monitor — (already-installed ones are skipped). The port you enter is written to
+`public/comfy_port.txt`, which the web app reads for local access. The script does **not**
+generate a run batch — `ai-one-studio-run.bat` already ships in the repo. Model files
+(checkpoints, etc.) are out of scope due to their size — see `ComfyUI-TJ_NODE_STUDIO_ONE`'s
+README for the full list. You must **restart ComfyUI** afterward for the new custom nodes to
+load.
 
 ```bash
 install_comfyui_dependencies.bat
@@ -209,6 +214,26 @@ By default this opens at `http://127.0.0.1:8774` and automatically connects to C
 same PC (`127.0.0.1:8188`). If you're only using it locally, you're done — the setup below
 isn't needed.
 
+### ComfyUI 포트가 8188이 아니라면 / If ComfyUI isn't on port 8188
+
+로컬 접속 시 ComfyUI 포트는 **`public/comfy_port.txt`** 파일 하나로 정해집니다 — 숫자만 한 줄.
+`install_comfyui_dependencies.bat`이 설치할 때 입력받은 포트로 이 파일을 써 줍니다. 나중에
+ComfyUI 포트를 바꾸면 이 파일의 숫자만 고치고 페이지를 새로고침하면 됩니다(빌드·재시작 불필요 —
+`public/`는 dev 서버가 그대로 서빙하는 정적 파일이라서).
+
+<sub>For local access the ComfyUI port is set by a single file — **`public/comfy_port.txt`**,
+just the number on one line. `install_comfyui_dependencies.bat` writes it with the port you
+enter during install. If you later move ComfyUI to another port, edit that number and reload
+the page — no rebuild or dev-server restart (`public/` is served as-is).</sub>
+
+우선순위 / Resolution order (local `127.0.0.1` access):
+
+1. URL 쿼리 `?comfy_port=8189` — 한 번 열면 브라우저에 저장되어 계속 유지 (빠른 테스트용)
+   <br><sub>URL query `?comfy_port=8189` — saved in the browser after one open (quick test).</sub>
+2. `public/comfy_port.txt`
+3. `.env`의 `VITE_COMFY_PORT` (이건 dev 서버 재시작 필요) / `VITE_COMFY_PORT` in `.env` (needs a restart)
+4. 기본값 / default `8188`
+
 ```bash
 npm run build     # 프로덕션 빌드 / production build
 npm run preview   # 빌드 결과 미리보기 / preview the production build
@@ -221,9 +246,10 @@ npm run preview   # 빌드 결과 미리보기 / preview the production build
 This site picks the ComfyUI address automatically **based on the hostname the page was opened
 from**:
 
-- `127.0.0.1` 또는 `localhost`로 열었다면 → 항상 `http://127.0.0.1:8188`로 직접 연결
-  <br><sub>Opened via `127.0.0.1` or `localhost` → always connects directly to
-  `http://127.0.0.1:8188`.</sub>
+- `127.0.0.1` 또는 `localhost`로 열었다면 → `http://127.0.0.1:<포트>`로 직접 연결
+  (포트는 위 "ComfyUI 포트가 8188이 아니라면" 참고, 기본 8188)
+  <br><sub>Opened via `127.0.0.1` or `localhost` → connects directly to
+  `http://127.0.0.1:<port>` (port per the section above; 8188 by default).</sub>
 - 그 외의 도메인(터널 등)으로 열었다면 → `VITE_COMFY_URL` 환경변수를 사용
   <br><sub>Opened via any other domain (a tunnel, etc.) → uses the `VITE_COMFY_URL` environment
   variable.</sub>

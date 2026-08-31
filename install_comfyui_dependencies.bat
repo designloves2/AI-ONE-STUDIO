@@ -1,6 +1,11 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+rem Absolute path of this script's folder (the AI ONE STUDIO web kit root),
+rem captured before any cd. Used to write public\comfy_port.txt below.
+set "WEBKIT_DIR=%~dp0"
+if "%WEBKIT_DIR:~-1%"=="\" set "WEBKIT_DIR=%WEBKIT_DIR:~0,-1%"
+
 rem Forces Python's default text I/O to UTF-8 regardless of the system's
 rem locale/codepage. Without this, some setup.py scripts (e.g. groundingdino-py,
 rem pulled in by ComfyUI-RMBG) read a non-ASCII file with the OS default codepage
@@ -37,6 +42,28 @@ if not exist "%COMFY_DIR%\custom_nodes" (
     goto ASK_PATH
 )
 echo [OK] ComfyUI: %COMFY_DIR%
+echo.
+
+rem ── ComfyUI port ────────────────────────────────────────────────────────
+rem The web app talks to ComfyUI on 127.0.0.1:<port> for local access. Default
+rem is 8188, but a machine with several ComfyUI installs may run this one on a
+rem different port. Write it to public\comfy_port.txt so the site picks it up
+rem with no rebuild (see src/shared/comfyBase.ts). Blank = keep 8188.
+set "COMFY_PORT="
+set /p "COMFY_PORT=ComfyUI server port [Enter = 8188]: "
+if "%COMFY_PORT%"=="" set "COMFY_PORT=8188"
+echo %COMFY_PORT%|findstr /r "^[0-9][0-9]*$" >nul
+if errorlevel 1 (
+    echo [WARN] "%COMFY_PORT%" is not a number - leaving public\comfy_port.txt unchanged.
+) else (
+    if exist "%WEBKIT_DIR%\public" (
+        > "%WEBKIT_DIR%\public\comfy_port.txt" echo %COMFY_PORT%
+        echo [OK] Wrote %WEBKIT_DIR%\public\comfy_port.txt = %COMFY_PORT%
+    ) else (
+        echo [WARN] %WEBKIT_DIR%\public not found - run this script from the AI ONE STUDIO
+        echo        web kit folder so it can write public\comfy_port.txt.
+    )
+)
 echo.
 
 rem ── git check ────────────────────────────────────────────────────────────
@@ -276,8 +303,18 @@ if errorlevel 1 (
 echo.
 
 echo ========================================================================
-echo  Done! Restart ComfyUI to load every node.
+echo  Done!
 echo ========================================================================
+echo.
+echo  Next:
+echo   1. Restart ComfyUI to load the new nodes
+echo      (run it with --enable-cors-header; port %COMFY_PORT%).
+echo   2. Start the web app:  npm install  then  npm run dev
+echo      (or double-click ai-one-studio-run.bat), open http://127.0.0.1:8774
+echo.
+echo  ComfyUI port %COMFY_PORT% was saved to public\comfy_port.txt. If you ever
+echo  move ComfyUI to a different port, edit that file (just the number) and
+echo  reload the page - no rebuild needed.
 echo.
 echo  [Model files are NOT installed by this script - download them yourself]
 echo  [into models\. See ComfyUI-TJ_NODE_STUDIO_ONE's README.md and the]

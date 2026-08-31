@@ -405,6 +405,21 @@ export async function copyOutputToInput(filename: string, subfolder?: string, ty
   return d.filename;
 }
 
+/** Copy a rendered clip's last frame into input/ (to seed a continuation). The route finds
+ * `frames/<stem>_last*.png` next to the clip (stripping SaveVideo's trailing `_NNNNN_` off the
+ * stem), else extracts the final frame with ffmpeg. Returns the input-folder filename.
+ * SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §1. */
+export async function getClipLastFrame(filename: string, subfolder = ""): Promise<string> {
+  const r = await fetchApi(`${API}/clip_last_frame`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, subfolder }),
+  });
+  const d = await r.json();
+  if (!d.ok || !d.filename) throw new Error(d.error || "could not read the last frame");
+  return d.filename;
+}
+
 /** Deletes a copy previously made by copyOutputToInput/copy_to_input — server refuses any
  * filename that doesn't start with the pack prefix (mmh3_), so it can never touch a user's own
  * input asset. Fire-and-forget: a failed cleanup is cosmetic, never worth failing the caller. */

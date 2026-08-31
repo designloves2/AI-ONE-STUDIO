@@ -71,6 +71,7 @@ import {
   getModels,
   getNodeAvailability,
   getQueueStatus,
+  getVideoInfo,
   interrupt,
   outputViewUrl,
   pickChainFrame,
@@ -2017,6 +2018,35 @@ export function renderMinimaxH3(container: HTMLElement) {
           setStatus(`Clips saved, One-Take stitch failed: ${e.message}`);
           showPopup(`One-Take stitch failed: ${e.message} — per-clip files are still on disk.`, true);
         }
+      } else if ((rs as any)._extendFrom && clipRecords.length === 1 && !stopRequested) {
+        // Gallery Extend (SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §3) — one continuation clip
+        // was rendered from the source's last frame; concat [source, continuation] into the
+        // extended video, trimming the one duplicated seed frame off the continuation's head.
+        // Read from the frozen snapshot rs — the live state is repainted back to the panel
+        // during the run, so state._extendFrom is already gone by here.
+        const ext = (rs as any)._extendFrom as { clip: { filename: string; subfolder: string }; sourcePrompt: string };
+        setStatus("Stitching the extended clip…");
+        try {
+          const folder = (rs.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+          const trimSec = framesToSeconds(alignFrameCount(1));
+          const out = await stitchClips([ext.clip, clipRecords[0]], `${folder}/${rs.filenamePrefix || "MMH3"}_full`, null, trimSec, null);
+          const url = outputViewUrl(out.filename, out.subfolder || "", "output");
+          const clipPrompts = [ext.sourcePrompt || "", promptForClip(rs, 0)];
+          saveMeta(out.filename, out.subfolder || "", metaForVideo(
+            rs,
+            composeStitchedPrompt(clipPrompts),
+            { clips: 2, stitched: true, extended: true, frames: null, prompts: clipPrompts }
+          ));
+          showResultVideo(url);
+          badge.textContent = "EXTENDED";
+          await setLastResult(instanceId, { videoPath: out.path });
+          setStatus(`Done — extended → ${out.filename}`);
+          showPopup(`Extended: ${out.filename}`, false);
+          refreshGallery();
+        } catch (e: any) {
+          setStatus(`Continuation saved, stitch failed: ${e.message}`);
+          showPopup(`Extend stitch failed: ${e.message} — the new clip is on disk.`, true);
+        }
       } else if (clipRecords.length) {
         setStatus(stopRequested ? `Stopped — ${clipRecords.length} clip(s) saved.` : `Done — ${clipRecords.length} clip(s) saved.`);
       }
@@ -2031,6 +2061,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         showPopup(why || e.message, true);
       }
     } finally {
+      delete (state as any)._extendFrom; // one-shot: never let a stale flag stitch a later run
       try { await freeMemory(); } catch {}
       // Entry #1 of the Next Gen queue takes over the live panel and restarts, but only
       // on a clean finish — a stopped or errored run shouldn't silently barrel into
@@ -2121,10 +2152,9 @@ export function renderMinimaxH3(container: HTMLElement) {
   // ── 갤러리(도구 전용 오버레이) ────────────────────────────────────
   // 썸네일/호버 프리뷰/더블클릭 풀스크린/Reuse·Copy/삭제/스티치까지 갖춘 전용 갤러리
   // (원본 ui_gallery_minimax.js 이식) — shared/gallery.ts의 단순 그리드로는 부족해서 별도 구현.
-  const galleryOv = createGalleryOverlay(state, {
-    showPopup,
-    get availability() { return ctx.availability; },
-    reusePrompt(meta: any) {
+  // Restore a saved clip's prompt + every render setting into the panel. Shared by the
+  // gallery's Reuse button and runExtend (SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §3).
+  function applyClipSettings(meta: any): boolean {
       if (!meta) return false;
       const parts: string[] = Array.isArray(meta.prompts) && meta.prompts.length ? meta.prompts.slice() : [String(meta.prompt || "")];
       if (!parts.some((p) => String(p || "").trim())) return false;
@@ -2183,7 +2213,56 @@ export function renderMinimaxH3(container: HTMLElement) {
       renderPills();
       renderLeft();
       return true;
-    },
+  }
+
+  // Gallery Extend (SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §3) — render one continuation clip
+  // from a finished clip's last frame, then auto-stitch [source, continuation] into one longer
+  // video. All render settings come from the source via applyClipSettings; the caller supplies
+  // only the new prompt + seed frame. async (awaits getVideoInfo); the gallery calls it
+  // fire-and-forget.
+  async function runExtend({ sourceClip, seedFrame, prompt, sourcePrompt }: { sourceClip: any; seedFrame: string; prompt: string; sourcePrompt: string }) {
+    if (running) { showPopup("A render is already running.", true); return; }
+    if (!sourceClip || !seedFrame || !String(prompt || "").trim()) {
+      showPopup("Extend needs a clip, a seed frame and a prompt.", true);
+      return;
+    }
+    try { applyClipSettings(sourceClip.meta || sourceClip); } catch {} // best-effort; missing meta leaves panel defaults
+    // The continuation must match the source's real size or the stitch concat produces a
+    // 0-byte file. applyClipSettings covers it when the clip has meta; probe the file otherwise.
+    try {
+      const info = await getVideoInfo(sourceClip.filename, sourceClip.subfolder || "", "output");
+      if (info?.width && info?.height) {
+        state.megapixels = Math.max(0.1, Math.round((info.width * info.height) / 1e4) / 100);
+        const r = info.width / info.height;
+        state.aspect = ASPECTS.reduce((best, a) =>
+          Math.abs(a.w / a.h - r) < Math.abs(best.w / best.h - r) ? a : best).label;
+      }
+    } catch {}
+    state.prompts = [{ text: String(prompt), firstFrame: seedFrame, enabled: true, override: false }];
+    state.promptHeader = "";
+    state.promptFooter = "";
+    state.generationMode = "firstlast";
+    state.continuityMode = "none";
+    if (!generationModesFor(state).find((m) => m.key === "firstlast")?.enabled) {
+      showPopup("Set the First/Last UNET in ⚙ Settings → Models to use Extend.", true);
+      return;
+    }
+    (state as any)._extendFrom = {
+      clip: { filename: sourceClip.filename, subfolder: sourceClip.subfolder || "" },
+      sourcePrompt: sourcePrompt || "",
+    };
+    persist();
+    renderPills();
+    renderLeft();
+    refreshPlan();
+    runGenerate();
+  }
+
+  const galleryOv = createGalleryOverlay(state, {
+    showPopup,
+    get availability() { return ctx.availability; },
+    reusePrompt: applyClipSettings,
+    runExtend,
   });
   function refreshGallery() {
     // 도구 전용 갤러리는 열릴 때(show()) 스스로 새로고침한다 — 여기서는 클립 저장 직후

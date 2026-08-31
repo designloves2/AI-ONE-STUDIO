@@ -428,6 +428,8 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPi
   state.useFusedModulation = preset.fused;
   if (preset.nfe) state.pddNfe = preset.nfe;
   state.fp16Accum = true; // rides along with the Torch patch on every preset that has it
+  // Restore the user-recipe fields when the preset carries them (built-ins never do). SPEC §4.
+  for (const k of RECIPE_KEYS) if ((preset as any)[k] !== undefined) (state as any)[k] = (preset as any)[k];
 }
 
 // ── User pipeline presets (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14) ───────────────────────
@@ -435,6 +437,26 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPi
 // server-side (not localStorage): it has to survive a browser reset, and a preset is something
 // you tell someone else by name, which only means anything if it lives somewhere shared.
 // Keyed by name (no separate id) — matches the node side's actual saved shape exactly.
+//
+// SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §4 — a *user*-saved preset also carries the full
+// left-panel recipe (sampling row + the turbo section's own step counts and model files), on
+// top of the axes. Built-in presets stay axes-only. matchPreset/matchUserPreset still compare
+// axes only, so "which preset is active" is unaffected and a step-count change won't drop you
+// to Custom. Why: an applied "PDD" preset restored turboMode but not pddFile/pddFileReference,
+// so effectiveTurbo() fell back to "none" and the run used state.steps (20) not the PDD 8.
+export const RECIPE_KEYS = [
+  "steps", "sampler", "scheduler", "denoise", "shiftVideo", "shiftAudio",
+  "turboSteps", "slaTurboSteps",
+  "turboLora", "turboLoraReference", "pddFile", "pddFileReference",
+] as const;
+export type RecipeKey = (typeof RECIPE_KEYS)[number];
+
+function recipeOf(state: MinimaxState): Partial<Pick<UserPipelinePreset, RecipeKey>> {
+  const out: Record<string, unknown> = {};
+  for (const k of RECIPE_KEYS) if ((state as any)[k] !== undefined) out[k] = (state as any)[k];
+  return out as Partial<Pick<UserPipelinePreset, RecipeKey>>;
+}
+
 export interface UserPipelinePreset {
   name: string;
   turbo: string;
@@ -445,6 +467,20 @@ export interface UserPipelinePreset {
   torch: boolean;
   fused: boolean;
   nfe?: string;
+  // Recipe fields (SPEC §4) — present on presets saved after v1.21.0's web port, absent on
+  // older ones. applyPreset only restores the keys actually present.
+  steps?: number;
+  sampler?: string;
+  scheduler?: string;
+  denoise?: number;
+  shiftVideo?: number;
+  shiftAudio?: number;
+  turboSteps?: number;
+  slaTurboSteps?: number;
+  turboLora?: string;
+  turboLoraReference?: string;
+  pddFile?: string;
+  pddFileReference?: string;
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */
@@ -477,6 +513,7 @@ export function presetFromState(state: MinimaxState, name: string): UserPipeline
     torch: state.useTorchPatch !== false,
     fused: !!state.useFusedModulation,
     ...(state.turboMode === "pdd" ? { nfe: String(state.pddNfe ?? "8") } : {}),
+    ...recipeOf(state), // SPEC §4 — the user's whole recipe, not just the axes
   };
 }
 

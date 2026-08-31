@@ -158,6 +158,9 @@ export function createPromptEditOverlay(
       );
       state.promptHeader = s.promptHeader || "";
       state.promptFooter = s.promptFooter || "";
+      // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §2 — the prompt list just changed wholesale, so a
+      // resume snapshot taken against the old list would restore the wrong enabled states.
+      delete (state as any)._resumeSnapshot;
       // Guarded on presence, not just truthiness — a set saved before §7 has none of these
       // fields at all, and loading it must not wipe whatever is already on screen.
       if (s.generationMode) state.generationMode = s.generationMode;
@@ -314,46 +317,72 @@ export function createPromptEditOverlay(
     renderList();
   });
 
-  // Always-on, ungated per-clip first-frame override (existing mechanism, unrelated to the §1
-  // "override for this clip" checkbox down in the Enhance bar) — forces this one clip into
-  // First/Last mode even during a Reference-mode run, e.g. to resume a stopped Last-Frame-Chain
-  // run from a saved frame.
+  // Continue this clip from a finished clip's last frame (planned resume) —
+  // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §2. Picking a clip seeds THIS entry's first frame
+  // and, since a resume never re-renders what is already done, disables every earlier clip
+  // (their "override for this clip" checkbox greys out too) and enables this one onward.
+  // Clearing restores the enabled states from the snapshot taken when the pick was made.
   const firstFrameRow = el("div", { class: "shrink-0 flex items-center gap-2 flex-wrap text-[10.5px]", style: { color: C.muted } });
-  const firstFrameNote = el("span", { text: "First-frame override: none — uses this mode's default" });
-  const firstFrameUploadBtn = el("button", { type: "button", text: "⬆ Upload override", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-  const firstFrameClearBtn = el("button", { type: "button", text: "✕ Clear", style: { display: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 10px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}` } });
-  const firstFrameInput = el("input", { type: "file", accept: "image/*", style: { display: "none" } }) as HTMLInputElement;
-  firstFrameUploadBtn.addEventListener("click", () => firstFrameInput.click());
-  firstFrameInput.addEventListener("change", async () => {
-    const f = firstFrameInput.files?.[0];
-    firstFrameInput.value = "";
-    if (!f) return;
-    try {
-      const name = await uploadImage(f);
-      const p = normPrompt(state.prompts[selected]) as PromptEntry;
-      state.prompts[selected] = p;
-      p.firstFrame = name;
+  const firstFrameThumb = el("img", { style: { width: "34px", height: "34px", objectFit: "cover", borderRadius: "5px", border: `1px solid ${C.border}`, display: "none" } }) as HTMLImageElement;
+  const firstFrameNote = el("span", { text: "▶ Continue generating the clip.", style: { flex: "1" } });
+  const firstFrameGalleryBtn = el("button", { type: "button", text: "Select from the gallery", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+  const firstFrameClearBtn = el("button", { type: "button", text: "✕", title: "Stop continuing — restore all clips", style: { display: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 9px", borderRadius: "6px", background: "transparent", color: C.muted, border: `1px solid ${C.border}` } });
+  firstFrameGalleryBtn.addEventListener("click", () => {
+    openVideoGalleryPicker((inputFilename, clip) => {
+      if (!Array.isArray((state as any)._resumeSnapshot)) {
+        (state as any)._resumeSnapshot = (state.prompts || []).map((p) => normPrompt(p).enabled !== false);
+      }
+      (state.prompts || []).forEach((raw, i) => {
+        state.prompts[i] = normPrompt(raw);
+        if (i === selected) state.prompts[i].firstFrame = inputFilename;
+        state.prompts[i].enabled = i >= selected;
+      });
       ctx.persist();
       renderFirstFrameRow();
-    } catch (e: any) {
-      ctx.showPopup(`Upload failed: ${e.message || e}`, true);
-    }
+      renderList();
+      renderImageRow();
+      ctx.showPopup(`Continuing from ${clip?.filename || "the selected clip"} — clips before this are off.`, false);
+    }, { mode: "frame" });
   });
   firstFrameClearBtn.addEventListener("click", () => {
-    const p = normPrompt(state.prompts[selected]) as PromptEntry;
-    state.prompts[selected] = p;
-    p.firstFrame = "";
+    state.prompts[selected] = normPrompt(state.prompts[selected]);
+    state.prompts[selected].firstFrame = "";
+    const snap = (state as any)._resumeSnapshot;
+    if (Array.isArray(snap)) {
+      (state.prompts || []).forEach((raw, i) => {
+        state.prompts[i] = normPrompt(raw);
+        state.prompts[i].enabled = snap[i] !== false;
+      });
+      delete (state as any)._resumeSnapshot;
+    }
     ctx.persist();
     renderFirstFrameRow();
+    renderList();
+    renderImageRow();
   });
-  firstFrameRow.append(firstFrameNote, firstFrameUploadBtn, firstFrameClearBtn, firstFrameInput);
+  firstFrameRow.append(firstFrameThumb, firstFrameNote, firstFrameGalleryBtn, firstFrameClearBtn);
+  const firstFrameHint = el("div", {
+    text: "Resuming a multi-clip run: pick the last finished clip, then write the prompts for the "
+      + "clips that still need rendering. This clip starts from that clip's final frame (First/Last), "
+      + "the ones before it are switched off.",
+    class: "shrink-0",
+    style: { fontSize: "9.5px", color: C.muted, lineHeight: "1.5" },
+  });
   function renderFirstFrameRow() {
     const name = promptFirstFrame(state.prompts[selected]);
-    firstFrameNote.textContent = name ? `First-frame override: ${name}` : "First-frame override: none — uses this mode's default";
-    firstFrameClearBtn.style.display = name ? "inline-block" : "none";
+    if (name) {
+      firstFrameThumb.src = viewUrl(name);
+      firstFrameThumb.style.display = "block";
+      firstFrameNote.textContent = `Continuing from: ${name}`;
+      firstFrameClearBtn.style.display = "inline-block";
+    } else {
+      firstFrameThumb.style.display = "none";
+      firstFrameNote.textContent = "▶ Continue generating the clip.";
+      firstFrameClearBtn.style.display = "none";
+    }
   }
 
-  editCol.append(editHdr, editor, firstFrameRow);
+  editCol.append(editHdr, editor, firstFrameRow, firstFrameHint);
   body.append(listCol, editCol);
 
   function updateCount() {
@@ -549,6 +578,12 @@ export function createPromptEditOverlay(
     overrideCb.checked = own;
     overrideStatusText.textContent = own ? "This clip only" : "Common (shared by all clips)";
     overrideStatusText.style.color = own ? BRAND : C.muted;
+    // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §2 — a clip switched off by "Continue generating
+    // the clip" won't render, so its per-clip override is meaningless: grey the checkbox.
+    const offForResume = normPrompt(state.prompts[selected]).enabled === false;
+    overrideCb.disabled = offForResume;
+    overrideLabel.style.opacity = offForResume ? "0.4" : "1";
+    overrideLabel.style.cursor = offForResume ? "not-allowed" : "pointer";
   }
 
   const imgRow = el("div", { style: { display: "none", flexDirection: "column", gap: "6px" } });

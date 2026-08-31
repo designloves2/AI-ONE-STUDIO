@@ -7,21 +7,35 @@
 // can read from.
 import { el } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
-import { copyOutputToInput, listVideos } from "./api";
+import { copyOutputToInput, getClipLastFrame, listVideos } from "./api";
+
+export interface PickerClip {
+  filename: string;
+  subfolder?: string;
+}
 
 /**
- * Open the picker. `onPick(inputFilename)` receives the name of the copy in input/.
+ * Open the picker. `onPick(inputFilename, clip)` receives the name of the copy in input/ and
+ * the gallery item it came from.
+ *
+ * opts.mode: "video" (default) copies the whole clip as a reference video;
+ *            "frame" copies only the clip's last frame (getClipLastFrame), to seed a
+ *            continuation — SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §2.
  *
  * Hover plays the clip muted — with a wall of near-identical takes, a still first frame isn't
  * enough to tell them apart.
  */
-export function openVideoGalleryPicker(onPick: (inputFilename: string) => void) {
+export function openVideoGalleryPicker(
+  onPick: (inputFilename: string, clip?: PickerClip) => void,
+  opts: { mode?: "video" | "frame" } = {}
+) {
+  const frameMode = opts.mode === "frame";
   const box = el("div", {
     class: "flex flex-col overflow-hidden",
     style: { background: "#0e0e0e", border: `1px solid ${C.border}`, borderRadius: "10px", width: "860px", maxWidth: "94%", height: "80vh", boxShadow: "0 16px 50px rgba(0,0,0,0.65)" },
   });
   const head = el("div", { class: "flex items-center gap-2 shrink-0", style: { padding: "10px 12px", borderBottom: `1px solid ${C.border}` } }, [
-    el("div", { text: "🎞 Pick a reference video", class: "flex-1", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }),
+    el("div", { text: frameMode ? "🖼 Pick a clip to continue from" : "🎞 Pick a reference video", class: "flex-1", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }),
   ]);
   // A fixed cell height, not aspect-ratio: a <video> whose metadata hasn't loaded yet has no
   // intrinsic size, so the ratio resolves to nothing and every cell collapses to a ~21px
@@ -64,11 +78,13 @@ export function openVideoGalleryPicker(onPick: (inputFilename: string) => void) 
       cell.append(vid, el("div", { text: it.filename, title: it.filename, class: "overflow-hidden text-ellipsis whitespace-nowrap", style: { fontSize: "9.5px", color: C.muted, padding: "4px 5px" } }));
 
       cell.addEventListener("click", async () => {
-        status.textContent = "copying to input…";
+        status.textContent = frameMode ? "reading last frame…" : "copying to input…";
         try {
-          const copied = await copyOutputToInput(it.filename, it.subfolder || "", "output");
+          const name = frameMode
+            ? await getClipLastFrame(it.filename, it.subfolder || "")
+            : await copyOutputToInput(it.filename, it.subfolder || "", "output");
           close();
-          onPick(copied);
+          onPick(name, { filename: it.filename, subfolder: it.subfolder || "" });
         } catch (e: any) {
           status.textContent = `Could not use that clip: ${e?.message || e}`;
         }

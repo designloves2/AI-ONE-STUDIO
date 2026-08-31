@@ -2062,7 +2062,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       const prompt = runningEntry[2] || {};
       const isOurs = Object.prototype.hasOwnProperty.call(prompt, previewNodeKey(instanceId));
       if (isOurs) return true;
-      return window.confirm(
+      // 프리뷰 브라우저는 window.confirm을 억제해 조용히 false를 반환한다(→ Stop이 먹통).
+      // 공용 confirmDialog 오버레이 사용 — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §9.
+      return confirmDialog(
         "The job currently running on the ComfyUI server doesn't look like this screen's clip — Stop may interrupt someone else's generation. Continue anyway?"
       );
     } catch {

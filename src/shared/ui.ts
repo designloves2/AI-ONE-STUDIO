@@ -283,6 +283,33 @@ export function confirmDialog(message: string, opts?: { okText?: string; cancelT
   });
 }
 
+// alertDialog — 네이티브 alert()도 프리뷰 브라우저에서 억제되므로(특히 터치 기기에서
+// 정보 팝업이 통째로 사라짐) 자체 오버레이로 대체한다. OK 하나짜리 confirmDialog.
+export function alertDialog(message: string, okText = "OK"): Promise<void> {
+  return new Promise((resolve) => {
+    const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
+    const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(380px, 88vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "14px" } });
+    box.appendChild(el("div", { text: message, style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" } }));
+    const btnRow = el("div", { style: { display: "flex", justifyContent: "flex-end" } });
+    function finish() {
+      document.removeEventListener("keydown", onKey);
+      document.body.removeChild(ov);
+      resolve();
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Enter") finish();
+    };
+    const okBtn = button(okText, finish, "primary");
+    btnRow.appendChild(okBtn);
+    box.appendChild(btnRow);
+    ov.appendChild(box);
+    ov.addEventListener("click", (e) => { if (e.target === ov) finish(); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(ov);
+    okBtn.focus();
+  });
+}
+
 export function promptDialog(message: string, defaultValue = ""): Promise<string | null> {
   return new Promise((resolve) => {
     const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });

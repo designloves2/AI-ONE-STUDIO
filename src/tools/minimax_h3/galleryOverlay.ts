@@ -4,7 +4,7 @@
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
 import { SUBFOLDER, FPS, UPSCALE_MODES, framesToSeconds, composeStitchedPrompt } from "./core";
-import { button, el, clear, confirmDialog, select, numberField } from "../../shared/ui";
+import { button, el, clear, confirmDialog, alertDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import {
   clipViewUrl,
@@ -795,9 +795,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         e.stopPropagation();
         // title 호버 툴팁은 터치에선 안 뜨고, "터치 기기인지" 자체를 기기가 속이는 경우도
         // 있다(아이패드의 데스크톱 사이트 요청 모드는 maxTouchPoints를 0으로 보고함) — 기기
-        // 판별을 아예 하지 말고 클릭/탭이면 무조건 alert() 띄운다. 데스크톱은 호버 툴팁과
-        // 겹치지만(클릭하면 둘 다 뜸) 안 뜨는 것보다 훨씬 낫다.
-        alert(metaInfoLines((v as any).meta).join("\n"));
+        // 판별을 아예 하지 말고 클릭/탭이면 무조건 팝업 띄운다. 데스크톱은 호버 툴팁과
+        // 겹치지만(클릭하면 둘 다 뜸) 안 뜨는 것보다 훨씬 낫다. 네이티브 alert()는
+        // 프리뷰 브라우저에서 억제되므로 공용 alertDialog 사용 — §9.
+        alertDialog(metaInfoLines((v as any).meta).join("\n"));
       });
       thumbWrap.appendChild(infoBtn);
 

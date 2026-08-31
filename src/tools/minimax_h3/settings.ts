@@ -5,6 +5,7 @@ import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, panel, row, searchableSelect } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
+import { buildDepFix } from "./depBanner";
 import {
   getConfig,
   getModels,
@@ -55,8 +56,36 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   function refreshPackStatusText() {
     const missing = availability.missing_optional || [];
-    packStatusText.textContent = missing.length ? `⚠ Not installed: ${missing.join(", ")}` : "✓ All optional acceleration / preview / upscale packs are installed.";
-    packStatusText.style.color = missing.length ? C.warn : C.ok;
+    const missCore = availability.missing_core || [];
+    if (missCore.length) {
+      packStatusText.textContent = `⛔ Required nodes missing (${missCore.length}) — see Third-party pack status`;
+      packStatusText.style.color = C.err;
+    } else if (missing.length) {
+      packStatusText.textContent = `⚠ Not installed: ${missing.join(", ")}`;
+      packStatusText.style.color = C.warn;
+    } else {
+      packStatusText.textContent = "✓ All optional acceleration / preview / upscale packs are installed.";
+      packStatusText.style.color = C.ok;
+    }
+  }
+
+  // "Third-party pack status" — mirrors the node pack's Settings panel. Lists
+  // missing core / optional nodes and names the setup script to run. No in-app
+  // installer (see depBanner.ts).
+  function packStatusTab() {
+    const wrap = el("div", { class: "flex flex-col gap-2" });
+    const missing = availability.missing_optional || [];
+    const missCore = availability.missing_core || [];
+    const note = el("div", { style: { fontSize: "10px", lineHeight: "1.6", color: (missing.length || missCore.length) ? C.warn : C.ok } });
+    note.innerHTML = (missing.length || missCore.length)
+      ? (missCore.length ? `⛔ Required nodes missing — MiniMax H3 cannot render: <code>${missCore.join("</code>, <code>")}</code><br>` : "")
+        + (missing.length ? `⚠ Not installed — the matching feature stays off: <code>${missing.join("</code>, <code>")}</code>` : "")
+      : "✓ All optional acceleration / preview / upscale packs are installed.";
+    const kids: (Node | null)[] = [note];
+    const fix = buildDepFix(availability);
+    if (fix) kids.push(fix);
+    wrap.appendChild(panel(kids));
+    return wrap;
   }
 
   // 화면이 넓으니 탭으로 하나씩 전환하는 대신 좌/우 2컬럼으로 동시에 보여준다:
@@ -308,7 +337,11 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     clear(leftCol);
     clear(rightCol);
     leftCol.append(section("models", "Models", modelsTab()), section("preview", "Preview", previewTab()));
-    rightCol.append(section("sampling", "LLM Setting", samplingTab()), section("output", "Output", outputTab()));
+    rightCol.append(
+      section("sampling", "LLM Setting", samplingTab()),
+      section("output", "Output", outputTab()),
+      section("packs", "Third-party pack status", packStatusTab()),
+    );
     refreshPackStatusText();
   }
 

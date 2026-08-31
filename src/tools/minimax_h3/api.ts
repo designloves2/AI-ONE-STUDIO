@@ -185,6 +185,12 @@ export interface NodeAvailability {
   core_ok: boolean;
   missing_core: string[];
   missing_optional: string[];
+  // The node's /node_availability route (v1.20.3+) names the exact install
+  // script so the "packs missing" banner can show a copy-paste command. Absent
+  // on older backends — depBanner falls back to sensible defaults.
+  install_dir?: string;
+  install_script_win?: string;
+  install_script_nix?: string;
 }
 
 /** Which pipeline nodes this ComfyUI install actually has (no LiteGraph registry here — pure backend query). */
@@ -196,7 +202,11 @@ export async function getNodeAvailability(): Promise<NodeAvailability> {
     const available: Record<string, boolean> = d.available || {};
     const missingCore = MMH3_CORE_NODES.filter((n) => !available[n]);
     const missingOptional = MMH3_OPTIONAL_NODES.filter((n) => !available[n]);
-    return { ok: true, available, core_ok: missingCore.length === 0, missing_core: missingCore, missing_optional: missingOptional };
+    return {
+      ok: true, available, core_ok: missingCore.length === 0,
+      missing_core: missingCore, missing_optional: missingOptional,
+      install_dir: d.install_dir, install_script_win: d.install_script_win, install_script_nix: d.install_script_nix,
+    };
   } catch {
     const available: Record<string, boolean> = {};
     for (const n of all) available[n] = false;

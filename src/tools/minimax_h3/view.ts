@@ -59,6 +59,7 @@ import { createSettingsOverlay, type SettingsCtx } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
 import { mountImagePanel } from "./imagesPanel";
 import { createCommonPromptOverlay } from "./commonPromptOverlay";
+import { renderDepBanner } from "./depBanner";
 import {
   checkInputExists,
   getUserPresets,
@@ -121,6 +122,13 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   let popTimer: number | undefined;
   const wrap = el("div", { class: "flex flex-col h-full", style: { color: C.text, fontFamily: "inherit" } });
+
+  // Persistent "backend node packs missing" strip — mirrors the node pack's
+  // banner. Guidance only, no in-app installer (depBanner.ts). Re-rendered on
+  // every availability refresh; hides itself when nothing is missing.
+  const depBannerEl = el("div", { style: { display: "none", flexShrink: "0" } });
+  const depBannerDismissed = { v: false };
+  const refreshDepBanner = () => renderDepBanner(depBannerEl, ctx.availabilityInfo, depBannerDismissed);
 
   const pop = el("div", {
     style: {
@@ -2200,7 +2208,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   commonBtn.addEventListener("click", () => commonPromptOv.show());
 
-  wrap.append(subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, settingsOv.el, helpOv, queueListOv);
+  wrap.append(depBannerEl, subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, settingsOv.el, helpOv, queueListOv);
   container.appendChild(wrap);
   document.body.appendChild(galleryOv.playerEl); // 풀스크린 플레이어는 다른 모든 것 위에 떠야 하므로 body 직속
 
@@ -2218,7 +2226,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       ctx.availabilityInfo = av;
       renderPills();
       renderLeft();
-      if (av.core_ok === false) showPopup(`Missing core nodes: ${(av.missing_core || []).join(", ")}`, true);
+      refreshDepBanner();
     })
     .catch(() => {});
   loadAudioFiles();

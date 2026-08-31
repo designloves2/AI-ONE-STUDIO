@@ -174,6 +174,27 @@ script due to their size — see `ComfyUI-TJ_NODE_STUDIO_ONE`'s README for the f
 install_comfyui_dependencies.bat
 ```
 
+이 스크립트는 설치 시작 시점의 `numpy` 버전을 기록해 두었다가, 의존성 설치 도중 다른
+패키지가 `numpy`를 옮겨 놓으면 마지막에 원래 버전으로 되돌립니다(ComfyUI 코어와 다수
+노드가 `numpy` 1.x를 요구함). 앱 안에는 별도의 설치 버튼이 없습니다 — 이 사이트가 공개
+터널로 노출될 수 있어, 백엔드에서 스크립트를 실행하는 경로는 두지 않습니다. 대신 필요한
+노드 팩이 빠져 있으면 MiniMax H3 상단과 **Settings ⚙ → Third-party pack status**에서 실행할
+스크립트 경로를 안내합니다.
+
+<sub>This script records the `numpy` version at the start and restores it at the end if a
+dependency moved it (ComfyUI core and many nodes need `numpy` 1.x). There is **no in-app
+installer** — the site can be exposed over a public tunnel, so no backend route runs the
+script. When backend node packs are missing, MiniMax H3 shows a banner and
+**Settings ⚙ → Third-party pack status** names the script to run.</sub>
+
+### 지원되는 설치 순서 / Supported setup order
+
+1. ComfyUI 설치 / Install ComfyUI
+2. 이 저장소(AI-ONE-STUDIO) 클론 / Clone this repo
+3. `install_comfyui_dependencies.bat` 실행 (의존성 + numpy 복원) / run it
+4. ComfyUI 서버 시작 / Start the ComfyUI server
+5. `npm install && npm run dev` 후 웹 앱 열기 / then open the web app
+
 ## 시작하기 / Getting Started
 
 ```bash

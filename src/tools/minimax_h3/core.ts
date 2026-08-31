@@ -409,7 +409,7 @@ export function matchPreset(state: MinimaxState): PipelinePreset | null {
 /** Writes a preset's six axes onto state — nothing else (steps/seed/length/resolution/model
  * pickers are left untouched; a preset that moved them would invalidate whatever comparison
  * it was picked for). */
-export function applyPreset(state: MinimaxState, preset: PipelinePreset): void {
+export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPipelinePreset): void {
   state.turboMode = preset.turbo;
   state.attnBackend = preset.backend;
   state.attnForward = preset.forward;
@@ -419,6 +419,56 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset): void {
   state.useFusedModulation = preset.fused;
   if (preset.nfe) state.pddNfe = preset.nfe;
   state.fp16Accum = true; // rides along with the Torch patch on every preset that has it
+}
+
+// ── User pipeline presets (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14) ───────────────────────
+// Same six axes as the built-in PIPELINE_PRESETS, but named and saved by the user — stored
+// server-side (not localStorage): it has to survive a browser reset, and a preset is something
+// you tell someone else by name, which only means anything if it lives somewhere shared.
+// Keyed by name (no separate id) — matches the node side's actual saved shape exactly.
+export interface UserPipelinePreset {
+  name: string;
+  turbo: string;
+  backend: string;
+  forward: string;
+  cache: string;
+  spectrum: boolean;
+  torch: boolean;
+  fused: boolean;
+  nfe?: string;
+}
+
+/** Same matching rule as matchPreset(), against the user's own saved list. */
+export function matchUserPreset(state: MinimaxState, presets: UserPipelinePreset[]): UserPipelinePreset | null {
+  return (
+    (presets || []).find(
+      (p) =>
+        p.turbo === state.turboMode &&
+        p.backend === state.attnBackend &&
+        p.forward === state.attnForward &&
+        p.cache === state.blockCache &&
+        p.spectrum === !!state.useSpectrum &&
+        p.torch === (state.useTorchPatch !== false) &&
+        p.fused === !!state.useFusedModulation &&
+        (p.nfe ?? null) === (state.turboMode === "pdd" ? String(state.pddNfe ?? "8") : null)
+    ) ?? null
+  );
+}
+
+/** The current axes as a savable preset row — everything applyPreset()/matchUserPreset() read,
+ * nothing else (steps/seed/length/resolution/model pickers are never part of a preset). */
+export function presetFromState(state: MinimaxState, name: string): UserPipelinePreset {
+  return {
+    name,
+    turbo: state.turboMode,
+    backend: state.attnBackend,
+    forward: state.attnForward,
+    cache: state.blockCache,
+    spectrum: !!state.useSpectrum,
+    torch: state.useTorchPatch !== false,
+    fused: !!state.useFusedModulation,
+    ...(state.turboMode === "pdd" ? { nfe: String(state.pddNfe ?? "8") } : {}),
+  };
 }
 
 export const ATTN_BACKENDS = [

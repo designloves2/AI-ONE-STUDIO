@@ -3,7 +3,7 @@ import { getComfyBase } from "../../shared/comfyBase";
 // 프롬프트 에디터의 LLM(Ollama) 기능은 ComfyUI가 서빙하는 `/minimax_h3_one/llm/*` 라우트를
 // 그대로 부르므로, 이 파일만으로도 ComfyUI가 CORS 허용 상태로 켜져 있으면 바로 동작한다
 // (§3-2 comfy-client.ts 전체가 완성되기 전에도 이 기능만은 먼저 살아있게 하기 위함).
-import { API, SUBFOLDER } from "./core";
+import { API, SUBFOLDER, type UserPipelinePreset } from "./core";
 
 // TODO(§3-2): comfy-client.ts가 완성되면 이 BASE/fetchApi를 그쪽 공용 클라이언트로 교체.
 const BASE = getComfyBase();
@@ -103,6 +103,7 @@ export interface MmhConfig {
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;
   unload_between_clips?: boolean;
+  user_presets?: UserPipelinePreset[];
 }
 
 export async function getConfig(): Promise<MmhConfig> {
@@ -125,6 +126,16 @@ export async function saveConfig(patch: MmhConfig) {
   } catch {
     return null;
   }
+}
+
+/** User pipeline presets (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14) live in this same shared
+ * config, not localStorage — has to survive a browser reset. */
+export async function getUserPresets(): Promise<UserPipelinePreset[]> {
+  const cfg = await getConfig();
+  return Array.isArray(cfg.user_presets) ? cfg.user_presets : [];
+}
+export async function saveUserPresets(list: UserPipelinePreset[]) {
+  return saveConfig({ user_presets: list });
 }
 
 export const MMH3_OPTIONAL_NODES = [

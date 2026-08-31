@@ -35,7 +35,10 @@ import {
   PDD_NFE_CHOICES,
   PIPELINE_PRESETS,
   matchPreset,
+  matchUserPreset,
   applyPreset,
+  presetFromState,
+  type UserPipelinePreset,
   composeStitchedPrompt,
   clipAssets,
   promptOverrides,
@@ -46,7 +49,7 @@ import {
   saveState,
   turboModesFor,
 } from "./core";
-import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select } from "../../shared/ui";
+import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay } from "./promptEdit";
@@ -56,6 +59,8 @@ import { mountImagePanel } from "./imagesPanel";
 import { createCommonPromptOverlay } from "./commonPromptOverlay";
 import {
   checkInputExists,
+  getUserPresets,
+  saveUserPresets,
   copyOutputToInput,
   freeMemory,
   getLoraTriggers,
@@ -135,6 +140,97 @@ export function renderMinimaxH3(container: HTMLElement) {
   // input/ folder, checked in one batch (not per-tile) right after a prompt-set load. A getter
   // (not a plain field copied at construction time) so every ctx holding a reference — the
   // shared one below and Prompt Edit's own — sees the same up-to-date set without restaging.
+  // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14 — user-saved pipeline presets. Server-side (not
+  // localStorage): has to survive a browser reset, and a preset is something you tell someone
+  // else by name, which only means anything if it lives somewhere shared.
+  let userPresets: UserPipelinePreset[] = [];
+  let userPresetsLoaded = false;
+  async function loadUserPresets() {
+    try {
+      userPresets = await getUserPresets();
+    } catch {}
+    userPresetsLoaded = true;
+    renderLeft();
+  }
+
+  // Reorder / rename / delete a saved preset. Reorder is up/down buttons rather than drag —
+  // same end result (the list order persists and is what the dropdown shows), simpler to get
+  // right on a short list. Delete is the one irreversible action here, so it always confirms.
+  async function savePresetList(next: UserPipelinePreset[]) {
+    userPresets = next;
+    try {
+      await saveUserPresets(next);
+    } catch (e: any) {
+      showPopup(`Save failed: ${e.message || e}`, true);
+    }
+  }
+  function openPresetManager() {
+    const ov = el("div", { class: "fixed inset-0 z-[100060] flex items-center justify-center", style: { background: "rgba(0,0,0,0.7)" } });
+    const box = el("div", { class: "flex flex-col gap-2", style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px 18px", width: "380px", maxWidth: "94%", maxHeight: "80vh", boxShadow: "0 16px 50px rgba(0,0,0,0.6)" } });
+    const hdr = el("div", { class: "flex items-center gap-2" }, [
+      el("div", { text: "Manage saved presets", class: "flex-1", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }),
+      button("✕", () => ov.remove(), "danger"),
+    ]);
+    const list = el("div", { class: "flex flex-col gap-1.5 overflow-y-auto", style: { minHeight: "0" } });
+    box.append(hdr, list);
+    ov.appendChild(box);
+    ov.addEventListener("mousedown", (e) => { if (e.target === ov) ov.remove(); });
+    document.body.appendChild(ov);
+
+    function renderList() {
+      clear(list);
+      if (!userPresets.length) {
+        list.appendChild(el("div", { text: "No saved presets yet — use Save on the Preset dropdown.", style: { fontSize: "11px", color: C.muted, padding: "8px 0" } }));
+        return;
+      }
+      userPresets.forEach((p, i) => {
+        const row2 = el("div", { class: "flex items-center gap-1.5 rounded-md", style: { background: C.bg2, border: `1px solid ${C.border}`, padding: "6px 8px" } });
+        row2.appendChild(el("div", { text: p.name, class: "flex-1 overflow-hidden text-ellipsis whitespace-nowrap", style: { fontSize: "11.5px", color: C.text } }));
+        const up = el("button", { type: "button", text: "▲", title: "Move up", style: { cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? "0.35" : "1", background: "transparent", color: C.text, border: "none", fontSize: "11px", padding: "2px 4px" } });
+        const down = el("button", { type: "button", text: "▼", title: "Move down", style: { cursor: i === userPresets.length - 1 ? "default" : "pointer", opacity: i === userPresets.length - 1 ? "0.35" : "1", background: "transparent", color: C.text, border: "none", fontSize: "11px", padding: "2px 4px" } });
+        const ren = el("button", { type: "button", text: "✎", title: "Rename", style: { cursor: "pointer", background: "transparent", color: C.text, border: "none", fontSize: "12px", padding: "2px 4px" } });
+        const del = el("button", { type: "button", text: "🗑", title: "Delete", style: { cursor: "pointer", background: "transparent", color: C.err, border: "none", fontSize: "12px", padding: "2px 4px" } });
+        up.addEventListener("click", async () => {
+          if (i === 0) return;
+          const next = userPresets.slice();
+          [next[i - 1], next[i]] = [next[i], next[i - 1]];
+          await savePresetList(next);
+          renderList();
+          renderLeft();
+        });
+        down.addEventListener("click", async () => {
+          if (i === userPresets.length - 1) return;
+          const next = userPresets.slice();
+          [next[i + 1], next[i]] = [next[i], next[i + 1]];
+          await savePresetList(next);
+          renderList();
+          renderLeft();
+        });
+        ren.addEventListener("click", async () => {
+          const name = await promptDialog("Rename this preset:", p.name);
+          if (name == null) return;
+          const trimmed = name.trim();
+          if (!trimmed || trimmed === p.name) return;
+          if (userPresets.some((x) => x.name === trimmed)) { showPopup(`"${trimmed}" already exists.`, true); return; }
+          const next = userPresets.map((x, j) => (j === i ? { ...x, name: trimmed } : x));
+          await savePresetList(next);
+          renderList();
+          renderLeft();
+        });
+        del.addEventListener("click", async () => {
+          if (!(await confirmDialog(`Delete "${p.name}"? This can't be undone.`))) return;
+          const next = userPresets.filter((_, j) => j !== i);
+          await savePresetList(next);
+          renderList();
+          renderLeft();
+        });
+        row2.append(up, down, ren, del);
+        list.appendChild(row2);
+      });
+    }
+    renderList();
+  }
+
   let missingAssets = new Set<string>();
   async function refreshMissingAssets() {
     const names = new Set<string>();
@@ -1093,28 +1189,78 @@ export function renderMinimaxH3(container: HTMLElement) {
     );
     refreshPlan();
 
-    // Preset — sets six pipeline axes at once from a named, benchmarked combination
-    // (SPEC_MINIMAX_H3_PRESETS.md). The selection is derived, never stored: matchPreset()
-    // re-checks the axes on every render, so hand-editing any control underneath falls back
-    // to "— Custom —" on its own instead of going on naming a combination that no longer
-    // applies. Never touches steps/seed/length/resolution/model pickers.
+    // Preset — sets six pipeline axes at once from a named combination, either one of the six
+    // built-in benchmarked ones (SPEC_MINIMAX_H3_PRESETS.md) or a user's own saved combination
+    // (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14). The selection is derived, never stored:
+    // matchPreset()/matchUserPreset() re-check the axes on every render, so hand-editing any
+    // control underneath falls back to "Custom" on its own instead of going on naming a
+    // combination that no longer applies. Never touches steps/seed/length/resolution/model
+    // pickers. User presets sort above the built-ins in the dropdown and are the only ones
+    // Save/Setting can create or touch — the six built-ins stay read-only, since a user preset
+    // that shadowed one would silently change what a shared preset number means.
     {
-      const matched = matchPreset(state);
+      const userMatch = matchUserPreset(state, userPresets);
+      const sysMatch = userMatch ? null : matchPreset(state);
+      const options: { value: string; label: string; disabled?: boolean }[] = [{ value: "", label: "— Custom (current settings) —" }];
+      if (userPresets.length) {
+        options.push({ value: "__sep_user__", label: "────── User Preset ──────", disabled: true });
+        userPresets.forEach((p) => options.push({ value: `u:${p.name}`, label: `★ ${p.name}` }));
+      }
+      options.push({ value: "__sep_sys__", label: "───── System Preset ─────", disabled: true });
+      PIPELINE_PRESETS.forEach((p) => options.push({ value: `s:${p.id}`, label: `${p.category} — ${p.label}` }));
+
+      const selected = userMatch ? `u:${userMatch.name}` : sysMatch ? `s:${sysMatch.id}` : "";
+      const noteText = userMatch ? null : sysMatch?.note || null;
+
+      const saveBtn = button("Save", async () => {
+        const existing = userMatch?.name || "";
+        const name = await promptDialog("Save this pipeline combination as:", existing);
+        if (name == null) return;
+        const trimmed = name.trim();
+        if (!trimmed) { showPopup("Name can't be empty.", true); return; }
+        const willOverwrite = userPresets.some((p) => p.name === trimmed);
+        if (willOverwrite && !(await confirmDialog(`"${trimmed}" already exists — overwrite it?`))) return;
+        const entry = presetFromState(state, trimmed);
+        const next = willOverwrite ? userPresets.map((p) => (p.name === trimmed ? entry : p)) : [...userPresets, entry];
+        try {
+          await saveUserPresets(next);
+          userPresets = next;
+          showPopup(`Saved "${trimmed}".`, false);
+          renderLeft();
+        } catch (e: any) {
+          showPopup(`Save failed: ${e.message || e}`, true);
+        }
+      });
+      const settingBtn = button("Setting", () => openPresetManager());
+      // Same full width as the dropdown, split 50:50; 5px below it.
+      const btnRow = el("div", { class: "flex gap-1.5", style: { marginTop: "5px" } }, [
+        el("div", { class: "flex-1" }, [saveBtn]),
+        el("div", { class: "flex-1" }, [settingBtn]),
+      ]);
+      (saveBtn as HTMLElement).style.width = "100%";
+      (settingBtn as HTMLElement).style.width = "100%";
+
       leftPanel.appendChild(
         panel([
           label("Preset"),
-          select(
-            [{ value: "", label: "— Custom —" }, ...PIPELINE_PRESETS.map((p) => ({ value: String(p.id), label: `${p.category} — ${p.label}` }))],
-            matched ? String(matched.id) : "",
-            (v) => {
-              const preset = PIPELINE_PRESETS.find((p) => String(p.id) === v);
-              if (!preset) return; // picking "— Custom —" itself changes nothing — there's nothing to apply
-              applyPreset(state, preset);
-              persist();
-              renderLeft();
+          select(options, selected, (v) => {
+            if (v === "__sep_user__" || v === "__sep_sys__") return; // disabled — select() shouldn't land here, but never apply a separator
+            if (!v) return; // "— Custom —" itself changes nothing — there's nothing to apply
+            if (v.startsWith("u:")) {
+              const p = userPresets.find((x) => x.name === v.slice(2));
+              if (!p) return;
+              applyPreset(state, p);
+            } else if (v.startsWith("s:")) {
+              const p = PIPELINE_PRESETS.find((x) => String(x.id) === v.slice(2));
+              if (!p) return;
+              applyPreset(state, p);
             }
-          ),
-          matched ? el("div", { text: matched.note, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null,
+            persist();
+            renderLeft();
+          }),
+          btnRow,
+          noteText ? el("div", { text: noteText, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null,
+          !userPresetsLoaded ? el("div", { text: "Loading saved presets…", style: { fontSize: "10px", color: C.muted } }) : null,
         ])
       );
     }
@@ -2034,6 +2180,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     })
     .catch(() => {});
   loadAudioFiles();
+  loadUserPresets();
   refreshGallery();
   startQueuePolling();
 

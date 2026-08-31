@@ -590,11 +590,22 @@ export interface UpscaleGraphOpts {
   // RTX Deblur — a pre-pass before upscale, at the input's own resolution, independent of
   // whether an upscale follows. "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA".
   deblur?: string;
+  // §16 chunking (below) slices one source into several bounded VHS_LoadVideo reads instead
+  // of one whole-file load. Both default to the old whole-file behavior, so a caller that
+  // never chunks doesn't need to know these exist.
+  skipFirstFrames?: number;
+  frameLoadCap?: number;
+  // Overrides the computed _upscaled/_deblur suffix when set (chunking passes "" — the chunk
+  // files are joined and renamed afterward, so an interim suffix would just be thrown away).
+  saveSuffix?: string;
 }
 
 export function buildUpscaleGraph(inputFilename: string, folder: string, stem: string, opts: UpscaleGraphOpts, avail?: Avail) {
   const g: Record<string, any> = {};
-  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: FPS, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } };
+  // force_rate 0 keeps the file's own timing — the frame count and audio come back alongside
+  // the images so the re-encode stays in sync with the original (resampling to a fixed FPS
+  // here, on a file that may already be a re-encode of a re-encode, drifted audio sync).
+  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: opts.frameLoadCap ?? 0, skip_first_frames: opts.skipFirstFrames ?? 0, select_every_nth: 1 } };
   let images: any = ["load", 0];
 
   // Deblur is a pre-pass, not part of upscaling: it sharpens at the input's own resolution and
@@ -621,7 +632,7 @@ export function buildUpscaleGraph(inputFilename: string, folder: string, stem: s
 
   // deblur-only gets its own suffix — otherwise a "_upscaled" file that never touched the
   // upscaler would misname what actually happened to it.
-  const suffix = opts.method === "none" ? "_deblur" : "_upscaled";
+  const suffix = opts.saveSuffix !== undefined ? opts.saveSuffix : opts.method === "none" ? "_deblur" : "_upscaled";
   g.video = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: ["load", 2] } };
   g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
   return { graph: g, saveNode: "save" };
@@ -632,11 +643,14 @@ export interface InterpolateGraphOpts {
   scale: number;
   batchSize: number;
   useFp16: boolean;
+  skipFirstFrames?: number;
+  frameLoadCap?: number;
+  saveSuffix?: string;
 }
 
 export function buildInterpolateGraph(inputFilename: string, folder: string, stem: string, opts: InterpolateGraphOpts) {
   const g: Record<string, any> = {};
-  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: FPS, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } };
+  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: opts.frameLoadCap ?? 0, skip_first_frames: opts.skipFirstFrames ?? 0, select_every_nth: 1 } };
   g.rife = {
     class_type: "RIFEInterpolation",
     inputs: {
@@ -652,7 +666,8 @@ export function buildInterpolateGraph(inputFilename: string, folder: string, ste
   // Encode at target_fps, not FPS — the clip keeps its original running time and just moves
   // more smoothly; encoding at the source rate would turn the extra frames into slow motion
   // and desync the audio.
+  const suffix = opts.saveSuffix !== undefined ? opts.saveSuffix : `_${opts.targetFps}fps`;
   g.video = { class_type: "CreateVideo", inputs: { images: ["rife", 0], fps: opts.targetFps, audio: ["load", 2] } };
-  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}_${opts.targetFps}fps`, format: "auto", codec: "auto" } };
+  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
   return { graph: g, saveNode: "save" };
 }

@@ -537,6 +537,76 @@ SDK나 런타임이 없으면 **명확한 메시지로 즉시 실패한다.** �
 
 ---
 
+## 16. 갤러리 후처리는 긴 영상을 청크로 나눠 돌린다
+
+**전달 누락분입니다.** `SPEC_GALLERY_UPSCALE_INTERPOLATE.md`를 쓴 뒤에 노드에 들어갔고
+(v1.20.0), 어느 문서에도 없었습니다. 업스케일·디블러·보간 셋 다 해당됩니다.
+
+### 푸는 문제
+
+`VHS_LoadVideo`는 파일 전체를 디코드해 **메모리에 올립니다.** 스티치된 풀 런은 쉽게 수천
+프레임이 되고, 그대로 올리면 RAM이 터집니다. 8초짜리 클립 하나는 아무 문제가 없다가,
+합본을 업스케일하려는 순간 죽습니다.
+
+### 청크 크기는 길이가 아니라 **바이트 예산**으로 정한다
+
+프레임 수로 자르면 해상도가 반영되지 않습니다. 4K 100프레임과 720p 100프레임은 전혀 다른
+메모리를 씁니다. 그래서 프레임당 바이트로 역산합니다.
+
+```js
+const CHUNK_BUDGET_BYTES = 1.25 * 1024 ** 3;   // 청크당 RAM 목표
+const CHUNK_MIN_FRAMES = 8;
+const CHUNK_MAX_FRAMES = 240;
+
+const perFrameBytes = Math.max(1, (info.width || 0) * (info.height || 0) * 16);
+const chunkFrames = Math.max(CHUNK_MIN_FRAMES, Math.min(CHUNK_MAX_FRAMES,
+  Math.floor(CHUNK_BUDGET_BYTES / perFrameBytes)));
+const chunkCount = (totalFrames > 0 && chunkFrames > 0)
+  ? Math.max(1, Math.ceil(totalFrames / chunkFrames)) : 1;
+```
+
+덕분에 1088×736 클립과 4K 클립이 **같은 메모리 상한** 안에서 돕니다. 큰 프레임일수록 청크가
+자동으로 짧아집니다.
+
+### 임계값은 따로 없다
+
+"몇 초 이상이면 청크"가 아닙니다. `chunkCount`가 1이면 예전과 똑같은 통짜 실행이고, 2 이상일
+때만 청크 경로를 탑니다. 짧은 클립은 자연히 1이 나오므로 **기존 동작이 그대로 유지됩니다.**
+
+`video_info`를 못 읽으면(ffprobe 없음, 특이한 컨테이너) `chunkCount = 1`로 떨어뜨려
+통짜로 돕니다 — 실패시키지 않습니다. 그게 정확히 예전 동작입니다.
+
+### 자르는 방법과 오디오
+
+같은 `VHS_LoadVideo` 소스를 `skip_first_frames` / `frame_load_cap` 두 필드로 슬라이스합니다.
+
+**오디오도 같이 잘립니다** — VHS가 그 두 필드에서 start/duration을 유도하기 때문에, 각 청크의
+사운드가 자기 프레임과 그대로 맞습니다. 오디오를 따로 처리할 필요가 없습니다.
+
+### 이어붙이기와 뒷정리
+
+- 청크는 스크래치 폴더 `<출력폴더>/._post_chunks`에 떨어집니다
+- 전부 같은 코덱·해상도·fps이므로 **스트림 카피 concat**입니다(overlap/trim 둘 다 0).
+  재인코딩 없음, 화질 손실 없음
+- 성공·실패 **양쪽 경로에서** 청크 파일과 input 복사본을 지웁니다. 실패했을 때만 남기면
+  스크래치 폴더가 조용히 쌓입니다
+
+### 빌더 인터페이스
+
+`buildFn(inputFile, stem, chunkOpts)` 형태로, `chunkOpts`는
+`{ folder, skipFirstFrames, frameLoadCap, saveSuffix }`이거나 통짜일 때는 `{}`입니다.
+
+**빌더는 이 값들을 예전 통짜 동작으로 기본값 처리해야 합니다**(`skipFirstFrames = 0`,
+`frameLoadCap = 0`). 그래야 `chunkOpts`를 무시하는 호출자도 그대로 동작합니다.
+
+### 메타데이터는 청크 여부와 무관하게 따라간다
+
+결과물은 같은 샷·같은 설정에 픽셀만 바뀐 것이므로 원본 메타를 복사하고
+`postProcess`(`"upscale"` / `"deblur"` / `"interpolation"`)와 `postSource`를 덧붙입니다.
+이게 없으면 갤러리에 프롬포트도 시드도 없는 파일로 들어앉아 Reuse가 불가능해집니다.
+
+---
+
 ## 이식 순서
 
 이 순서를 지킬 것. 4번이 1번보다 먼저다.
@@ -547,7 +617,7 @@ SDK나 런타임이 없으면 **명확한 메시지로 즉시 실패한다.** �
 4. **프리셋 자산 저장/로딩** (§7) + **고스트 썸네일** (§8) — 같이 간다.
    §7만 하면 없어진 파일이 조용히 사라진다
 5. **미디어 슬롯 교체** (§11) + **비디오 피커** (§12) — 같이 간다
-6. 나머지 (§3, §5, §9, §10, §13, §14, §15)
+6. 나머지 (§3, §5, §9, §10, §13, §14, §15, §16)
 
 ---
 

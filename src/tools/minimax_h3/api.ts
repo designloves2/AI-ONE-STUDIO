@@ -341,6 +341,30 @@ export async function getMediaInfo(file: string): Promise<MediaInfo> {
   }
 }
 
+export interface VideoInfo {
+  ok: boolean;
+  width?: number;
+  height?: number;
+  frames?: number;
+  fps?: number;
+  duration?: number;
+  [key: string]: any;
+}
+
+/** Width/height/frame count for chunk-sizing a gallery post-process job (SPEC_MINIMAX_H3_
+ * PER_CLIP_OVERRIDE.md §16) — throws on failure so the caller's own catch can fall back to a
+ * single whole-file chunk rather than silently misreporting frame count as 0. */
+export async function getVideoInfo(filename: string, subfolder?: string, type?: string): Promise<VideoInfo> {
+  const r = await fetchApi(`${API}/video_info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, subfolder: subfolder || "", type: type || "input" }),
+  });
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || "video_info failed");
+  return d;
+}
+
 export async function getMediaFiles(): Promise<{ videos: string[]; audios: string[] }> {
   const grab = async (node: string, field: string) => {
     try {

@@ -13,6 +13,7 @@ import {
   discardInputCopy,
   getMediaFiles,
   getModels,
+  getVideoInfo,
   listVideos,
   revealOutputFolder,
   saveMeta,
@@ -372,6 +373,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       wrap,
       start(msg: string) { wrap.style.display = "flex"; label.textContent = msg; fill.style.width = "0%"; },
       progress(v: number, m: number) { label.textContent = m ? `${Math.round((v / m) * 100)}%` : "working…"; fill.style.width = m ? `${Math.min(100, (v / m) * 100)}%` : "0%"; },
+      // Overall progress across a chunked job (§16): chunk index plus how far the current
+      // chunk's own step got, so the bar advances smoothly instead of resetting to 0% at
+      // every chunk boundary.
+      chunkStep(idx: number, count: number, v: number, m: number) {
+        wrap.style.display = "flex";
+        const within = m ? v / m : 0;
+        const pct = Math.max(0, Math.min(100, ((idx + within) / count) * 100));
+        fill.style.width = `${pct.toFixed(1)}%`;
+        label.textContent = count > 1 ? `chunk ${idx + 1}/${count} · ${Math.round(within * 100)}% (${Math.round(pct)}% overall)` : `${Math.round(pct)}% · ${v} / ${m}`;
+      },
       done() { wrap.style.display = "none"; },
       fail(msg: string) { label.textContent = `✕ ${msg}`; fill.style.width = "0%"; },
     };
@@ -386,31 +397,100 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   // (VHS_LoadVideo only lists input/), queue the graph, refresh the grid on success, and — in
   // finally, success and failure alike — delete the input copy so it doesn't accumulate (same
   // leak SPEC_MINIMAX_H3_TEMP_FILE_CLEANUP.md fixed for the main relay).
-  async function runPost(v: GalleryVideo, buildGraph: (inputFilename: string) => { graph: Record<string, any>; saveNode: string }, readout: ReturnType<typeof makeProgressReadout>, runBtn: HTMLButtonElement) {
+  // Every requested frame gets materialized as a float32 RGBA array by VHS_LoadVideo before
+  // any node touches it, so asking for a whole long/high-res clip in one shot can exceed
+  // available RAM — a "★ stitched" full run easily runs into the thousands of frames. The
+  // budget is per-chunk RAM, not resolution, so it scales the chunk length down automatically
+  // for a bigger frame: a 1088x736 clip and a 4K one both stay under roughly the same
+  // footprint per chunk (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §16).
+  const CHUNK_BUDGET_BYTES = 1.25 * 1024 ** 3;
+  const CHUNK_MIN_FRAMES = 8;
+  const CHUNK_MAX_FRAMES = 240;
+
+  type ChunkOpts = { folder?: string; skipFirstFrames?: number; frameLoadCap?: number; saveSuffix?: string };
+
+  /** Shared run wrapper: copy the source into input/, queue the graph (chunked if the source
+   * is long or large enough to risk exhausting RAM), reload the grid.
+   *
+   * `buildFn(inputFile, stem, chunkOpts)` returns `{ graph, saveNode }`; chunkOpts is `{}` for
+   * a plain single-shot job, or carries the chunk slice when chunking — both graph builders
+   * default those fields to their old whole-file behavior, so a caller that ignores chunkOpts
+   * still works unchanged. */
+  async function runPost(v: GalleryVideo, buildFn: (inputFilename: string, stem: string, chunkOpts: ChunkOpts) => { graph: Record<string, any>; saveNode: string }, readout: ReturnType<typeof makeProgressReadout>, runBtn: HTMLButtonElement, label: string, finalSuffix: string) {
     postRunning = true;
     runBtn.disabled = true;
-    readout.start("copying…");
+    readout.start(`Preparing ${v.filename}…`);
     let copied: string | null = null;
+    const chunkFiles: { filename: string; subfolder: string }[] = [];
     try {
+      // VHS_LoadVideo only lists ComfyUI's input folder, so the finished mp4 has to be copied
+      // there first — copy_to_input is format-agnostic, it just moves bytes.
       copied = await copyOutputToInput(v.filename, v.subfolder || "", "output");
-      const { graph, saveNode } = buildGraph(copied);
-      readout.start("queued…");
-      const res = await queuePrompt(graph, { onProgress: (val, max) => readout.progress(val, max) });
-      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — upscale/interpolate results copy the source
-      // clip's meta verbatim (same settings, same prompt — only the pixels/frame-rate changed),
-      // so the gallery info popup isn't blank for a clip that actually has a full history.
-      const out = res.byNode?.[saveNode];
-      const outVid = (out?.images || out?.gifs || [])[0];
-      if (outVid) {
-        await saveMeta(outVid.filename, outVid.subfolder || "", { ...((v as any).meta || {}), node: "minimax_h3", created: Date.now() }).catch(() => {});
+      const stem = v.filename.replace(/\.[^.]+$/, "");
+      const outFolder = state.saveSubfolder || SUBFOLDER;
+
+      // Chunk sizing. If video_info can't be read (ffprobe missing, odd container), fall back
+      // to a single whole-file job rather than failing outright — that's exactly the old
+      // behavior, so short clips are unaffected either way.
+      let chunkFrames = 0, totalFrames = 0;
+      try {
+        const info = await getVideoInfo(copied, "", "input");
+        const perFrameBytes = Math.max(1, (info.width || 0) * (info.height || 0) * 16);
+        chunkFrames = Math.max(CHUNK_MIN_FRAMES, Math.min(CHUNK_MAX_FRAMES, Math.floor(CHUNK_BUDGET_BYTES / perFrameBytes)));
+        totalFrames = info.frames || 0;
+      } catch { /* chunkCount defaults to 1 below */ }
+      const chunkCount = totalFrames > 0 && chunkFrames > 0 ? Math.max(1, Math.ceil(totalFrames / chunkFrames)) : 1;
+
+      let outFile: { filename: string; subfolder: string } | null = null;
+      if (chunkCount === 1) {
+        const { graph, saveNode } = buildFn(copied, stem, {});
+        readout.start(`${label}…`);
+        const res = await queuePrompt(graph, { onProgress: (val, max) => readout.chunkStep(0, 1, val, max) });
+        const out = res.byNode?.[saveNode];
+        const o = (out?.images || out?.gifs || [])[0];
+        if (o) outFile = { filename: o.filename, subfolder: o.subfolder || outFolder };
+      } else {
+        // Same VHS_LoadVideo source, sliced by skip_first_frames/frame_load_cap — audio slices
+        // the same way (VHS derives its start/duration from those two fields), so each chunk's
+        // own soundtrack lines up with its frames. Chunks land in a scratch subfolder and get
+        // stream-copy concatenated afterward, then deleted (success and failure alike).
+        const chunkSub = `${outFolder}/._post_chunks`;
+        for (let i = 0; i < chunkCount; i++) {
+          const skip = i * chunkFrames;
+          const cap = Math.min(chunkFrames, totalFrames - skip);
+          const { graph, saveNode } = buildFn(copied, `${stem}_c${String(i).padStart(3, "0")}`, { folder: chunkSub, skipFirstFrames: skip, frameLoadCap: cap, saveSuffix: "" });
+          readout.start(`${label} — preparing chunk ${i + 1}/${chunkCount}…`);
+          const res = await queuePrompt(graph, { onProgress: (val, max) => readout.chunkStep(i, chunkCount, val, max) });
+          const out = res.byNode?.[saveNode];
+          const o = (out?.images || out?.gifs || [])[0];
+          if (!o) throw new Error(`chunk ${i + 1}/${chunkCount} produced no output`);
+          chunkFiles.push({ filename: o.filename, subfolder: o.subfolder || chunkSub });
+        }
+        readout.start(`${label} — joining ${chunkCount} chunks…`);
+        // Every chunk shares the same codec, resolution, and fps, so this is a plain stream-copy
+        // concat (overlap/trim both 0) — no re-encode, no quality loss.
+        // The suffix a non-chunked single-shot call would have used — otherwise a chunked
+        // upscale/deblur's final file is indistinguishable by name from a fresh render.
+        const joined = await stitchClips(chunkFiles, `${outFolder}/${stem}${finalSuffix}`, 0, 0, null);
+        if (joined?.filename) outFile = { filename: joined.filename, subfolder: joined.subfolder || outFolder };
+      }
+
+      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — the new file is the same shot with the same
+      // settings, only the pixels changed; without this it lands in the gallery with no
+      // prompt, no seed, no pipeline record, and Reuse can't rebuild it.
+      if (outFile && (v as any).meta) {
+        await saveMeta(outFile.filename, outFile.subfolder || "", { ...((v as any).meta || {}), created: Date.now(), postProcess: label.toLowerCase(), postSource: v.filename }).catch(() => {});
       }
       readout.done();
       await refresh();
-      ctx.showPopup("Done.", false);
+      ctx.showPopup(`${label} finished — the new file is at the top of the gallery.`, false);
     } catch (e: any) {
       readout.fail(e?.message || String(e));
-      ctx.showPopup(`Failed: ${e?.message || e}`, true);
+      ctx.showPopup(`${label} failed: ${e?.message || e}`, true);
     } finally {
+      // Clean up in both the success and failure paths: whatever chunks did get written, and
+      // the source copy that only ever existed to feed VHS_LoadVideo.
+      for (const f of chunkFiles) await deleteVideo(f.filename, f.subfolder).catch(() => {});
       if (copied) discardInputCopy(copied);
       postRunning = false;
       runBtn.disabled = false;
@@ -438,11 +518,30 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const upscaleReadout = makeProgressReadout();
   const upscaleRunBtn = button("⬆ Run", () => {
     const v = findPost();
-    if (v) runPost(v, (f) => buildUpscaleGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { method: upscaleMethod as "model" | "rtx" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality, deblur: deblurStrength }, ctx.availability), upscaleReadout, upscaleRunBtn);
+    if (v)
+      runPost(
+        v,
+        (f, stem, chunkOpts) => buildUpscaleGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
+          method: upscaleMethod as "model" | "rtx" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality, deblur: deblurStrength,
+          skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
+          saveSuffix: upscaleMethod === "none" && chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
+        }, ctx.availability),
+        upscaleReadout, upscaleRunBtn, "Upscale", upscaleMethod === "none" ? "_deblur" : "_upscaled"
+      );
   }, "primary") as HTMLButtonElement;
+  /** Deblur with no upscale: method "none" makes the graph builder skip both upscalers. */
   const deblurRunBtn = button("✦ Deblur", () => {
     const v = findPost();
-    if (v) runPost(v, (f) => buildUpscaleGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { method: "none", deblur: deblurStrength }, ctx.availability), upscaleReadout, deblurRunBtn);
+    if (v)
+      runPost(
+        v,
+        (f, stem, chunkOpts) => buildUpscaleGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
+          method: "none", deblur: deblurStrength,
+          skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
+          saveSuffix: chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
+        }, ctx.availability),
+        upscaleReadout, deblurRunBtn, "Deblur", "_deblur"
+      );
   }) as HTMLButtonElement;
   const upscaleBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
 
@@ -535,7 +634,19 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   interpFp16Label.append(interpFp16Cb, el("span", { text: "fp16" }));
 
   const interpReadout = makeProgressReadout();
-  const interpRunBtn = button("🎞 Run", () => { const v = findPost(); if (v) runPost(v, (f) => buildInterpolateGraph(f, (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), v.filename.replace(/\.[^.]+$/, ""), { targetFps: interpTargetFps, scale: interpScale, batchSize: interpBatch, useFp16: interpFp16 }), interpReadout, interpRunBtn); }, "primary") as HTMLButtonElement;
+  const interpRunBtn = button("🎞 Run", () => {
+    const v = findPost();
+    if (v)
+      runPost(
+        v,
+        (f, stem, chunkOpts) => buildInterpolateGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
+          targetFps: interpTargetFps, scale: interpScale, batchSize: interpBatch, useFp16: interpFp16,
+          skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
+          saveSuffix: chunkOpts.saveSuffix,
+        }),
+        interpReadout, interpRunBtn, "Interpolation", `_${interpTargetFps}fps`
+      );
+  }, "primary") as HTMLButtonElement;
   const interpBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
   interpBar.append(
     el("div", { text: `Interpolate: ${FPS} →`, class: "text-[10.5px] font-bold", style: { color: C.text } }),

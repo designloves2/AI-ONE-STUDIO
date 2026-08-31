@@ -66,3 +66,13 @@ not a coding failure.
 | One-Take seam artifact — measured write-up | `400d68b` | `TJ_H3_LatentContinuation` hard-splices with no feathering; frames 39–42 of every continued clip break. STUDIO_ONE hides it by trimming 43 frames on manual stitch (a workaround). Real fix belongs here; proposed directions in that write-up are unverified. |
 | Free Text Encoder VRAM port | — | `SPEC_FREE_TEXT_ENCODER_VRAM_PORT.md` in the node repo. |
 | MiniMax H3 Audio Lock port | — | `SPEC_MINIMAX_H3_AUDIO_LOCK_PORT.md` in the node repo. `HANDOFF_REGISTRY.md` records the split. |
+
+## SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md
+
+| § | item | node | web | verified | origin | notes |
+|---|---|---|---|---|---|---|
+| 1 | `POST /minimax_h3_one/clip_last_frame` + `getClipLastFrame` | `v1.21.0` | — | 2026-09-01 | node→web | frames-glob then ffmpeg `-sseof -1` fallback → input/. |
+| 2 | Prompt Edit "Continue generating the clip" (gallery frame picker, before-clips off + override greyed, `_resumeSnapshot` restore, clear on set-load) | `v1.21.0` | — | 2026-09-01 | node→web | Resume seed only — prompt-list resume already worked via set + enable toggles. |
+| 3 | Gallery `Extend` (3-button bar, prompt-only popup, LLM Review/Auto, `ctx.runExtend` → FL2VA continuation → auto-stitch `[source, continuation]`, §5 meta) | `v1.21.0` | — | 2026-09-01 | node→web | Traps: read `rs._extendFrom` not `state._extendFrom`; probe source dims (`getVideoInfo`) → megapixels/aspect or the concat 0-bytes; `/stitch` now scale+pads to clip 0's frame (also fixes manual Combine). |
+| 4 | User pipeline presets carry the full left-panel recipe (`RECIPE_KEYS`) | `v1.21.0` | — | 2026-09-01 | web→node | User reported: a saved "PDD" preset restored `turboMode` but not `pddFile` → `effectiveTurbo` fell back to none → 20 steps not 8. Built-in 6 unchanged (axes only); `matchPreset` unchanged. |
+| 5 | `_mmh3_last` / `_mmh3_drop_stale_last_frame` were referenced but never defined — NameError on every mmh3 render, node last-frame output broken | `v1.21.0` | — | 2026-09-01 | web→node | Check web backend for the same gap. |

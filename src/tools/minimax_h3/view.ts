@@ -11,6 +11,8 @@ import {
   BLOCK_CACHES,
   CLIP_LENGTHS,
   FPS,
+  SAMPLERS,
+  SCHEDULERS,
   SUBFOLDER,
   UPSCALE_MODES,
   attnBackendBlockedReason,
@@ -1436,6 +1438,23 @@ export function renderMinimaxH3(container: HTMLElement) {
     // LoRA
     leftPanel.appendChild(
       accordion("lora", "LoRA", `${(state.loras || []).filter((l) => l.enabled !== false && l.name && l.name !== "none").length} active`, () => [mountLoraPanel()])
+    );
+
+    // Sampling — sampler/scheduler/denoise + sigma shift, moved from Settings so they sit next
+    // to Steps/Turbo as per-run controls instead of fixed config.
+    leftPanel.appendChild(
+      accordion("sampling", "Sampling", `${state.sampler || "er_sde"} · ${state.scheduler || "simple"}`, () => [
+        row([
+          col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.sampler || "er_sde", (v) => { state.sampler = v; persist(); })]),
+          col([label("Scheduler"), select(SCHEDULERS.map((s) => ({ value: s, label: s })), state.scheduler || "simple", (v) => { state.scheduler = v; persist(); })]),
+        ]),
+        col([label("Denoise"), n(state.denoise ?? 1.0, (v) => (state.denoise = v), 0.01)]),
+        row([
+          col([label("shift_video"), n(state.shiftVideo ?? 12, (v) => (state.shiftVideo = v), 0.5)]),
+          col([label("shift_audio"), n(state.shiftAudio ?? 3, (v) => (state.shiftAudio = v), 0.5)]),
+        ]),
+        el("div", { text: "Sigma shift feeds MiniMaxH3SigmaShift.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ])
     );
 
     // Steps — exactly one field is ever editable: whichever count the run will actually use.

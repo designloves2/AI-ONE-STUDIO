@@ -2,8 +2,8 @@
 // 탭: Models · Sampling · Preview · Output. 여기서 정한 값은 매 실행에 재사용되고,
 // 실행마다 바뀌는 값(steps, accel 등)은 좌측 패널에 남아있다 — 원본과 동일한 구분.
 import type { MinimaxState } from "./core";
-import { SAMPLERS, SCHEDULERS, SUBFOLDER } from "./core";
-import { button, checkboxRow, clear, col, el, label, panel, row, searchableSelect, select } from "../../shared/ui";
+import { SUBFOLDER } from "./core";
+import { button, checkboxRow, clear, col, el, label, panel, row, searchableSelect } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import {
   getConfig,
@@ -137,31 +137,6 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   function samplingTab() {
     const wrap = el("div", { class: "flex flex-col gap-2" });
-    wrap.appendChild(
-      panel([
-        label("Steps & acceleration"),
-        el("div", { html: "Step counts and each acceleration mode's tuning knobs now live in the node's <b>left panel</b>, directly under the Acceleration dropdown — switching modes there doesn't require coming back here.", style: { fontSize: "11px", color: C.muted, lineHeight: "1.6" } }),
-      ])
-    );
-    wrap.appendChild(
-      panel([
-        label("Sampler"),
-        row([
-          col([label("Sampler (non-turbo)"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.sampler || "er_sde", (v) => { state.sampler = v; ctx.persist(); })]),
-          col([label("Scheduler"), select(SCHEDULERS.map((s) => ({ value: s, label: s })), state.scheduler || "simple", (v) => { state.scheduler = v; ctx.persist(); })]),
-        ]),
-        col([label("Denoise"), el("input", { type: "number", step: "0.01", value: String(state.denoise ?? 1.0), style: numInputStyle(), oninput: (e: any) => { state.denoise = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-      ])
-    );
-    wrap.appendChild(
-      panel([
-        label("Sigma Shift (MiniMaxH3SigmaShift)"),
-        row([
-          col([label("shift_video"), el("input", { type: "number", step: "0.5", value: String(state.shiftVideo ?? 12), style: numInputStyle(), oninput: (e: any) => { state.shiftVideo = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-          col([label("shift_audio"), el("input", { type: "number", step: "0.5", value: String(state.shiftAudio ?? 3), style: numInputStyle(), oninput: (e: any) => { state.shiftAudio = parseFloat(e.target.value) || 0; ctx.persist(); } })]),
-        ]),
-      ])
-    );
     wrap.appendChild(
       panel([
         label("Image → Brief — LOCAL ENHANCE (native CLIP)"),
@@ -333,7 +308,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     clear(leftCol);
     clear(rightCol);
     leftCol.append(section("models", "Models", modelsTab()), section("preview", "Preview", previewTab()));
-    rightCol.append(section("sampling", "Sampling", samplingTab()), section("output", "Output", outputTab()));
+    rightCol.append(section("sampling", "LLM Setting", samplingTab()), section("output", "Output", outputTab()));
     refreshPackStatusText();
   }
 

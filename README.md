@@ -225,6 +225,53 @@ script. When backend node packs are missing, MiniMax H3 shows a banner and
 <br><sub>(`ai-one-studio-run.bat` waits up to 3 min for ComfyUI on `127.0.0.1:8188`, then opens
 the browser. It does not start ComfyUI itself.)</sub>
 
+## 포함된 실행 파일 / Bundled scripts
+
+저장소에 배치 파일 두 개가 들어 있습니다. 둘 다 그냥 텍스트 파일이라 열어서 내용을 확인할 수
+있습니다.
+
+<sub>Two batch files ship in the repo. Both are plain text — open them to see exactly what they
+run.</sub>
+
+### `install_comfyui_dependencies.bat` — 최초 1회 (또는 업데이트 시)
+
+한 일 / What it does:
+
+- ComfyUI 폴더 경로와 포트 번호를 물어봅니다. 포트는 `public/comfy_port.txt`에 기록됩니다.
+  <br><sub>Asks for the ComfyUI folder path and port; writes the port to `public/comfy_port.txt`.</sub>
+- `git` / Python(포터블 `python_embeded` 또는 `venv`)을 찾고, `pip`·`setuptools`·`wheel`을 올립니다.
+  <br><sub>Locates `git` and Python (portable `python_embeded` or a `venv`), upgrades `pip`/`setuptools`/`wheel`.</sub>
+- `<ComfyUI>\custom_nodes\` 아래로 `ComfyUI-TJ_NODE_STUDIO_ONE` + 의존 노드 20여 개
+  (Impact Pack, KJNodes, SeedVR2, RMBG, controlnet_aux, GGUF, MiniMax‑H3 캐시/터보/스펙트럼,
+  RTX Nodes, VideoHelperSuite, Crystools, `ComfyUI-TJ_NODE` 등)를 clone하고 각 `requirements.txt`를
+  설치합니다. **이미 있는 항목은 `git pull`만 하고 건너뜁니다.**
+  <br><sub>Clones `ComfyUI-TJ_NODE_STUDIO_ONE` + ~20 dependency node packs into
+  `<ComfyUI>\custom_nodes\` and pip-installs each `requirements.txt`. Already-present ones are
+  just `git pull`ed and skipped.</sub>
+- 설치 전후로 `numpy` 버전을 비교해, 의존성이 옮겨 놨으면 원래 버전으로 되돌립니다.
+  <br><sub>Compares the `numpy` version before/after and pins it back if a dependency moved it.</sub>
+- **모델 파일은 건드리지 않습니다.** 실행 배치도 만들지 않습니다(`ai-one-studio-run.bat`은 이미 포함).
+  <br><sub>Does **not** touch model files, and does not generate a run script.</sub>
+
+끝나면 ComfyUI를 재시작하라고 안내합니다.
+<br><sub>Prints a "restart ComfyUI" reminder when done.</sub>
+
+### `ai-one-studio-run.bat` — 매번 웹 앱을 켤 때 (선택)
+
+한 일 / What it does:
+
+- 자기 폴더로 이동한 뒤 `npm run dev`(Vite 개발 서버, 포트 8774)를 실행합니다.
+  <br><sub>`cd`s to its own folder and runs `npm run dev` (the Vite dev server on port 8774).</sub>
+- 백그라운드에서 `http://127.0.0.1:8188`을 최대 3분간 폴링하다가, ComfyUI가 응답하면 브라우저로
+  `http://127.0.0.1:8774`를 엽니다(3분이 지나면 그냥 엽니다).
+  <br><sub>In the background, polls `http://127.0.0.1:8188` for up to 3 min, then opens
+  `http://127.0.0.1:8774` in the browser (opens anyway after 3 min).</sub>
+- **ComfyUI 서버는 실행하지 않습니다.** 창을 닫으면 웹 서버가 멈춥니다.
+  <br><sub>Does **not** start the ComfyUI server. Closing the window stops the web server.</sub>
+
+`npm run dev`를 직접 실행하는 것과 같고, 브라우저 자동 열기만 더해진 것입니다.
+<br><sub>Equivalent to running `npm run dev` yourself, plus the auto-open.</sub>
+
 ## 시작하기 / Getting Started
 
 ```bash

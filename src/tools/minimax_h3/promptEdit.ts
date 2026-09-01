@@ -860,64 +860,162 @@ export function createPromptEditOverlay(
   });
 
   // ── review overlay ──────────────────────────────────────────────────────
+  // SPEC_MINIMAX_H3_ENHANCE_APPLY_MODES.md §1 — the cards are always a preview; how the result
+  // gets applied is chosen last, from the mode block just above Discard/Apply:
+  //   "one"    the whole brief as one paragraph into the current clip's shot field only
+  //   "split"  parsed into common header / shots / sound-music tail (the old behaviour)
+  //   "manual" only the result cards the user ticked
   const reviewOv = el("div", { class: "absolute inset-0 z-20 flex-col p-3 gap-2 box-border", style: { display: "none", background: "rgba(11,11,11,0.985)" } });
   let reviewText = "",
-    reviewTarget = "one";
+    reviewTarget = "one",
+    reviewMode: "one" | "split" | "manual" = "split";
+  const reviewSel = new Set<string>();
+  let reviewParsed: ReturnType<typeof parseBrief> = { header: "", shots: [], footer: "" };
   const rvHdr = el("div", { class: "flex items-center gap-2 shrink-0" });
   rvHdr.appendChild(el("div", { text: "✨ Enhance result", class: "text-white text-[13px] font-bold" }));
   const rvInfo = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   rvHdr.appendChild(rvInfo);
   const rvBody = el("div", { class: "flex-1 overflow-y-auto flex flex-col gap-1.5" });
+
+  const rvModeRow = el("div", { class: "flex flex-col gap-1.5 shrink-0" });
+  rvModeRow.appendChild(el("div", { text: "Choose how to apply this result", class: "text-[10.5px] text-center font-bold", style: { color: C.muted } }));
+  const rvModeBtnRow = el("div", { class: "flex gap-1.5" });
+  rvModeRow.appendChild(rvModeBtnRow);
+  const rvModeBtns: Record<string, HTMLButtonElement> = {};
+  ([
+    ["one", "1. One Prompt", "Whole brief → this clip's shot field only"],
+    ["split", "2. Auto Split", "Header / shots / sound-music into their own fields"],
+    ["manual", "3. Use selected", "Only the cards you tick above"],
+  ] as const).forEach(([k, lbl, tip]) => {
+    const b = el("button", { type: "button", text: lbl, title: tip, style: { flex: "1", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", fontWeight: "700", padding: "5px 0", borderRadius: "5px", border: `1px solid ${C.border}`, background: C.bg2, color: C.text } }) as HTMLButtonElement;
+    b.addEventListener("click", () => { reviewMode = k; renderReviewCards(); });
+    rvModeBtns[k] = b;
+    rvModeBtnRow.appendChild(b);
+  });
+
   const rvFoot = el("div", { class: "flex items-center gap-2 shrink-0" });
   const rvSummary = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   const rvCancel = el("button", { type: "button", text: "✕ Discard", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}` } });
   const rvApply = button("✓ Apply", () => applyReview(), "primary");
   rvFoot.append(rvSummary, rvCancel, rvApply);
-  reviewOv.append(rvHdr, rvBody, rvFoot);
+  reviewOv.append(rvHdr, rvBody, rvModeRow, rvFoot);
 
-  function reviewBlock(title: string, text: string, accent?: string) {
-    const b = el("div", { class: "rounded-md px-2.5 py-2 flex flex-col gap-1", style: { background: C.bg1, border: `1px solid ${accent || C.border}` } });
+  // One result card. `key` is "one" | "header" | `shot:${i}` | "footer". In manual mode a
+  // click toggles it in/out of reviewSel; the other two modes render it read-only.
+  function reviewCard(key: string, title: string, text: string) {
+    const selectable = reviewMode === "manual";
+    const on = reviewSel.has(key);
+    const previewAccent = reviewMode === "one" ? C.border : key.startsWith("shot") ? BRAND : C.ok;
+    const border = selectable ? (on ? `2px solid ${BRAND}` : "1px solid #3a3a3a") : `1px solid ${previewAccent}`;
+    const b = el("div", {
+      class: "rounded-md px-2.5 py-2 flex flex-col gap-1",
+      style: {
+        background: C.bg1, border,
+        cursor: selectable ? "pointer" : "default",
+        boxShadow: selectable && !on ? "inset 0 0 0 999px rgba(0,0,0,0.55)" : "none",
+        opacity: reviewMode === "one" && key !== "one" ? "0.5" : "1",
+        transition: "box-shadow .1s, border-color .1s",
+      },
+    });
     b.append(
-      el("div", { text: title, class: "text-[9.5px] font-bold tracking-wide", style: { color: accent || C.muted } }),
+      el("div", {
+        text: title + (selectable ? (on ? "   ● selected" : "   ○ off") : ""),
+        class: "text-[9.5px] font-bold tracking-wide",
+        style: { color: selectable ? (on ? BRAND : C.muted) : previewAccent === C.border ? C.muted : previewAccent },
+      }),
       el("div", { text, class: "text-[11px] leading-relaxed whitespace-pre-wrap", style: { color: C.text } })
     );
+    if (selectable) b.addEventListener("click", () => {
+      reviewSel.has(key) ? reviewSel.delete(key) : reviewSel.add(key);
+      renderReviewCards();
+    });
     return b;
+  }
+
+  function renderReviewCards() {
+    for (const k in rvModeBtns) {
+      const active = k === reviewMode;
+      rvModeBtns[k].style.background = active ? BRAND : C.bg2;
+      rvModeBtns[k].style.color = active ? "#fff" : C.text;
+    }
+    const p = reviewParsed;
+    clear(rvBody);
+    if (reviewMode === "one") {
+      rvBody.appendChild(reviewCard("one", `→ CLIP ${selected + 1} (whole brief, one paragraph)`, reviewText));
+    } else {
+      if (p.header) rvBody.appendChild(reviewCard("header", "COMMON — HEADER", p.header));
+      const shots = p.shots.length ? p.shots : [reviewText];
+      shots.forEach((s, i) => rvBody.appendChild(reviewCard(`shot:${i}`, `CLIP ${i + 1}`, s)));
+      if (p.footer) rvBody.appendChild(reviewCard("footer", "COMMON — SOUND / MUSIC", p.footer));
+    }
+
+    const got = p.shots.length || 1;
+    let info = `${reviewText.length} chars`;
+    if (reviewTarget === "all") {
+      const want = targetPlan().shots;
+      info += ` · ${got} shot${got > 1 ? "s" : ""}`;
+      if (want && got !== want) info += `  ⚠ asked for ${want} — use ✂ Split into clips or ↻ Enhance again`;
+    } else {
+      info += ` → clip ${selected + 1}`;
+    }
+    rvInfo.textContent = info;
+
+    rvSummary.textContent =
+      reviewMode === "one" ? `Whole brief → clip ${selected + 1}'s text. Header / tail untouched.`
+      : reviewMode === "manual" ? (reviewSel.size ? `Applying ${reviewSel.size} selected part(s).` : "Tick the cards to apply.")
+      : reviewTarget === "all" ? `Replaces all prompts with ${got}${p.header ? " + header" : ""}${p.footer ? " + tail" : ""}.`
+      : `Replaces clip ${selected + 1}${p.header || p.footer ? " and the common parts" : ""}.`;
   }
 
   function openReview(text: string, target: string) {
     reviewText = text;
     reviewTarget = target;
-    const parsed = parseBrief(text);
-    const plan = ctx.currentPlan();
-    clear(rvBody);
-    if (reviewTarget === "all") {
-      const shots = parsed.shots.length ? parsed.shots : [text];
-      const secs = shots.length * (plan.clipSec || 0);
-      rvInfo.textContent = `${shots.length} shot(s) → ${shots.length} clip prompt(s)${secs ? ` · ${secs.toFixed(1)}s total` : ""}`;
-      if (parsed.header) rvBody.appendChild(reviewBlock("→ COMMON HEADER", parsed.header, C.ok));
-      shots.forEach((g, i) => rvBody.appendChild(reviewBlock(`→ CLIP ${i + 1}`, g, BRAND)));
-      if (parsed.footer) rvBody.appendChild(reviewBlock("→ COMMON SOUND / MUSIC", parsed.footer, C.ok));
-      rvSummary.textContent = `Applying replaces ${plan.promptCount} prompt(s) with ${shots.length}`;
-    } else {
-      rvInfo.textContent = `${text.length} chars → clip ${selected + 1}`;
-      if (parsed.header) rvBody.appendChild(reviewBlock("→ COMMON HEADER", parsed.header, C.ok));
-      rvBody.appendChild(reviewBlock(`→ CLIP ${selected + 1}`, parsed.shots.join("\n\n") || text, BRAND));
-      if (parsed.footer) rvBody.appendChild(reviewBlock("→ COMMON SOUND / MUSIC", parsed.footer, C.ok));
-      rvSummary.textContent = `Applying replaces clip ${selected + 1}`;
-    }
+    reviewParsed = parseBrief(text);
+    reviewMode = "split";
+    reviewSel.clear();
+    // Seed manual mode all-ticked so "Use selected" == "Auto Split" until a card is removed.
+    if (reviewParsed.header) reviewSel.add("header");
+    if (reviewParsed.footer) reviewSel.add("footer");
+    (reviewParsed.shots.length ? reviewParsed.shots : [text]).forEach((_, i) => reviewSel.add(`shot:${i}`));
+    renderReviewCards();
     reviewOv.style.display = "flex";
   }
 
   function applyReview() {
-    const parsed = parseBrief(reviewText);
-    if (parsed.header) state.promptHeader = parsed.header;
-    if (parsed.footer) state.promptFooter = parsed.footer;
-    if (reviewTarget === "all") {
-      state.prompts = parsed.shots.length ? parsed.shots.map((s) => ({ text: s, firstFrame: "", enabled: true })) : [{ text: reviewText, firstFrame: "", enabled: true }];
-      selected = 0;
-    } else {
+    const p = reviewParsed;
+    if (reviewMode === "manual" && !reviewSel.size) {
+      ctx.showPopup("Tick at least one card, or switch mode.", true);
+      return;
+    }
+    if (reviewMode === "one") {
       state.prompts[selected] = normPrompt(state.prompts[selected]);
-      state.prompts[selected].text = parsed.shots.join("\n\n") || reviewText;
+      state.prompts[selected].text = reviewText; // header/footer left alone
+    } else if (reviewMode === "split") {
+      if (p.header) state.promptHeader = p.header;
+      if (p.footer) state.promptFooter = p.footer;
+      if (reviewTarget === "all") {
+        state.prompts = p.shots.length
+          ? p.shots.map((s) => ({ text: s, firstFrame: "", enabled: true }))
+          : [{ text: reviewText, firstFrame: "", enabled: true }];
+        selected = 0;
+      } else {
+        state.prompts[selected] = normPrompt(state.prompts[selected]);
+        state.prompts[selected].text = p.shots.join("\n\n") || reviewText;
+      }
+    } else {
+      // manual — only the ticked cards
+      if (reviewSel.has("header") && p.header) state.promptHeader = p.header;
+      if (reviewSel.has("footer") && p.footer) state.promptFooter = p.footer;
+      const picked = (p.shots.length ? p.shots : [reviewText]).filter((_, i) => reviewSel.has(`shot:${i}`));
+      if (picked.length) {
+        if (reviewTarget === "all") {
+          state.prompts = picked.map((s) => ({ text: s, firstFrame: "", enabled: true }));
+          selected = 0;
+        } else {
+          state.prompts[selected] = normPrompt(state.prompts[selected]);
+          state.prompts[selected].text = picked.join("\n\n");
+        }
+      }
     }
     ctx.persist();
     reviewOv.style.display = "none";

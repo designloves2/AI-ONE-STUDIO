@@ -849,7 +849,15 @@ export function loraTriggers(state: MinimaxState) {
 
 export function parseBrief(text: string) {
   const SHOT_LINE_RE = /^[ \t]*\[(?:Shot|SHOT|샷)[ \t]*\d+\][^\n]*$/gm;
-  const TAIL_RE = /^[ \t]*(?:Ambient sound|Ambience|Sound|Music|Soundtrack|배경음|음악|사운드)[ \t]*:/i;
+  // The brief model ends with an audio section in two styles: simple ("Ambient sound:" /
+  // "Music:") and structured ("overall_soundscape:" / "non_diegetic_music:", sometimes
+  // markdown-bolded or hyphenated). Match both + the underscore/hyphen spellings it emits.
+  // SPEC_MINIMAX_H3_ENHANCE_APPLY_MODES.md §2.
+  const TAIL_RE = /^[ \t>*_-]*(?:Ambient[ _]?sound|Ambience|Sound(?:[ _]?design|scape)?|Music|Soundtrack|Score|overall[ _]?soundscape|non[ _-]?diegetic[ _]?music|diegetic[ _]?sound|SFX|Foley|Audio|배경음|음악|사운드|효과음)[ \t_*]*:/i;
+  // The model often echoes its own instructions / vision analysis at the end of a block —
+  // drop everything from the first such line to the end. `Image N:` is bracketed-safe;
+  // bare `Picture N:` is deliberately NOT matched (retention_analysis uses `<Picture N>:`).
+  const ECHO_RE = /^[ \t>*_-]*(?:Target duration|Write exactly|The following images?|USER REQUEST|Structure:|Output ONLY|Refer to media|Image \d+\s*:)/i;
   const raw = String(text || "").trim();
   if (!raw) return { header: "", shots: [] as string[], footer: "" };
 
@@ -882,7 +890,16 @@ export function parseBrief(text: string) {
     blocks[blocks.length - 1] = lines.slice(0, cut).join("\n").trim();
     footer = lines.slice(cut).join("\n").trim();
   }
-  return { header, shots: blocks.filter(Boolean), footer };
+  const stripEcho = (s: string) => {
+    const ls = s.split("\n");
+    const cutAt = ls.findIndex((l) => ECHO_RE.test(l));
+    return (cutAt >= 0 ? ls.slice(0, cutAt) : ls).join("\n").trim();
+  };
+  return {
+    header: stripEcho(header),
+    shots: blocks.map(stripEcho).filter(Boolean),
+    footer: stripEcho(footer),
+  };
 }
 
 export function groupShots(shots: string[], groups: number) {

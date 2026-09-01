@@ -358,6 +358,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       vae_audio: state.vaeAudio || "",
       turbo_lora: state.turboLora || "",
       turbo_lora_strength: state.turboLoraStrength ?? 1.0,
+      pdd_file: state.pddFile || "",
+      pdd_file_reference: state.pddFileReference || "",
       upscale_model: state.upscaleModel || "",
       save_subfolder: state.saveSubfolder || "",
       prompt_suffix: state.promptSuffix || "",
@@ -434,6 +436,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       take("vaeVideo", cfg.vae_video);
       take("vaeAudio", cfg.vae_audio);
       take("turboLora", cfg.turbo_lora);
+      take("pddFile", cfg.pdd_file);
+      take("pddFileReference", cfg.pdd_file_reference);
       take("upscaleModel", cfg.upscale_model);
       take("previewTinyVae", cfg.preview_tiny_vae);
       if (cfg.turbo_lora_strength != null) state.turboLoraStrength = cfg.turbo_lora_strength;

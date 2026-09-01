@@ -58,6 +58,8 @@ export interface MmhConfig {
   vae_audio?: string;
   turbo_lora?: string;
   turbo_lora_strength?: number;
+  pdd_file?: string;
+  pdd_file_reference?: string;
   upscale_model?: string;
   save_subfolder?: string;
   prompt_suffix?: string;

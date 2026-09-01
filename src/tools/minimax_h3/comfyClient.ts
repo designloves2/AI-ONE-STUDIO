@@ -104,6 +104,12 @@ export function queuePrompt(
     onProgress?: (v: number, m: number) => void;
     onQueued?: (promptId: string) => void;
     existingPromptId?: string;
+    /** When set, only `progress` events from this node id drive onProgress. ComfyUI emits a
+     *  progress bar for every node that has one (live-preview override, VAE decode, deblur,
+     *  interpolate…), and without this filter they all land in the same "step N/M" readout —
+     *  so a 30-step sampler run flickers to "38/60" as the preview/decode bars bleed in.
+     *  Left unset (e.g. a reconnect with no graph, or post-process) → forward everything. */
+    samplerNode?: string;
     /** Fired on each /history poll tick while the job is still running — a heartbeat for when
      *  the WS has gone quiet (mobile background throttling) and the poll is all that's left. */
     onPoll?: () => void;
@@ -116,7 +122,9 @@ export function queuePrompt(
 
     const onProgress = (d: any) => {
       if (!opts?.onProgress) return;
-      const { value, max } = d || {};
+      const { value, max, node, prompt_id } = d || {};
+      if (prompt_id && promptId && prompt_id !== promptId) return;
+      if (opts.samplerNode != null && node != null && String(node) !== String(opts.samplerNode)) return;
       if (max) opts.onProgress(value, max);
     };
     const onExecuted = (d: any) => {

@@ -1932,6 +1932,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         try {
           res = await queuePrompt(built.graph, {
             onProgress: (v, m) => setStepProgress(v, m),
+            samplerNode: NODE_IDS.sampler,
             existingPromptId: reattachId,
             onQueued: (promptId) => saveRunProgress({ pos, totClip, clipRecords: [...clipRecords], prevCheckpointName, chainFrame, promptId, savedAt: Date.now(), runState: rs }),
             onPoll: () => setStatus(`Clip ${curClip}/${totClip} · still rendering (connection quiet)…`),

@@ -26,9 +26,29 @@ import {
   writeBriefNative,
   type GalleryVideo,
 } from "./api";
-import { queuePrompt } from "./comfyClient";
+import { queuePrompt, type QueueResult } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
+
+// A single-shot post-process (upscale/deblur/interpolate) queues its ComfyUI job, then does the
+// meta write + cleanup client-side. If the tab is reloaded or iOS-discarded in between, the job
+// still finishes server-side but the result lands bare. Stash the job on queue so the next
+// gallery open can reattach (queuePrompt existingPromptId → /history), finish it, and clean up.
+// Chunked jobs aren't covered — the loop can't resume, the warning line covers that case.
+const POST_JOB_KEY = "aos_mmh3_post_job";
+interface PostJob {
+  promptId: string;
+  saveNode: string;
+  source: string;
+  sourceMeta: any;
+  label: string;
+  outFolder: string;
+  copied: string;
+  savedAt: number;
+}
+function savePostJob(j: PostJob) { try { localStorage.setItem(POST_JOB_KEY, JSON.stringify(j)); } catch {} }
+function loadPostJob(): PostJob | null { try { const s = localStorage.getItem(POST_JOB_KEY); return s ? JSON.parse(s) : null; } catch { return null; } }
+function clearPostJob() { try { localStorage.removeItem(POST_JOB_KEY); } catch {} }
 
 const STITCH_MAX = 10;
 const IS_TOUCH_DEVICE = typeof window !== "undefined" && ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0);
@@ -501,13 +521,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       if (chunkCount === 1) {
         const { graph, saveNode } = buildFn(copied, stem, {});
         readout.start(`${label}…`);
+        const cap = copied;
         const res = await queuePrompt(graph, {
           onProgress: (val, max) => readout.chunkStep(0, 1, val, max),
           onPoll: () => readout.note(`${label} · still working (connection quiet)…`),
+          onQueued: (pid) => savePostJob({ promptId: pid, saveNode, source: v.filename, sourceMeta: (v as any).meta ?? null, label, outFolder, copied: cap, savedAt: Date.now() }),
         });
-        const out = res.byNode?.[saveNode];
-        const o = (out?.images || out?.gifs || [])[0];
-        if (o) outFile = { filename: o.filename, subfolder: o.subfolder || outFolder };
+        outFile = await finishPost(res, saveNode, v.filename, (v as any).meta, label, outFolder);
       } else {
         // Same VHS_LoadVideo source, sliced by skip_first_frames/frame_load_cap — audio slices
         // the same way (VHS derives its start/duration from those two fields), so each chunk's
@@ -537,30 +557,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         if (joined?.filename) outFile = { filename: joined.filename, subfolder: joined.subfolder || outFolder };
       }
 
-      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §5 — carry the source's prompt / seed / pipeline
-      // so Reuse can still rebuild the original, BUT the post-processed file's own pixels and
-      // frame count are not the source's: an upscale changes w/h, interpolation changes the
-      // frame count and fps. Probe the actual output and overwrite those, drop the source's
-      // render time (elapsedSec — a different job), and record what it was made from.
-      if (outFile) {
-        const base: any = { ...((v as any).meta || {}) };
-        try {
-          const oi = await getVideoInfo(outFile.filename, outFile.subfolder || "", "output");
-          if (oi.width) base.w = oi.width;
-          if (oi.height) base.h = oi.height;
-          if (oi.frames) base.frames = oi.frames;
-          if (oi.fps) base.fps = oi.fps;
-          if (oi.duration) base.durationSeconds = oi.duration;
-        } catch { /* probe failed — leave whatever the source meta had */ }
-        delete base.elapsedSec;
-        await saveMeta(outFile.filename, outFile.subfolder || "", {
-          ...base,
-          created: Date.now(),
-          postProcess: label.toLowerCase(),
-          postSource: v.filename,
-          sourceW: (v as any).meta?.w,
-          sourceH: (v as any).meta?.h,
-        }).catch(() => {});
+      // Single-shot wrote its meta in finishPost(). The chunked path's output is the joined
+      // file, so patch its meta here the same way.
+      if (outFile && chunkCount !== 1) {
+        await patchPostMeta(outFile, (v as any).meta, v.filename, label).catch(() => {});
       }
       readout.done();
       await refresh();
@@ -573,9 +573,75 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       // the source copy that only ever existed to feed VHS_LoadVideo.
       for (const f of chunkFiles) await deleteVideo(f.filename, f.subfolder).catch(() => {});
       if (copied) discardInputCopy(copied);
+      clearPostJob(); // this run is settled (ok or failed) — nothing to resume
       keepTabAlive(false);
       postRunning = false;
       runBtn.disabled = false;
+    }
+  }
+
+  // Patch a post-processed file's meta: keep the source's prompt/seed/pipeline for Reuse
+  // (SPEC §5) but overwrite w/h/frames/fps with the real output (upscale changes size,
+  // interpolation changes frame count/fps), drop the source's render time, record the source.
+  async function patchPostMeta(outFile: { filename: string; subfolder: string }, sourceMeta: any, sourceName: string, label: string) {
+    const base: any = { ...(sourceMeta || {}) };
+    try {
+      const oi = await getVideoInfo(outFile.filename, outFile.subfolder || "", "output");
+      if (oi.width) base.w = oi.width;
+      if (oi.height) base.h = oi.height;
+      if (oi.frames) base.frames = oi.frames;
+      if (oi.fps) base.fps = oi.fps;
+      if (oi.duration) base.durationSeconds = oi.duration;
+    } catch { /* probe failed — leave whatever the source meta had */ }
+    delete base.elapsedSec;
+    await saveMeta(outFile.filename, outFile.subfolder || "", {
+      ...base, created: Date.now(), postProcess: label.toLowerCase(), postSource: sourceName,
+      sourceW: sourceMeta?.w, sourceH: sourceMeta?.h,
+    });
+  }
+
+  /** Pull the output file out of a queue result, then patch its meta. Returns the output. */
+  async function finishPost(res: QueueResult, saveNode: string, sourceName: string, sourceMeta: any, label: string, outFolder: string) {
+    const out = res.byNode?.[saveNode];
+    const o = (out?.images || out?.gifs || [])[0];
+    if (!o) return null;
+    const outFile = { filename: o.filename, subfolder: o.subfolder || outFolder };
+    await patchPostMeta(outFile, sourceMeta, sourceName, label).catch(() => {});
+    return outFile;
+  }
+
+  // Re-attach to a single-shot post-process that was in flight when the tab was reloaded /
+  // iOS-discarded: /history says done → finish it (meta + cleanup + gallery refresh); still
+  // running → wait it out. Called on every gallery open.
+  async function resumePostJob() {
+    if (postRunning) return;
+    const job = loadPostJob();
+    if (!job) return;
+    if (Date.now() - job.savedAt > 45 * 60_000) { clearPostJob(); return; }
+    postRunning = true;
+    keepTabAlive(true);
+    upscaleReadout.start(`Resuming ${job.label}…`);
+    try {
+      const res = await queuePrompt(null, {
+        existingPromptId: job.promptId,
+        onProgress: (v, m) => upscaleReadout.chunkStep(0, 1, v, m),
+        onPoll: () => upscaleReadout.note(`${job.label} · still working (connection quiet)…`),
+      });
+      const outFile = await finishPost(res, job.saveNode, job.source, job.sourceMeta, job.label, job.outFolder);
+      upscaleReadout.done();
+      if (job.copied) discardInputCopy(job.copied);
+      await refresh();
+      ctx.showPopup(outFile
+        ? `${job.label} finished while you were away — it's at the top of the gallery.`
+        : `${job.label} finished but its output couldn't be located.`, !outFile);
+    } catch (e: any) {
+      upscaleReadout.fail(e?.message || String(e));
+      if (job.copied) discardInputCopy(job.copied);
+      ctx.showPopup(`Couldn't recover the previous ${job.label}: ${e?.message || e}`, true);
+    } finally {
+      clearPostJob();
+      keepTabAlive(false);
+      postRunning = false;
     }
   }
 
@@ -1122,6 +1188,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     show() {
       ov.style.display = "flex";
       refresh();
+      resumePostJob();
     },
     hide,
     isOpen: () => ov.style.display !== "none",

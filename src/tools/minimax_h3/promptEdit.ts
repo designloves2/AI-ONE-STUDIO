@@ -244,6 +244,35 @@ export function createPromptEditOverlay(
     });
     return ta;
   }
+
+  // Per-field Undo / Clear (node v1.22.1), sat at the top-right of a field's label row.
+  // `write(v)` puts the value through that field's real backing store + any side effects.
+  // Undo steps back through values captured on focus and on Clear (per-field stack, cap 15);
+  // `resetStack()` is called on clip switch so the shot field's Undo can't cross clips.
+  function undoClearBtns(ta: HTMLTextAreaElement, write: (v: string) => void) {
+    const stack: string[] = [];
+    const apply = (v: string) => {
+      ta.value = v;
+      write(v);
+      ctx.persist();
+      refreshPreviewTag();
+    };
+    ta.addEventListener("focus", () => {
+      if (stack[stack.length - 1] !== ta.value) stack.push(ta.value);
+      if (stack.length > 15) stack.shift();
+    });
+    const mk = (txt: string, tip: string, fn: () => void) => {
+      const b = el("button", { type: "button", text: txt, title: tip, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "9px", padding: "2px 7px", borderRadius: "4px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}`, flexShrink: "0" } });
+      b.addEventListener("click", (e) => { e.preventDefault(); fn(); });
+      return b;
+    };
+    const row = el("div", { class: "flex gap-1 shrink-0" }, [
+      mk("Undo", "Undo this field's last change", () => { if (stack.length) apply(stack.pop()!); }),
+      mk("Clear", "Empty this field", () => { stack.push(ta.value); apply(""); }),
+    ]) as HTMLDivElement & { resetStack: () => void };
+    row.resetStack = () => { stack.length = 0; };
+    return row;
+  }
   // Per-clip override (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §2): when the current clip has
   // `override` on, these two boxes read/write prompts[selected].header/footer instead of the
   // common state.promptHeader/Footer. The header/footer, images, first/last frame, and
@@ -268,12 +297,28 @@ export function createPromptEditOverlay(
       else state.promptFooter = v;
     }
   );
-  const headerLabel = el("div", { text: "COMMON — HEADER", class: "text-[9.5px] tracking-wide", style: { color: C.muted } });
-  const footerLabel = el("div", { text: "COMMON — SOUND / MUSIC", class: "text-[9.5px] tracking-wide", style: { color: C.muted } });
+  const headerLabel = el("div", { text: "COMMON — HEADER", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
+  const footerLabel = el("div", { text: "COMMON — SOUND / MUSIC", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
+  const lblRow = (lbl: HTMLElement, ta: HTMLTextAreaElement, write: (v: string) => void) =>
+    el("div", { class: "flex items-center gap-1.5" }, [lbl, undoClearBtns(ta, write)]);
   const commonWrap = el("div", { class: "shrink-0 flex gap-2 flex-col sm:flex-row" });
   commonWrap.append(
-    el("div", { class: "flex-1 flex flex-col gap-1" }, [headerLabel, headerTA]),
-    el("div", { class: "flex-1 flex flex-col gap-1" }, [footerLabel, footerTA])
+    el("div", { class: "flex-1 flex flex-col gap-1" }, [
+      lblRow(headerLabel, headerTA, (v) => {
+        const p = state.prompts[selected];
+        if (promptOverrides(p)) (p as PromptEntry).header = v;
+        else state.promptHeader = v;
+      }),
+      headerTA,
+    ]),
+    el("div", { class: "flex-1 flex flex-col gap-1" }, [
+      lblRow(footerLabel, footerTA, (v) => {
+        const p = state.prompts[selected];
+        if (promptOverrides(p)) (p as PromptEntry).footer = v;
+        else state.promptFooter = v;
+      }),
+      footerTA,
+    ])
   );
   // Re-reads header/footer (and their labels) for whichever clip is now selected — called on
   // clip switch, override toggle, and panel open, per the spec's own three call sites.
@@ -304,11 +349,10 @@ export function createPromptEditOverlay(
   const editHdr = el("div", { class: "flex items-center gap-1.5" });
   const editTitle = el("div", { text: "Clip 1", class: "text-xs font-semibold flex-1" });
   const charCount = el("div", { class: "text-[10px]", style: { color: C.muted } });
-  editHdr.append(editTitle, charCount);
   const editor = el("textarea", {
     placeholder: "Describe this clip…",
     style: { flex: "1", minHeight: "160px", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "12px", fontSize: "13px", lineHeight: "1.6", fontFamily: "inherit", outline: "none", resize: "none" },
-  });
+  }) as HTMLTextAreaElement;
   editor.addEventListener("input", () => {
     state.prompts[selected] = normPrompt(state.prompts[selected]);
     state.prompts[selected].text = editor.value;
@@ -316,6 +360,13 @@ export function createPromptEditOverlay(
     updateCount();
     renderList();
   });
+  const editorUndoClear = undoClearBtns(editor, (v) => {
+    state.prompts[selected] = normPrompt(state.prompts[selected]);
+    state.prompts[selected].text = v;
+    updateCount();
+    renderList();
+  });
+  editHdr.append(editTitle, charCount, editorUndoClear);
 
   // Continue this clip from a finished clip's last frame (planned resume) —
   // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §2. Picking a clip seeds THIS entry's first frame
@@ -440,6 +491,7 @@ export function createPromptEditOverlay(
     const p = normPrompt(list[selected]) as PromptEntry;
     editor.value = promptText(p);
     editTitle.textContent = `Clip ${selected + 1}`;
+    editorUndoClear.resetStack(); // node v1.22.1 — the shot field's Undo stays within one clip
     refreshFraming();
     renderFirstFrameRow();
     renderImageRow();

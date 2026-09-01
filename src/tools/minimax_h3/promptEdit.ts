@@ -251,26 +251,35 @@ export function createPromptEditOverlay(
   // `resetStack()` is called on clip switch so the shot field's Undo can't cross clips.
   function undoClearBtns(ta: HTMLTextAreaElement, write: (v: string) => void) {
     const stack: string[] = [];
+    const paint = () => {
+      // node v1.22.2 — white when the button can do something, muted grey otherwise.
+      undoB.style.color = stack.length ? "#fff" : C.muted;
+      clearB.style.color = ta.value ? "#fff" : C.muted;
+    };
     const apply = (v: string) => {
       ta.value = v;
       write(v);
       ctx.persist();
       refreshPreviewTag();
+      paint();
     };
     ta.addEventListener("focus", () => {
       if (stack[stack.length - 1] !== ta.value) stack.push(ta.value);
       if (stack.length > 15) stack.shift();
+      paint();
     });
+    ta.addEventListener("input", paint);
     const mk = (txt: string, tip: string, fn: () => void) => {
       const b = el("button", { type: "button", text: txt, title: tip, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "9px", padding: "2px 7px", borderRadius: "4px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}`, flexShrink: "0" } });
       b.addEventListener("click", (e) => { e.preventDefault(); fn(); });
       return b;
     };
-    const row = el("div", { class: "flex gap-1 shrink-0" }, [
-      mk("Undo", "Undo this field's last change", () => { if (stack.length) apply(stack.pop()!); }),
-      mk("Clear", "Empty this field", () => { stack.push(ta.value); apply(""); }),
-    ]) as HTMLDivElement & { resetStack: () => void };
-    row.resetStack = () => { stack.length = 0; };
+    const undoB = mk("Undo", "Undo this field's last change", () => { if (stack.length) apply(stack.pop()!); });
+    const clearB = mk("Clear", "Empty this field", () => { stack.push(ta.value); apply(""); });
+    const row = el("div", { class: "flex gap-1 shrink-0" }, [undoB, clearB]) as HTMLDivElement & { resetStack: () => void; paint: () => void };
+    row.resetStack = () => { stack.length = 0; paint(); };
+    row.paint = paint;
+    paint();
     return row;
   }
   // Per-clip override (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §2): when the current clip has
@@ -299,24 +308,24 @@ export function createPromptEditOverlay(
   );
   const headerLabel = el("div", { text: "COMMON — HEADER", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
   const footerLabel = el("div", { text: "COMMON — SOUND / MUSIC", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
-  const lblRow = (lbl: HTMLElement, ta: HTMLTextAreaElement, write: (v: string) => void) =>
-    el("div", { class: "flex items-center gap-1.5" }, [lbl, undoClearBtns(ta, write)]);
+  const headerUC = undoClearBtns(headerTA, (v) => {
+    const p = state.prompts[selected];
+    if (promptOverrides(p)) (p as PromptEntry).header = v;
+    else state.promptHeader = v;
+  });
+  const footerUC = undoClearBtns(footerTA, (v) => {
+    const p = state.prompts[selected];
+    if (promptOverrides(p)) (p as PromptEntry).footer = v;
+    else state.promptFooter = v;
+  });
   const commonWrap = el("div", { class: "shrink-0 flex gap-2 flex-col sm:flex-row" });
   commonWrap.append(
     el("div", { class: "flex-1 flex flex-col gap-1" }, [
-      lblRow(headerLabel, headerTA, (v) => {
-        const p = state.prompts[selected];
-        if (promptOverrides(p)) (p as PromptEntry).header = v;
-        else state.promptHeader = v;
-      }),
+      el("div", { class: "flex items-center gap-1.5" }, [headerLabel, headerUC]),
       headerTA,
     ]),
     el("div", { class: "flex-1 flex flex-col gap-1" }, [
-      lblRow(footerLabel, footerTA, (v) => {
-        const p = state.prompts[selected];
-        if (promptOverrides(p)) (p as PromptEntry).footer = v;
-        else state.promptFooter = v;
-      }),
+      el("div", { class: "flex items-center gap-1.5" }, [footerLabel, footerUC]),
       footerTA,
     ])
   );
@@ -327,6 +336,8 @@ export function createPromptEditOverlay(
     const f = clipFraming(state, selected);
     headerTA.value = f.header;
     footerTA.value = f.footer;
+    headerUC.paint();
+    footerUC.paint();
     headerLabel.textContent = own ? "THIS CLIP — HEADER" : "COMMON — HEADER";
     headerLabel.style.color = own ? BRAND : C.muted;
     footerLabel.textContent = own ? "THIS CLIP — SOUND / MUSIC" : "COMMON — SOUND / MUSIC";
@@ -1196,6 +1207,8 @@ export function createPromptEditOverlay(
   function renderAll() {
     headerTA.value = state.promptHeader || "";
     footerTA.value = state.promptFooter || "";
+    headerUC.paint();
+    footerUC.paint();
     renderList();
     loadSelected();
     refreshPlanTag();
@@ -1230,6 +1243,8 @@ export function createPromptEditOverlay(
     syncCommon() {
       headerTA.value = state.promptHeader || "";
       footerTA.value = state.promptFooter || "";
+      headerUC.paint();
+      footerUC.paint();
       refreshPreviewTag();
     },
   };

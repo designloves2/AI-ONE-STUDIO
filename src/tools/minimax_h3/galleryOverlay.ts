@@ -28,6 +28,7 @@ import {
 } from "./api";
 import { queuePrompt } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
+import { keepTabAlive } from "../../shared/tabKeepAlive";
 
 const STITCH_MAX = 10;
 const IS_TOUCH_DEVICE = typeof window !== "undefined" && ("ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0);
@@ -341,8 +342,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     const picked = stitchOrder.map((k) => videos.find((v) => vKey(v) === k)).filter(Boolean) as GalleryVideo[];
     if (picked.length < 2) return;
     stitchGoBtn.disabled = true;
+    keepTabAlive(true);
     const overlapSec = oneTakeCb.checked ? framesToSeconds(stitchTrimFrames) : null;
-    stitchInfo.textContent = `Stitching ${picked.length} clips${overlapSec ? ` (One-Take, ${overlapSec.toFixed(3)}s overlap trimmed)` : ""}…`;
+    stitchInfo.textContent = `Stitching ${picked.length} clips${overlapSec ? ` (One-Take, ${overlapSec.toFixed(3)}s overlap trimmed)` : ""}… 창을 닫거나 탭을 이동하지 마세요.`;
     try {
       const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
       const audioOverride = audioOverrideOn && audioOverrideFile ? { filename: audioOverrideFile, start: audioOverrideStart } : null;
@@ -370,17 +372,28 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     } catch (e: any) {
       ctx.showPopup(`Stitch failed: ${e.message || e}`, true);
       refreshStitchBar();
+    } finally {
+      keepTabAlive(false);
     }
   }
 
   // ── shared progress readout for Upscale/Interpolate bars ────────────────
   function makeProgressReadout() {
-    const wrap = el("div", { class: "flex items-center gap-2 flex-1", style: { display: "none" } });
+    const wrap = el("div", { class: "flex flex-col gap-1 flex-1", style: { display: "none" } });
+    const bar = el("div", { class: "flex items-center gap-2" });
     const label = el("div", { class: "text-[10.5px]", style: { color: C.muted, minWidth: "90px" } });
     const track = el("div", { class: "flex-1 rounded-full overflow-hidden", style: { height: "6px", background: C.bg2 } });
     const fill = el("div", { class: "h-full rounded-full", style: { width: "0%", background: BRAND, transition: "width 0.15s" } });
     track.appendChild(fill);
-    wrap.append(label, track);
+    bar.append(label, track);
+    // Post-process runs client-side: the ComfyUI job survives a reload but the result's
+    // metadata + cleanup do not, and a chunked job's remaining chunks are never queued.
+    // iOS Safari reloads a backgrounded tab within ~30-60s, so this warning matters most there.
+    const warn = el("div", {
+      text: "진행 중입니다. 창을 닫거나 다른 앱/탭으로 전환하면 진행이 멈출 수 있으니 그대로 기다려 주세요. 모델 업스케일은 수 분 이상 걸릴 수 있습니다.",
+      class: "text-[9.5px]", style: { color: C.warn, lineHeight: "1.45" },
+    });
+    wrap.append(bar, warn);
     return {
       wrap,
       start(msg: string) { wrap.style.display = "flex"; label.textContent = msg; fill.style.width = "0%"; },
@@ -454,6 +467,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   ) {
     postRunning = true;
     runBtn.disabled = true;
+    keepTabAlive(true); // silent-audio loop — stops desktop browsers discarding the tab mid-job
     readout.start(`Preparing ${v.filename}…`);
     let copied: string | null = null;
     const chunkFiles: { filename: string; subfolder: string }[] = [];
@@ -559,6 +573,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       // the source copy that only ever existed to feed VHS_LoadVideo.
       for (const f of chunkFiles) await deleteVideo(f.filename, f.subfolder).catch(() => {});
       if (copied) discardInputCopy(copied);
+      keepTabAlive(false);
       postRunning = false;
       runBtn.disabled = false;
     }

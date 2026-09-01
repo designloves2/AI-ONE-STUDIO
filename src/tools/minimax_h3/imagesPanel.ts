@@ -18,6 +18,29 @@ export interface ImagesPanelCtx {
   missingAssets?: Set<string>;
 }
 
+// Drag-to-reorder for a filled media tile. Uses a private dataTransfer type so it never
+// fires on an OS file being dragged in — imageSlot()'s own dragover/drop (file upload) keeps
+// working on the same tile untouched; this only reacts to a drag that started on another tile.
+export function dragReorder(el: HTMLElement, index: number, onDrop: (from: number, to: number) => void) {
+  const TYPE = "application/x-mmh3-slot";
+  el.draggable = true;
+  el.addEventListener("dragstart", (e: DragEvent) => {
+    e.dataTransfer?.setData(TYPE, String(index));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  });
+  el.addEventListener("dragover", (e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes(TYPE)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  });
+  el.addEventListener("drop", (e: DragEvent) => {
+    if (!e.dataTransfer?.types.includes(TYPE)) return;
+    e.preventDefault();
+    const from = Number(e.dataTransfer.getData(TYPE));
+    if (Number.isFinite(from) && from !== index) onDrop(from, index);
+  });
+}
+
 export interface ImageSlotHandle {
   el: HTMLElement;
   setFilename(name: string | null): void;
@@ -307,6 +330,15 @@ function mediaSlot(kind: "video" | "audio", list: any[], idx: number, ctx: Image
     const x = el("button", { type: "button", text: "✕", title: "Remove", class: "absolute top-0 right-0 z-[3]", style: { cursor: "pointer", fontSize: "10px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", padding: "1px 4px" } });
     x.addEventListener("click", (e) => { e.stopPropagation(); list.splice(idx, 1); ctx.persist(); onRefresh(); });
     tile.appendChild(x);
+    // The slot number is the <Video N>/<Audio N> prompt token, so reordering swaps the two
+    // slots' entries rather than shifting the whole list.
+    dragReorder(wrap, idx, (from, to) => {
+      const tmp = list[from];
+      list[from] = list[to];
+      list[to] = tmp;
+      ctx.persist();
+      onRefresh();
+    });
   } else {
     tile.appendChild(el("div", { text: isVideo ? "+vid" : "+aud", class: "pointer-events-none", style: { color: C.muted, fontSize: "10px" } }));
   }
@@ -548,6 +580,20 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
           mpIn.style.width = "60px";
           mpIn.title = "Megapixels sent to the model (0 = send as uploaded)";
           cell.appendChild(mpIn);
+          // <Picture N> is the prompt token that names this slot, so reordering has to move
+          // the file and its megapixel setting together.
+          dragReorder(cell, i, (from, to) => {
+            const list = (state.refImages || []).slice();
+            const mpList = (state.refImagesMp || []).slice();
+            const [mf] = list.splice(from, 1);
+            const [mm] = mpList.splice(from, 1);
+            list.splice(to, 0, mf);
+            mpList.splice(to, 0, mm);
+            state.refImages = list;
+            state.refImagesMp = mpList;
+            ctx.persist();
+            render();
+          });
         }
         grid.appendChild(cell);
       }

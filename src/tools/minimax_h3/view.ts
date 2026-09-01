@@ -431,7 +431,41 @@ export function renderMinimaxH3(container: HTMLElement) {
     refreshPreviewToggleBtn();
   });
   refreshPreviewToggleBtn();
-  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, badge, fsBtn, previewToggleBtn);
+
+  // Drag-resize the preview box height (node v1.23.0 parity). Node's canvas widget has a fixed
+  // total node height, so shrinking the preview grows the PROMPTS list below it for free — same
+  // effect here: switching previewBox from its flex-ratio default to a fixed px height leaves
+  // promptWrap (flex: 2 1 0%) to absorb whatever space that frees in rightPanel.
+  const PREVIEW_H_KEY = "aos_mmh3_preview_h";
+  const resizeHandle = el("div", {
+    class: "absolute bottom-0 inset-x-0 z-[6]",
+    style: { height: "8px", cursor: "ns-resize" },
+    title: "Drag to resize the preview box",
+  });
+  resizeHandle.addEventListener("mouseenter", () => { resizeHandle.style.background = "rgba(255,255,255,0.08)"; });
+  resizeHandle.addEventListener("mouseleave", () => { resizeHandle.style.background = "transparent"; });
+  resizeHandle.addEventListener("mousedown", (e: MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = previewBox.getBoundingClientRect().height;
+    const onMove = (ev: MouseEvent) => {
+      const h = Math.max(220, Math.min(720, Math.round(startH + (ev.clientY - startY))));
+      previewBox.style.flex = `0 0 ${h}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      try { localStorage.setItem(PREVIEW_H_KEY, String(parseInt(previewBox.style.flex.split(" ")[2] || "0", 10))); } catch {}
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  try {
+    const savedH = parseInt(localStorage.getItem(PREVIEW_H_KEY) || "", 10);
+    if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(720, savedH))}px`;
+  } catch {}
+
+  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, badge, fsBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
   fsBtn.addEventListener("click", () => {

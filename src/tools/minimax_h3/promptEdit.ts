@@ -20,7 +20,7 @@ import {
 import { button, clear, el, confirmDialog, promptDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
-import { buildClipMediaSlots } from "./imagesPanel";
+import { buildClipMediaSlots, dragReorder } from "./imagesPanel";
 import { openVideoGalleryPicker } from "./videoPicker";
 import {
   analyzeImagesNative,
@@ -462,6 +462,28 @@ export function createPromptEditOverlay(
       const item = el("div", {
         class: "flex gap-1 items-center cursor-pointer rounded-md px-1.5 py-1.5",
         style: { background: active ? C.bg3 : C.bg1, border: `1px solid ${active ? BRAND : C.border}`, opacity: on ? "1" : "0.5" },
+      }) as HTMLDivElement;
+      item.draggable = true;
+      item.addEventListener("dragstart", (e: DragEvent) => {
+        e.dataTransfer?.setData("text/plain", String(i));
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
+      item.addEventListener("dragover", (e: DragEvent) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; });
+      item.addEventListener("drop", (e: DragEvent) => {
+        e.preventDefault();
+        const from = Number(e.dataTransfer?.getData("text/plain"));
+        const to = i;
+        if (!Number.isFinite(from) || from === to || !state.prompts) return;
+        const [moved] = state.prompts.splice(from, 1);
+        state.prompts.splice(to, 0, moved);
+        // Keep the currently-open clip open across the reorder: follow it if it was the one
+        // dragged, otherwise shift by ±1 only if the move crossed over it.
+        if (selected === from) selected = to;
+        else if (from < selected && to >= selected) selected -= 1;
+        else if (from > selected && to <= selected) selected += 1;
+        ctx.persist();
+        renderList();
+        loadSelected();
       });
       const cb = el("input", { type: "checkbox" });
       cb.checked = on;
@@ -474,7 +496,7 @@ export function createPromptEditOverlay(
         renderList();
       });
       const num = el("div", { text: String(i + 1), class: "w-4 shrink-0 text-center text-[10px] font-bold", style: { color: active ? BRAND : C.muted } });
-      const prev = el("div", { text: promptText(p).trim().slice(0, 42) || "(empty — reuses previous)", class: "flex-1 text-[10.5px] truncate", style: { color: promptText(p).trim() ? C.text : C.muted } });
+      const prev = el("div", { text: `${i + 1} - Clip Prompt #${i + 1}`, class: "flex-1 text-[10.5px] truncate", style: { color: C.text } });
       const del = el("button", { type: "button", text: "✕", title: "Remove", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "10px", padding: "0 2px" } });
       del.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -718,6 +740,13 @@ export function createPromptEditOverlay(
           setImages(list);
         });
         box.appendChild(x);
+        // <Picture N> is the prompt token that names this slot.
+        dragReorder(box, i, (from, to) => {
+          const list = images.slice();
+          const [moved] = list.splice(from, 1);
+          list.splice(to, 0, moved);
+          setImages(list);
+        });
       } else {
         box.appendChild(el("div", { text: "+img", class: "text-[9px] pointer-events-none", style: { color: C.muted } }));
         const inp = el("input", { type: "file", accept: "image/*", style: { display: "none" } }) as HTMLInputElement;

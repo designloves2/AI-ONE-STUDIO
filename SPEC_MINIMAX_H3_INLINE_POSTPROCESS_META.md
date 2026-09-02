@@ -101,9 +101,62 @@ if (!meta.postProcess) {                       // inline only — a gallery post
 
 ---
 
-## Verify (once a run is free)
+# v1.23.2 additions (node commit `762b011`)
 
-Generate one clip with Upscale = RTX ×2 set in the left panel → gallery card shows `⇪`,
-ⓘ shows `⚙ rtx upscale (from W×H)` and the upscaled `w×h`. Gallery deblur→upscale on a
-clip → card shows `⇪` + `✧`, meta `postProcess: "deblur + upscale"`. Reuse the inline
-clip → left panel comes back with Upscale = RTX ×2.
+## 6. "Also save the clip before deblur / upscale" (left-panel toggle)
+
+`state.saveUnprocessed` (bool, default false). A `checkboxRow` at the bottom of the
+**Upscale** accordion body — rendered only when `deblurNow !== "none" || upscaleMode !==
+"none"`. Label: "Also save the clip before deblur / upscale".
+
+- `buildClipGraph`: `const saveRawToo = !!state.saveUnprocessed && !!(deblurUsed ||
+  upscaleUsed)`. When true, add `N.videoRaw` (CreateVideo on the **pre-process** images —
+  captured as `preProcImages = [N.decode, 0]` right before the deblur/upscale block
+  reassigns `images`; same audio wiring as `N.video`) + `N.saveRaw` (SaveVideo, filename
+  prefix gets a `_raw` suffix). Return `rawVideoNode: saveRawToo ? N.saveRaw : null` in
+  the meta.
+- Run loop, right after the main clip's `saveMeta`: `const rawVid = ran?.rawVideoNode ?
+  firstOutput(res.byNode, ran.rawVideoNode) : null;`. If present, build `rawMeta = {
+  ...clipMeta, deblur: null, upscale: null, unprocessed: true, processedSibling:
+  vid.filename }`, `delete rawMeta.sourceW/sourceH`, reset `w/h` to
+  `resolveResolution(rs.aspect, rs.megapixels)`, then `await reconcileGeometry(rawMeta,
+  rawVid, { noSource: true })`, then `saveMeta`. **Never** `clipRecords.push(rawVid)` —
+  the raw clip is a keeper, not part of the stitch or the last-frame chain.
+- `reconcileGeometry` gains `{ noSource }`: when set, it still overwrites `w/h/fps/frames`
+  from the probe but never records `sourceW/H` (the `_raw` file IS the original, a size
+  difference from the seeded `meta.w` isn't a "pre-op size").
+
+## 7. `⇄` interpolation badge
+
+The bottom-left badge stack (§5) gets a third glyph: `⇄` when `m.interpolate` (title
+`Interpolated — Nfps` from `m.interpolate.targetFps`). Glyphs are `⇪` / `✧` / `⇄`, in
+that order, any can show. The ⓘ `⚙`-line synthesis (§5) also appends `"interpolation"`
+when `m.interpolate` is set and `m.postProcess` is absent.
+
+## 8. Bug fix — `refreshUpBar` TDZ (present since v1.20.0, node-only find)
+
+In `ui_gallery_minimax.js refreshUpBar()`, `const ready = … (noUpscale ? (deblurOn &&
+deblurOk) : …)` referenced `noUpscale` / `deblurOn` / `deblurOk` **three lines before**
+their `const` declarations → `ReferenceError` on every call → `upGoBtn.disabled` (line
+after) never ran, so the gallery `⬆ Upscale` and `✦ Deblur` buttons were stuck disabled
+(they defaulted disabled). Fix: move the three `const`s above `ready`. Check the web's
+equivalent (`refreshUpBar` / the post-process bar's ready check) for the same ordering.
+
+---
+
+## Verify — DONE node-side (2026-09-02, real ComfyUI renders)
+
+- §1: module import, 5 cases.
+- §2: real PDD 8-step / 0.2MP render, Upscale = model ×2 + Deblur MEDIUM → meta
+  `w/h` 1088×704, `sourceW/H` 544×352, `deblur: "MEDIUM"`, `upscale: {method:"model",
+  model:"RealESRGAN_x2.pth"}`, no `postProcess` (inline).
+- §3: ↩ Reuse of an inline clip → node state `deblurStrength` / `upscaleMode` /
+  `upscaleModel` restored.
+- §4: real gallery deblur+upscale pass → `postProcess: "deblur + upscale"`, structured
+  `deblur` / `upscale`, `sourceW/H` 1440×960 → `w/h` 2880×1920.
+- §5 + §7: `⇪` / `✧` / `⇄` badges all render with correct titles; ⓘ tooltip
+  `⚙ deblur + upscale (from 1440×960)`.
+- §6: real render with the toggle on → both `_00002` (upscaled) and `_raw_00001`
+  (544×352, `unprocessed: true`, `processedSibling`, no badges) written.
+- §8: fix confirmed — the gallery `⬆ Upscale` button went from permanently disabled to
+  enabling on a valid pick, and the combined pass ran.

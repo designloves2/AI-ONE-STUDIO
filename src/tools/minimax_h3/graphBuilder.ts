@@ -529,20 +529,29 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   g[N.decodeA] = { class_type: "VAEDecodeAudio", inputs: { samples: [N.sampler, 0], vae: [N.vaeA, 0] } };
 
   let images: any = [N.decode, 0];
+  // What the frame pipeline actually did, for the clip's sidecar — resolveResolution() below
+  // only knows the pre-decode size, so the gallery needs these to badge an inline-deblurred /
+  // upscaled clip and to show its real dimensions. Set only inside the branch that wires the
+  // node, never recomputed from raw state.
+  let deblurUsed: string | null = null;
+  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | null = null;
   // Deblur runs on the decoded frames before any upscale, at their own resolution. It is
   // independent of the upscale setting: Upscale = None still deblurs.
   if (state.deblurStrength && state.deblurStrength !== "none" && has(avail, "TJ_RTXDeblur")) {
     g[N.deblurR] = { class_type: "TJ_RTXDeblur", inputs: { images, strength: state.deblurStrength } };
     images = [N.deblurR, 0];
+    deblurUsed = state.deblurStrength;
   }
   const up = state.upscaleMode || "none";
   if (up === "model" && state.upscaleModel && state.upscaleModel !== "none") {
     g[N.upModel] = { class_type: "UpscaleModelLoader", inputs: { model_name: state.upscaleModel } };
     g[N.upApply] = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: [N.upModel, 0], image: images } };
     images = [N.upApply, 0];
+    upscaleUsed = { method: "model", model: state.upscaleModel };
   } else if (up === "rtx" && has(avail, "RTXVideoSuperResolution")) {
     g[N.rtx] = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" } };
     images = [N.rtx, 0];
+    upscaleUsed = { method: "rtx", scale: state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" };
   }
 
   const clipTag = String(clipIndex + 1).padStart(3, "0");
@@ -572,6 +581,10 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
         : turboEff === "pdd" ? pddFileForMode(state) || null
         : null, // lightx2v has no dedicated file slot on this port — it's a regular LoRA entry
       pddNfe: turboEff === "pdd" ? String(state.pddNfe ?? "8") : null,
+      // null when the pipeline didn't run it; the save path re-probes the output only when
+      // `upscale` is set (deblur alone never changes the size).
+      deblur: deblurUsed,
+      upscale: upscaleUsed,
     },
   };
 }

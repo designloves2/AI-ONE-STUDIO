@@ -1846,6 +1846,30 @@ export function renderMinimaxH3(container: HTMLElement) {
       node: "minimax_h3", created: Date.now(), ...extra,
     };
   }
+  // metaForVideo()'s w/h come from resolveResolution() — the pre-decode size. An inline
+  // deblur/upscale (or a stitch re-encode) makes the real file differ, so probe what actually
+  // landed and correct w/h/fps in place. On a size change the pre-op size is kept as
+  // sourceW/H — the same shape the gallery post-process (patchPostMeta) writes, so the info
+  // tooltip and Reuse read one field set either way. `keepFrames` is for the One-Take path,
+  // whose durationSeconds is already the overlap-trimmed total.
+  async function reconcileGeometry(meta: any, file: { filename: string; subfolder?: string; type?: string }, opts: { keepFrames?: boolean } = {}) {
+    try {
+      const oi = await getVideoInfo(file.filename, file.subfolder || "", file.type || "output");
+      if (!oi || (!oi.width && !oi.height && !oi.frames)) return meta;
+      if ((oi.width && oi.width !== meta.w) || (oi.height && oi.height !== meta.h)) {
+        meta.sourceW = meta.w;
+        meta.sourceH = meta.h;
+      }
+      if (oi.width) meta.w = oi.width;
+      if (oi.height) meta.h = oi.height;
+      if (oi.fps) meta.fps = oi.fps;
+      if (!opts.keepFrames && oi.frames) {
+        meta.frames = oi.frames;
+        meta.durationSeconds = oi.frames / (oi.fps || FPS);
+      }
+    } catch { /* keep the computed geometry rather than fail the run */ }
+    return meta;
+  }
   function firstOutput(byNode: Record<string, any>, nodeKey: string) {
     const out = byNode?.[nodeKey];
     const arr = out?.images || out?.gifs || [];
@@ -1984,7 +2008,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         const lastImg = firstOutput(res.byNode, NODE_IDS.saveLF);
         if (vid) {
           clipRecords.push(vid);
-          saveMeta(vid.filename, vid.subfolder || "", metaForVideo(rs, promptForClip(rs, i), {
+          const clipMeta = metaForVideo(rs, promptForClip(rs, i), {
             clip: curClip, clips: plan.count, seed: seedForClip(rs, i), mode: modeForClip,
             prompts: [promptText(rs.prompts?.[i])], onetake: isOneTake,
             elapsedSec,
@@ -2001,7 +2025,14 @@ export function renderMinimaxH3(container: HTMLElement) {
             // clip, not re-derived, so it can never drift from what really ran.
             stepsEffective: built.meta.stepsEffective, samplerUsed: built.meta.samplerUsed,
             turboFile: built.meta.turboFile, pddNfe: built.meta.pddNfe,
-          }));
+            // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md — post-decode frame ops wired into
+            // this clip's graph (null when not run).
+            deblur: built.meta.deblur || null, upscale: built.meta.upscale || null,
+          });
+          // An inline upscale changes the frame size metaForVideo() can't predict, so re-probe
+          // the file. Deblur alone never resizes — skip the round trip for it.
+          if (built.meta.upscale) await reconcileGeometry(clipMeta, vid);
+          saveMeta(vid.filename, vid.subfolder || "", clipMeta);
           showResultVideo(outputViewUrl(vid.filename, vid.subfolder || "", vid.type || "output"));
           badge.textContent = `CLIP ${curClip}/${totClip} done`;
           refreshGallery();
@@ -2048,11 +2079,15 @@ export function renderMinimaxH3(container: HTMLElement) {
           const out = await stitchClips(clipRecords, `${folder}/${rs.filenamePrefix || "MMH3"}_full`, null, overlapSec, audioOverride);
           const url = outputViewUrl(out.filename, out.subfolder || "", "output");
           const totalSeconds = clipRecords.length * framesToSeconds(rs.clipFrames || 192) - (clipRecords.length - 1) * overlapSec;
-          saveMeta(out.filename, out.subfolder || "", metaForVideo(
+          const oneTakeMeta = metaForVideo(
             rs,
             composeStitchedPrompt(active.map(({ i }) => promptForClip(rs, i))),
             { clips: clipRecords.length, stitched: true, onetake: true, overlapSeconds: overlapSec, frames: null, durationSeconds: totalSeconds, prompts: (rs.prompts || []).map(promptText) }
-          ));
+          );
+          // Clips may have been upscaled inline — the stitched file inherits that size.
+          // keepFrames: its durationSeconds is already the overlap-trimmed total.
+          await reconcileGeometry(oneTakeMeta, out, { keepFrames: true });
+          saveMeta(out.filename, out.subfolder || "", oneTakeMeta);
           showResultVideo(url);
           badge.textContent = `FULL · ${clipRecords.length} clips (One-Take)`;
           await setLastResult(instanceId, { videoPath: out.path });
@@ -2077,11 +2112,14 @@ export function renderMinimaxH3(container: HTMLElement) {
           const out = await stitchClips([ext.clip, clipRecords[0]], `${folder}/${rs.filenamePrefix || "MMH3"}_full`, null, trimSec, null);
           const url = outputViewUrl(out.filename, out.subfolder || "", "output");
           const clipPrompts = [ext.sourcePrompt || "", promptForClip(rs, 0)];
-          saveMeta(out.filename, out.subfolder || "", metaForVideo(
+          const extendMeta = metaForVideo(
             rs,
             composeStitchedPrompt(clipPrompts),
             { clips: 2, stitched: true, extended: true, frames: null, prompts: clipPrompts }
-          ));
+          );
+          // frames were null — the probe fills them in, and picks up any inline upscale size.
+          await reconcileGeometry(extendMeta, out);
+          saveMeta(out.filename, out.subfolder || "", extendMeta);
           showResultVideo(url);
           badge.textContent = "EXTENDED";
           await setLastResult(instanceId, { videoPath: out.path });
@@ -2256,6 +2294,23 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.shiftVideo != null) state.shiftVideo = meta.shiftVideo;
       if (meta.shiftAudio != null) state.shiftAudio = meta.shiftAudio;
       if (Array.isArray(meta.loras)) state.loras = meta.loras.map((l: any) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }));
+      // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §3 — inline deblur/upscale the clip was made
+      // with, reproduce it. Only for a clip whose pass ran INLINE at generation time: a gallery
+      // post-processed file (meta.postProcess set) carries the SOURCE's meta and §5 Reuse
+      // rebuilds that un-processed original, not the upscale-again.
+      if (!meta.postProcess) {
+        if (meta.deblur !== undefined) state.deblurStrength = meta.deblur || "none";
+        if (meta.upscale === null) {
+          state.upscaleMode = "none";
+        } else if (meta.upscale && meta.upscale.method === "rtx") {
+          state.upscaleMode = "rtx";
+          if (meta.upscale.scale != null) state.rtxScale = meta.upscale.scale;
+          if (meta.upscale.quality) state.rtxQuality = meta.upscale.quality;
+        } else if (meta.upscale && meta.upscale.method === "model") {
+          state.upscaleMode = "model";
+          if (meta.upscale.model) state.upscaleModel = meta.upscale.model;
+        }
+      }
       // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — restore the actual image/video/audio inputs.
       // Array.isArray/!== undefined guards (not a bare truthy check) so a clip saved before this
       // fix — which has none of these fields at all — leaves whatever is already on screen alone

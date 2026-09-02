@@ -36,6 +36,14 @@ import { keepTabAlive } from "../../shared/tabKeepAlive";
 // gallery open can reattach (queuePrompt existingPromptId → /history), finish it, and clean up.
 // Chunked jobs aren't covered — the loop can't resume, the warning line covers that case.
 const POST_JOB_KEY = "aos_mmh3_post_job";
+// SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §4 — the structured record of which stages a
+// post-process pass ran. Same field shapes buildClipGraph writes for an inline pass, so the
+// card badges / Reuse / info tooltip read one field set whichever path produced the file.
+interface PostInfo {
+  deblur?: string;
+  upscale?: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | null;
+  interpolate?: { targetFps: number };
+}
 interface PostJob {
   promptId: string;
   saveNode: string;
@@ -45,6 +53,16 @@ interface PostJob {
   outFolder: string;
   copied: string;
   savedAt: number;
+  postInfo?: PostInfo;
+}
+// A human `postProcess` label that names every stage that ran, so a combined deblur→upscale
+// pass no longer reads as just "upscale". Falls back to the bare label lower-cased.
+function postLabel(fallback: string, info: PostInfo = {}): string {
+  const parts: string[] = [];
+  if (info.deblur && info.deblur !== "none") parts.push("deblur");
+  if (info.upscale) parts.push(info.upscale.method === "rtx" ? "rtx upscale" : "upscale");
+  if (info.interpolate) parts.push("interpolation");
+  return parts.length ? parts.join(" + ") : String(fallback).toLowerCase();
 }
 function savePostJob(j: PostJob) { try { localStorage.setItem(POST_JOB_KEY, JSON.stringify(j)); } catch {} }
 function loadPostJob(): PostJob | null { try { const s = localStorage.getItem(POST_JOB_KEY); return s ? JSON.parse(s) : null; } catch { return null; } }
@@ -74,9 +92,15 @@ function fmtElapsed(sec?: number) {
 function metaInfoLines(meta: any): string[] {
   if (!meta) return ["No settings saved for this clip."];
   const lines: string[] = [];
-  if (meta.postProcess) {
+  // Gallery post-process writes `postProcess`; an inline generation-time pass writes only the
+  // structured deblur/upscale keys — synthesize a label from those.
+  const ppLabel = meta.postProcess || [
+    meta.deblur && meta.deblur !== "none" ? "deblur" : null,
+    meta.upscale ? (meta.upscale.method === "rtx" ? "rtx upscale" : "upscale") : null,
+  ].filter(Boolean).join(" + ");
+  if (ppLabel) {
     const from = meta.sourceW && meta.sourceH ? ` (from ${meta.sourceW}×${meta.sourceH})` : "";
-    lines.push(`⚙ ${meta.postProcess}${from}`);
+    lines.push(`⚙ ${ppLabel}${from}`);
   }
   if (meta.w && meta.h) lines.push(`${meta.w}×${meta.h}`);
   if (meta.frames != null) lines.push(`${meta.frames} frames${meta.fps ? ` @ ${Math.round(meta.fps)}fps` : ""}`);
@@ -484,6 +508,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     /** Chunk length in seconds for this run; 0 = whole file. When given, overrides the
      *  byte-budget sizing (Upscale/Deblur pass a per-method rule — see upscaleChunkSeconds). */
     chunkPlan?: (durationSec: number) => number,
+    /** Which stages this pass ran — recorded on the output's meta (SPEC §4). */
+    postInfo: PostInfo = {},
   ) {
     postRunning = true;
     runBtn.disabled = true;
@@ -525,9 +551,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         const res = await queuePrompt(graph, {
           onProgress: (val, max) => readout.chunkStep(0, 1, val, max),
           onPoll: () => readout.note(`${label} · still working (connection quiet)…`),
-          onQueued: (pid) => savePostJob({ promptId: pid, saveNode, source: v.filename, sourceMeta: (v as any).meta ?? null, label, outFolder, copied: cap, savedAt: Date.now() }),
+          onQueued: (pid) => savePostJob({ promptId: pid, saveNode, source: v.filename, sourceMeta: (v as any).meta ?? null, label, outFolder, copied: cap, savedAt: Date.now(), postInfo }),
         });
-        outFile = await finishPost(res, saveNode, v.filename, (v as any).meta, label, outFolder);
+        outFile = await finishPost(res, saveNode, v.filename, (v as any).meta, label, outFolder, postInfo);
       } else {
         // Same VHS_LoadVideo source, sliced by skip_first_frames/frame_load_cap — audio slices
         // the same way (VHS derives its start/duration from those two fields), so each chunk's
@@ -560,7 +586,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       // Single-shot wrote its meta in finishPost(). The chunked path's output is the joined
       // file, so patch its meta here the same way.
       if (outFile && chunkCount !== 1) {
-        await patchPostMeta(outFile, (v as any).meta, v.filename, label).catch(() => {});
+        await patchPostMeta(outFile, (v as any).meta, v.filename, label, postInfo).catch(() => {});
       }
       readout.done();
       await refresh();
@@ -583,30 +609,39 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   // Patch a post-processed file's meta: keep the source's prompt/seed/pipeline for Reuse
   // (SPEC §5) but overwrite w/h/frames/fps with the real output (upscale changes size,
   // interpolation changes frame count/fps), drop the source's render time, record the source.
-  async function patchPostMeta(outFile: { filename: string; subfolder: string }, sourceMeta: any, sourceName: string, label: string) {
+  async function patchPostMeta(outFile: { filename: string; subfolder: string }, sourceMeta: any, sourceName: string, label: string, postInfo: PostInfo = {}) {
     const base: any = { ...(sourceMeta || {}) };
+    base.created = Date.now();
+    base.postProcess = postLabel(label, postInfo);
+    base.postSource = sourceName;
+    delete base.elapsedSec;
+    delete base.sourceW; delete base.sourceH; // recomputed below, only on a real size change
+    if (postInfo.deblur && postInfo.deblur !== "none") base.deblur = postInfo.deblur;
+    if (postInfo.upscale) base.upscale = postInfo.upscale;
+    if (postInfo.interpolate) base.interpolate = postInfo.interpolate;
     try {
       const oi = await getVideoInfo(outFile.filename, outFile.subfolder || "", "output");
-      if (oi.width) base.w = oi.width;
-      if (oi.height) base.h = oi.height;
-      if (oi.frames) base.frames = oi.frames;
+      if (oi.width || oi.height) {
+        if ((oi.width && oi.width !== sourceMeta?.w) || (oi.height && oi.height !== sourceMeta?.h)) {
+          base.sourceW = sourceMeta?.w;
+          base.sourceH = sourceMeta?.h;
+        }
+        if (oi.width) base.w = oi.width;
+        if (oi.height) base.h = oi.height;
+      }
+      if (oi.frames) { base.frames = oi.frames; base.durationSeconds = oi.frames / (oi.fps || FPS); }
       if (oi.fps) base.fps = oi.fps;
-      if (oi.duration) base.durationSeconds = oi.duration;
     } catch { /* probe failed — leave whatever the source meta had */ }
-    delete base.elapsedSec;
-    await saveMeta(outFile.filename, outFile.subfolder || "", {
-      ...base, created: Date.now(), postProcess: label.toLowerCase(), postSource: sourceName,
-      sourceW: sourceMeta?.w, sourceH: sourceMeta?.h,
-    });
+    await saveMeta(outFile.filename, outFile.subfolder || "", base);
   }
 
   /** Pull the output file out of a queue result, then patch its meta. Returns the output. */
-  async function finishPost(res: QueueResult, saveNode: string, sourceName: string, sourceMeta: any, label: string, outFolder: string) {
+  async function finishPost(res: QueueResult, saveNode: string, sourceName: string, sourceMeta: any, label: string, outFolder: string, postInfo: PostInfo = {}) {
     const out = res.byNode?.[saveNode];
     const o = (out?.images || out?.gifs || [])[0];
     if (!o) return null;
     const outFile = { filename: o.filename, subfolder: o.subfolder || outFolder };
-    await patchPostMeta(outFile, sourceMeta, sourceName, label).catch(() => {});
+    await patchPostMeta(outFile, sourceMeta, sourceName, label, postInfo).catch(() => {});
     return outFile;
   }
 
@@ -627,7 +662,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         onProgress: (v, m) => upscaleReadout.chunkStep(0, 1, v, m),
         onPoll: () => upscaleReadout.note(`${job.label} · still working (connection quiet)…`),
       });
-      const outFile = await finishPost(res, job.saveNode, job.source, job.sourceMeta, job.label, job.outFolder);
+      const outFile = await finishPost(res, job.saveNode, job.source, job.sourceMeta, job.label, job.outFolder, job.postInfo || {});
       upscaleReadout.done();
       if (job.copied) discardInputCopy(job.copied);
       await refresh();
@@ -666,17 +701,22 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const upscaleReadout = makeProgressReadout();
   const upscaleRunBtn = button("⬆ Run", () => {
     const v = findPost();
-    if (v)
-      runPost(
-        v,
-        (f, stem, chunkOpts) => buildUpscaleGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
-          method: upscaleMethod as "model" | "rtx" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality, deblur: deblurStrength,
-          skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
-          saveSuffix: upscaleMethod === "none" && chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
-        }, ctx.availability),
-        upscaleReadout, upscaleRunBtn, "Upscale", upscaleMethod === "none" ? "_deblur" : "_upscaled",
-        (durationSec) => upscaleChunkSeconds(upscaleMethod as "rtx" | "model" | "none", durationSec),
-      );
+    if (!v) return;
+    const upscale: PostInfo["upscale"] =
+      upscaleMethod === "none" ? null
+      : upscaleMethod === "rtx" ? { method: "rtx", scale: upscaleRtxScale, quality: upscaleRtxQuality }
+      : { method: "model", model: upscaleModelVal };
+    runPost(
+      v,
+      (f, stem, chunkOpts) => buildUpscaleGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
+        method: upscaleMethod as "model" | "rtx" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality, deblur: deblurStrength,
+        skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
+        saveSuffix: upscaleMethod === "none" && chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
+      }, ctx.availability),
+      upscaleReadout, upscaleRunBtn, "Upscale", upscaleMethod === "none" ? "_deblur" : "_upscaled",
+      (durationSec) => upscaleChunkSeconds(upscaleMethod as "rtx" | "model" | "none", durationSec),
+      { deblur: deblurStrength, upscale },
+    );
   }, "primary") as HTMLButtonElement;
   /** Deblur with no upscale: method "none" makes the graph builder skip both upscalers. */
   const deblurRunBtn = button("✦ Deblur", () => {
@@ -691,6 +731,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         }, ctx.availability),
         upscaleReadout, deblurRunBtn, "Deblur", "_deblur",
         (durationSec) => upscaleChunkSeconds("none", durationSec), // deblur is RTX-based → 15s rule
+        { deblur: deblurStrength, upscale: null },
       );
   }) as HTMLButtonElement;
   const upscaleBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
@@ -794,7 +835,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
           saveSuffix: chunkOpts.saveSuffix,
         }),
-        interpReadout, interpRunBtn, "Interpolation", `_${interpTargetFps}fps`
+        interpReadout, interpRunBtn, "Interpolation", `_${interpTargetFps}fps`,
+        undefined, // no chunkPlan → interpolate keeps the RAM byte-budget sizing
+        { interpolate: { targetFps: interpTargetFps } },
       );
   }, "primary") as HTMLButtonElement;
   const interpBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
@@ -951,6 +994,26 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         alertDialog(metaInfoLines((v as any).meta).join("\n"));
       });
       thumbWrap.appendChild(infoBtn);
+
+      // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §5 — post-decode frame ops, bottom-left.
+      // Set the same way whether the pass ran inline at generation time (buildClipGraph meta)
+      // or afterward from this gallery (patchPostMeta). ⇪ = upscaled, ✧ = deblurred; both can show.
+      {
+        const m = (v as any).meta || {};
+        const marks: [string, string][] = [];
+        if (m.upscale) marks.push(["⇪", m.upscale.method === "rtx"
+          ? `Upscaled — RTX VSR ×${m.upscale.scale} (${m.upscale.quality})`
+          : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
+        if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
+        if (marks.length) {
+          const bar = el("div", { class: "absolute z-[3] flex", style: { bottom: "4px", left: "4px", gap: "3px" } });
+          marks.forEach(([glyph, tip]) => bar.appendChild(el("div", {
+            text: glyph, title: tip,
+            style: { width: "18px", height: "18px", lineHeight: "18px", textAlign: "center", fontSize: "11px", borderRadius: "4px", color: "#fff", background: "rgba(0,0,0,0.6)" },
+          })));
+          thumbWrap.appendChild(bar);
+        }
+      }
 
       // 다중 선택 체크박스(좌상단) — 어떤 모드든 그 자리를 순번/✓ 배지가 쓰므로 숨긴다.
       if (!mode) {

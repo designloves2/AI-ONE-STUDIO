@@ -41,6 +41,8 @@ const N = {
   deblurR: "MM:deblur",
   video: "MM:video",
   save: "MM:save_video",
+  videoRaw: "MM:video_raw",
+  saveRaw: "MM:save_video_raw",
   lastF: "MM:last_frame",
   saveLF: "MM:save_last_frame",
   tailF: "MM:tail_frames",
@@ -529,6 +531,9 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   g[N.decodeA] = { class_type: "VAEDecodeAudio", inputs: { samples: [N.sampler, 0], vae: [N.vaeA, 0] } };
 
   let images: any = [N.decode, 0];
+  // The decoded frames as they are, before any deblur/upscale — kept so the run loop can also
+  // save the un-processed clip when the panel asks for it.
+  const preProcImages: any = [N.decode, 0];
   // What the frame pipeline actually did, for the clip's sidecar — resolveResolution() below
   // only knows the pre-decode size, so the gallery needs these to badge an inline-deblurred /
   // upscaled clip and to show its real dimensions. Set only inside the branch that wires the
@@ -558,6 +563,17 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   g[N.video] = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: lockAudio ? [N.audioLock, 1] : [N.decodeA, 0] } };
   g[N.save] = { class_type: "SaveVideo", inputs: { video: [N.video, 0], filename_prefix: `${folder}/${stem}_clip${clipTag}`, format: "auto", codec: "auto" } };
 
+  // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §6 — "Also save the clip before deblur /
+  // upscale": a second file straight off the decode, before deblur/upscale touched it. Only
+  // worth writing when something actually ran; the run loop saves its sidecar and drops it
+  // into the gallery, but it never joins the stitch or the last-frame chain — the processed
+  // clip stays the real one.
+  const saveRawToo = !!state.saveUnprocessed && !!(deblurUsed || upscaleUsed);
+  if (saveRawToo) {
+    g[N.videoRaw] = { class_type: "CreateVideo", inputs: { images: preProcImages, fps: FPS, audio: lockAudio ? [N.audioLock, 1] : [N.decodeA, 0] } };
+    g[N.saveRaw] = { class_type: "SaveVideo", inputs: { video: [N.videoRaw, 0], filename_prefix: `${folder}/${stem}_clip${clipTag}_raw`, format: "auto", codec: "auto" } };
+  }
+
   if (saveLastFrame) {
     g[N.lastF] = { class_type: "ImageFromBatch", inputs: { image: images, batch_index: Math.max(0, frames - 1), length: 1 } };
     g[N.saveLF] = { class_type: "SaveImage", inputs: { images: [N.lastF, 0], filename_prefix: `${folder}/frames/${stem}_clip${clipTag}_last` } };
@@ -585,6 +601,8 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
       // `upscale` is set (deblur alone never changes the size).
       deblur: deblurUsed,
       upscale: upscaleUsed,
+      // §6 — the run loop saves this node's output as a separate un-processed `_raw` clip.
+      rawVideoNode: saveRawToo ? N.saveRaw : null,
     },
   };
 }

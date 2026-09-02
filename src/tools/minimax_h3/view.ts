@@ -1407,6 +1407,12 @@ export function renderMinimaxH3(container: HTMLElement) {
                 ]),
               ]
             : []),
+          // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §6 — only meaningful once deblur or
+          // upscale is doing something: off just saves the final clip, on also keeps the raw
+          // decode as a separate `_raw` file (never joins a stitch or the last-frame chain).
+          ...((state.deblurStrength && state.deblurStrength !== "none") || (state.upscaleMode && state.upscaleMode !== "none")
+            ? [checkboxRow("Also save the clip before deblur / upscale", !!state.saveUnprocessed, (v) => { state.saveUnprocessed = v; persist(); })]
+            : []),
         ]
       )
     );
@@ -1852,11 +1858,13 @@ export function renderMinimaxH3(container: HTMLElement) {
   // sourceW/H — the same shape the gallery post-process (patchPostMeta) writes, so the info
   // tooltip and Reuse read one field set either way. `keepFrames` is for the One-Take path,
   // whose durationSeconds is already the overlap-trimmed total.
-  async function reconcileGeometry(meta: any, file: { filename: string; subfolder?: string; type?: string }, opts: { keepFrames?: boolean } = {}) {
+  async function reconcileGeometry(meta: any, file: { filename: string; subfolder?: string; type?: string }, opts: { keepFrames?: boolean; noSource?: boolean } = {}) {
     try {
       const oi = await getVideoInfo(file.filename, file.subfolder || "", file.type || "output");
       if (!oi || (!oi.width && !oi.height && !oi.frames)) return meta;
-      if ((oi.width && oi.width !== meta.w) || (oi.height && oi.height !== meta.h)) {
+      // noSource: the file IS the original (the `_raw` un-processed clip) — record its real
+      // dimensions, never treat a difference from meta.w as a pre-op size.
+      if (!opts.noSource && ((oi.width && oi.width !== meta.w) || (oi.height && oi.height !== meta.h))) {
         meta.sourceW = meta.w;
         meta.sourceH = meta.h;
       }
@@ -2033,6 +2041,22 @@ export function renderMinimaxH3(container: HTMLElement) {
           // the file. Deblur alone never resizes — skip the round trip for it.
           if (built.meta.upscale) await reconcileGeometry(clipMeta, vid);
           saveMeta(vid.filename, vid.subfolder || "", clipMeta);
+
+          // §6 "Also save the clip before deblur / upscale" — the second file the graph wrote
+          // straight off the decode. Its own sidecar (no deblur/upscale marker, its own real
+          // size), shown in the gallery like any clip, but it never joins the stitch or the
+          // last-frame chain — the processed clip above stays the real one.
+          const rawVid = built.meta.rawVideoNode ? firstOutput(res.byNode, built.meta.rawVideoNode) : null;
+          if (rawVid) {
+            const rawMeta: any = { ...clipMeta, deblur: null, upscale: null, unprocessed: true, processedSibling: vid.filename };
+            // clipMeta was reconciled to the upscaled size — the raw clip is the decode's own
+            // resolution, no pre-op size.
+            delete rawMeta.sourceW; delete rawMeta.sourceH;
+            const rr = resolveResolution(rs.aspect, rs.megapixels);
+            rawMeta.w = rr.width; rawMeta.h = rr.height;
+            await reconcileGeometry(rawMeta, rawVid, { noSource: true });
+            saveMeta(rawVid.filename, rawVid.subfolder || "", rawMeta);
+          }
           showResultVideo(outputViewUrl(vid.filename, vid.subfolder || "", vid.type || "output"));
           badge.textContent = `CLIP ${curClip}/${totClip} done`;
           refreshGallery();

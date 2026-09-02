@@ -76,6 +76,9 @@ export interface MinimaxState {
   // combination. Same-resolution by definition — never derived from a scale factor.
   // "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA"
   deblurStrength: string;
+  // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §6 — when a deblur/upscale runs inline, also
+  // write the pre-process decode as a separate `_raw` clip.
+  saveUnprocessed: boolean;
   continuityMode: string;
   oneTakeLockAudio: boolean;
   oneTakeAutoStitch: boolean;
@@ -952,6 +955,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",
     deblurStrength: saved.deblurStrength || "none",
+    saveUnprocessed: !!saved.saveUnprocessed,
     continuityMode: saved.continuityMode || "onetake",
     oneTakeLockAudio: saved.oneTakeLockAudio ?? false,
     oneTakeAutoStitch: saved.oneTakeAutoStitch ?? true,

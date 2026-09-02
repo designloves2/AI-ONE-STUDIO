@@ -97,6 +97,7 @@ function metaInfoLines(meta: any): string[] {
   const ppLabel = meta.postProcess || [
     meta.deblur && meta.deblur !== "none" ? "deblur" : null,
     meta.upscale ? (meta.upscale.method === "rtx" ? "rtx upscale" : "upscale") : null,
+    meta.interpolate ? "interpolation" : null,
   ].filter(Boolean).join(" + ");
   if (ppLabel) {
     const from = meta.sourceW && meta.sourceH ? ` (from ${meta.sourceW}×${meta.sourceH})` : "";
@@ -995,9 +996,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       });
       thumbWrap.appendChild(infoBtn);
 
-      // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §5 — post-decode frame ops, bottom-left.
+      // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §5/§7 — post-decode frame ops, bottom-left.
       // Set the same way whether the pass ran inline at generation time (buildClipGraph meta)
-      // or afterward from this gallery (patchPostMeta). ⇪ = upscaled, ✧ = deblurred; both can show.
+      // or afterward from this gallery (patchPostMeta). ⇪ = upscaled, ✧ = deblurred,
+      // ⇄ = interpolated; any can show.
       {
         const m = (v as any).meta || {};
         const marks: [string, string][] = [];
@@ -1005,6 +1007,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           ? `Upscaled — RTX VSR ×${m.upscale.scale} (${m.upscale.quality})`
           : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
         if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
+        if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);
         if (marks.length) {
           const bar = el("div", { class: "absolute z-[3] flex", style: { bottom: "4px", left: "4px", gap: "3px" } });
           marks.forEach(([glyph, tip]) => bar.appendChild(el("div", {

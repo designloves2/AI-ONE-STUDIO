@@ -9,6 +9,7 @@ import {
   ATTN_BACKENDS,
   ATTN_FORWARDS,
   BLOCK_CACHES,
+  H3_OPTIMIZERS,
   CLIP_LENGTHS,
   FPS,
   SAMPLERS,
@@ -18,6 +19,8 @@ import {
   attnBackendBlockedReason,
   attnForwardBlockedReason,
   attnForwardOverlapNote,
+  h3OptimizerBlockedReason,
+  h3OptimizerOverlapNote,
   activePrompts,
   alignFrameCount,
   blockCacheBlockedReason,
@@ -1031,7 +1034,51 @@ export function renderMinimaxH3(container: HTMLElement) {
   function attnSummary() {
     const backend = ATTN_BACKENDS.find((b) => b.key === state.attnBackend)?.label || "None";
     const fwd = ATTN_FORWARDS.find((f) => f.key === state.attnForward)?.label;
-    return state.attnForward !== "none" && fwd ? `${backend} + ${fwd}` : backend;
+    let s = state.attnForward !== "none" && fwd ? `${backend} + ${fwd}` : backend;
+    if (state.h3Optimizer === "memory") s += " · MemOpt";
+    else if (state.h3Optimizer === "memory_sparse") s += " · MemOpt+Sparse";
+    return s;
+  }
+  // H3-Optimizations (Zironic) — third control in the attention accordion.
+  function h3OptimizerSettings(): (Node | null)[] {
+    const rows: (Node | null)[] = [
+      col([label("H3 optimizer (VRAM / sparse)"), select(
+        H3_OPTIMIZERS.map((o) => {
+          const reason = h3OptimizerBlockedReason(state, o.key);
+          return { value: o.key, label: reason ? `${o.label} — ${reason}` : o.label, disabled: !!reason };
+        }),
+        state.h3Optimizer,
+        (v) => { state.h3Optimizer = v; persist(); renderLeft(); },
+      )]),
+    ];
+    if (state.h3Optimizer === "none") return rows;
+    const node = H3_OPTIMIZERS.find((o) => o.key === state.h3Optimizer)?.node;
+    const installed = !ctx.availability || !Object.keys(ctx.availability).length || !!(node && ctx.availability[node]);
+    const nt = h3OptimizerOverlapNote(state, state.h3Optimizer);
+    if (nt) rows.push(el("div", { text: `ⓘ ${nt}`, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+    if (state.h3Optimizer === "memory" || state.h3Optimizer === "memory_sparse") {
+      rows.push(
+        row([
+          col([label("precision"), select(["Auto", "BF16", "Preserve native", "Force quant"].map((x) => ({ value: x, label: x })), state.h3MemPrecision || "Auto", (v) => { state.h3MemPrecision = v; persist(); })]),
+          col([label("qkv streaming"), select(["Auto", "Off", "Forced"].map((x) => ({ value: x, label: x })), state.h3MemQkvStreaming || "Auto", (v) => { state.h3MemQkvStreaming = v; persist(); })]),
+        ]),
+        checkboxRow("Lower VRAM (slower attention V handling)", !!state.h3MemLowVram, (v) => { state.h3MemLowVram = v; persist(); }),
+        el("div", {
+          text: installed
+            ? "Wraps the selected dense backend (Sage / Comfy Kitchen / stock) with chunked QKV/MLP/FinalLayer — the backend still runs. This is how to get a memory-efficient CK."
+            : "⚠ H3-Optimizations pack not installed — run install_comfyui_dependencies.bat.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+        }),
+      );
+    }
+    if (state.h3Optimizer === "memory_sparse" && !h3OptimizerBlockedReason(state, "memory_sparse")) {
+      rows.push(
+        col([label("video attention budget"), n(state.h3SparseBudget ?? 0.15, (v) => (state.h3SparseBudget = Math.min(1, Math.max(0.01, v))), 0.05)]),
+        checkboxRow("Denser early/late steps (≥ 50% for first & last 20%)", state.h3SparseDenserEdges !== false, (v) => { state.h3SparseDenserEdges = v; persist(); }),
+        el("div", { text: "Sparse attention changes the result — no budget is lossless for every prompt. 0.15 is the pack default; raise it if motion or prompt adherence degrades. H3 is most sensitive in the early steps.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      );
+    }
+    return rows;
   }
   function attnBackendSettings() {
     switch (state.attnBackend) {
@@ -1172,6 +1219,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.blockCache = "none";
     }
     if (attnForwardBlockedReason(state, state.attnForward)) state.attnForward = "none";
+    // Only the sparse stage is ever blocked — fall back to plain Memory Opt, not off.
+    if (h3OptimizerBlockedReason(state, state.h3Optimizer)) state.h3Optimizer = "memory";
   }
 
   function renderLeft() {
@@ -1347,6 +1396,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           const nt = attnForwardOverlapNote(state, state.attnForward);
           return nt ? el("div", { text: `ⓘ ${nt}`, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null;
         })(),
+        ...h3OptimizerSettings(),
       ])
     );
 
@@ -1833,6 +1883,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       accel: rs.attnBackend || "none",
       turboMode: rs.turboMode, attnBackend: rs.attnBackend, attnForward: rs.attnForward,
       blockCache: rs.blockCache, useSpectrum: !!rs.useSpectrum, useFusedModulation: !!rs.useFusedModulation,
+      h3Optimizer: rs.h3Optimizer || "none",
+      h3SparseBudget: rs.h3Optimizer === "memory_sparse" ? (rs.h3SparseBudget ?? 0.15) : null,
       // SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md #3 — useTorchPatch was silently missing before:
       // two clips differing only in it were indistinguishable after the fact. preset is always
       // null on this port — the web tool has no preset list to match against (see spec #4).
@@ -2295,6 +2347,8 @@ export function renderMinimaxH3(container: HTMLElement) {
         if (meta.attnBackend != null) state.attnBackend = meta.attnBackend;
         if (meta.attnForward != null) state.attnForward = meta.attnForward;
         if (meta.blockCache != null) state.blockCache = meta.blockCache;
+        if (meta.h3Optimizer != null) state.h3Optimizer = meta.h3Optimizer;
+        if (meta.h3SparseBudget != null) state.h3SparseBudget = meta.h3SparseBudget;
         if (meta.useSpectrum != null) state.useSpectrum = !!meta.useSpectrum;
         if (meta.useFusedModulation != null) state.useFusedModulation = !!meta.useFusedModulation;
       } else if (typeof meta.accel === "string") {

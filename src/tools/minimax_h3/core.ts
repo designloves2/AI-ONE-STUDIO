@@ -202,6 +202,15 @@ export interface MinimaxState {
   attnBackend: string; // "none" | "sage" | "ck" | "solattn_kijai" | "sla" — L6/L7, single-select
   attnForward: string; // "none" | "memeff_sage" | "solattn_saganaki" — L5, blocked whenever attnBackend replaces attn.forward itself (ck/solattn_kijai/sla)
   blockCache: string; // "none" | "h3cache" | "fbcache" — L2/L3, blocked entirely under either Turbo mode
+  // H3-Optimizations (Zironic) — backend-preserving VRAM / sparse axis. "none" | "memory" | "memory_sparse"
+  h3Optimizer: string;
+  h3MemChunkRows: number;
+  h3MemPrecision: string;      // Auto | BF16 | Preserve native | Force quant
+  h3MemQkvStreaming: string;   // Auto | Off | Forced
+  h3MemLowVram: boolean;
+  h3SparseBudget: number;
+  h3SparseDenserEdges: boolean;
+  h3SparseLayerBudgets: string;
   useSpectrum: boolean; // L1, independent of attnBackend/blockCache — orthogonal axis
   useFusedModulation: boolean; // L4, safe with every other axis
   pipelineMigrated: boolean;
@@ -540,6 +549,42 @@ export const BLOCK_CACHES = [
   { key: "h3cache", label: "H3 Cache", node: "MiniMaxH3Cache" },
   { key: "fbcache", label: "FirstBlockCache", node: "ApplyMiniMaxH3FirstBlockCache" },
 ] as const;
+
+// H3-Optimizations (Zironic) — a backend-preserving axis. `memory` wraps whatever dense
+// backend is selected (Sage / Comfy Kitchen / stock) with chunked QKV/MLP/FinalLayer and
+// early embedding release; it is the way to get a memory-efficient CK, which the KJ MemEff
+// forward patch cannot do (that one hard-swaps the blocks' attention to a sage kernel).
+// `memory_sparse` adds H3 Sparse Attention after it — a real attention approximation.
+export const H3_OPTIMIZERS = [
+  { key: "none", label: "None", node: null },
+  { key: "memory", label: "H3 Memory Opt", node: "H3MemoryOptimization" },
+  { key: "memory_sparse", label: "H3 Memory Opt + Sparse", node: "H3SparseAttention" },
+] as const;
+
+/** H3-Optimizations axis. Memory Opt is pure VRAM/execution and composes with anything, so
+ * it is never blocked. The Sparse stage is an attention approximation, so it's gated the
+ * same way the sparse attention backends are: out under any turbo schedule (too few steps
+ * to average its error away), and not stacked on a backend that is already sparse. */
+export function h3OptimizerBlockedReason(state: MinimaxState, key: string): string {
+  if (!key || key === "none" || key === "memory") return "";
+  if (key === "memory_sparse") {
+    if (state.turboMode && state.turboMode !== "none") {
+      return "The Sparse stage approximates attention — a few-step turbo schedule can't absorb that. Use plain H3 Memory Opt.";
+    }
+    if (state.attnBackend === "solattn_kijai" || state.attnBackend === "sla") {
+      return "The attention backend is already sparse — H3 Sparse on top double-sparsifies. Use plain H3 Memory Opt.";
+    }
+  }
+  return "";
+}
+
+/** Not a block — a note. When an H3 attention-forward patch (KJ MemEff Sage / Saganaki Sol)
+ * is on, it owns `blocks[i].attn.forward`; the optimizer's QKV-streaming step then self-defers
+ * while its MLP and embedding savings still apply. "" when there's nothing to note. */
+export function h3OptimizerOverlapNote(state: MinimaxState, key: string): string {
+  if (!key || key === "none" || !state.attnForward || state.attnForward === "none") return "";
+  return "An H3 attention-forward patch owns the blocks' attention — the optimizer keeps its MLP / embedding savings, but its QKV-streaming step defers to that patch.";
+}
 
 /** Why an attention-backend option is greyed out, or "" if it's fine. Shown inline, never hidden. */
 export function attnBackendBlockedReason(state: MinimaxState, key: string): string {
@@ -1090,6 +1135,14 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     attnBackend: saved.attnBackend || "none",
     attnForward: saved.attnForward || "none",
     blockCache: saved.blockCache || "none",
+    h3Optimizer: saved.h3Optimizer || "none",
+    h3MemChunkRows: saved.h3MemChunkRows ?? 4096,
+    h3MemPrecision: saved.h3MemPrecision || "Auto",
+    h3MemQkvStreaming: saved.h3MemQkvStreaming || "Auto",
+    h3MemLowVram: !!saved.h3MemLowVram,
+    h3SparseBudget: saved.h3SparseBudget ?? 0.15,
+    h3SparseDenserEdges: saved.h3SparseDenserEdges !== false,
+    h3SparseLayerBudgets: saved.h3SparseLayerBudgets || "",
     useSpectrum: !!saved.useSpectrum,
     useFusedModulation: saved.useFusedModulation ?? false,
     pipelineMigrated: !!saved.pipelineMigrated,

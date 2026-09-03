@@ -67,8 +67,42 @@ CK(comfy kitchen) 커널을 블록에서 쓰려면 **백엔드 보존형** 최�
 > attention selected by ComfyUI ... This includes external SageAttention, external Comfy Kitchen"*.
 > → **CK 백엔드 + `H3MemoryOptimization` = 메모리 효율 CK.**
 
-현재 노드 `MMH3_OPTIONAL_NODES`엔 `H3MemoryOptimization` / `H3SparseAttention`(H3-Optimizations)이
-**미통합** — L5 대안으로 TJ 노드 UI에 넣는 건 별도 작업(스펙 나오면 릴레이).
+→ 통합 완료: **§③ H3 Optimizer 축** 참조 (노드 `4fcabb3` = v1.24.0, 웹은 PORT_LEDGER 참조).
+
+### ③ H3 Optimizer 축 — 백엔드 보존형 VRAM + 선택적 sparse (노드 `4fcabb3`, v1.24.0)
+
+어텐션 아코디언의 **세 번째 컨트롤** (backend / H3 forward 아래). Zironic `H3-Optimizations` 팩을 감쌈.
+
+| `h3Optimizer` | 노드 | 설명 |
+|---|---|---|
+| `none` | — | |
+| `memory` | `H3MemoryOptimization` | 선택된 dense 백엔드(sage / comfy kitchen / stock)를 **보존한 채** chunked QKV/MLP/FinalLayer + early embedding release로 감쌈. **어떤 백엔드·터보와도 조합 가능, 절대 차단 안 됨.** ← 메모리 효율 CK를 얻는 방법 |
+| `memory_sparse` | `+ H3SparseAttention` | 위에 sparse attention 근사 추가 (video attention budget, denser early/late steps) |
+
+**게이팅** — `h3OptimizerBlockedReason(state, key)`:
+- `memory` 는 순수 VRAM/실행이라 **절대 차단 안 함**
+- `memory_sparse` 는 어텐션 근사라 sparse 백엔드와 동일 규칙:
+  - 아무 터보 스케줄(4~8스텝) → 차단 ("근사 오차를 흡수 못 함")
+  - `attnBackend` 가 이미 sparse (`solattn_kijai` / `sla`) → 차단 ("이중 sparse")
+  - 차단 시 자동으로 `memory` 로 폴백 (`none` 이 아님), 사유 인라인 표시
+
+**오버랩 노트** — `h3OptimizerOverlapNote(state, key)`: H3 forward 패치(KJ MemEff / Saganaki Sol)가 켜져
+있으면 힌트: "forward 패치가 블록 어텐션을 소유 — 옵티마이저의 MLP/embedding 절약은 유지되지만
+QKV-streaming 단계는 그 패치에 양보."
+
+**서브파라미터** (`memory`|`memory_sparse` 일 때): precision (Auto/BF16/Preserve native/Force quant),
+qkv streaming (Auto/Off/Forced), Lower VRAM 체크박스.
+(`memory_sparse` && !blocked): video attention budget (0.01–1, 기본 0.15), Denser early/late steps 체크박스.
+
+**그래프 배치**: 블록 캐시 뒤, Spectrum 래퍼 안 (H3-Optimizations 노드는 order-independent, prepare-sampling에서
+reconcile). 체인: `... → H3MemoryOptimization → H3SparseAttention → ...`.
+`H3MemoryOptimization` inputs에 legacy hidden 슬롯(`fused_qkv`/`preserve_precision`/`embedding_memory_mode`)을
+넣어야 API 그래프 검증 통과.
+
+**메타/Reuse**: 클립 메타에 `h3Optimizer` (+ `memory_sparse` 일 때 `h3SparseBudget`); `applyClipSettings` 복원.
+
+**설치**: `install_comfyui_dependencies.bat` REPOS + ALT 폴더 `h3-optimizations` (pip deps 없음).
+availability 리스트: 웹 `api.ts` `MMH3_OPTIONAL_NODES` + 노드 양쪽에 `H3MemoryOptimization` / `H3SparseAttention`.
 
 ---
 

@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, PDD_NFE_CHOICES, pddFileForMode } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, PDD_NFE_CHOICES, pddFileForMode } from "./core";
 import type { NodeAvailability } from "./api";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
@@ -20,6 +20,8 @@ const N = {
   shift: "MM:sigma_shift",
   cache: "MM:cache",
   fbcache: "MM:fbcache",
+  h3mem: "MM:h3_mem",
+  h3sparse: "MM:h3_sparse",
   sla: "MM:sla_attn",
   sol: "MM:solattn",
   spectrum: "MM:spectrum",
@@ -286,6 +288,46 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
       };
       m = [N.fbcache, 0];
     }
+  }
+
+  // ── H3-Optimizations (Zironic): VRAM + optional sparse, backend-preserving ─
+  // Unlike the KJ forward patch, H3 Memory Optimization does NOT replace the blocks'
+  // attention — it wraps the selected dense backend (sage / comfy kitchen / stock) with
+  // chunked QKV/MLP/FinalLayer and early embedding release, so it's how you get a
+  // memory-efficient CK. Its nodes are order-independent and reconcile at prepare-sampling,
+  // so placement here (after the caches, inside Spectrum's wrapper) is safe. The Sparse
+  // stage is gated exactly like the sparse backends.
+  const h3opt = state.h3Optimizer || "none";
+  if ((h3opt === "memory" || h3opt === "memory_sparse") && has(avail, "H3MemoryOptimization")) {
+    g[N.h3mem] = {
+      class_type: "H3MemoryOptimization",
+      inputs: {
+        model: m,
+        // Legacy serialized slots — ignored by execution but kept as required inputs.
+        fused_qkv: "auto",
+        preserve_precision: true,
+        embedding_memory_mode: "Auto",
+        // Authoritative controls.
+        mlp_memory: "auto",
+        chunk_rows: Math.round(state.h3MemChunkRows ?? 4096),
+        precision_mode: state.h3MemPrecision || "Auto",
+        qkv_streaming_mode: state.h3MemQkvStreaming || "Auto",
+        kitchen_v_memory_mode: state.h3MemLowVram ? "Lower VRAM (slower)" : "Standard",
+      },
+    };
+    m = [N.h3mem, 0];
+  }
+  if (h3opt === "memory_sparse" && !h3OptimizerBlockedReason(state, "memory_sparse") && has(avail, "H3SparseAttention")) {
+    g[N.h3sparse] = {
+      class_type: "H3SparseAttention",
+      inputs: {
+        model: m,
+        video_budget: state.h3SparseBudget ?? 0.15,
+        denser_early_late_steps: state.h3SparseDenserEdges !== false,
+        layer_video_budgets: state.h3SparseLayerBudgets || "",
+      },
+    };
+    m = [N.h3sparse, 0];
   }
 
   // ── Turbo (L8, weights) — larryvrh's own LoRA node, or PDD's model-patch+sigmas apply.

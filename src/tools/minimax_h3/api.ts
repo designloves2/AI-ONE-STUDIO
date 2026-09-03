@@ -149,6 +149,9 @@ export const MMH3_OPTIONAL_NODES = [
   "MiniMaxH3FusedModulation",
   "ModelAttentionBackend",
   "H3SLAAttention",
+  // H3-Optimizations (Zironic) — backend-preserving VRAM optimizer + optional sparse attention.
+  "H3MemoryOptimization",
+  "H3SparseAttention",
   "MiniMaxH3Cache",
   "ApplyMiniMaxH3FirstBlockCache",
   "MiniMaxH3TurboSampler",

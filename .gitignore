@@ -12,10 +12,12 @@ dist
 dist-ssr
 *.local
 
-# 개인 환경 설정(ComfyUI 서버 주소 등) — .env.example만 커밋한다
+# 개인 환경 설정(ComfyUI 서버 주소 등) — *.example만 커밋한다
 .env
 .env.*
 !.env.example
+# 로컬 ComfyUI 포트 — install_comfyui_dependencies.bat 가 만든다. 없으면 8188.
+public/comfy_port.txt
 
 # Editor directories and files
 .vscode/*

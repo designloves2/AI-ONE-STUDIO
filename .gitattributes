@@ -1,0 +1,7 @@
+# Windows batch / PowerShell scripts must be CRLF — cmd.exe misparses an
+# LF-only .bat (labels, goto/call, multi-line blocks all break). Mark them
+# -text so git stores the bytes exactly as committed (CRLF) and never
+# converts on checkout, ZIP export, or a different core.autocrlf setting.
+*.bat -text
+*.cmd -text
+*.ps1 -text

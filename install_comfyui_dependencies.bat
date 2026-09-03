@@ -23,7 +23,7 @@ echo   Already-installed nodes are skipped.
 echo ========================================================================
 echo.
 
-rem ── ComfyUI path ─────────────────────────────────────────────────────────
+rem -- ComfyUI path ---------------------------------------------------------
 set "COMFY_DIR="
 :ASK_PATH
 set /p "COMFY_DIR=Enter the path to your existing ComfyUI folder (the one that contains custom_nodes): "
@@ -44,7 +44,7 @@ if not exist "%COMFY_DIR%\custom_nodes" (
 echo [OK] ComfyUI: %COMFY_DIR%
 echo.
 
-rem ── ComfyUI port ────────────────────────────────────────────────────────
+rem -- ComfyUI port --------------------------------------------------------
 rem The web app talks to ComfyUI on 127.0.0.1:<port> for local access. Default
 rem is 8188, but a machine with several ComfyUI installs may run this one on a
 rem different port. Write it to public\comfy_port.txt so the site picks it up
@@ -66,7 +66,7 @@ if errorlevel 1 (
 )
 echo.
 
-rem ── git check ────────────────────────────────────────────────────────────
+rem -- git check ------------------------------------------------------------
 where git >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] git is not installed. Install it from https://git-scm.com/downloads and run this again.
@@ -74,7 +74,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem ── Python path detection ────────────────────────────────────────────────
+rem -- Python path detection ------------------------------------------------
 rem Mirrors ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat - same list, same
 rem order, most specific layout first:
 rem   <ComfyUI>\venv\Scripts\python.exe     - manual venv install
@@ -136,7 +136,7 @@ exit /b 0
 :PY_DONE
 echo.
 
-rem ── numpy guard ─────────────────────────────────────────────────────────
+rem -- numpy guard ---------------------------------------------------------
 rem ComfyUI core and many nodes still need numpy 1.x, but insightface / onnx /
 rem older RTX deps happily drag it to 2.x mid-install. Record the version we
 rem start with and pin it back at the end if anything moved it. Mirrors the
@@ -166,7 +166,7 @@ echo.
 
 cd /d "%COMFY_DIR%\custom_nodes"
 
-rem ── Main package: ComfyUI-TJ_NODE_STUDIO_ONE ────────────────────────────
+rem -- Main package: ComfyUI-TJ_NODE_STUDIO_ONE ----------------------------
 echo ========================================================================
 echo  [MAIN] ComfyUI-TJ_NODE_STUDIO_ONE
 echo ========================================================================
@@ -201,7 +201,7 @@ echo [WARN] Some packages failed to install - check manually.
 :MAIN_PIP_DONE
 echo.
 
-rem ── Dependency custom node list ──────────────────────────────────────────
+rem -- Dependency custom node list ------------------------------------------
 rem Based on ComfyUI-TJ_NODE_STUDIO_ONE/install_requirements.bat - everything
 rem the 6 image tools and the MiniMax H3 video node need. Crystools (monitor
 rem widget) isn't in that list; it's only needed here.
@@ -322,7 +322,7 @@ exit /b 0
 
 :AFTER_REPOS
 
-rem ── numpy restore ───────────────────────────────────────────────────────
+rem -- numpy restore -------------------------------------------------------
 if "%PYTHON%"=="" goto SKIP_NUMPY_RESTORE
 if "%NUMPY_BEFORE%"=="" goto SKIP_NUMPY_RESTORE
 set "NUMPY_AFTER="

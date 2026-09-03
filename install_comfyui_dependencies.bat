@@ -114,6 +114,17 @@ if defined PYTHON exit /b 0
 if exist "%~1" set "PYTHON=%~1"
 exit /b 0
 
+:GetNumpyVer
+rem Sets NUMPY_VER to the installed numpy version (empty if none). Done via a temp
+rem file, not  for /f ('"%PYTHON%" ... ^| findstr ...') : that inner command both
+rem starts with a quote and contains more, so cmd /c strips the outer pair and
+rem mangles the python path -> "The filename, directory name ... is incorrect".
+set "NUMPY_VER="
+"%PYTHON%" -m pip show numpy > "%TEMP%\aios_numpy.txt" 2>nul
+for /f "tokens=2" %%v in ('findstr /b /c:"Version:" "%TEMP%\aios_numpy.txt"') do set "NUMPY_VER=%%v"
+del "%TEMP%\aios_numpy.txt" >nul 2>&1
+exit /b 0
+
 :SystemPyPrompt
 rem Nothing beside ComfyUI. A bare "python" is the machine's system install -
 rem using it scatters ComfyUI's deps into the wrong place and can break other
@@ -143,8 +154,9 @@ rem start with and pin it back at the end if anything moved it. Mirrors the
 rem node pack's install_requirements (v1.20.2).
 set "NUMPY_BEFORE="
 if not "%PYTHON%"=="" (
-    for /f "tokens=2" %%v in ('"%PYTHON%" -m pip show numpy 2^>nul ^| findstr /b /c:"Version:"') do set "NUMPY_BEFORE=%%v"
-    if not "!NUMPY_BEFORE!"=="" echo [INFO] numpy at start: !NUMPY_BEFORE! ^(will restore this if a dependency changes it^)
+    call :GetNumpyVer
+    set "NUMPY_BEFORE=!NUMPY_VER!"
+    if not "!NUMPY_VER!"=="" echo [INFO] numpy at start: !NUMPY_VER! ^(will restore this if a dependency changes it^)
 )
 echo.
 
@@ -325,8 +337,8 @@ exit /b 0
 rem -- numpy restore -------------------------------------------------------
 if "%PYTHON%"=="" goto SKIP_NUMPY_RESTORE
 if "%NUMPY_BEFORE%"=="" goto SKIP_NUMPY_RESTORE
-set "NUMPY_AFTER="
-for /f "tokens=2" %%v in ('"%PYTHON%" -m pip show numpy 2^>nul ^| findstr /b /c:"Version:"') do set "NUMPY_AFTER=%%v"
+call :GetNumpyVer
+set "NUMPY_AFTER=%NUMPY_VER%"
 if "%NUMPY_AFTER%"=="%NUMPY_BEFORE%" (
     echo [OK] numpy still %NUMPY_BEFORE% - no restore needed.
     goto SKIP_NUMPY_RESTORE

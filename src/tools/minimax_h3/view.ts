@@ -1062,7 +1062,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           col([label("precision"), select(["Auto", "BF16", "Preserve native", "Force quant"].map((x) => ({ value: x, label: x })), state.h3MemPrecision || "Auto", (v) => { state.h3MemPrecision = v; persist(); })]),
           col([label("qkv streaming"), select(["Auto", "Off", "Forced"].map((x) => ({ value: x, label: x })), state.h3MemQkvStreaming || "Auto", (v) => { state.h3MemQkvStreaming = v; persist(); })]),
         ]),
-        checkboxRow("Lower VRAM (slower attention V handling)", !!state.h3MemLowVram, (v) => { state.h3MemLowVram = v; persist(); }),
+        checkboxRow("Lower VRAM (slower attention V handling)", !!state.h3MemLowVram, (v) => { state.h3MemLowVram = v; persist(); }, { title: "Two-pass attention V handling — trims peak memory further at a speed cost." }),
         el("div", {
           text: installed
             ? "Wraps the selected dense backend (Sage / Comfy Kitchen / stock) with chunked QKV/MLP/FinalLayer — the backend still runs. This is how to get a memory-efficient CK."

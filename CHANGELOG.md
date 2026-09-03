@@ -3,6 +3,69 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.2.0] — 2026-09-03
+
+MiniMax H3 brought to parity with `ComfyUI-TJ_NODE_STUDIO_ONE` v1.20.0 → v1.24.0. Ported
+overnight in coordination with the node repo; each item verified against a live ComfyUI.
+See `PORT_LEDGER.md` for the per-change node↔web mapping.
+
+### Added
+- **Continue / Extend** (node v1.21.0–1.21.2) — resume a multi-clip run from a finished
+  clip ("Continue generating the clip", gallery frame picker), one-click **Extend** from a
+  gallery clip (LLM-drafted continuation prompt → FL2VA render → auto-stitch), and user
+  pipeline presets that carry the full left-panel recipe (steps / sampler / PDD file /
+  turbo axes), not just the accelerator mode
+- **Enhance result — 3 apply modes** (node v1.22.0): One Prompt / Auto Split (default) /
+  Use selected, chosen after the model answers; `parseBrief` broadened for structured audio
+  sections and instruction/vision-echo stripping
+- **Per-field Undo / Clear** on the three Prompt Edit text fields, button text dimming when
+  it can't act (node v1.22.1–1.22.2)
+- **Drag-reorder** the CLIPS list and every attached-media grid (reference images, per-clip
+  images, the shared video/audio tiles); CLIPS rows labelled `N - Clip Prompt #N`;
+  drag-resizable preview box (node v1.23.0)
+- **Inline deblur / upscale now recorded in clip metadata** (node v1.23.1–1.23.2): the
+  sidecar re-probes the real output size, keeps `sourceW/H`; gallery post-process names
+  every stage (`deblur + upscale`, `rtx upscale`, `interpolation`); thumbnail cards show
+  `⇪` upscaled / `✧` deblurred / `⇄` interpolated badges; a "save the clip before
+  deblur/upscale" toggle keeps the raw decode as a separate `_raw` clip
+- **H3 attention forward patch no longer gated on the backend** (node `0876abc`) — CK /
+  SolAttn / SLA no longer disable MemEff Sage; both run, with an overlap note explaining
+  which layer each covers. The migration no longer lets SLA hijack the backend slot
+- **H3 optimizer axis** (node v1.24.0, `SPEC_MINIMAX_H3_PIPELINE_AXES.md` §③) — a third
+  Attention-accordion control wrapping Zironic `H3-Optimizations`. **H3 Memory Opt**
+  preserves the selected dense backend (Sage / **Comfy Kitchen** / stock) and wraps it —
+  the way to run a memory-efficient CK; never blocked. **+ Sparse** adds `H3SparseAttention`,
+  gated wherever it can't own the attention (any turbo, an already-sparse backend, or an H3
+  forward patch)
+- `install_comfyui_dependencies.bat`: finds ComfyUI Desktop's `<ComfyUI>\.venv` Python (was
+  falling through to system Python); the system-Python fallback is opt-in only now; adds
+  `ComfyUI-VFI` (gallery interpolate) and `H3-Optimizations`; 7-entry Python discovery order
+  matching the node's installer
+- `.gitattributes` forces CRLF on `*.bat` / `*.cmd` / `*.ps1`
+- `ONE_SHOT_INSTALL.md` — a copy-paste full-stack install prompt for Claude Code / Codex users
+
+### Fixed
+- **PDD Acc file (FL2VA / Ref2VA) selections weren't persisting** — missing from the
+  `saveConfig` payload and the `getConfig` restore; the node's `mmh3_get_config` also
+  dropped them
+- **"Sampling · step N/M" showed wrong totals** — the progress handler forwarded every
+  ComfyUI `progress` event; now filtered to the sampler node + running job
+- Stitched mp4s wouldn't play on iOS Safari over the tunnel (node added `-movflags
+  +faststart`); gallery upscale/interpolate hang on iPhone (missing `/history` completion
+  poll on the fresh-submit path); post-process meta showed source dimensions, not the
+  upscaled/interpolated output
+- Duration-based chunk sizing for gallery post-process (RTX VSR whole-file < 15s / 15s
+  chunks; upscale model whole-file < 10s / 5s chunks)
+- Single-shot gallery post-process now survives a tab reload (snapshot on queue, resume on
+  next gallery open)
+- Both `.bat` files had LF line endings — `cmd.exe` misparses an LF-only batch file once
+  labels / subroutines are involved
+- The installer's numpy version probe printed "The filename … is incorrect" and skipped the
+  numpy pin-back (a `for /f ('"%PYTHON%" … | findstr …')` quoting bug)
+- `groundingdino-py` `UnicodeDecodeError` on cp949 Windows (the web installer already set
+  `PYTHONUTF8=1`; the node adopted it)
+- `public/comfy_port.txt` no longer tracked — it's machine-local config the installer writes
+
 ## [0.1.0] — 2026-08-26
 
 First tagged release. Highlights since the last untagged snapshot (2026-08-18):

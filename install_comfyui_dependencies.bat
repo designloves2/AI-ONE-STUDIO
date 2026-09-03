@@ -75,25 +75,25 @@ if errorlevel 1 (
 )
 
 rem -- Python path detection ------------------------------------------------
-rem Mirrors ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat - same list, same
-rem order, most specific layout first:
-rem   <ComfyUI>\venv\Scripts\python.exe     - manual venv install
-rem   <ComfyUI>\.venv\Scripts\python.exe    - manual .venv install
-rem   <base>\standalone-env\python.exe      - ComfyUI Desktop (electron / uv-managed;
-rem                                            python.exe at the env root, NOT Scripts\)
-rem   <base>\.venv\Scripts\python.exe       - some ComfyUI Desktop builds
-rem   <ComfyUI>\python_embeded\python.exe   - embedded python inside ComfyUI
-rem   <base>\python_embeded\python.exe      - portable build (python_embeded beside ComfyUI)
+rem Mirrors ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat (v1.23.3) - same
+rem list, same order. A real venv wins over any base interpreter: ComfyUI Desktop
+rem runs from <ComfyUI>\.venv (a uv venv whose home points at ..\standalone-env),
+rem and that is where its packages must land - installing straight into
+rem standalone-env would leave ComfyUI unable to see them, same as system Python.
+rem   <ComfyUI>\venv | .venv \Scripts\python.exe   - manual venv / ComfyUI Desktop
+rem   <base>\venv | .venv \Scripts\python.exe       - venv beside ComfyUI
+rem   <base>\standalone-env\python.exe              - Desktop base interpreter (only if no .venv)
+rem   <ComfyUI>\python_embeded\python.exe           - embedded python inside ComfyUI
+rem   <base>\python_embeded\python.exe              - portable build (python_embeded beside ComfyUI)
 rem <base> = the folder one level above the ComfyUI folder the user entered.
-rem The Desktop / standalone-env case is why this list exists: without it the script
-rem fell through to a bare "where python" and installed into the system Python.
 rem Kept as a called subroutine + plain IFs rather than a nested for/if block -
 rem same reason the repo loop below is a subroutine.
 set "PYTHON="
 call :TryPy "%COMFY_DIR%\venv\Scripts\python.exe"
 call :TryPy "%COMFY_DIR%\.venv\Scripts\python.exe"
-call :TryPy "%COMFY_DIR%\..\standalone-env\python.exe"
+call :TryPy "%COMFY_DIR%\..\venv\Scripts\python.exe"
 call :TryPy "%COMFY_DIR%\..\.venv\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\..\standalone-env\python.exe"
 call :TryPy "%COMFY_DIR%\python_embeded\python.exe"
 call :TryPy "%COMFY_DIR%\..\python_embeded\python.exe"
 

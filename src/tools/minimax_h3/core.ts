@@ -561,10 +561,13 @@ export const H3_OPTIMIZERS = [
   { key: "memory_sparse", label: "H3 Memory Opt + Sparse", node: "H3SparseAttention" },
 ] as const;
 
-/** H3-Optimizations axis. Memory Opt is pure VRAM/execution and composes with anything, so
- * it is never blocked. The Sparse stage is an attention approximation, so it's gated the
- * same way the sparse attention backends are: out under any turbo schedule (too few steps
- * to average its error away), and not stacked on a backend that is already sparse. */
+/** H3-Optimizations axis. `memory` is pure VRAM/execution (its MLP / FinalLayer / embedding
+ * savings patch `blocks[i].forward`, a different key from attention) and composes with anything,
+ * so it is never blocked. The Sparse stage IS an attention approximation on `blocks[i].attn.forward`,
+ * so it is gated the same way the sparse attention backends are, plus one more case: an H3
+ * attention-forward patch (KJ MemEff / Saganaki Sol) already owns that key — H3-Optimizations'
+ * apply code sees the foreign patch and skips (never overwrites), so H3 Sparse would go inert on
+ * every block. (node `b34876c`, traced through `h3_optimizations/patch.py`.) */
 export function h3OptimizerBlockedReason(state: MinimaxState, key: string): string {
   if (!key || key === "none" || key === "memory") return "";
   if (key === "memory_sparse") {
@@ -574,16 +577,20 @@ export function h3OptimizerBlockedReason(state: MinimaxState, key: string): stri
     if (state.attnBackend === "solattn_kijai" || state.attnBackend === "sla") {
       return "The attention backend is already sparse — H3 Sparse on top double-sparsifies. Use plain H3 Memory Opt.";
     }
+    if (state.attnForward && state.attnForward !== "none") {
+      return "An H3 attention-forward patch keeps the blocks' attention — H3 Sparse can't route around it. Use plain H3 Memory Opt.";
+    }
   }
   return "";
 }
 
-/** Not a block — a note. When an H3 attention-forward patch (KJ MemEff Sage / Saganaki Sol)
- * is on, it owns `blocks[i].attn.forward`; the optimizer's QKV-streaming step then self-defers
- * while its MLP and embedding savings still apply. "" when there's nothing to note. */
+/** Not a block — a note. Only for plain `memory`: an H3 attention-forward patch keeps the
+ * blocks' attention (its QKV-streaming half yields), while the optimizer's MLP / FinalLayer /
+ * embedding savings still stack on top. `memory_sparse` is blocked outright with a forward
+ * patch, so it never reaches here. "" when there's nothing to note. */
 export function h3OptimizerOverlapNote(state: MinimaxState, key: string): string {
-  if (!key || key === "none" || !state.attnForward || state.attnForward === "none") return "";
-  return "An H3 attention-forward patch owns the blocks' attention — the optimizer keeps its MLP / embedding savings, but its QKV-streaming step defers to that patch.";
+  if (key !== "memory" || !state.attnForward || state.attnForward === "none") return "";
+  return "The H3 forward patch keeps the blocks' attention — the optimizer still adds its MLP / FinalLayer / embedding savings on top.";
 }
 
 /** Why an attention-backend option is greyed out, or "" if it's fine. Shown inline, never hidden. */

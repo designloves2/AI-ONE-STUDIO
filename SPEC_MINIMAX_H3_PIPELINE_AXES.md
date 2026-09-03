@@ -67,9 +67,9 @@ CK(comfy kitchen) 커널을 블록에서 쓰려면 **백엔드 보존형** 최�
 > attention selected by ComfyUI ... This includes external SageAttention, external Comfy Kitchen"*.
 > → **CK 백엔드 + `H3MemoryOptimization` = 메모리 효율 CK.**
 
-→ 통합 완료: **§③ H3 Optimizer 축** 참조 (노드 `4fcabb3` = v1.24.0, 웹은 PORT_LEDGER 참조).
+→ 통합 완료: **§③ H3 Optimizer 축** 참조 (노드 `b34876c` = v1.24.0, 웹은 PORT_LEDGER 참조).
 
-### ③ H3 Optimizer 축 — 백엔드 보존형 VRAM + 선택적 sparse (노드 `4fcabb3`, v1.24.0)
+### ③ H3 Optimizer 축 — 백엔드 보존형 VRAM + 선택적 sparse (노드 `b34876c`, v1.24.0)
 
 어텐션 아코디언의 **세 번째 컨트롤** (backend / H3 forward 아래). Zironic `H3-Optimizations` 팩을 감쌈.
 
@@ -79,16 +79,24 @@ CK(comfy kitchen) 커널을 블록에서 쓰려면 **백엔드 보존형** 최�
 | `memory` | `H3MemoryOptimization` | 선택된 dense 백엔드(sage / comfy kitchen / stock)를 **보존한 채** chunked QKV/MLP/FinalLayer + early embedding release로 감쌈. **어떤 백엔드·터보와도 조합 가능, 절대 차단 안 됨.** ← 메모리 효율 CK를 얻는 방법 |
 | `memory_sparse` | `+ H3SparseAttention` | 위에 sparse attention 근사 추가 (video attention budget, denser early/late steps) |
 
-**게이팅** — `h3OptimizerBlockedReason(state, key)`:
-- `memory` 는 순수 VRAM/실행이라 **절대 차단 안 함**
-- `memory_sparse` 는 어텐션 근사라 sparse 백엔드와 동일 규칙:
-  - 아무 터보 스케줄(4~8스텝) → 차단 ("근사 오차를 흡수 못 함")
-  - `attnBackend` 가 이미 sparse (`solattn_kijai` / `sla`) → 차단 ("이중 sparse")
-  - 차단 시 자동으로 `memory` 로 폴백 (`none` 이 아님), 사유 인라인 표시
+**패치 키** (노드 `b34876c`, `h3_optimizations/patch.py` 추적):
+- `memory` 의 MLP/FinalLayer/embedding 절약 → `blocks.{i}.forward` (어텐션과 **다른 키**) → forward 패치와 안 겹침
+- `H3SparseAttention` → `blocks.{i}.attn.forward` (KJ MemEff / Saganaki Sol 과 **같은 키**). H3-Optimizations
+  apply 코드는 남의 패치를 보면 `conflicts.append(key); continue` — **덮어쓰지도 에러도 안 냄, 그냥 skip**.
+  그래서 forward 패치가 있으면 H3 Sparse 는 전 블록에서 무력화됨.
 
-**오버랩 노트** — `h3OptimizerOverlapNote(state, key)`: H3 forward 패치(KJ MemEff / Saganaki Sol)가 켜져
-있으면 힌트: "forward 패치가 블록 어텐션을 소유 — 옵티마이저의 MLP/embedding 절약은 유지되지만
-QKV-streaming 단계는 그 패치에 양보."
+**게이팅** — `h3OptimizerBlockedReason(state, key)`:
+- `memory` 는 **절대 차단 안 함** (다른 키, 순수 VRAM/실행). H3 forward 패치와 조합 = 유용 (벤치된
+  "Sage + chunked MLP/FinalLayer" 스택 — 어텐션은 forward 패치가, MLP/FinalLayer/embed 는 옵티마이저가)
+- `memory_sparse` 차단 조건 (차단 시 자동으로 `memory` 폴백, `none` 아님, 사유 인라인):
+  - 아무 터보 스케줄 → "근사 오차를 흡수 못 함"
+  - `attnBackend` 이미 sparse (`solattn_kijai` / `sla`) → "이중 sparse"
+  - **`attnForward` 켜짐** (`memeff_sage` / `solattn_saganaki`) → "forward 패치가 attn.forward 를 소유,
+    H3 Sparse 가 우회 못 함"
+
+**오버랩 노트** — `h3OptimizerOverlapNote(state, key)`: **`key === "memory"` 일 때만** (memory_sparse 는
+forward 패치와 애초에 차단). forward 패치 켜져 있으면: "forward 패치가 블록 어텐션 유지 — 옵티마이저는
+MLP / FinalLayer / embedding 절약을 그 위에 추가."
 
 **서브파라미터** (`memory`|`memory_sparse` 일 때): precision (Auto/BF16/Preserve native/Force quant),
 qkv streaming (Auto/Off/Forced), Lower VRAM 체크박스.
@@ -98,6 +106,10 @@ qkv streaming (Auto/Off/Forced), Lower VRAM 체크박스.
 reconcile). 체인: `... → H3MemoryOptimization → H3SparseAttention → ...`.
 `H3MemoryOptimization` inputs에 legacy hidden 슬롯(`fused_qkv`/`preserve_precision`/`embedding_memory_mode`)을
 넣어야 API 그래프 검증 통과.
+
+**Fused Modulation 과의 관계** (게이팅 아님 — 참고): Fused Modulation 도 `blocks.{i}.forward` 를 패치함
+→ H3 Memory Opt 의 MLP chunking 이 그 블록들에선 비활성 (로그만, 비치명적). FinalLayer / embedding 절약은
+계속 적용. 두 개 같이 켜도 되지만 MLP chunking 이득은 사라짐.
 
 **메타/Reuse**: 클립 메타에 `h3Optimizer` (+ `memory_sparse` 일 때 `h3SparseBudget`); `applyClipSettings` 복원.
 

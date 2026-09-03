@@ -239,13 +239,15 @@ run.</sub>
 
 - ComfyUI 폴더 경로와 포트 번호를 물어봅니다. 포트는 `public/comfy_port.txt`에 기록됩니다.
   <br><sub>Asks for the ComfyUI folder path and port; writes the port to `public/comfy_port.txt`.</sub>
-- `git`과 ComfyUI가 쓰는 Python을 찾습니다 — 포터블 `..\python_embeded`, 데스크탑(ComfyUI‑electron)
-  `..\standalone-env`, 또는 `venv`/`.venv`(ComfyUI 안이나 한 단계 위). 어느 것도 없을 때만 시스템
-  Python을 쓸지 물어봅니다(기본은 pip 단계 건너뜀 — 시스템 Python 오염 방지). 찾으면
-  `pip`·`setuptools`·`wheel`을 올립니다.
-  <br><sub>Finds `git` and the Python ComfyUI uses — portable `..\python_embeded`, desktop
-  (ComfyUI‑electron) `..\standalone-env`, or a `venv`/`.venv` inside ComfyUI or one level up. Only
-  if none is found does it ask before touching the system Python (default: skip pip). Then upgrades
+- `git`과 ComfyUI가 쓰는 Python을 찾습니다 — 데스크탑(ComfyUI‑electron)은 `<ComfyUI>\.venv`,
+  포터블은 `<ComfyUI>` 한 단계 위의 `python_embeded`, 수동 설치는 `venv`/`.venv`,
+  그 외 `..\standalone-env` 도 확인합니다(원본 노드의 `install_requirements.bat` 와 같은 목록·순서).
+  어느 것도 없을 때만 시스템 Python 사용 여부를 물어봅니다 — 기본은 pip 단계 건너뜀(시스템 Python 오염 방지).
+  찾으면 `pip`·`setuptools`·`wheel`을 올립니다.
+  <br><sub>Finds `git` and the Python ComfyUI uses — Desktop (ComfyUI‑electron) is `<ComfyUI>\.venv`,
+  portable is `python_embeded` one level above `<ComfyUI>`, plus manual `venv`/`.venv` and a
+  `..\standalone-env` fallback (same list/order as the node's `install_requirements.bat`). Only if
+  none is found does it ask before touching the system Python — default is to skip pip. Then upgrades
   `pip`/`setuptools`/`wheel`.</sub>
 - `<ComfyUI>\custom_nodes\` 아래로 `ComfyUI-TJ_NODE_STUDIO_ONE` + 의존 노드 20여 개
   (Impact Pack, KJNodes, SeedVR2, RMBG, controlnet_aux, GGUF, MiniMax‑H3 캐시/터보/스펙트럼,

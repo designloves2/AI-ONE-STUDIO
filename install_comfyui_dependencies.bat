@@ -75,28 +75,27 @@ if errorlevel 1 (
 )
 
 rem ── Python path detection ────────────────────────────────────────────────
-rem ComfyUI ships its Python in different places depending on how it was installed:
-rem   * Portable  (ComfyUI_windows_portable)  -> ..\python_embeded\python.exe
-rem   * Desktop   (ComfyUI-electron / uv)     -> ..\standalone-env\python.exe
-rem                                              (python.exe at the env root, like
-rem                                               the portable build - NOT in Scripts\)
-rem   * Manual venv  -> venv\ or .venv\ , inside ComfyUI or one level above,
-rem                     python.exe under Scripts\
-rem The Desktop case is why this list exists: without the standalone-env entry the
-rem script fell through to the bare "where python" below and installed everything
-rem into the machine's system Python instead of ComfyUI's.
-rem Checked in order; first hit wins. Kept as a called subroutine + plain IFs
-rem rather than a nested for/if block - same reason the repo loop below is a
-rem subroutine (parenthesised blocks + delayed expansion misbehave here).
+rem Mirrors ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat - same list, same
+rem order, most specific layout first:
+rem   <ComfyUI>\venv\Scripts\python.exe     - manual venv install
+rem   <ComfyUI>\.venv\Scripts\python.exe    - manual .venv install
+rem   <base>\standalone-env\python.exe      - ComfyUI Desktop (electron / uv-managed;
+rem                                            python.exe at the env root, NOT Scripts\)
+rem   <base>\.venv\Scripts\python.exe       - some ComfyUI Desktop builds
+rem   <ComfyUI>\python_embeded\python.exe   - embedded python inside ComfyUI
+rem   <base>\python_embeded\python.exe      - portable build (python_embeded beside ComfyUI)
+rem <base> = the folder one level above the ComfyUI folder the user entered.
+rem The Desktop / standalone-env case is why this list exists: without it the script
+rem fell through to a bare "where python" and installed into the system Python.
+rem Kept as a called subroutine + plain IFs rather than a nested for/if block -
+rem same reason the repo loop below is a subroutine.
 set "PYTHON="
-call :TryPy "%COMFY_DIR%\..\python_embeded\python.exe"
-call :TryPy "%COMFY_DIR%\..\standalone-env\python.exe"
-call :TryPy "%COMFY_DIR%\..\standalone-env\Scripts\python.exe"
-call :TryPy "%COMFY_DIR%\standalone-env\python.exe"
 call :TryPy "%COMFY_DIR%\venv\Scripts\python.exe"
 call :TryPy "%COMFY_DIR%\.venv\Scripts\python.exe"
-call :TryPy "%COMFY_DIR%\..\venv\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\..\standalone-env\python.exe"
 call :TryPy "%COMFY_DIR%\..\.venv\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\python_embeded\python.exe"
+call :TryPy "%COMFY_DIR%\..\python_embeded\python.exe"
 
 if not defined PYTHON call :SystemPyPrompt
 

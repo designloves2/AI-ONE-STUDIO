@@ -529,9 +529,10 @@ export const ATTN_BACKENDS = [
 ] as const;
 
 export const ATTN_FORWARDS = [
-  { key: "none", label: "None" },
-  { key: "memeff_sage", label: "MemEff Sage", node: "MiniMaxH3MemoryEfficientSageAttentionPatch" },
-  { key: "solattn_saganaki", label: "SolAttn (Saganaki22, scheduled)", node: "MiniMaxH3ScheduledSolAttentionPatch" },
+  { key: "none", label: "None", dense: true },
+  { key: "memeff_sage", label: "MemEff Sage", node: "MiniMaxH3MemoryEfficientSageAttentionPatch", dense: true },
+  // Scheduled Sol forward runs a block-sparse kernel — the "sparse" half of the larryvrh gate.
+  { key: "solattn_saganaki", label: "SolAttn (Saganaki22, scheduled)", node: "MiniMaxH3ScheduledSolAttentionPatch", dense: false },
 ] as const;
 
 export const BLOCK_CACHES = [
@@ -552,11 +553,34 @@ export function attnBackendBlockedReason(state: MinimaxState, key: string): stri
   return "";
 }
 
-/** Why an attention-forward option is greyed out, or "" if it's fine. */
+/** Why an attention-forward option is greyed out, or "" if it's fine.
+ *
+ * Node `0876abc` (2026-08-27): the CK/SolAttn/SLA gate that used to live here had the
+ * reasoning backwards. MemEff Sage replaces `blocks[i].attn.forward`; an override-based
+ * backend writes `optimized_attention_override`, which only the *stock* forward reads — so
+ * when both are on it's the BACKEND that stops reaching the transformer blocks, not the
+ * forward patch (and the forward patch is the faster of the two). Both are legal now; the
+ * panel shows an overlap note instead (see `attnForwardOverlapNote`). The only real block
+ * left is a 4-step turbo schedule with a sparse forward kernel. */
 export function attnForwardBlockedReason(state: MinimaxState, key: string): string {
-  if (key === "none") return "";
+  const f = ATTN_FORWARDS.find((x) => x.key === key);
+  if (!f || key === "none") return "";
+  if (state.turboMode === "larryvrh" && !f.dense) {
+    return "Turbo LoRA (larryvrh) runs 4 steps — a sparse forward kernel's approximation error is too large to absorb there.";
+  }
+  return "";
+}
+
+/** Not a block — a hint. When an override-based backend (CK / SolAttn kijai / SLA) is on
+ * *and* a forward patch is selected, the forward patch replaces the blocks' own attention,
+ * so the backend only ends up applying outside the transformer blocks (text refiner,
+ * cross-attention). Both still run; this just says what the overlap means. "" when there's
+ * nothing to note. */
+export function attnForwardOverlapNote(state: MinimaxState, key: string): string {
+  if (!key || key === "none") return "";
   if (state.attnBackend === "ck" || state.attnBackend === "solattn_kijai" || state.attnBackend === "sla") {
-    return "This patch replaces the block's own attention call — the selected attention backend would never run underneath it.";
+    const name = ATTN_BACKENDS.find((b) => b.key === state.attnBackend)?.label || state.attnBackend;
+    return `${name} only applies outside the transformer blocks here — this forward patch replaces the blocks' own attention.`;
   }
   return "";
 }
@@ -587,10 +611,14 @@ export function migratePipelineState(saved: Partial<MinimaxState> & Record<strin
     saved.useSpectrum = saved.accelMode === "spectrum" ? true : !!saved.useSpectrum;
   }
   if (saved.attnBackend == null) {
-    if (saved.useSlaAttention) saved.attnBackend = "sla";
+    // Node `0876abc`: the backend a run was actually configured with wins. SLA was its own
+    // checkbox alongside the others in the old UI, so mapping it first here would take the
+    // slot away from the backend the user picked — and the old attnForward gate then took
+    // the H3 forward patch down with it. SLA is only adopted when nothing else claimed it.
+    if (saved.accelMode === "solattn") saved.attnBackend = "solattn_kijai";
     else if (saved.useCkAttention) saved.attnBackend = "ck";
-    else if (saved.accelMode === "solattn") saved.attnBackend = "solattn_kijai";
     else if (saved.useSageAttn) saved.attnBackend = "sage";
+    else if (saved.useSlaAttention) saved.attnBackend = "sla";
     else saved.attnBackend = "none";
   }
   if (saved.attnForward == null) {

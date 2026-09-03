@@ -31,7 +31,7 @@ to["optimized_attention_override"] = _make_override(...)   # 기존 값 확인/�
 에러도 경고도 없어서 "둘 다 켰다"고 착각하게 됩니다. (kijai/Saganaki22 노드는 기존 값을
 fallback으로 보존하지만, SLA는 안 합니다.)
 
-### ② MemEff Sage가 override 백엔드를 무력화
+### ② MemEff Sage와 override 백엔드의 겹침 — **막지 말고 안내만** (노드 `0876abc`, 2026-08-27)
 
 `MiniMaxH3MemoryEfficientSageAttentionPatch`는 이렇게 합니다:
 ```python
@@ -41,11 +41,20 @@ model_clone.add_object_patch(f"diffusion_model.blocks.{idx}.attn.forward", minim
 `optimized_attention_override`는 **stock attn.forward가 호출될 때만** 참조됩니다. 그 forward를
 통째로 교체해 버리면 override는 트랜스포머 블록에서 영영 호출되지 않습니다.
 
-→ **MemEff Sage + (CK | SolAttn(kijai) | SLA) = 선택한 백엔드가 실행 안 됨.**
-단, **Sage + MemEff Sage는 정상 조합**입니다(같은 팩의 두 절반 — MemEff는 블록, override는
-텍스트 리파이너 등 나머지를 담당).
+**초기 결론(이 스펙 최초 버전)은 "forward 패치를 막아라"였고, 그게 거꾸로였습니다.**
+겹칠 때 트랜스포머 블록에 도달 못 하는 건 **override 백엔드(CK/SolAttn kijai/SLA)** 쪽이지
+forward 패치가 아닙니다. 게다가 forward 패치(MemEff Sage)가 **둘 중 더 빠른 쪽**입니다.
+forward를 막으면 빠른 걸 끄고 무력한 백엔드만 남습니다. CK + MemEff Sage 는 **정상 조합** —
+MemEff가 블록을, CK가 그 바깥(텍스트 리파이너·크로스 어텐션)을 담당합니다.
 
-**→ 웹 버전에서 이 두 조합이 동시에 켜질 수 있는지 확인하고, 가능하면 막아주세요.**
+→ **막지 않습니다.** 유일한 실제 차단은 `larryvrh` 터보(4스텝)에서 **sparse forward 커널**
+(`solattn_saganaki`)뿐입니다. 겹침이 발생하면 회색 처리 대신 안내문을 표시:
+> "{백엔드명} only applies outside the transformer blocks here — this forward patch replaces the blocks' own attention."
+
+**웹 대응**: `attnForwardBlockedReason`에서 `attnBackend` 분기 제거(larryvrh+non-dense만 유지),
+`attnForwardOverlapNote(state, key)` 신규 + 어텐션 아코디언에 힌트 표시, `graphBuilder`는
+`attnForward` 값으로 두 노드 다 emit. 마이그레이션도 SLA가 백엔드 슬롯을 먼저 가로채지 않게
+순서 조정(SLA는 다른 백엔드가 슬롯을 안 가져갔을 때만). — 웹 커밋은 PORT_LEDGER 참조.
 
 ---
 

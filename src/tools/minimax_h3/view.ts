@@ -17,6 +17,7 @@ import {
   UPSCALE_MODES,
   attnBackendBlockedReason,
   attnForwardBlockedReason,
+  attnForwardOverlapNote,
   activePrompts,
   alignFrameCount,
   blockCacheBlockedReason,
@@ -1342,6 +1343,10 @@ export function renderMinimaxH3(container: HTMLElement) {
         ...attnBackendSettings(),
         col([label("H3 forward"), gatedSelect(ATTN_FORWARDS, (k) => attnForwardBlockedReason(state, k), state.attnForward, (v) => { state.attnForward = v; persist(); renderLeft(); })]),
         ...attnForwardSettings(),
+        (() => {
+          const nt = attnForwardOverlapNote(state, state.attnForward);
+          return nt ? el("div", { text: `ⓘ ${nt}`, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null;
+        })(),
       ])
     );
 

@@ -238,8 +238,18 @@ set REPOS[17]=https://github.com/crystian/ComfyUI-Crystools
 set REPOS[18]=https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache
 set REPOS[19]=https://github.com/designloves2/ComfyUI-TJ_NODE
 set REPOS[20]=https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes
+rem RIFEInterpolation - the gallery's "Interpolate a finished clip" post-process.
+rem (Use GACLove/ComfyUI-VFI; the older ModelTC/ComfyUI-VFI repo 404s.)
+set REPOS[21]=https://github.com/GACLove/ComfyUI-VFI
 
-set COUNT=21
+set COUNT=22
+
+rem ComfyUI Manager names ComfyUI-VFI's folder after its pyproject "name"
+rem (rife_comfyui_wrapper), not the repo. Clone it under that name so a later
+rem Manager install/update doesn't drop a second copy and collide the node
+rem class. Only set for entries where the two names differ; the rest clone
+rem under their repo basename.
+set "ALT[21]=rife_comfyui_wrapper"
 
 echo [NOTE] pip may print "dependency resolver" conflict warnings below
 echo        (e.g. protobuf version clashes between RMBG and audio tools) -
@@ -252,16 +262,17 @@ echo.
 
 rem The whole loop body lives in a called subroutine instead of a nested
 rem parenthesized for/if block, so "do" only ever runs a single command.
-for /L %%i in (0,1,20) do call :InstallRepo %%i
+for /L %%i in (0,1,21) do call :InstallRepo %%i
 goto AFTER_REPOS
 
 :InstallRepo
 set "IDX=%~1"
 set "URL=!REPOS[%IDX%]!"
 for %%F in (!URL!) do set "FOLDER=%%~nxF"
+if defined ALT[%IDX%] set "FOLDER=!ALT[%IDX%]!"
 
 echo ------------------------------------------------------------------------
-echo [%IDX%/20] !FOLDER!
+echo [%IDX%/21] !FOLDER!
 echo         !URL!
 
 if exist "!FOLDER!" goto REPO_SKIP

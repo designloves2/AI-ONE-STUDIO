@@ -75,25 +75,66 @@ if errorlevel 1 (
 )
 
 rem ── Python path detection ────────────────────────────────────────────────
-rem Supports both ComfyUI portable (python_embeded one level above ComfyUI)
-rem and venv installs (either inside ComfyUI or one level above).
+rem ComfyUI ships its Python in different places depending on how it was installed:
+rem   * Portable  (ComfyUI_windows_portable)  -> ..\python_embeded\python.exe
+rem   * Desktop   (ComfyUI-electron / uv)     -> ..\standalone-env\python.exe
+rem                                              (python.exe at the env root, like
+rem                                               the portable build - NOT in Scripts\)
+rem   * Manual venv  -> venv\ or .venv\ , inside ComfyUI or one level above,
+rem                     python.exe under Scripts\
+rem The Desktop case is why this list exists: without the standalone-env entry the
+rem script fell through to the bare "where python" below and installed everything
+rem into the machine's system Python instead of ComfyUI's.
+rem Checked in order; first hit wins. Kept as a called subroutine + plain IFs
+rem rather than a nested for/if block - same reason the repo loop below is a
+rem subroutine (parenthesised blocks + delayed expansion misbehave here).
 set "PYTHON="
-if exist "%COMFY_DIR%\..\python_embeded\python.exe" (
-    set "PYTHON=%COMFY_DIR%\..\python_embeded\python.exe"
-) else if exist "%COMFY_DIR%\venv\Scripts\python.exe" (
-    set "PYTHON=%COMFY_DIR%\venv\Scripts\python.exe"
-) else if exist "%COMFY_DIR%\..\venv\Scripts\python.exe" (
-    set "PYTHON=%COMFY_DIR%\..\venv\Scripts\python.exe"
-) else (
-    where python >nul 2>&1 && set "PYTHON=python"
-)
+call :TryPy "%COMFY_DIR%\..\python_embeded\python.exe"
+call :TryPy "%COMFY_DIR%\..\standalone-env\python.exe"
+call :TryPy "%COMFY_DIR%\..\standalone-env\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\standalone-env\python.exe"
+call :TryPy "%COMFY_DIR%\venv\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\.venv\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\..\venv\Scripts\python.exe"
+call :TryPy "%COMFY_DIR%\..\.venv\Scripts\python.exe"
 
-if "%PYTHON%"=="" (
-    echo [WARN] Could not find Python - pip install steps will be skipped.
-    echo        Run this script from the Python environment ComfyUI uses.
-) else (
-    echo [INFO] Python: %PYTHON%
-)
+if not defined PYTHON call :SystemPyPrompt
+
+if not defined PYTHON goto PY_NONE
+echo [INFO] Python: %PYTHON%
+goto PY_DONE
+
+:PY_NONE
+echo [WARN] No usable Python - custom nodes will still be cloned, but the pip
+echo        install steps are skipped. Re-run this from, or point it at, the
+echo        Python environment ComfyUI actually uses.
+goto PY_DONE
+
+:TryPy
+if defined PYTHON exit /b 0
+if exist "%~1" set "PYTHON=%~1"
+exit /b 0
+
+:SystemPyPrompt
+rem Nothing beside ComfyUI. A bare "python" is the machine's system install -
+rem using it scatters ComfyUI's deps into the wrong place and can break other
+rem Python projects, so make the user opt in.
+where python >nul 2>&1
+if errorlevel 1 exit /b 0
+echo [WARN] No Python found beside ComfyUI - not the portable python_embeded,
+echo        not the desktop standalone-env, not a venv. The only Python on
+echo        PATH is your SYSTEM Python:
+for /f "delims=" %%w in ('where python') do echo          %%w
+echo.
+echo        Installing into system Python is almost never what you want. It
+echo        will not be the environment ComfyUI runs, and it can disturb
+echo        other Python projects on this machine.
+set "USE_SYS_PY="
+set /p "USE_SYS_PY=Type YES to install into system Python anyway, or Enter to skip pip steps: "
+if /i "%USE_SYS_PY%"=="YES" set "PYTHON=python"
+exit /b 0
+
+:PY_DONE
 echo.
 
 rem ── numpy guard ─────────────────────────────────────────────────────────

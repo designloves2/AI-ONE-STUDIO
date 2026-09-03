@@ -239,8 +239,14 @@ run.</sub>
 
 - ComfyUI 폴더 경로와 포트 번호를 물어봅니다. 포트는 `public/comfy_port.txt`에 기록됩니다.
   <br><sub>Asks for the ComfyUI folder path and port; writes the port to `public/comfy_port.txt`.</sub>
-- `git` / Python(포터블 `python_embeded` 또는 `venv`)을 찾고, `pip`·`setuptools`·`wheel`을 올립니다.
-  <br><sub>Locates `git` and Python (portable `python_embeded` or a `venv`), upgrades `pip`/`setuptools`/`wheel`.</sub>
+- `git`과 ComfyUI가 쓰는 Python을 찾습니다 — 포터블 `..\python_embeded`, 데스크탑(ComfyUI‑electron)
+  `..\standalone-env`, 또는 `venv`/`.venv`(ComfyUI 안이나 한 단계 위). 어느 것도 없을 때만 시스템
+  Python을 쓸지 물어봅니다(기본은 pip 단계 건너뜀 — 시스템 Python 오염 방지). 찾으면
+  `pip`·`setuptools`·`wheel`을 올립니다.
+  <br><sub>Finds `git` and the Python ComfyUI uses — portable `..\python_embeded`, desktop
+  (ComfyUI‑electron) `..\standalone-env`, or a `venv`/`.venv` inside ComfyUI or one level up. Only
+  if none is found does it ask before touching the system Python (default: skip pip). Then upgrades
+  `pip`/`setuptools`/`wheel`.</sub>
 - `<ComfyUI>\custom_nodes\` 아래로 `ComfyUI-TJ_NODE_STUDIO_ONE` + 의존 노드 20여 개
   (Impact Pack, KJNodes, SeedVR2, RMBG, controlnet_aux, GGUF, MiniMax‑H3 캐시/터보/스펙트럼,
   RTX Nodes, VideoHelperSuite, Crystools, `ComfyUI-TJ_NODE` 등)를 clone하고 각 `requirements.txt`를

@@ -56,6 +56,20 @@ MemEff가 블록을, CK가 그 바깥(텍스트 리파이너·크로스 어텐�
 `attnForward` 값으로 두 노드 다 emit. 마이그레이션도 SLA가 백엔드 슬롯을 먼저 가로채지 않게
 순서 조정(SLA는 다른 백엔드가 슬롯을 안 가져갔을 때만). — 웹 커밋은 PORT_LEDGER 참조.
 
+**"저VRAM + CK 커널"은 이 조합으로는 안 됩니다.** KJ `MiniMaxH3MemoryEfficientSageAttentionPatch`는
+`blocks.*.attn.forward`를 **sage 커널로 통째 교체** — 커널이 sage로 고정됩니다. CK 백엔드와 같이
+켜도 CK 커널은 블록에서 안 돌고 텍스트 리파이너 등 바깥만 담당합니다. 메모리 효율을 유지한 채
+CK(comfy kitchen) 커널을 블록에서 쓰려면 **백엔드 보존형** 최적화가 필요합니다:
+
+> **`H3-Optimizations` 팩(Zironic)의 `H3MemoryOptimization` 노드** — forward를 교체하지 않고,
+> ComfyUI가 고른 dense 백엔드(sage / **comfy kitchen** / 스톡)를 **그대로 둔 채** 주위만 감쌉니다
+> (chunked QKV/MLP/FinalLayer, streamed Q, block 0 전 embed 해제). README: *"preserves the dense
+> attention selected by ComfyUI ... This includes external SageAttention, external Comfy Kitchen"*.
+> → **CK 백엔드 + `H3MemoryOptimization` = 메모리 효율 CK.**
+
+현재 노드 `MMH3_OPTIONAL_NODES`엔 `H3MemoryOptimization` / `H3SparseAttention`(H3-Optimizations)이
+**미통합** — L5 대안으로 TJ 노드 UI에 넣는 건 별도 작업(스펙 나오면 릴레이).
+
 ---
 
 ## Part 1 — 패치 계층 감사 결과

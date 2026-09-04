@@ -460,6 +460,11 @@ export const RECIPE_KEYS = [
   "steps", "sampler", "scheduler", "denoise", "shiftVideo", "shiftAudio",
   "turboSteps", "slaTurboSteps",
   "turboLora", "turboLoraReference", "pddFile", "pddFileReference",
+  // A preset can also pin the diffusion model per mode — a merge/finetune the pipeline was
+  // benchmarked on (e.g. a hybrid FL2VA/Ref2VA checkpoint). Absent on a preset → the run
+  // keeps whatever UNET Settings → Models has for the mode. `applyPreset` only writes keys
+  // actually present, so an axes-only preset never touches the model.
+  "unetFirstLast", "unetReference",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -493,6 +498,8 @@ export interface UserPipelinePreset {
   turboLoraReference?: string;
   pddFile?: string;
   pddFileReference?: string;
+  unetFirstLast?: string;
+  unetReference?: string;
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */

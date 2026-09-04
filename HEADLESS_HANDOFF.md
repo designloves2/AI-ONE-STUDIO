@@ -14,6 +14,7 @@ server-side automation. Each runs standalone — copy the folder, `node index.mj
 | `krea2-headless/` | Krea2 image | t2i, i2i (+ optional ControlNet) |
 | `zimage-headless/` | Z-Image Turbo image | t2i, i2i |
 | `upscale-headless/` | SeedVR2 image upscale (shared Krea2/Z-Image graph) | — |
+| `video-rtx-headless/` | RTX video upscale / deblur (RTXVideoSuperResolution + TJ_RTXDeblur) | upscale / deblur / both |
 
 Each folder has its own `README.md` with the full `job.json` schema. This doc is the overview.
 
@@ -96,6 +97,20 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 - `ditModel` / `vaeModel` are **required** (not in any config). Run
   `node upscale-headless/index.mjs --config comfy.json --list-models` to see what the server has.
 
+**video-rtx (RTX video upscale / deblur — RTX only)**
+
+```json
+{ "op": "upscale", "video": "/abs/clip.mp4", "scale": 2.0, "quality": "HIGH" }
+{ "op": "deblur",  "video": "/abs/clip.mp4", "quality": "HIGH" }
+{ "op": "both",    "video": "/abs/clip.mp4", "scale": 2.0, "quality": "HIGH" }
+```
+
+- `op` = `upscale` | `deblur` | `both`. `quality` = `LOW|MEDIUM|HIGH|ULTRA` (default `HIGH`),
+  used for both the deblur strength and the upscale quality. `scale` default `2.0`.
+- `fps` default `24` — set it if the source clip isn't 24fps.
+- "영상 업스케일 해줘. 2.0배율, HIGH옵션" → `{op:"upscale", scale:2.0, quality:"HIGH", video:"…"}`.
+  "영상 디블러 해줘, HIGH옵션" → `{op:"deblur", quality:"HIGH", video:"…"}`.
+
 ## Output shape
 
 ```json
@@ -122,6 +137,9 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
   type `lumina2`); real `t2i` submit → `ZIT_00092_.png` rendered → downloaded.
 - **upscale** — `--dry-run` graph identical to the studio's `buildUpscaleGraph`;
   `--list-models` returns the server's 5 SeedVR2 files.
+- **video-rtx** — `--dry-run` graph identical to the studio's `buildUpscaleGraph` RTX path;
+  real `op:"upscale"` scale 2.0 / HIGH on a 544×352 clip → `srcclip_upscaled_00001_.mp4`
+  rendered (822 KB, ~2.2× the source) → `--out` downloaded a valid `ftypisom` MP4.
 - All `.mjs` pass `node --check`; `--help` runs with zero deps.
 
 ## Not in scope

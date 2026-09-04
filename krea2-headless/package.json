@@ -1,0 +1,13 @@
+{
+  "name": "krea2-headless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless Krea2 T2I/I2I image generator — extracted from AI-ONE-STUDIO's graphBuilder + ComfyUI client. Zero dependencies, Node 20+.",
+  "type": "module",
+  "bin": { "krea2-headless": "./index.mjs" },
+  "main": "./index.mjs",
+  "exports": { ".": "./index.mjs" },
+  "scripts": { "help": "node index.mjs --help" },
+  "engines": { "node": ">=20" },
+  "files": ["index.mjs", "graph.mjs", "comfy.mjs", "core-helpers.mjs", "README.md"]
+}

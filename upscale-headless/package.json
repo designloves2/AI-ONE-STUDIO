@@ -1,0 +1,13 @@
+{
+  "name": "upscale-headless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless SeedVR2 image upscaler — the upscale graph shared by AI-ONE-STUDIO's Krea2 and Z-Image tools. Zero dependencies, Node 20+.",
+  "type": "module",
+  "bin": { "upscale-headless": "./index.mjs" },
+  "main": "./index.mjs",
+  "exports": { ".": "./index.mjs" },
+  "scripts": { "help": "node index.mjs --help" },
+  "engines": { "node": ">=20" },
+  "files": ["index.mjs", "graph.mjs", "comfy.mjs", "README.md"]
+}

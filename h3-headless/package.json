@@ -1,0 +1,15 @@
+{
+  "name": "h3-headless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless MiniMax H3 single-clip generator — extracted from AI-ONE-STUDIO's buildClipGraph + ComfyUI client. Zero dependencies, Node 20+.",
+  "type": "module",
+  "bin": { "h3-headless": "./index.mjs" },
+  "main": "./index.mjs",
+  "exports": { ".": "./index.mjs" },
+  "scripts": {
+    "help": "node index.mjs --help"
+  },
+  "engines": { "node": ">=20" },
+  "files": ["index.mjs", "graph.mjs", "comfy.mjs", "presets.mjs", "core-helpers.mjs", "README.md"]
+}

@@ -139,3 +139,9 @@ export async function saveMeta(filename: string, subfolder: string, meta: any): 
 export async function interrupt(): Promise<void> {
   await comfyApi.fetchApi("/interrupt", { method: "POST" }).catch(() => {});
 }
+
+export async function freeVram(): Promise<void> {
+  // Was a bare fetch("/free") in view.ts — relative, so on an external host it hit the
+  // frontend origin instead of ComfyUI. Route it through fetchApi like every other call.
+  await comfyApi.fetchApi("/free", { method: "POST" }).catch(() => {});
+}

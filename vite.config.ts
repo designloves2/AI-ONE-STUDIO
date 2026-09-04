@@ -1,18 +1,52 @@
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+// Local ComfyUI port for the dev proxy. Same precedence the old client-side getComfyBase used,
+// minus the per-browser ?comfy_port= override (that can't reach a build-time config — it now
+// forces a direct connection instead, see src/shared/comfyBase.ts):
+//   VITE_COMFY_PORT (env)  >  public/comfy_port.txt  >  8188
+function localComfyPort(): string {
+  const fromEnv = process.env.VITE_COMFY_PORT;
+  if (fromEnv && /^\d+$/.test(fromEnv.trim())) return fromEnv.trim();
+  try {
+    const p = fileURLToPath(new URL("./public/comfy_port.txt", import.meta.url));
+    const val = readFileSync(p, "utf8").trim();
+    if (/^\d+$/.test(val)) return val;
+  } catch {}
+  return "8188";
+}
+
+const COMFY = `http://127.0.0.1:${localComfyPort()}`;
+
+// Every path prefix ComfyUI (core + the TJ_NODE_STUDIO_ONE packs + Manager) serves. On a local
+// or LAN visit the frontend talks to its own origin (getComfyBase() === "") and Vite forwards
+// these here — so a direct :8774→:8188 request, which the studio-only --enable-cors-header would
+// otherwise block, never happens.
+const comfyPaths = [
+  "/prompt", "/queue", "/interrupt", "/free", "/history", "/view", "/upload",
+  "/object_info", "/system_stats", "/embeddings", "/extensions", "/internal",
+  "/manager", "/api", "/userdata",
+  "/shared", "/tj_shared", "/tj_studio_one",
+  "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/sdxl_one",
+  "/flux_klein", "/z_image_turbo", "/anima_one",
+];
 
 export default defineConfig({
   plugins: [tailwindcss()],
   server: {
-    // true = 0.0.0.0(모든 인터페이스)에 바인딩 — LAN의 다른 컴퓨터가 http://<이 PC의
-    // LAN IP>:8774로 직접 접근 가능. 외부 터널(ngrok/cloudflared 등)은 그대로 이 포트로
-    // 포워딩하면 되고, studio.tjtj.cloud 같은 도메인 접근은 allowedHosts로 계속 허용한다.
-    // 127.0.0.1로 고정돼 있었을 때는 LAN IP로 접속한 다른 컴퓨터가 페이지는(프록시 경유로)
-    // 받아도 Vite의 HMR 웹소켓만 이 호스트에 못 붙어 재연결을 반복하다 계속 새로고침되는
-    // 증상이 있었다 — host를 실제로 열어야 HMR 클라이언트도 같은 주소로 정상 연결된다.
+    // true = bind 0.0.0.0 so another machine on the LAN can reach http://<this PC's LAN IP>:8774
+    // directly. External tunnels forward to this same port; studio.tjtj.cloud stays allowed via
+    // allowedHosts. (127.0.0.1-only used to leave LAN visitors' HMR socket unable to connect,
+    // looping reconnects/refreshes — host must actually be open for the HMR client too.)
     host: true,
     port: 8774,
     strictPort: true,
     allowedHosts: ["studio.tjtj.cloud"],
+    proxy: {
+      ...Object.fromEntries(comfyPaths.map((p) => [p, { target: COMFY, changeOrigin: true }])),
+      "/ws": { target: COMFY.replace(/^http/, "ws"), ws: true, changeOrigin: true },
+    },
   },
 });

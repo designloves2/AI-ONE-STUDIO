@@ -9,7 +9,9 @@ import { API, SUBFOLDER, type UserPipelinePreset } from "./core";
 const BASE = getComfyBase();
 
 async function fetchApi(path: string, opts?: RequestInit) {
-  return fetch(`${BASE}${path}`, opts);
+  // credentials: "include" — see comfyClient.ts. External access is behind Cloudflare Access;
+  // the CF_Authorization cookie only rides cross-origin fetches with credentials included.
+  return fetch(`${BASE}${path}`, { ...opts, credentials: "include" });
 }
 
 export interface ModelLists {

@@ -13,7 +13,7 @@ export interface PromptTemplate {
 
 export async function getTemplates(pool: TemplatePool): Promise<PromptTemplate[]> {
   try {
-    const r = await fetch(`${getComfyBase()}/shared/prompt_templates?pool=${pool}`);
+    const r = await fetch(`${getComfyBase()}/shared/prompt_templates?pool=${pool}`, { credentials: "include" });
     const d = await r.json();
     return Array.isArray(d.templates) ? d.templates : [];
   } catch {
@@ -26,5 +26,6 @@ export async function saveTemplates(pool: TemplatePool, templates: PromptTemplat
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ templates }),
+    credentials: "include",
   }).catch(() => {});
 }

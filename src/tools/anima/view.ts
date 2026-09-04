@@ -350,7 +350,7 @@ export function renderAnima(root: HTMLElement) {
 
   async function unloadVram() {
     unloadBtn.style.opacity = "0.5";
-    try { await fetch("/free", { method: "POST" }); }
+    try { await api.freeVram(); }
     finally { setTimeout(() => (unloadBtn.style.opacity = "1"), 2000); }
   }
 

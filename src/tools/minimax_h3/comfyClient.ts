@@ -1,10 +1,10 @@
-import { getComfyBase } from "../../shared/comfyBase";
+import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
 // comfyClient.ts — ComfyUI 웹소켓 기반 큐잉/이벤트 클라이언트.
 // 원본 ComfyUI 프론트엔드의 scripts/api.js(EventTarget 인터페이스)를 독립 사이트에서
 // 재구현한 것 — §3-2 comfy-client.ts의 이 도구 전용 슬라이스. 다른 도구를 이식할 때
 // 이 파일의 패턴(웹소켓 연결 + addEventListener 유사 인터페이스)을 그대로 재사용한다.
 const BASE = getComfyBase();
-const WS_BASE = BASE.replace(/^http/, "ws");
+const WS_BASE = getComfyWsBase();
 
 // sessionStorage에 탭 단위로 유지한다 — localStorage로 여러 탭이 공유하면 ComfyUI가
 // progress/executing 같은 단방향(unicast) 이벤트를 그 중 아무 소켓에나 보내버려 실제
@@ -80,7 +80,10 @@ export const comfyApi = {
     listeners.get(type)?.delete(fn);
   },
   async fetchApi(path: string, opts?: RequestInit) {
-    return fetch(`${BASE}${path}`, opts);
+    // credentials: "include" — external (tunnel) access puts ComfyUI behind Cloudflare
+    // Access; the CF_Authorization cookie (SameSite=None) only rides cross-origin requests
+    // when credentials are included. Local 127.0.0.1 access is same-origin, so this is a no-op there.
+    return fetch(`${BASE}${path}`, { ...opts, credentials: "include" });
   },
 };
 

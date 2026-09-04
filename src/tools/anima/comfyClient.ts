@@ -1,8 +1,8 @@
-import { getComfyBase } from "../../shared/comfyBase";
+import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
 // comfyClient.ts — ComfyUI 웹소켓 큐잉/이벤트 클라이언트 (Anima).
 // 다른 도구들과 동일 패턴 — clientId는 탭/페이지 로드마다 새로 발급.
 const BASE = getComfyBase();
-const WS_BASE = BASE.replace(/^http/, "ws");
+const WS_BASE = getComfyWsBase();
 
 const CLIENT_ID = crypto.randomUUID();
 
@@ -54,7 +54,10 @@ export const comfyApi = {
     listeners.get(type)?.delete(fn);
   },
   async fetchApi(path: string, opts?: RequestInit) {
-    return fetch(`${BASE}${path}`, opts);
+    // credentials: "include" — external access is behind Cloudflare Access; the
+    // CF_Authorization cookie (SameSite=None) only rides cross-origin fetches with
+    // credentials included. Local 127.0.0.1 access is same-origin, so this is a no-op there.
+    return fetch(`${BASE}${path}`, { ...opts, credentials: "include" });
   },
 };
 

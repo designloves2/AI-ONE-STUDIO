@@ -18,7 +18,7 @@ export function stripAnsi(s: string): string {
 
 export async function getLogHistory(): Promise<LogEntry[]> {
   try {
-    const r = await fetch(`${COMFY_BASE}/internal/logs/raw`);
+    const r = await fetch(`${COMFY_BASE}/internal/logs/raw`, { credentials: "include" });
     const d = await r.json();
     return Array.isArray(d.entries) ? d.entries : [];
   } catch {

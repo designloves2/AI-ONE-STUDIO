@@ -1,9 +1,9 @@
-import { getComfyBase } from "../../shared/comfyBase";
+import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
 // comfyClient.ts — ComfyUI 웹소켓 기반 큐잉/이벤트 클라이언트 (Krea2).
 // MiniMax H3의 comfyClient.ts와 동일 패턴 — clientId는 탭/페이지 로드마다 새로 발급한다
 // (localStorage에 영구 저장하면 유령 소켓이 progress/executed 이벤트를 가로채는 문제가 있었음).
 const BASE = getComfyBase();
-const WS_BASE = BASE.replace(/^http/, "ws");
+const WS_BASE = getComfyWsBase();
 
 const CLIENT_ID = crypto.randomUUID();
 
@@ -55,7 +55,10 @@ export const comfyApi = {
     listeners.get(type)?.delete(fn);
   },
   async fetchApi(path: string, opts?: RequestInit) {
-    return fetch(`${BASE}${path}`, opts);
+    // credentials: "include" — external access is behind Cloudflare Access; the
+    // CF_Authorization cookie (SameSite=None) only rides cross-origin fetches with
+    // credentials included. Local 127.0.0.1 access is same-origin, so this is a no-op there.
+    return fetch(`${BASE}${path}`, { ...opts, credentials: "include" });
   },
 };
 

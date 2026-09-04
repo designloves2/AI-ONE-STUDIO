@@ -40,7 +40,7 @@ let inputFilesCache: string[] | null = null;
 async function fetchInputFiles(): Promise<string[]> {
   if (inputFilesCache) return inputFilesCache;
   try {
-    const r = await fetch(`${BASE}/object_info/LoadImage`);
+    const r = await fetch(`${BASE}/object_info/LoadImage`, { credentials: "include" });
     if (!r.ok) throw new Error(String(r.status));
     const d = await r.json();
     const inp = d?.LoadImage?.input;
@@ -63,7 +63,7 @@ async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number)
     return { images: page, total: all.length };
   }
   try {
-    const r = await fetch(`${BASE}${tool.api}/gallery?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(tool.subfolder)}`);
+    const r = await fetch(`${BASE}${tool.api}/gallery?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(tool.subfolder)}`, { credentials: "include" });
     if (!r.ok) throw new Error(String(r.status));
     return await r.json();
   } catch {
@@ -77,6 +77,7 @@ async function copyToInput(tool: GalleryToolDef, img: PickerImage): Promise<stri
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename: img.filename, subfolder: img.subfolder || "", type: "output" }),
+    credentials: "include",
   });
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || "copy failed");

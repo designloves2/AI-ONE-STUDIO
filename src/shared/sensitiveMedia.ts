@@ -48,8 +48,10 @@ export function setSensitive(key: string, on: boolean) {
 }
 
 const EYE_CSS =
-  "width:18px;height:18px;line-height:18px;padding:0;border:none;border-radius:4px;" +
-  "background:rgba(0,0,0,0.65);color:#fff;font-size:10px;cursor:pointer;flex:none";
+  "width:18px;height:18px;padding:0;border:none;border-radius:4px;" +
+  "display:flex;align-items:center;justify-content:center;flex:none;" +
+  "background:rgba(0,0,0,0.15);color:#fff;font-size:10px;cursor:pointer;" +
+  "text-shadow:0 1px 2px rgba(0,0,0,0.9)";
 
 /**
  * Build the 👁 toggle + the blur scrim for one gallery tile, without positioning them.

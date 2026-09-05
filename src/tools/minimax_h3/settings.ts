@@ -19,6 +19,7 @@ import {
 
 export interface SettingsCtx {
   persist: () => void;
+  showPopup: (msg: string, isError?: boolean) => void;
   refreshPlan?: () => void;
   refreshModes?: () => void;
   availability?: Record<string, boolean>;

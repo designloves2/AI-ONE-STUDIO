@@ -3,7 +3,7 @@
 // 비디오 3 + 오디오 3(옵트인). 이게 없으면 First/Last·Reference 모드는 이미지를 넣을
 // 방법이 없어 사실상 동작 불가 — 반드시 있어야 하는 패널.
 import type { MinimaxState } from "./core";
-import { button, col, el, clear, label, numberField, panel, row, select } from "../../shared/ui";
+import { col, el, clear, label, numberField, panel, row, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";

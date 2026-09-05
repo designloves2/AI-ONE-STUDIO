@@ -134,9 +134,6 @@ export interface MinimaxState {
   nativeVisionClip: string;
   nativeBriefClip: string;
 
-  // Turbo LoRA
-  turboLoraStrength: number;
-  turboLoraLowVram: boolean;
   // SolAttn (SolAttnPatch)
   solTau: number;
   solMinTokens: number;
@@ -1090,8 +1087,6 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
-    turboLoraStrength: saved.turboLoraStrength ?? 1.0,
-    turboLoraLowVram: saved.turboLoraLowVram ?? false,
     pddFile: saved.pddFile || "none",
     pddFileReference: saved.pddFileReference || "none",
     pddNfe: String(saved.pddNfe ?? "8"),

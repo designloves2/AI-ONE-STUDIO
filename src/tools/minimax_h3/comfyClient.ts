@@ -30,7 +30,6 @@ const CLIENT_ID = (() => {
 
 type Listener = (detail: any) => void;
 const listeners = new Map<string, Set<Listener>>();
-let ws: WebSocket | null = null;
 let wsReady: Promise<void> | null = null;
 
 function dispatch(type: string, detail: any) {
@@ -47,7 +46,6 @@ function connect(): Promise<void> {
   if (wsReady) return wsReady;
   wsReady = new Promise((resolve) => {
     const socket = new WebSocket(`${WS_BASE}/ws?clientId=${CLIENT_ID}`);
-    ws = socket;
     socket.addEventListener("open", () => resolve());
     socket.addEventListener("message", (ev) => {
       if (typeof ev.data !== "string") return; // binary preview frames not used here
@@ -57,7 +55,6 @@ function connect(): Promise<void> {
       } catch {}
     });
     socket.addEventListener("close", () => {
-      ws = null;
       wsReady = null;
       // 재연결 — 생성 도중 끊기면 진행률을 놓치므로 몇 초 뒤 다시 붙는다.
       setTimeout(() => connect(), 2000);

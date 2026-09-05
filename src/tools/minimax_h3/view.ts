@@ -277,6 +277,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // 도구 전역에서 공유하는 컨텍스트 — Settings/Prompt Edit/(이후) Generate 루프가 같이 씀
   const ctx: SettingsCtx = {
     persist,
+    showPopup,
     refreshPlan: () => refreshPlan(),
     refreshModes: () => { renderPills(); renderLeft(); refreshPreviewToggleBtn(); },
     availability: {},

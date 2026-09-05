@@ -58,13 +58,13 @@ const EYE_CSS =
  */
 export function makeSensitiveControl(media: HTMLElement, key: string) {
   const shade = document.createElement("div");
-  // backdrop-filter blurs whatever is *behind* the scrim within this stacking context — the
-  // thumbnail image and, on the H3 gallery, the hover-preview <video> that gets appended on
-  // top of it. So the blur stays over the media even while it plays. z-index keeps the scrim
-  // above the (unpositioned / z-auto) hover video but below the corner control buttons (z-3).
+  // Plain dark scrim — NO backdrop-filter. backdrop-filter over an animating backdrop (the H3
+  // hover-preview <video>) makes the GPU re-tile every frame, which showed up as flickering
+  // horizontal/vertical seams. The blur is done with a normal `filter` on the media elements
+  // instead (see render(); H3 also blurs its hover video). z-2 keeps the scrim above the
+  // z-auto hover video but below the corner control buttons (z-3).
   shade.style.cssText =
-    "position:absolute;inset:0;z-index:2;background:rgba(16,18,24,0.5);" +
-    "backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);" +
+    "position:absolute;inset:0;z-index:2;background:rgba(12,14,20,0.55);" +
     "border-radius:inherit;transition:opacity .15s;cursor:pointer";
 
   const eye = document.createElement("button");
@@ -76,8 +76,10 @@ export function makeSensitiveControl(media: HTMLElement, key: string) {
     const blurred = isBlurred(key); // …and not peeking → actually blur it
     shade.style.opacity = blurred ? "1" : "0";
     shade.style.pointerEvents = blurred ? "auto" : "none";
-    media.style.filter = blurred ? "blur(18px)" : "";
-    media.style.transform = blurred ? "scale(1.08)" : "";
+    // blur the element itself (GPU-cached for a still <img>); scale past the clip box so the
+    // soft transparent halo blur leaves at the edges is hidden by the tile's overflow:hidden.
+    media.style.filter = blurred ? "blur(20px)" : "";
+    media.style.transform = blurred ? "scale(1.2)" : "";
     eye.textContent = marked ? "🙈" : "👁";
     eye.title = marked ? "Reveal this item" : "Hide this item";
   }
@@ -87,11 +89,9 @@ export function makeSensitiveControl(media: HTMLElement, key: string) {
     setSensitive(key, !isSensitive(key));
     render();
   });
-  shade.addEventListener("click", (e) => {
-    e.stopPropagation();
-    setSensitive(key, false);
-    render();
-  });
+  // The scrim swallows clicks (so a hidden tile can't be opened by tapping it) but does NOT
+  // reveal — only the 👁 does that.
+  shade.addEventListener("click", (e) => e.stopPropagation());
 
   render();
   return { eye, shade, render };

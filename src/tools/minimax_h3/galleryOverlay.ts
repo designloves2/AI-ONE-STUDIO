@@ -29,7 +29,7 @@ import {
 import { queuePrompt, type QueueResult } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
-import { makeSensitiveControl, mediaKey } from "../../shared/sensitiveMedia";
+import { makeSensitiveControl, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
 
 // A single-shot post-process (upscale/deblur/interpolate) queues its ComfyUI job, then does the
 // meta write + cleanup client-side. If the tab is reloaded or iOS-discarded in between, the job
@@ -943,6 +943,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     try { hoverVideo.pause(); } catch {}
     hoverVideo.removeAttribute("src");
     hoverVideo.load();
+    hoverVideo.style.filter = "";
+    hoverVideo.style.transform = "";
     hoverVideo.parentElement?.removeChild(hoverVideo);
   }
 
@@ -1049,6 +1051,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         thumbWrap.addEventListener("mouseenter", () => {
           stopGridVideos();
           hoverVideo.src = clipViewUrl(v.filename, v.subfolder);
+          // a hidden clip's hover preview must stay blurred too (the scrim only darkens it).
+          const blur = isBlurred(mediaKey(v.filename, v.subfolder));
+          hoverVideo.style.filter = blur ? "blur(20px)" : "";
+          hoverVideo.style.transform = blur ? "scale(1.2)" : "";
           thumbWrap.appendChild(hoverVideo);
           hoverVideo.currentTime = 0;
           hoverVideo.play?.().catch(() => {});

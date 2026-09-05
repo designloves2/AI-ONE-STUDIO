@@ -29,6 +29,7 @@ import {
 import { queuePrompt, type QueueResult } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
+import { makeSensitiveControl, mediaKey } from "../../shared/sensitiveMedia";
 
 // A single-shot post-process (upscale/deblur/interpolate) queues its ComfyUI job, then does the
 // meta write + cleanup client-side. If the tab is reloaded or iOS-discarded in between, the job
@@ -1008,14 +1009,16 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
         if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
         if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);
-        if (marks.length) {
-          const bar = el("div", { class: "absolute z-[3] flex", style: { bottom: "4px", left: "4px", gap: "3px" } });
-          marks.forEach(([glyph, tip]) => bar.appendChild(el("div", {
-            text: glyph, title: tip,
-            style: { width: "18px", height: "18px", lineHeight: "18px", textAlign: "center", fontSize: "11px", borderRadius: "4px", color: "#fff", background: "rgba(0,0,0,0.6)" },
-          })));
-          thumbWrap.appendChild(bar);
-        }
+        // bottom-left cluster: the 👁 hide-toggle first, then the post-process marks.
+        const bar = el("div", { class: "absolute z-[3] flex", style: { bottom: "4px", left: "4px", gap: "3px" } });
+        const { eye, shade } = makeSensitiveControl(thumb, mediaKey(v.filename, v.subfolder));
+        bar.appendChild(eye);
+        marks.forEach(([glyph, tip]) => bar.appendChild(el("div", {
+          text: glyph, title: tip,
+          style: { width: "18px", height: "18px", lineHeight: "18px", textAlign: "center", fontSize: "11px", borderRadius: "4px", color: "#fff", background: "rgba(0,0,0,0.6)" },
+        })));
+        thumbWrap.appendChild(shade);
+        thumbWrap.appendChild(bar);
       }
 
       // 다중 선택 체크박스(좌상단) — 어떤 모드든 그 자리를 순번/✓ 배지가 쓰므로 숨긴다.

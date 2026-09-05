@@ -4,6 +4,7 @@
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
 import { confirmDialog } from "../../shared/ui";
 import { sendImagesToMinimax } from "../../shared/minimaxSend";
+import { attachSensitiveToggle } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
 
@@ -185,6 +186,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
       cell.append(star, del);
     }
     cell.appendChild(im);
+    attachSensitiveToggle(cell, im, k, "bl");
     return cell;
   }
 

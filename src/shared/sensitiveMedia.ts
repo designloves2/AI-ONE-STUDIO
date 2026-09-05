@@ -15,12 +15,28 @@ function load(): Set<string> {
 
 let cache = load();
 
+// Session-only "peek": reveal every hidden item at once without touching the saved set, so a
+// second toggle restores exactly what was hidden. Not persisted — a reload comes back hidden.
+let revealAll = false;
+export function isRevealAll(): boolean {
+  return revealAll;
+}
+export function setRevealAll(on: boolean) {
+  revealAll = on;
+}
+
 export function mediaKey(filename: string, subfolder?: string): string {
   return `${subfolder || ""}/${filename}`;
 }
 
+/** Is this item in the saved hidden set (regardless of the peek toggle). */
 export function isSensitive(key: string): boolean {
   return cache.has(key);
+}
+
+/** Should this item actually be blurred right now (saved hidden AND not peeking). */
+export function isBlurred(key: string): boolean {
+  return !revealAll && cache.has(key);
 }
 
 export function setSensitive(key: string, on: boolean) {
@@ -56,13 +72,14 @@ export function makeSensitiveControl(media: HTMLElement, key: string) {
   eye.style.cssText = EYE_CSS;
 
   function render() {
-    const on = isSensitive(key);
-    shade.style.opacity = on ? "1" : "0";
-    shade.style.pointerEvents = on ? "auto" : "none";
-    media.style.filter = on ? "blur(18px)" : "";
-    media.style.transform = on ? "scale(1.08)" : "";
-    eye.textContent = on ? "🙈" : "👁";
-    eye.title = on ? "Reveal this item" : "Hide this item";
+    const marked = isSensitive(key); // in the saved hidden set → 🙈 icon
+    const blurred = isBlurred(key); // …and not peeking → actually blur it
+    shade.style.opacity = blurred ? "1" : "0";
+    shade.style.pointerEvents = blurred ? "auto" : "none";
+    media.style.filter = blurred ? "blur(18px)" : "";
+    media.style.transform = blurred ? "scale(1.08)" : "";
+    eye.textContent = marked ? "🙈" : "👁";
+    eye.title = marked ? "Reveal this item" : "Hide this item";
   }
 
   eye.addEventListener("click", (e) => {

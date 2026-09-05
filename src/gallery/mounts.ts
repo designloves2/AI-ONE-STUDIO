@@ -37,6 +37,7 @@ export interface GalleryMount {
   el: HTMLElement;
   show: () => void;
   hide: () => void;
+  refresh: () => void; // re-query + rebuild the grid (e.g. after the peek toggle)
   toggleSettings: () => boolean; // returns the new open state
 }
 
@@ -163,6 +164,9 @@ function wrap(
     },
     hide() {
       box.style.display = "none";
+    },
+    refresh() {
+      if (!settingsOpen) gallery.show();
     },
     toggleSettings() {
       settingsOpen = !settingsOpen;

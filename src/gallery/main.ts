@@ -8,6 +8,7 @@ import { createTopbar } from "../shared/topbar";
 import { TOOLS, toolFromHash, type ToolId } from "../shared/tools";
 import { setGalleryNavTarget } from "../shared/galleryNav";
 import { getQueueCounts } from "../shared/queueStatus";
+import { isRevealAll, setRevealAll } from "../shared/sensitiveMedia";
 import { createGalleryMount, type GalleryMount } from "./mounts";
 
 // From this separate document, a "go to tool" action must load the generator app.
@@ -24,10 +25,25 @@ app.appendChild(content);
 // ── thin bar under the topbar: ⚙ Settings toggle, pinned right ──────────────
 const bar = document.createElement("div");
 bar.className = "shrink-0 flex items-center justify-end gap-2 px-3 h-9 border-b border-border bg-bg1";
+
+// "Peek": reveal every hidden item at once, then a second click restores exactly what was
+// hidden (the saved set is never touched; a reload comes back hidden).
+const peekBtn = document.createElement("button");
+peekBtn.className = "h-7 px-3 rounded-md text-xs text-muted hover:text-text hover:bg-bg2 border border-border whitespace-nowrap";
+function renderPeekBtn() {
+  peekBtn.textContent = isRevealAll() ? "🙈 Restore hidden" : "👁 Reveal all";
+}
+renderPeekBtn();
+peekBtn.addEventListener("click", () => {
+  setRevealAll(!isRevealAll());
+  renderPeekBtn();
+  if (active) mounts.get(active)!.refresh();
+});
+
 const settingsBtn = document.createElement("button");
 settingsBtn.className = "h-7 px-3 rounded-md text-xs text-muted hover:text-text hover:bg-bg2 border border-border whitespace-nowrap";
 settingsBtn.textContent = "⚙ Settings";
-bar.appendChild(settingsBtn);
+bar.append(peekBtn, settingsBtn);
 content.appendChild(bar);
 
 const stage = document.createElement("div");

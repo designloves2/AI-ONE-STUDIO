@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { resolve, dirname } from "node:path";
+
+const root = dirname(fileURLToPath(import.meta.url));
 
 // Local ComfyUI port for the dev proxy. Same precedence the old client-side getComfyBase used,
 // minus the per-browser ?comfy_port= override (that can't reach a build-time config — it now
@@ -35,6 +38,16 @@ const comfyPaths = [
 
 export default defineConfig({
   plugins: [tailwindcss()],
+  // index.html = the studio app; gallery.html = the standalone gallery-only page
+  // (not linked from the menu, reached by its own URL).
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(root, "index.html"),
+        gallery: resolve(root, "gallery.html"),
+      },
+    },
+  },
   server: {
     // true = bind 0.0.0.0 so another machine on the LAN can reach http://<this PC's LAN IP>:8774
     // directly. External tunnels forward to this same port; studio.tjtj.cloud stays allowed via

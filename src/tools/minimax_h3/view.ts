@@ -57,6 +57,7 @@ import {
 } from "./core";
 import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
+import { takeReuse } from "../../shared/galleryHandoff";
 import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
@@ -2470,6 +2471,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     // 갤러리가 이미 열려 있으면 최신 목록을 반영하기 위한 훅.
     if (galleryOv.isOpen()) (galleryOv as any).show?.();
   }
+
+  // Reuse coming from the standalone gallery page (gallery.html) — run it through the tool's
+  // own applyClipSettings so the field reshaping is identical to an in-app Reuse.
+  const _galleryReuse = takeReuse("minimax_h3");
+  if (_galleryReuse) applyClipSettings(_galleryReuse);
 
   mainRow.append(leftOuter, rightPanel);
 

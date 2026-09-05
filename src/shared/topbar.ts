@@ -7,7 +7,7 @@ import { createConsoleLogOverlay } from "./consoleLogOverlay";
 import { createRestartButton } from "./serverRestart";
 import { isCloseGuardEnabled, setCloseGuardEnabled } from "./closeGuard";
 
-export function createTopbar(): HTMLElement {
+export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
   const bar = document.createElement("header");
   // 페이지 자체가 h-screen으로 고정되고 스크롤은 내부 main에서만 일어나므로(main.ts),
   // topbar는 sticky일 필요가 없다 — sticky는 풀스크린 전환처럼 뷰포트 크기가 바뀔 때
@@ -19,7 +19,7 @@ export function createTopbar(): HTMLElement {
   const brand = document.createElement("button");
   brand.className = "aos-topbar-menu aos-topbar-brand font-semibold text-brand mr-4 shrink-0";
   brand.textContent = "AI ONE STUDIO";
-  brand.addEventListener("click", () => goTo(null));
+  brand.addEventListener("click", () => (opts.onBrand ? opts.onBrand() : goTo(null)));
   bar.appendChild(brand);
 
   const navWrap = document.createElement("div");

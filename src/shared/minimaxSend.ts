@@ -2,6 +2,8 @@
 // 공용 헬퍼. 각 이미지 도구는 자신의 copy_to_input으로 output 이미지를 ComfyUI 전역 input
 // 폴더에 복사해 유니크한 파일명을 얻고, 그 파일명들을 MiniMax의 localStorage 상태에 직접
 // 병합한 뒤 #minimax_h3로 라우팅한다 (MiniMax view.ts가 로드 시 loadState()로 그대로 반영).
+import { navigateToTool } from "./galleryNav";
+
 const MINIMAX_LS_KEY = "minimax_h3_one_state_v1";
 
 export interface SendableImage {
@@ -41,5 +43,5 @@ export async function sendImagesToMinimax(
   }
 
   localStorage.setItem(MINIMAX_LS_KEY, JSON.stringify(saved));
-  location.hash = "#minimax_h3";
+  navigateToTool("#minimax_h3");
 }

@@ -143,6 +143,29 @@ export async function interrupt(): Promise<void> {
   await comfyApi.fetchApi("/interrupt", { method: "POST" }).catch(() => {});
 }
 
+export interface QueueStatusResult {
+  pending: number;
+  running: number;
+  runningPromptIds: string[];
+  pendingPromptIds: string[];
+}
+
+export async function getQueueStatus(): Promise<QueueStatusResult> {
+  try {
+    const d = await jsonFetch(`/queue`);
+    const running = (d.queue_running || []) as any[];
+    const pending = (d.queue_pending || []) as any[];
+    return {
+      running: running.length,
+      pending: pending.length,
+      runningPromptIds: running.map((r) => r[1]),
+      pendingPromptIds: pending.map((r) => r[1]),
+    };
+  } catch {
+    return { running: 0, pending: 0, runningPromptIds: [], pendingPromptIds: [] };
+  }
+}
+
 export async function freeVram(): Promise<void> {
   // Was a bare fetch("/free") in view.ts — relative, so on an external host it hit the
   // frontend origin instead of ComfyUI. Route it through fetchApi like every other call.

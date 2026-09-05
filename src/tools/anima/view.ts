@@ -26,6 +26,7 @@ export function renderAnima(root: HTMLElement) {
   const state: AnimaState = defaultState(loadState());
   let availableLoras: string[] = [];
   let samplingActive = false;
+  let queuedPromptId: string | null = null;
   const appConfig: AppConfig = { output_mode_visible: true };
 
   function persist() { saveState(state); }
@@ -247,8 +248,28 @@ export function renderAnima(root: HTMLElement) {
   const progressOuter = el("div", { style: { height: "5px", background: C.bg2, borderRadius: "3px", overflow: "hidden" } });
   const progressInner = el("div", { style: { height: "100%", width: "0%", background: BRAND, transition: "width 0.15s" } });
   progressOuter.appendChild(progressInner);
-  statusWrap.append(statusText, progressOuter);
+  const externalQueueBanner = el("div", { style: { display: "none", color: C.warn, fontSize: "11px", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 8px" } });
+  statusWrap.append(statusText, progressOuter, externalQueueBanner);
   rightPanel.appendChild(statusWrap);
+
+  // ── External queue banner (ComfyUI 실제 큐 상태 폴링) ─────────────────────
+  function startQueuePolling() {
+    setInterval(async () => {
+      const q = await api.getQueueStatus();
+      if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
+      if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
+        externalQueueBanner.style.display = "block";
+        externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "My request is pending…" : "My request is running…";
+      } else if (q.running > 0 || q.pending > 0) {
+        externalQueueBanner.style.display = "block";
+        externalQueueBanner.textContent = `⚠ ComfyUI queue: ${q.running} running · ${q.pending} pending — if this screen didn't queue it, progress/preview won't show here.`;
+      } else {
+        externalQueueBanner.style.display = "none";
+        queuedPromptId = null;
+      }
+    }, 4000);
+  }
+  startQueuePolling();
 
   const promptWrap = el("div", { style: { flexShrink: "0", display: "flex", flexDirection: "column", gap: "6px" } });
   const promptHdr = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
@@ -538,6 +559,7 @@ export function renderAnima(root: HTMLElement) {
     stopBtn.style.display = "block";
     statusText.textContent = "Queuing…";
     progressInner.style.width = "0%";
+    externalQueueBanner.style.display = "none";
 
     try {
       const graph =

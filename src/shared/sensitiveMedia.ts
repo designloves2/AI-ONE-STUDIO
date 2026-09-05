@@ -58,7 +58,7 @@ const EYE_CSS =
  * Caller places `eye` (a button) and `shade` (a full-bleed div) itself. `media` gets blurred
  * while the key is marked sensitive.
  */
-export function makeSensitiveControl(media: HTMLElement, key: string) {
+export function makeSensitiveControl(media: HTMLElement, key: string, afterRender?: () => void) {
   const shade = document.createElement("div");
   // Plain dark scrim — NO backdrop-filter. backdrop-filter over an animating backdrop (the H3
   // hover-preview <video>) makes the GPU re-tile every frame, which showed up as flickering
@@ -86,12 +86,16 @@ export function makeSensitiveControl(media: HTMLElement, key: string) {
     // matches the ✕ / ☆ on the same tile instead of flipping to a colour emoji when active.
     eye.textContent = marked ? "⊘" : "👁︎"; // ⊘ hidden / 👁 visible
     eye.title = marked ? "Reveal this item" : "Hide this item";
+    afterRender?.(); // e.g. H3 re-blurs its currently-playing hover video on the same tick
   }
 
   eye.addEventListener("click", (e) => {
     e.stopPropagation();
     setSensitive(key, !isSensitive(key));
     render();
+    // a GPU-composited tile can defer a filter/opacity repaint until the next pointer event
+    // ("only applies after I move the mouse") — force a synchronous reflow so it shows on click.
+    void (media.offsetWidth, shade.offsetWidth);
   });
   // The scrim swallows clicks (so a hidden tile can't be opened by tapping it) but does NOT
   // reveal — only the 👁 does that.

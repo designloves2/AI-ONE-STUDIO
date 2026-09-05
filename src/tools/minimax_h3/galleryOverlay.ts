@@ -1012,7 +1012,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);
         // bottom-left cluster: the 👁 hide-toggle first, then the post-process marks.
         const bar = el("div", { class: "absolute z-[3] flex", style: { bottom: "4px", left: "4px", gap: "3px" } });
-        const { eye, shade } = makeSensitiveControl(thumb, mediaKey(v.filename, v.subfolder));
+        const mk = mediaKey(v.filename, v.subfolder);
+        const { eye, shade } = makeSensitiveControl(thumb, mk, () => {
+          // if this tile's hover preview is playing right now, blur it on the same click —
+          // otherwise the toggle only "takes" once the mouse leaves and the video is removed.
+          if (hoverVideo.parentElement === thumbWrap) hoverVideo.style.filter = isBlurred(mk) ? "blur(14px)" : "";
+        });
         bar.appendChild(eye);
         marks.forEach(([glyph, tip]) => bar.appendChild(el("div", {
           text: glyph, title: tip,

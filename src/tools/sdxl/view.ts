@@ -622,7 +622,7 @@ export function renderSDXL(root: HTMLElement) {
         externalQueueBanner.textContent = q.pendingPromptIds.includes(queuedPromptId) ? "My request is pending…" : "My request is running…";
       } else if (q.running > 0 || q.pending > 0) {
         externalQueueBanner.style.display = "block";
-        externalQueueBanner.textContent = `ComfyUI is processing other work (${q.pending} pending)`;
+        externalQueueBanner.textContent = `⚠ ComfyUI queue: ${q.running} running · ${q.pending} pending — if this screen didn't queue it, progress/preview won't show here.`;
       } else {
         externalQueueBanner.style.display = "none";
         queuedPromptId = null;

@@ -944,7 +944,6 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     hoverVideo.removeAttribute("src");
     hoverVideo.load();
     hoverVideo.style.filter = "";
-    hoverVideo.style.transform = "";
     hoverVideo.parentElement?.removeChild(hoverVideo);
   }
 
@@ -967,7 +966,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         style: { background: C.bg1, border: `1px solid ${picked ? BRAND : isFull ? BRAND : C.border}`, opacity: mode === "stitch" && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
       });
 
-      const thumbWrap = el("div", { class: "relative w-full" });
+      const thumbWrap = el("div", { class: "relative w-full overflow-hidden" });
       const thumb = el("img", { loading: "lazy", src: thumbUrl(v.filename, v.subfolder), class: "w-full block", style: { aspectRatio: "1 / 1", objectFit: "contain", background: "#000", borderRadius: "7px 7px 0 0" } });
       thumbWrap.appendChild(thumb);
 
@@ -1052,9 +1051,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           stopGridVideos();
           hoverVideo.src = clipViewUrl(v.filename, v.subfolder);
           // a hidden clip's hover preview must stay blurred too (the scrim only darkens it).
-          const blur = isBlurred(mediaKey(v.filename, v.subfolder));
-          hoverVideo.style.filter = blur ? "blur(20px)" : "";
-          hoverVideo.style.transform = blur ? "scale(1.2)" : "";
+          hoverVideo.style.filter = isBlurred(mediaKey(v.filename, v.subfolder)) ? "blur(14px)" : "";
           thumbWrap.appendChild(hoverVideo);
           hoverVideo.currentTime = 0;
           hoverVideo.play?.().catch(() => {});

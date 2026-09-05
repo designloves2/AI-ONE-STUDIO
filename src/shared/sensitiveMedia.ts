@@ -78,10 +78,10 @@ export function makeSensitiveControl(media: HTMLElement, key: string) {
     const blurred = isBlurred(key); // …and not peeking → actually blur it
     shade.style.opacity = blurred ? "1" : "0";
     shade.style.pointerEvents = blurred ? "auto" : "none";
-    // blur the element itself (GPU-cached for a still <img>); scale past the clip box so the
-    // soft transparent halo blur leaves at the edges is hidden by the tile's overflow:hidden.
-    media.style.filter = blurred ? "blur(20px)" : "";
-    media.style.transform = blurred ? "scale(1.2)" : "";
+    // Blur the element in place — no transform, so the media keeps its exact size and framing;
+    // only the scrim goes on top. The tile must clip (overflow:hidden) so the blur's soft edge
+    // halo doesn't spill past the box.
+    media.style.filter = blurred ? "blur(14px)" : "";
     // monochrome text glyphs (︎ forces the b/w eye, not the colour emoji) so the toggle
     // matches the ✕ / ☆ on the same tile instead of flipping to a colour emoji when active.
     eye.textContent = marked ? "⊘" : "👁︎"; // ⊘ hidden / 👁 visible

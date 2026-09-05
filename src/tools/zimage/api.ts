@@ -165,7 +165,10 @@ export async function setLastImage(filename: string, subfolder: string): Promise
 
 export async function loadMeta(filename: string, subfolder: string): Promise<any> {
   try {
-    return await jsonFetch(`${API}/meta?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}`);
+    // Backend responds { ok, meta }, not the meta object itself — unwrap here so every caller's
+    // `meta.mode` check (Reuse) sees the real fields instead of always missing.
+    const d = await jsonFetch(`${API}/meta?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}`);
+    return d && d.ok ? d.meta : null;
   } catch {
     return null;
   }

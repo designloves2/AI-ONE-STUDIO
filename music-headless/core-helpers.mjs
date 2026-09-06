@@ -32,8 +32,8 @@ export function defaultState(saved = {}) {
     aceScheduler:   saved.aceScheduler   || "sgm_uniform",
     // stage 1 always runs; stages 2 & 3 are sequential opt-in (3 needs 2 on)
     aceStages: Array.isArray(saved.aceStages)
-      ? saved.aceStages.map((s, i) => ({ steps: s.steps, cfg: s.cfg, on: i === 0 ? true : s.on !== false }))
-      : [{ steps: 30, cfg: 0, on: true }, { steps: 20, cfg: 1, on: true }, { steps: 15, cfg: 1, on: true }],
+      ? saved.aceStages.map((s, i) => ({ steps: s.steps, cfg: (i === 0 && s.cfg === 0) ? 1 : s.cfg, on: i === 0 ? true : s.on !== false }))
+      : [{ steps: 30, cfg: 1, on: true }, { steps: 20, cfg: 1, on: true }, { steps: 15, cfg: 1, on: true }],
 
     bpm:           saved.bpm           ?? 120,
     keyscale:      saved.keyscale      || "A minor",

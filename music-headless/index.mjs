@@ -49,7 +49,7 @@ job.json
     // Ace-Step 1.5
     "cfgScaleAce": 2.5, "temperature": 0.75, "topP": 0.9, "minP": 0, "topKAce": 0,
     "aceShift": 3, "aceSamplerName": "jkass_quality", "aceScheduler": "sgm_uniform",
-    "aceStages": [ {"steps":30,"cfg":0}, {"steps":20,"cfg":1,"on":true}, {"steps":15,"cfg":1,"on":true} ],
+    "aceStages": [ {"steps":30,"cfg":1}, {"steps":20,"cfg":1,"on":true}, {"steps":15,"cfg":1,"on":true} ],
     //   stage 1 always runs; 2 & 3 opt-in and sequential (3 needs 2 on)
 
     "loras": [ { "name": "x.safetensors", "strength": 1.0, "enabled": true } ],

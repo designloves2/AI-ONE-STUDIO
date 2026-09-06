@@ -72,7 +72,7 @@ Instrumental:
 | `steps` `cfg` `cfgScale` `topK` `sampler` `scheduler` `tiledDecode` | minimax | KSampler + `MiniMaxMusic3TextEncode.cfg_scale` |
 | `cfgScaleAce` `temperature` `topP` `minP` `topKAce` `genAudioCodes` | acestep | `TextEncodeAceStepAudio1.5` params |
 | `aceShift` `aceSamplerName` `aceScheduler` | acestep | AuraFlow shift + `KSamplerSelect` + `BasicScheduler` |
-| `aceStages` | acestep | `[{steps,cfg,on?}]`. Stage 1 always runs; stages 2 & 3 opt-in and **sequential** (3 needs 2 `on`). Default `[{30,0},{20,1},{15,1}]` all on. |
+| `aceStages` | acestep | `[{steps,cfg,on?}]`. Stage 1 always runs; stages 2 & 3 opt-in and **sequential** (3 needs 2 `on`). Default `[{30,1},{20,1},{15,1}]` all on. |
 | `loras` | both | `[{name,strength,enabled}]`, up to 3, `LoraLoaderModelOnly` chain |
 | `format` `audioQuality` | both | `flac` (no quality) / `mp3` (`V0`\|`128k`\|`320k`) / `opus` (`64k`…`320k`) — `SaveAudioAdvanced`, dotted key `format.quality` |
 | `saveSubfolder` `filenamePrefix` | both | default `one_music` / `MMM`\|`ACE` |

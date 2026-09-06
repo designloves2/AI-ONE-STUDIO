@@ -16,9 +16,12 @@ set "PYTHONUTF8=1"
 echo ========================================================================
 echo   AI ONE STUDIO - ComfyUI Backend Dependency Installer
 echo   Installs ComfyUI-TJ_NODE_STUDIO_ONE and every custom node / Python
-echo   package the 6 tools (MiniMax H3, Krea2, Z-Image, Flux2 Klein,
-echo   Qwen Image 2511, SDXL) need, plus ComfyUI-Crystools (powers the
-echo   live CPU/RAM/GPU/VRAM/temp monitor in the site's top bar).
+echo   package the tools (MiniMax H3, MusicMaker, Krea2, Z-Image, Flux2
+echo   Klein, Qwen Image 2511, SDXL, Anima) need, plus ComfyUI-Crystools
+echo   (powers the live CPU/RAM/GPU/VRAM/temp monitor in the site's top bar)
+echo   and ComfyUI-Openrouter_node (the shared cloud LLM backend).
+echo   MiniMax Music 3 / Ace-Step 1.5 audio nodes are built into recent
+echo   ComfyUI - no pack needed, just the model files.
 echo   Already-installed nodes are skipped.
 echo ========================================================================
 echo.
@@ -244,8 +247,12 @@ set REPOS[21]=https://github.com/GACLove/ComfyUI-VFI
 rem H3-Optimizations (Zironic) - backend-preserving VRAM optimizer + H3 Sparse Attention
 rem (the "H3 optimizer" control in the Attention accordion). No pip deps.
 set REPOS[22]=https://github.com/Zironic/H3-Optimizations
+rem OpenRouter LLM node - the cloud LLM backend for MusicMaker lyrics / style prompts and
+rem the image tools' Enhance / Image-to-Prompt and MiniMax H3's Image-to-Brief. The API key
+rem is stored server-side in the node pack's .env (shared by all three), never in the browser.
+set REPOS[23]=https://github.com/gabe-init/ComfyUI-Openrouter_node
 
-set COUNT=23
+set COUNT=24
 
 rem ComfyUI Manager names some packs' folders after their pyproject "name", not
 rem the repo. Clone under that name so a later Manager install/update doesn't drop

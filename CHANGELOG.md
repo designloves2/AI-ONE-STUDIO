@@ -3,6 +3,76 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.3.0] — 2026-09-06
+
+**MusicMaker** joins the studio, and an **OpenRouter cloud LLM backend** is wired through
+every tool's text/vision helpers. Ported overnight in coordination with
+`ComfyUI-TJ_NODE_STUDIO_ONE` (node → web); each item verified against a live ComfyUI. See
+`PORT_LEDGER.md` for the per-change node↔web mapping.
+
+### Added
+- **MusicMaker** (`#music`, node `MusicMakerOneTJNode`) — one tool, two engines (**MiniMax
+  Music 3** native + **Ace-Step 1.5** 3× progressive SamplerCustom). SUNO-style layout:
+  left compose panel (Title / Song·Instrumental / lyrics + section tags / style + chips /
+  vocals / BPM·key·time-sig / advanced per-engine), always-visible right playlist, bottom
+  player bar. Generation **queue** (snapshot-per-click, per-job cards with live stage/%),
+  **Krea2 album covers** generated with each track, per-track **regenerate cover**
+  (Auto / Prompt), **tagged-MP3 download** (ID3 cover + lyrics + style). Lyrics / style /
+  title / cover-prompt go through an LLM with three backends — **Local GGUF** (ComfyUI-TJ_NODE),
+  **OpenRouter**, **ComfyUI TextGenerate** — all server-side (`POST /music_one/llm/run`); the
+  static SPA never holds an API key. Ace-Step sampling stages 2 & 3 are sequential opt-in
+  checkboxes. Engine order: Ace-Step first + default.
+- **MusicMaker library on the standalone gallery page** (`gallery.html#music`) — 2-column
+  track grid, player, multi-select delete, favourite, info, rename, tagged-MP3 download,
+  Reuse (hops to `#music`), a Save-folder setting, and the same 👁 blur toggle as every
+  other gallery tab.
+- **OpenRouter backend for the image tools' LLM panel** (Krea2 / Z-Image / Flux2 Klein /
+  Qwen 2511 / SDXL / Anima) — a **Backend** select (Local GGUF | OpenRouter) in both the
+  ✨ Enhance and 🖼 Image→Prompt tabs, an OpenRouter model picker, and a masked key field.
+  When the local GGUF LLM (ComfyUI-TJ_NODE) isn't installed the panel falls back to
+  OpenRouter instead of a dead banner.
+- **OpenRouter backend for MiniMax H3 Image→Brief** — Settings → LLM: **Native (ComfyUI
+  CLIP)** or **OpenRouter**; under OpenRouter the CLIP pickers hide and a model + key field
+  appear. `analyze` sends every reference image in one vision message.
+- **Menu group renamed** `Video Generator` → `Media Generator`; MusicMaker sits directly
+  right of MiniMax H3.
+- **Reference audio / Audio Lock from the MusicMaker playlist** — MiniMax H3's audio slots
+  (left panel + per-clip override) and the Audio Lock file picker gain a 🎵 button that
+  lists MusicMaker tracks and copies the pick into `input/`.
+- **MusicMaker mobile layout** (≤767px) — compose / playlist stack vertically, drag-resize
+  handle hidden, player bar trims to the essentials, card grids drop to one column.
+
+### Changed
+- **Sensitive-media hide list moved to a shared server list** (`GET/POST
+  /tj_shared/sensitive_media`) — the node galleries and this web twin now read/write one
+  list, so hiding a picture in one place hides it everywhere. `src/shared/sensitiveMedia.ts`
+  switched off `localStorage`; on first run the browser's existing list is unioned into the
+  server set (`{add:[...]}`), then a `migrated` flag is set. localStorage stays only as a
+  read-through mirror (instant blurred paint, offline fallback) — the server is
+  authoritative, clearing the mirror can't lose anything. The 👁 toggle now also appears on
+  MusicMaker playlist rows.
+- **Track detail shows the LLM that wrote it** — `commonMeta` records the resolved model per
+  backend; the Info panel adds an `LLM` line.
+- The Vite dev proxy forwards `/music_one` to ComfyUI (was hitting the SPA fallback).
+- `install_comfyui_dependencies.bat` adds `ComfyUI-Openrouter_node`; `ONE_SHOT_INSTALL.md`
+  bumps the node version check to 1.24.1, verifies `MusicMakerOneTJNode`, and lists the
+  MusicMaker model + OpenRouter-key setup.
+
+### Fixed
+- **MusicMaker playback on iOS Safari** — (1) the playlist title tap deferred `audio.play()`
+  by 200ms (a debounce), which loses the user gesture iOS requires — now plays synchronously,
+  a fast second tap restarts; (2) FLAC tracks (iOS can't decode FLAC in `<audio>`) stream the
+  server's MP3 transcode (`/music_one/download`) unless `canPlayType` is confident.
+- **Queue no longer silently passes an LLM failure through** — a caption/lyrics LLM error in
+  `processJob` now fails the job (red card) instead of rendering a track with the raw brief.
+- Choosing an audio Format or adding/removing a LoRA no longer snaps the compose panel back
+  to the top; the lyric LLM now receives the real song length (a `3:00` in the brief wins
+  over the slider).
+- Gallery Reuse "No meta" — `loadMeta()` returned the raw `{ok, meta}` wrapper; callers
+  checked `meta.mode`.
+- Sensitive-media blur flicker / bleed over the H3 hover video (dropped `backdrop-filter`
+  and `transform: scale`, blur the media in place, clip the tile).
+
 ## [0.2.0] — 2026-09-03
 
 MiniMax H3 brought to parity with `ComfyUI-TJ_NODE_STUDIO_ONE` v1.20.0 → v1.24.0. Ported

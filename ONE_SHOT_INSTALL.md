@@ -69,11 +69,14 @@ ComfyUI 포트 = 8188
   1. `<COMFY>\custom_nodes` 로 이동(없으면 생성).
   2. `git clone https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE.git`
      (이미 있으면 `git -C ComfyUI-TJ_NODE_STUDIO_ONE pull --ff-only`)
-  3. `pyproject.toml`의 `version` 이 1.23.3 이상인지 확인. 낮으면 위 pull 재시도.
+  3. `pyproject.toml`의 `version` 이 1.24.1 이상인지 확인. 낮으면 위 pull 재시도.
   4. 의존 팩 + Python 패키지 설치:
        cmd /c ""<COMFY>\custom_nodes\ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat" "<COMFY>"" < nul
-     - 이 스크립트가 <COMFY>의 Python(.venv 또는 python_embeded)을 자동 탐지하고, 21개 의존
+     - 이 스크립트가 <COMFY>의 Python(.venv 또는 python_embeded)을 자동 탐지하고, 25개 의존
        노드 팩을 clone/업데이트하며 각 requirements.txt 를 설치합니다.
+     - `ComfyUI-Openrouter_node` 포함(REPOS[24]) — MusicMaker / 이미지 도구 / MiniMax H3 의
+       OpenRouter LLM 백엔드. MiniMax Music 3 · Ace-Step 1.5 오디오 노드는 최신 ComfyUI 코어에
+       내장이라 별도 팩이 필요 없습니다(EZi 가 ComfyUI 를 최신으로 갱신).
      - 예상되는 무시 가능 경고: `groundingdino-py` 빌드 실패(cp949), 일부 오디오 패키지.
        그 외의 `[WARN]`/`[ERROR]` 는 원문 그대로 최종 보고에 포함하세요.
      - `< nul` 은 스크립트 끝의 `pause` 때문입니다(빼면 멈춤).
@@ -104,7 +107,9 @@ ComfyUI 포트 = 8188
 
   사용자에게 ComfyUI 재시작을 요청한 뒤:
   1. `http://127.0.0.1:<포트>/system_stats` → JSON 의 `argv` 에 `--enable-cors-header` 존재 확인.
-  2. `http://127.0.0.1:<포트>/object_info` → `MiniMaxH3OneTJNode` 키 존재 확인(노드 로드 성공).
+  2. `http://127.0.0.1:<포트>/object_info` → `MiniMaxH3OneTJNode` · `MusicMakerOneTJNode` 키 존재
+     확인(노드 로드 성공). MusicMaker 는 `http://127.0.0.1:<포트>/music_one/node_availability` 로도
+     확인 가능 — `missing_core` 가 비어 있어야 합니다.
   3. `cd "<웹앱 위치>" && npm run dev` 실행 → `http://127.0.0.1:8774` 응답 확인 후 종료해도 됨.
 
   ※ ComfyUI Desktop 은 백엔드를 재시작해도 앱 화면(Electron 렌더러)을 자동 갱신하지 않습니다.
@@ -128,6 +133,15 @@ ComfyUI 포트 = 8188
         - models/text_encoders/    : qwen3vl_*_minimax_h3_*  (약 20GB)
         - models/vae/              : minimax_h3_video_vae_* , minimax_h3_audio_vae_*
         - models/loras/            : minimax_h3 turbo / PDD Acc LoRA (선택)
+      · MusicMaker (엔진 2개 — 둘 중 하나만 받아도 그 엔진은 동작). 파일 목록·출처는 노드
+        README 및 각 모델의 공식 배포처를 참고하세요:
+        - MiniMax Music 3: DiT(diffusion_models) · text encoder(text_encoders) · audio VAE(vae)
+        - Ace-Step 1.5: diffusion model · CLIP ×2 (qwen 0.6b + 4b, text_encoders) · VAE(vae)
+        - 앨범 커버 자동 생성은 Krea2 모델을 재사용 (별도 다운로드 불필요)
       · 다른 툴(Krea2/Z-Image/Klein/Qwen/SDXL) 모델은 노드 README 참고
-    (2) 데스크탑이면 Settings 의 실행 인자, (3) 필요시 SageAttention 수동 마무리
+    (2) 데스크탑이면 Settings 의 실행 인자, (3) 필요시 SageAttention 수동 마무리,
+    (4) OpenRouter LLM 을 쓰려면 각 도구 Settings → LLM 탭에서 API 키 1회 입력
+        (노드 폴더 `.env` 에 저장, MusicMaker · 이미지 도구 · MiniMax H3 가 같은 키 공유 —
+         로컬 GGUF LLM(ComfyUI-TJ_NODE)만 쓸 거면 불필요)
   - 마지막에 노드 Settings → Models 탭에서 받은 모델을 한 번씩 지정하고 재시작하라고 안내.
+    MusicMaker 는 MusicMaker 상단 Settings 에서 엔진별 모델 + LLM 백엔드를 지정합니다.

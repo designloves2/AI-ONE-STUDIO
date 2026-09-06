@@ -56,6 +56,7 @@ engine, and this project is just the frontend that calls it.**
 | 도구 / Tool | 대상 모델 / Target Model | 지원 모드 / Supported Modes |
 |---|---|---|
 | 🎬 **MiniMax H3** | MiniMax H3 영상+오디오 생성 모델<br><sub>MiniMax H3 video + audio model</sub> | Text / First-Last(FL2VA) / Reference(REF2VA) · 클립 릴레이 + 자동 합본 · 라이브 프리뷰<br><sub>clip relay + auto-stitch · live preview</sub> |
+| 🎵 **MusicMaker** | MiniMax Music 3 · Ace-Step 1.5 (음악 생성)<br><sub>MiniMax Music 3 · Ace-Step 1.5 music generation</sub> | Song / Instrumental · 가사·스타일 LLM(Local GGUF / OpenRouter / ComfyUI) · 생성 큐 · SUNO식 플레이리스트 + 앨범 커버(Krea2) · 태그된 MP3 다운로드<br><sub>lyrics/style LLM · generation queue · SUNO-style playlist + Krea2 album cover · tagged-MP3 download</sub> |
 | 🖼 **Krea 2** | Krea.ai 이미지 생성 모델<br><sub>Krea.ai image generation model</sub> | T2I · I2I · ControlNet(depth/canny) · Identity · Upscale(SeedVR2) |
 | 🖼 **Z-Image** | Z-Image Turbo | T2I · I2I · Inpaint · Outpaint · RE-BG · ControlNet · Face Redraw · Upscale |
 | 🖼 **Flux2 Klein** | Flux.2-Klein (9B / 4B) | T2I · I2I · Edit · Inpaint · Outpaint · Faceswap · Upscale |
@@ -113,9 +114,9 @@ tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Refe
   스타일 그대로
   <br><sub>Used for newly-built screens like the landing page; ported tool UIs keep their
   original inline styles.</sub>
-- **해시 기반 라우팅** (`#klein`, `#minimax_h3` 등) — 도구가 6개뿐이라 별도 SPA 라우터 없음
-  <br><sub>Hash-based routing (`#klein`, `#minimax_h3`, etc.) — no dedicated SPA router since
-  there are only 6 tools.</sub>
+- **해시 기반 라우팅** (`#klein`, `#minimax_h3`, `#music` 등) — 도구 수가 적어 별도 SPA 라우터 없음
+  <br><sub>Hash-based routing (`#klein`, `#minimax_h3`, `#music`, etc.) — no dedicated SPA
+  router for this handful of tools.</sub>
 - ComfyUI와는 REST + WebSocket으로 통신 (`/prompt`, `/upload/image`, `/view`, `/ws`)
   <br><sub>Talks to ComfyUI over REST + WebSocket (`/prompt`, `/upload/image`, `/view`, `/ws`).</sub>
 

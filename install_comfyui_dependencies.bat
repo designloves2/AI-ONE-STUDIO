@@ -19,9 +19,10 @@ echo   Installs ComfyUI-TJ_NODE_STUDIO_ONE and every custom node / Python
 echo   package the tools (MiniMax H3, MusicMaker, Krea2, Z-Image, Flux2
 echo   Klein, Qwen Image 2511, SDXL, Anima) need, plus ComfyUI-Crystools
 echo   (powers the live CPU/RAM/GPU/VRAM/temp monitor in the site's top bar)
-echo   and ComfyUI-Openrouter_node (the shared cloud LLM backend).
-echo   MiniMax Music 3 / Ace-Step 1.5 audio nodes are built into recent
-echo   ComfyUI - no pack needed, just the model files.
+echo   ComfyUI-Openrouter_node (the shared cloud LLM backend), and
+echo   JK-AceStep-Nodes (MusicMaker's Ace-Step "jkass_quality" sampler).
+echo   The Ace-Step 1.5 / MiniMax Music 3 encode + sampler-select nodes
+echo   are ComfyUI-core - those just need the model files.
 echo   Already-installed nodes are skipped.
 echo ========================================================================
 echo.
@@ -251,8 +252,12 @@ rem OpenRouter LLM node - the cloud LLM backend for MusicMaker lyrics / style pr
 rem the image tools' Enhance / Image-to-Prompt and MiniMax H3's Image-to-Brief. The API key
 rem is stored server-side in the node pack's .env (shared by all three), never in the browser.
 set REPOS[23]=https://github.com/gabe-init/ComfyUI-Openrouter_node
+rem JK-AceStep-Nodes - the JKASS "jkass_quality" sampler MusicMaker's Ace-Step 1.5 engine
+rem defaults to. The Ace-Step 1.5 / MiniMax Music 3 encode + latent + sampler-select nodes
+rem are ComfyUI core; only this quality sampler needs the pack.
+set REPOS[24]=https://github.com/jeankassio/JK-AceStep-Nodes
 
-set COUNT=24
+set COUNT=25
 
 rem ComfyUI Manager names some packs' folders after their pyproject "name", not
 rem the repo. Clone under that name so a later Manager install/update doesn't drop
@@ -260,6 +265,7 @@ rem a second copy and collide the node class. Only set where the two names diffe
 rem the rest clone under their repo basename.
 set "ALT[21]=rife_comfyui_wrapper"
 set "ALT[22]=h3-optimizations"
+set "ALT[24]=comfyui-ace-step-ksampler"
 
 echo [NOTE] pip may print "dependency resolver" conflict warnings below
 echo        (e.g. protobuf version clashes between RMBG and audio tools) -

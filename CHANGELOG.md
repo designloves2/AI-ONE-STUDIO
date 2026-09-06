@@ -54,9 +54,11 @@ every tool's text/vision helpers. Ported overnight in coordination with
 - **Track detail shows the LLM that wrote it** — `commonMeta` records the resolved model per
   backend; the Info panel adds an `LLM` line.
 - The Vite dev proxy forwards `/music_one` to ComfyUI (was hitting the SPA fallback).
-- `install_comfyui_dependencies.bat` adds `ComfyUI-Openrouter_node`; `ONE_SHOT_INSTALL.md`
-  bumps the node version check to 1.24.1, verifies `MusicMakerOneTJNode`, and lists the
-  MusicMaker model + OpenRouter-key setup.
+- `install_comfyui_dependencies.bat` adds `ComfyUI-Openrouter_node` and `JK-AceStep-Nodes`
+  (MusicMaker's Ace-Step `jkass_quality` sampler; the Ace-Step 1.5 / MiniMax Music 3
+  encode + latent + sampler-select nodes are ComfyUI-core); `ONE_SHOT_INSTALL.md` bumps the
+  node version check to 1.25.0, verifies `MusicMakerOneTJNode`, and lists the MusicMaker
+  model + OpenRouter-key setup.
 
 ### Fixed
 - **MusicMaker playback on iOS Safari** — (1) the playlist title tap deferred `audio.play()`

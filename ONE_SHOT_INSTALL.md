@@ -69,13 +69,15 @@ ComfyUI 포트 = 8188
   1. `<COMFY>\custom_nodes` 로 이동(없으면 생성).
   2. `git clone https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE.git`
      (이미 있으면 `git -C ComfyUI-TJ_NODE_STUDIO_ONE pull --ff-only`)
-  3. `pyproject.toml`의 `version` 이 1.24.1 이상인지 확인. 낮으면 위 pull 재시도.
+  3. `pyproject.toml`의 `version` 이 1.25.0 이상인지 확인. 낮으면 위 pull 재시도.
   4. 의존 팩 + Python 패키지 설치:
        cmd /c ""<COMFY>\custom_nodes\ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat" "<COMFY>"" < nul
-     - 이 스크립트가 <COMFY>의 Python(.venv 또는 python_embeded)을 자동 탐지하고, 25개 의존
+     - 이 스크립트가 <COMFY>의 Python(.venv 또는 python_embeded)을 자동 탐지하고, 26개 의존
        노드 팩을 clone/업데이트하며 각 requirements.txt 를 설치합니다.
-     - `ComfyUI-Openrouter_node` 포함(REPOS[24]) — MusicMaker / 이미지 도구 / MiniMax H3 의
-       OpenRouter LLM 백엔드. MiniMax Music 3 · Ace-Step 1.5 오디오 노드는 최신 ComfyUI 코어에
+     - `ComfyUI-Openrouter_node`(REPOS[24]) — MusicMaker / 이미지 도구 / MiniMax H3 의 OpenRouter
+       LLM 백엔드. `JK-AceStep-Nodes`(REPOS[25], Manager 폴더 `comfyui-ace-step-ksampler`) —
+       MusicMaker Ace-Step 엔진 기본 샘플러 `jkass_quality`.
+     - MiniMax Music 3 · Ace-Step 1.5 의 인코드·latent·sampler-select 노드는 ComfyUI 코어에
        내장이라 별도 팩이 필요 없습니다(EZi 가 ComfyUI 를 최신으로 갱신).
      - 예상되는 무시 가능 경고: `groundingdino-py` 빌드 실패(cp949), 일부 오디오 패키지.
        그 외의 `[WARN]`/`[ERROR]` 는 원문 그대로 최종 보고에 포함하세요.

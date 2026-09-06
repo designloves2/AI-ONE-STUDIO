@@ -8,6 +8,7 @@ import { C, BRAND } from "../../identity";
 import { getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { openVideoGalleryPicker } from "./videoPicker";
+import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 
 export interface ImagesPanelCtx {
   persist: () => void;
@@ -370,8 +371,8 @@ function mediaSlot(kind: "video" | "audio", list: any[], idx: number, ctx: Image
   tile.addEventListener("click", () => fileInp.click());
   wrap.append(tile, fileInp);
 
-  if (isVideo && onPickFromGallery) {
-    const gal = el("button", { type: "button", text: "🖼", title: "Pick from the gallery", class: "absolute z-[3]", style: { bottom: "1px", left: "1px", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "3px", width: "16px", height: "16px", cursor: "pointer", fontSize: "9px", padding: "0" } });
+  if (onPickFromGallery) {
+    const gal = el("button", { type: "button", text: isVideo ? "🖼" : "🎵", title: isVideo ? "Pick from the gallery" : "Pick from the MusicMaker playlist", class: "absolute z-[3]", style: { bottom: "1px", left: "1px", background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "3px", width: "16px", height: "16px", cursor: "pointer", fontSize: "9px", padding: "0" } });
     gal.addEventListener("click", (e) => {
       e.stopPropagation();
       onPickFromGallery((name) => { setFile(name); ctx.persist(); onRefresh(); });
@@ -632,7 +633,7 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
       if (ctx.availability && Object.keys(ctx.availability).length && !ctx.availability.TrimAudioDuration) {
         kids.push(el("div", { html: "⚠ <code>TrimAudioDuration</code> missing — audio is used whole, in/out is ignored.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
       }
-      kids.push(buildClipMediaSlots("audio", auds, ctx, render, null, ctx.missingAssets));
+      kids.push(buildClipMediaSlots("audio", auds, ctx, render, (onPick) => openAudioGalleryPicker(onPick), ctx.missingAssets));
     }
 
     kids.push(el("div", { html: "Prompt tags follow input order per type: <code>&lt;Picture i&gt;</code> · <code>&lt;Video k&gt;</code> · <code>&lt;Audio j&gt;</code>.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));

@@ -58,6 +58,7 @@ import {
 import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { takeReuse } from "../../shared/galleryHandoff";
+import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
@@ -791,7 +792,15 @@ export function renderMinimaxH3(container: HTMLElement) {
         up.textContent = "⬆ upload";
       }
     });
-    return col([row([col([sel]), col([up, inp])]), state.lockAudioFile ? audioPreviewPlayer(state.lockAudioFile) : null]);
+    const mm = el("button", { type: "button", text: "🎵 playlist", title: "Pick from the MusicMaker playlist", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "5px", background: C.bg3, color: C.text, border: `1px solid ${C.border}` } });
+    mm.addEventListener("click", () => openAudioGalleryPicker((name) => {
+      state.lockAudioFile = name;
+      ctx.audioFiles = undefined;
+      persist();
+      loadAudioFiles();
+      renderLeft();
+    }));
+    return col([row([col([sel]), col([up, mm, inp])]), state.lockAudioFile ? audioPreviewPlayer(state.lockAudioFile) : null]);
   }
 
   function audioPreviewPlayer(filename: string) {

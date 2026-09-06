@@ -22,6 +22,7 @@ import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGallery
 import { C, BRAND } from "../../identity";
 import { buildClipMediaSlots, dragReorder } from "./imagesPanel";
 import { openVideoGalleryPicker } from "./videoPicker";
+import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import {
   analyzeImagesNative,
   analyzeImagesOpenRouter,
@@ -820,7 +821,7 @@ export function createPromptEditOverlay(
       cols.appendChild(vidCol);
       const audCol = el("div", { class: "flex flex-col gap-1.5" }, [
         el("div", { text: "Reference audio (this clip)", class: "text-[9.5px] tracking-wide", style: { color: C.muted } }),
-        buildClipMediaSlots("audio", auds, ctx, renderImageRow, null, ctx.missingAssets),
+        buildClipMediaSlots("audio", auds, ctx, renderImageRow, (onPicked) => openAudioGalleryPicker(onPicked), ctx.missingAssets),
       ]);
       cols.appendChild(audCol);
     }

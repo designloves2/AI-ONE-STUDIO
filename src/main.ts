@@ -9,8 +9,10 @@ import { renderKlein } from "./tools/klein/view";
 import { renderQwen2511 } from "./tools/qwen2511/view";
 import { renderSDXL } from "./tools/sdxl/view";
 import { renderAnima } from "./tools/anima/view";
+import { renderMusic } from "./tools/music/view";
 
 registerTool("minimax_h3", renderMinimaxH3);
+registerTool("music", renderMusic);
 registerTool("krea2", renderKrea2);
 registerTool("zimage", renderZImage);
 registerTool("klein", renderKlein);

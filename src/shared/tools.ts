@@ -5,7 +5,8 @@ export type ToolId =
   | "qwen2511"
   | "sdxl"
   | "anima"
-  | "minimax_h3";
+  | "minimax_h3"
+  | "music";
 
 export type MediaKind = "image" | "video";
 
@@ -19,9 +20,10 @@ export interface ToolMeta {
   group: ToolGroup;
 }
 
-// 상단 메뉴 4개 카테고리: Video Generator → Image Generator → Image Edit Generator → Beta
+// 상단 메뉴 4개 카테고리: Media Generator → Image Generator → Image Edit Generator → Beta
 export const TOOLS: ToolMeta[] = [
   { id: "minimax_h3", label: "MiniMax H3", hash: "#minimax_h3", kind: "video", group: "video" },
+  { id: "music", label: "MusicMaker", hash: "#music", kind: "video", group: "video" },
   { id: "krea2", label: "Krea2", hash: "#krea2", kind: "image", group: "image" },
   { id: "zimage", label: "Z-Image", hash: "#zimage", kind: "image", group: "image" },
   { id: "klein", label: "Flux2 Klein", hash: "#klein", kind: "image", group: "image_edit" },
@@ -33,7 +35,7 @@ export const TOOLS: ToolMeta[] = [
 export const GROUP_ORDER: ToolGroup[] = ["video", "image", "image_edit", "beta"];
 
 export const GROUP_LABELS: Record<ToolGroup, string> = {
-  video: "Video Generator",
+  video: "Media Generator",
   image: "Image Generator",
   image_edit: "Image Edit Generator",
   beta: "Beta",

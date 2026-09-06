@@ -240,6 +240,7 @@ export function renderMusic(container: HTMLElement) {
 
   // ── playlist ───────────────────────────────────────────────────────────
   let tracks: any[] = [], curIdx = -1;
+  let lastTitleTap = 0;
   let genQueue: any[] = [];
   let regenCoverFn: string | null = null;
   const selected = new Set<string>();
@@ -314,10 +315,16 @@ export function renderMusic(container: HTMLElement) {
     // "tl" — the duration badge (`.mmm-dur`) already owns the bottom-right corner.
     attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "tl");
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
-    let clickT: any = null;
-    const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Click to play/pause · double-click to restart" });
-    title.onclick = () => { clearTimeout(clickT); clickT = setTimeout(() => togglePlay(i), 200); };
-    title.ondblclick = () => { clearTimeout(clickT); restartPlay(i); };
+    const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Tap to play/pause · double-tap to restart" });
+    // Play SYNCHRONOUSLY in the tap handler — iOS Safari only lets a detached <audio> start
+    // from a real user gesture, so the old 200ms setTimeout debounce silently blocked playback
+    // there. A fast second tap = restart (timestamp check instead of a deferred single-click).
+    title.onclick = () => {
+      const now = Date.now();
+      if (now - lastTitleTap < 300) { lastTitleTap = 0; restartPlay(i); return; }
+      lastTitleTap = now;
+      togglePlay(i);
+    };
     const trow = el("div", { className: "mmm-trow" });
     const acts = el("div", { className: "mmm-acts" });
     acts.appendChild(el("button", { className: "mmm-ib", title: "Reuse settings", text: "↺", onclick: (e: Event) => { e.stopPropagation(); reuse(t); } }));

@@ -68,6 +68,7 @@ export function createMusicGalleryMount(): GalleryMount {
 
   // ── playlist ────────────────────────────────────────────────────────────
   let tracks: any[] = [], curIdx = -1;
+  let lastTitleTap = 0;
   const selected = new Set<string>();
   let favOnly = false;
 
@@ -207,10 +208,14 @@ export function createMusicGalleryMount(): GalleryMount {
     attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "tl");
 
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
-    let clickT: any = null;
-    const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Click to play/pause · double-click to restart" });
-    title.onclick = () => { clearTimeout(clickT); clickT = setTimeout(() => togglePlay(i), 200); };
-    title.ondblclick = () => { clearTimeout(clickT); restartPlay(i); };
+    const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Tap to play/pause · double-tap to restart" });
+    // play synchronously in the tap — see the same fix in tools/music/view.ts (iOS gesture)
+    title.onclick = () => {
+      const now = Date.now();
+      if (now - lastTitleTap < 300) { lastTitleTap = 0; restartPlay(i); return; }
+      lastTitleTap = now;
+      togglePlay(i);
+    };
     const trow = el("div", { className: "mmm-trow" });
     const acts = el("div", { className: "mmm-acts" });
     acts.appendChild(el("button", { className: "mmm-ib", title: "Reuse in MusicMaker", text: "↺", onclick: (e: Event) => { e.stopPropagation(); reuse(t); } }));

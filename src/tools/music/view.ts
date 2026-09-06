@@ -15,7 +15,7 @@ import {
   VOCAL_GENDER, VOCAL_STYLE, VOICE_TONE,
 } from "./core";
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
-import { comfyApi, jget, jpost, viewURL } from "./api";
+import { comfyApi, jget, jpost, playableAudioUrl } from "./api";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { attachSensitiveToggle, mediaKey } from "../../shared/sensitiveMedia";
 
@@ -281,7 +281,7 @@ export function renderMusic(container: HTMLElement) {
     if (i < 0 || i >= tracks.length) return;
     curIdx = i;
     const t = tracks[i];
-    audioEl.src = viewURL(t);
+    audioEl.src = playableAudioUrl({ filename: t.filename, subfolder: t.subfolder || SUB() });
     audioEl.play().catch(() => {});
     nowTitle.textContent = t.title || t.filename;
     nowSub.textContent = settingsBadge(t) || (t.engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3");
@@ -311,7 +311,8 @@ export function renderMusic(container: HTMLElement) {
     if (t.cover) cover.style.backgroundImage = coverURL(t.cover);
     else cover.appendChild(coverPlaceholder(t));
     if (t.seconds) cover.appendChild(el("div", { className: "mmm-dur", text: fmtDur(t.seconds) }));
-    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "br");
+    // "tl" — the duration badge (`.mmm-dur`) already owns the bottom-right corner.
+    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "tl");
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
     let clickT: any = null;
     const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Click to play/pause · double-click to restart" });

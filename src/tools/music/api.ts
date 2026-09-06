@@ -23,3 +23,21 @@ export const viewURL = (t: any): string =>
 
 /** absolute /view URL (covers etc.) */
 export const viewAbs = (qs: string): string => `${comfyApi.base}/view?${qs}`;
+
+// iOS Safari can't decode FLAC (or bare .opus) in <audio> — a played track just sits at 0:00.
+// When the browser reports no native support for the file's container, stream the server's
+// on-the-fly MP3 transcode (`/music_one/download`, ffmpeg + ID3, cached to .export/) instead.
+const _audioProbe: HTMLAudioElement | null = typeof Audio !== "undefined" ? new Audio() : null;
+export function playableAudioUrl(t: { filename: string; subfolder?: string }): string {
+  const ext = (t.filename.split(".").pop() || "").toLowerCase();
+  const mime =
+    ext === "mp3" ? "audio/mpeg" :
+    ext === "flac" ? "audio/flac" :
+    ext === "opus" ? 'audio/ogg; codecs="opus"' :
+    ext === "wav" ? "audio/wav" :
+    ext === "m4a" || ext === "aac" ? "audio/mp4" :
+    ext === "ogg" ? "audio/ogg" : "";
+  const native = !mime || !_audioProbe || _audioProbe.canPlayType(mime) !== "";
+  if (native) return viewURL(t);
+  return `${comfyApi.base}${API}/download?filename=${encodeURIComponent(t.filename)}&subfolder=${encodeURIComponent(t.subfolder || "")}`;
+}

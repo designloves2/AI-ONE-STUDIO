@@ -13,7 +13,7 @@ import {
   C, PLAYER_H, SUBFOLDER, ensureMusicStyles,
   el, clear, defaultState, loadState, saveState, fmtDur, settingsBadge,
 } from "../tools/music/core";
-import { comfyApi, jget, jpost, viewURL } from "../tools/music/api";
+import { comfyApi, jget, jpost, playableAudioUrl } from "../tools/music/api";
 
 export function createMusicGalleryMount(): GalleryMount {
   ensureMusicStyles();
@@ -112,7 +112,7 @@ export function createMusicGalleryMount(): GalleryMount {
     if (i < 0 || i >= tracks.length) return;
     curIdx = i;
     const t = tracks[i];
-    audioEl.src = viewURL(t);
+    audioEl.src = playableAudioUrl({ filename: t.filename, subfolder: t.subfolder || SUB() });
     audioEl.play().catch(() => {});
     nowTitle.textContent = t.title || t.filename;
     nowSub.textContent = settingsBadge(t) || (t.engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3");
@@ -204,7 +204,7 @@ export function createMusicGalleryMount(): GalleryMount {
     if (t.cover) cover.style.backgroundImage = coverURL(t.cover);
     else cover.appendChild(coverPlaceholder(t));
     if (t.seconds) cover.appendChild(el("div", { className: "mmm-dur", text: fmtDur(t.seconds) }));
-    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "br");
+    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "tl");
 
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
     let clickT: any = null;

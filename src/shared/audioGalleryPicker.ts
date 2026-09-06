@@ -7,13 +7,12 @@
 // hands back the unique input-folder filename.
 import { el, clear } from "./ui";
 import { getComfyBase } from "./comfyBase";
+import { playableAudioUrl } from "../tools/music/api";
 import { BRAND, C } from "../identity";
 
 const fetchApi = (path: string, opts?: RequestInit) => fetch(`${getComfyBase()}${path}`, { ...opts, credentials: "include" });
 const base = () => getComfyBase();
 
-const viewUrl = (t: any) =>
-  `${base()}/view?filename=${encodeURIComponent(t.filename)}&subfolder=${encodeURIComponent(t.subfolder || "")}&type=output`;
 const coverUrl = (t: any) =>
   t.cover
     ? `${base()}/view?filename=${encodeURIComponent(t.cover)}&subfolder=${encodeURIComponent((t.subfolder || "") + "/covers")}&type=output&t=${t.mtime || ""}`
@@ -105,7 +104,7 @@ export function openAudioGalleryPicker(onPick: (name: string) => void, copyApi =
                  track.instrumental ? "instrumental" : ""].filter(Boolean).join("  ·  ");
     mid.appendChild(el("div", { text: sub, style: { fontSize: "10px", color: C.muted, marginTop: "2px" }}));
 
-    const audio = el("audio", { preload: "none", src: viewUrl(track) }) as HTMLAudioElement;
+    const audio = el("audio", { preload: "none", src: playableAudioUrl({ filename: track.filename, subfolder: track.subfolder || saveSub }) }) as HTMLAudioElement;
     const play = el("button", { type: "button", text: "▶", title: "Preview", style: {
       flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", width: "26px", height: "26px",
       borderRadius: "50%", border: `1px solid ${C.border}`, background: C.bg1, color: C.text,

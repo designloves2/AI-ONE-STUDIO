@@ -33,7 +33,7 @@ const comfyPaths = [
   "/manager", "/api", "/userdata",
   "/shared", "/tj_shared", "/tj_studio_one",
   "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/sdxl_one",
-  "/flux_klein", "/z_image_turbo", "/anima_one",
+  "/flux_klein", "/z_image_turbo", "/anima_one", "/music_one",
 ];
 
 export default defineConfig({

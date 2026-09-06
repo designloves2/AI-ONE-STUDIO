@@ -753,7 +753,9 @@ export function renderMusic(container: HTMLElement) {
     return t;
   }
 
-  async function runLLM(role: string, input: string, context: any, apply: (t: string) => void, busyWrap?: any, busyLabel?: string) {
+  // throwOnFail: 큐(llmOnce) 경로에서만 켠다 — LLM이 실패하면 job이 조용히 원문(brief)으로
+  // 넘어가지 않고 에러로 멈춰야 한다. 대화형 ✨ 버튼은 statusEl 표시만 하고 넘어간다(원본 동작).
+  async function runLLM(role: string, input: string, context: any, apply: (t: string) => void, busyWrap?: any, busyLabel?: string, throwOnFail = false) {
     statusEl.textContent = `LLM · ${role} …`;
     const done = llmBusy(busyWrap, busyLabel);
     try {
@@ -767,8 +769,11 @@ export function renderMusic(container: HTMLElement) {
         text = stripThinking(d.text);
       }
       if (text) { apply(text); statusEl.textContent = "LLM ✓"; }
-      else statusEl.textContent = "LLM: empty response";
-    } catch (e: any) { statusEl.textContent = "LLM: " + e.message; }
+      else { statusEl.textContent = "LLM: empty response"; if (throwOnFail) throw new Error("LLM returned no text"); }
+    } catch (e: any) {
+      statusEl.textContent = "LLM: " + e.message;
+      if (throwOnFail) throw e;
+    }
     finally { done(); }
   }
 
@@ -907,6 +912,9 @@ export function renderMusic(container: HTMLElement) {
   }
 
   function renderCompose() {
+    // Format 변경 / LoRA 추가·삭제 등은 compose를 통째로 다시 그린다 — 스크롤 위치를 잃지 않게
+    // 복원한다 (원본 노드는 위젯 안이라 스크롤 영향이 없었음).
+    const _scroll = compose.scrollTop;
     clear(compose);
     engSel?._sync?.(state.engine);
 
@@ -1098,6 +1106,7 @@ export function renderMusic(container: HTMLElement) {
     }
 
     renderFixed();
+    compose.scrollTop = _scroll;
   }
 
   function renderFixed() {
@@ -1135,8 +1144,10 @@ export function renderMusic(container: HTMLElement) {
 
   async function llmOnce(role: string, input: string, context: any) {
     let out = "";
-    await runLLM(role, input, context, (t) => { out = String(t || ""); }, null, undefined);
-    return out.trim();
+    await runLLM(role, input, context, (t) => { out = String(t || ""); }, null, undefined, true);
+    const s = out.trim();
+    if (!s) throw new Error(`LLM (${role}) returned no usable text`);
+    return s;
   }
 
   function enqueueGen() {
@@ -1219,9 +1230,9 @@ export function renderMusic(container: HTMLElement) {
       const li = lyricsIntent(st.lyricsInput);
       if ((li === "brief" || li === "hook") && st.lyricsInput) {
         job.stage = "Writing lyrics…"; paintJob(job);
-        const lx = await llmOnce("lyrics_from_theme", st.lyricsInput,
+        // llmOnce는 실패 시 throw → job이 에러로 멈춘다 (원문 brief로 조용히 넘어가지 않음).
+        st.lyrics = await llmOnce("lyrics_from_theme", st.lyricsInput,
           { engine: st.engine, language: st.language, duration_seconds: st.duration, style_caption: st.caption });
-        st.lyrics = lx || st.lyricsInput;
       } else {
         st.lyrics = st.lyricsInput;
       }

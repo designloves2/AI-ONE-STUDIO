@@ -50,6 +50,14 @@ export function clampDuration(seconds: any, { min = 1, max = 300 }: { min?: numb
   return Math.min(max, Math.max(min, n));
 }
 
+// The single source of truth for "how long is this song" — a duration typed into
+// the lyrics brief or the style brief ("3:00", "3분") wins over the slider, so the
+// lyric LLM and the sampler agree on the target length.
+export function effectiveDuration(state: any): number {
+  const hint = parseDurationHint(state.lyricsInput) ?? parseDurationHint(state.captionBrief);
+  return clampDuration(hint ?? state.duration ?? 120);
+}
+
 function styleHintParts(state: any, includeMusical: boolean): [string, string][] {
   const parts: [string, string][] = [];
   const g = (state.vocalGender || "auto"), d = (state.vocalStyle || "auto"), v = (state.voiceTone || "auto");
@@ -81,8 +89,7 @@ function resolveCommon(state: any, opts: any) {
   const caption = String(state.caption || "").trim();
   const lyrics  = String(state.lyrics  || "").trim();
   if (!caption) throw new Error("Style (caption) is empty — hit ✨ in the Style section or type one in.");
-  const hint = parseDurationHint(state.lyricsInput) ?? parseDurationHint(state.captionBrief);
-  const seconds = clampDuration(hint ?? state.duration ?? 120);
+  const seconds = effectiveDuration(state);
   const seed = Number.isFinite(opts.seed) ? Math.floor(opts.seed)
              : Number.isFinite(state.seed) ? Math.floor(state.seed)
              : Math.floor(Math.random() * 2 ** 48);
@@ -103,7 +110,10 @@ function commonMeta(state: any, r: any) {
     timesignature: String(state.timesignature || "4"),
     vocalGender: state.vocalGender || "auto", vocalStyle: state.vocalStyle || "auto", voiceTone: state.voiceTone || "auto",
     coverBrief: state.coverBrief || "",
-    llmBackend: state.llmBackend || "local", llmModel: state.llmModel || "",
+    llmBackend: state.llmBackend || "local",
+    llmModel: (state.llmBackend === "openrouter" ? state.llmOrModel
+             : state.llmBackend === "comfy"      ? state.llmClip
+             : state.llmModel) || "",
     styleFamily: state.styleFamily || "", title: state.title || "",
   };
 }

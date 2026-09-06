@@ -1,10 +1,24 @@
-// sensitiveMedia.ts — per-item "hide this" flag for gallery thumbnails, shared by every
-// tool's gallery (and the standalone gallery page). The user clicks the 👁 on a tile to blur
-// it; the choice is remembered in localStorage keyed by "<subfolder>/<filename>", so the
-// gallery comes back with the same items hidden.
-const KEY = "aos_sensitive_media_v1";
+// sensitiveMedia.ts — per-item "hide this" (눈가리기) for gallery thumbnails, shared by every
+// tool's gallery and the standalone gallery page.
+//
+// The hidden set now lives ONCE, server-side, behind `GET/POST /tj_shared/sensitive_media`
+// (node f2386f9) — the node galleries and this web twin read/write the same list, so hiding a
+// picture in one place hides it everywhere. Keyed by "<subfolder>/<filename>".
+//
+// localStorage (`aos_sensitive_media_v1`) is kept only as a **read-through mirror**: the last
+// known list, so a reload paints blurred immediately before the server GET returns (no flash of
+// hidden content) and so the feature degrades to local-only when the node is unreachable. The
+// server is always authoritative — wiping the mirror can no longer lose anything, the next load
+// re-fetches it.
+import { getComfyBase } from "./comfyBase";
 
-function load(): Set<string> {
+const KEY = "aos_sensitive_media_v1";
+const MIGRATED_KEY = "aos_sensitive_media_migrated";
+const SM_URL = "/tj_shared/sensitive_media";
+
+const smFetch = (opts?: RequestInit) => fetch(`${getComfyBase()}${SM_URL}`, { ...opts, credentials: "include" });
+
+function loadMirror(): Set<string> {
   try {
     const raw = localStorage.getItem(KEY);
     return new Set(raw ? (JSON.parse(raw) as string[]) : []);
@@ -12,17 +26,78 @@ function load(): Set<string> {
     return new Set();
   }
 }
+function writeMirror() {
+  try { localStorage.setItem(KEY, JSON.stringify([...cache])); } catch {}
+}
 
-let cache = load();
+let cache = loadMirror();
+const seedKeys = [...cache]; // the pre-migration localStorage list, for the one-time server seed
 
-// Session-only "peek": reveal every hidden item at once without touching the saved set, so a
-// second toggle restores exactly what was hidden. Not persisted — a reload comes back hidden.
-let revealAll = false;
+let revealAll = false; // session-only "peek", never persisted
+let loaded = false;
+let loadingPromise: Promise<void> | null = null;
+const painters = new Set<() => void>(); // render() of every live tile, for repaint-on-load/change
+
+function repaintAll() {
+  for (const p of [...painters]) {
+    try { p(); } catch {}
+  }
+}
+
+/** Fetch the server list once (idempotent); seeds the server from the old localStorage list on
+ *  the first run, then repaints every live tile. */
+export function ensureLoaded(): Promise<void> {
+  if (loaded) return Promise.resolve();
+  if (loadingPromise) return loadingPromise;
+  loadingPromise = (async () => {
+    try {
+      const d = await smFetch().then((r) => r.json());
+      if (d && d.ok && Array.isArray(d.items)) cache = new Set(d.items);
+
+      // one-time migration: union the browser's existing hides into the server set.
+      if (seedKeys.length && !safeGet(MIGRATED_KEY)) {
+        try {
+          const d2 = await smFetch({
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ add: seedKeys }),
+          }).then((r) => r.json());
+          if (d2 && d2.ok && Array.isArray(d2.items)) cache = new Set(d2.items);
+          else seedKeys.forEach((k) => cache.add(k));
+          safeSet(MIGRATED_KEY, "1");
+        } catch { /* leave the flag unset — retried next load */ }
+      }
+      writeMirror();
+    } catch {
+      // server unreachable — keep the localStorage mirror as the working set (local-only mode)
+    } finally {
+      loaded = true;
+      loadingPromise = null;
+      repaintAll();
+    }
+  })();
+  return loadingPromise;
+}
+
+/** Force a re-fetch (e.g. the node changed the set while this tab was open). */
+export function refreshSensitive(): Promise<void> {
+  loaded = false;
+  return ensureLoaded();
+}
+
+function safeGet(k: string): string | null {
+  try { return localStorage.getItem(k); } catch { return null; }
+}
+function safeSet(k: string, v: string) {
+  try { localStorage.setItem(k, v); } catch {}
+}
+
 export function isRevealAll(): boolean {
   return revealAll;
 }
 export function setRevealAll(on: boolean) {
-  revealAll = on;
+  revealAll = !!on;
+  repaintAll();
 }
 
 export function mediaKey(filename: string, subfolder?: string): string {
@@ -39,22 +114,32 @@ export function isBlurred(key: string): boolean {
   return !revealAll && cache.has(key);
 }
 
+/** Optimistic: flip locally + repaint now, then persist to the server; revert on failure. */
 export function setSensitive(key: string, on: boolean) {
-  // Re-read storage and merge before writing, so a second tab (or a stale in-memory cache)
-  // can't clobber entries added elsewhere — the write only ever adds/removes this one key.
-  cache = load();
   if (on) cache.add(key);
   else cache.delete(key);
-  try {
-    localStorage.setItem(KEY, JSON.stringify([...cache]));
-  } catch {}
-}
-
-// Keep the in-memory cache live when another tab changes the set.
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (e) => {
-    if (e.key === KEY) cache = load();
-  });
+  writeMirror();
+  repaintAll();
+  smFetch({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, on: !!on }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      if (d && d.ok && Array.isArray(d.items)) {
+        cache = new Set(d.items);
+        writeMirror();
+        repaintAll();
+      }
+    })
+    .catch(() => {
+      // couldn't reach the server — revert the optimistic change (matches the node helper).
+      if (on) cache.delete(key);
+      else cache.add(key);
+      writeMirror();
+      repaintAll();
+    });
 }
 
 const EYE_CSS =
@@ -66,9 +151,12 @@ const EYE_CSS =
 /**
  * Build the 👁 toggle + the blur scrim for one gallery tile, without positioning them.
  * Caller places `eye` (a button) and `shade` (a full-bleed div) itself. `media` gets blurred
- * while the key is marked sensitive.
+ * while the key is marked sensitive. `afterRender` runs on every render (e.g. an H3 tile
+ * re-blurring its hover <video>).
  */
 export function makeSensitiveControl(media: HTMLElement, key: string, afterRender?: () => void) {
+  ensureLoaded();
+
   const shade = document.createElement("div");
   // Plain dark scrim — NO backdrop-filter. backdrop-filter over an animating backdrop (the H3
   // hover-preview <video>) makes the GPU re-tile every frame, which showed up as flickering
@@ -84,6 +172,8 @@ export function makeSensitiveControl(media: HTMLElement, key: string, afterRende
   eye.style.cssText = EYE_CSS;
 
   function render() {
+    // drop this painter once its tile leaves the DOM (galleries rebuild on refresh)
+    if (!media.isConnected && !shade.isConnected) { painters.delete(render); return; }
     const marked = isSensitive(key); // in the saved hidden set → 🙈 icon
     const blurred = isBlurred(key); // …and not peeking → actually blur it
     shade.style.opacity = blurred ? "1" : "0";
@@ -96,7 +186,7 @@ export function makeSensitiveControl(media: HTMLElement, key: string, afterRende
     // matches the ✕ / ☆ on the same tile instead of flipping to a colour emoji when active.
     eye.textContent = marked ? "⊘" : "👁︎"; // ⊘ hidden / 👁 visible
     eye.title = marked ? "Reveal this item" : "Hide this item";
-    afterRender?.(); // e.g. H3 re-blurs its currently-playing hover video on the same tick
+    afterRender?.();
   }
 
   eye.addEventListener("click", (e) => {
@@ -111,6 +201,7 @@ export function makeSensitiveControl(media: HTMLElement, key: string, afterRende
   // reveal — only the 👁 does that.
   shade.addEventListener("click", (e) => e.stopPropagation());
 
+  painters.add(render);
   render();
   return { eye, shade, render };
 }
@@ -131,9 +222,10 @@ export function attachSensitiveToggle(
   cell: HTMLElement,
   media: HTMLElement,
   key: string,
-  corner: Corner = "br"
+  corner: Corner = "br",
+  afterRender?: () => void
 ) {
-  const { eye, shade } = makeSensitiveControl(media, key);
+  const { eye, shade } = makeSensitiveControl(media, key, afterRender);
   eye.style.cssText += `;position:absolute;${CORNER_CSS[corner]};z-index:3`;
   cell.appendChild(shade);
   cell.appendChild(eye);

@@ -103,6 +103,8 @@ export interface MmhConfig {
   cache_max_steps?: number;
   vision_source?: string;
   native_vision_clip?: string;
+  h3_llm_backend?: string;
+  h3_or_model?: string;
   filename_prefix?: string;
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;
@@ -681,4 +683,31 @@ export async function writeBriefNative(clipName: string, systemPrompt: string, u
   const text = outputs?.out?.text?.[0];
   if (!text) throw new Error("native brief-writing produced no text");
   return text;
+}
+
+/**
+ * OpenRouter counterparts to analyzeImagesNative / writeBriefNative — used when the H3 LLM
+ * backend is set to "openrouter" in Settings. The key lives server-side (.env, shared with the
+ * music + image nodes); the model id is passed through. 원본 근거: api_minimax.js (node d1bc4d6).
+ */
+export async function analyzeImagesOpenRouter(images: string[], promptText: string, orModel?: string): Promise<string> {
+  const r = await fetchApi(`${API}/llm/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ images, prompt: promptText, or_model: orModel || "" }),
+  });
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || "OpenRouter analyze failed");
+  return d.text;
+}
+
+export async function writeBriefOpenRouter(systemPrompt: string, userPrompt: string, orModel?: string): Promise<string> {
+  const r = await fetchApi(`${API}/llm/write_brief`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system: systemPrompt, user: userPrompt, or_model: orModel || "" }),
+  });
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || "OpenRouter brief failed");
+  return d.text;
 }

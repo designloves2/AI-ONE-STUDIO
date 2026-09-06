@@ -24,6 +24,8 @@ import { buildClipMediaSlots, dragReorder } from "./imagesPanel";
 import { openVideoGalleryPicker } from "./videoPicker";
 import {
   analyzeImagesNative,
+  analyzeImagesOpenRouter,
+  writeBriefOpenRouter,
   deletePromptSet,
   getModels,
   getPromptSet,
@@ -836,6 +838,11 @@ export function createPromptEditOverlay(
   // OVERRIDE.md peer note: a picker here just eats two rows of vertical space that come straight
   // out of the clip editor's height, for a setting that's shared by every clip anyway).
   function renderModelLine(target: HTMLElement) {
+    if (state.h3LlmBackend === "openrouter") {
+      target.textContent = `OpenRouter · ${state.h3OrModel || "default model"} — change in Settings → LLM`;
+      target.style.color = C.muted;
+      return;
+    }
     if (!clipModels.length) {
       target.textContent = "Could not load the CLIP list — check the ComfyUI connection";
       target.style.color = C.warn;
@@ -907,11 +914,12 @@ export function createPromptEditOverlay(
     if (busy) return;
     const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean) : [];
 
-    if (!state.nativeBriefClip) {
-      ctx.showPopup("Enter a Brief CLIP filename.", true);
+    const useOR = state.h3LlmBackend === "openrouter";
+    if (!useOR && !state.nativeBriefClip) {
+      ctx.showPopup("Enter a Brief CLIP filename (or switch the LLM backend to OpenRouter in Settings).", true);
       return;
     }
-    if (images.length && !state.nativeVisionClip) {
+    if (!useOR && images.length && !state.nativeVisionClip) {
       ctx.showPopup("Enter a Vision CLIP filename.", true);
       return;
     }
@@ -928,12 +936,18 @@ export function createPromptEditOverlay(
     try {
       let imageSummary = "";
       if (images.length) {
-        progressStage(`Analyzing ${images.length} image(s) (native, one batch)…`);
+        progressStage(useOR
+          ? `Analyzing ${images.length} image(s) (OpenRouter)…`
+          : `Analyzing ${images.length} image(s) (native, one batch)…`);
         const prompt = `${VISION_SYSTEM_PROMPT} There are ${images.length} images, in order. Describe each one separately, each on its own line starting with "Image N: ".`;
-        imageSummary = (await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
+        imageSummary = (useOR
+          ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModel)
+          : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
       }
       progressStage("Writing brief…");
-      const text = (await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary))).trim();
+      const text = (useOR
+        ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary), state.h3OrModel)
+        : await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary))).trim();
       if (!text) throw new Error("empty response");
       openReview(text, (targetSel as HTMLSelectElement).value);
       statusTag.textContent = "review the result";

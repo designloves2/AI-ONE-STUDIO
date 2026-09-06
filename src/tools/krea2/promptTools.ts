@@ -6,6 +6,7 @@ import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
 // 템플릿은 도구별 config가 아니라 공용 풀(/shared/prompt_templates?pool=nl)에 저장한다 —
 // Klein/Krea2/Z-Image/Qwen2511/Anima가 전부 이 nl 풀을 공유. SPEC_ZIMAGE_TEMPLATE_SYNC.md 참고.
 import { getTemplates, saveTemplates } from "../../shared/promptTemplatesApi";
+import { createLlmBackendGroup, fetchOrModels } from "../../shared/llmBackendPanel";
 import { comfyApi } from "./comfyClient";
 
 // ── LLM 설정 (탭/기기 전역 공유 — llm_panel.js와 동일 localStorage 키) ──────────
@@ -67,10 +68,12 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
 
   // ── LLM 공용 설정 (Enhance/Image→Prompt 두 탭이 gguf/model_format/aesthetic 등을 공유) ──
   const llm = Object.assign(
-    { gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
+    { backend: "local", or_model: "", gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
     loadLLMSettings()
   );
   function saveLLM() { saveLLMSettings(llm); }
+  // "Local GGUF | OpenRouter" selector — shared by both the Enhance and Image→Prompt panels.
+  const beGroup = createLlmBackendGroup(llm, saveLLM);
 
   // ── Enhance panel ──────────────────────────────────────────────────────────
   const enhLeft = el("div", { class: "aos-llm-left", style: { width: "210px", flexShrink: "0", background: C.bg0, padding: "10px", display: "flex", flexDirection: "column", gap: "8px", overflowY: "auto", borderRight: `1px solid ${C.border}` } });
@@ -85,10 +88,14 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const maxTokE = mkNum(llm.max_tokens, 50, 4096, 50, (v) => { llm.max_tokens = v; saveLLM(); maxTokI.value = String(v); });
   const tempE = mkNum(llm.temperature, 0, 2, 0.05, (v) => { llm.temperature = v; saveLLM(); tempI.value = String(v); });
   const seedE = mkNum(llm.seed, 0, 999999999, 1, (v) => { llm.seed = v; saveLLM(); seedI.value = String(v); });
+  const enhBackend = beGroup.makeBlock();
+  const rowGgufE = fieldRow("GGUF Model", ggufSelE);
+  const rowGpuE = fieldRow("GPU Layers", gpuLayersE);
+  const rowCtxE = fieldRow("Context Size", nCtxE);
+  enhBackend.localOnly.push(rowGgufE, rowGpuE, rowCtxE);
   enhLeft.append(
-    fieldRow("GGUF Model", ggufSelE),
-    fieldRow("GPU Layers", gpuLayersE),
-    fieldRow("Context Size", nCtxE),
+    enhBackend.el,
+    rowGgufE, rowGpuE, rowCtxE,
     fieldRow("Max Tokens", maxTokE),
     fieldRow("Temperature", tempE),
     fieldRow("Seed", seedE),
@@ -114,7 +121,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       const r = await comfyApi.fetchApi("/tj_studio_one/llm/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, gguf_model: llm.gguf_model, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed, model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions }),
+        body: JSON.stringify({ prompt, backend: llm.backend, or_model: llm.or_model, gguf_model: llm.gguf_model, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed, model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions }),
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
@@ -199,15 +206,20 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const tempI = mkNum(llm.temperature, 0, 2, 0.05, (v) => { llm.temperature = v; saveLLM(); tempE.value = String(v); });
   const seedI = mkNum(llm.seed, 0, 999999999, 1, (v) => { llm.seed = v; saveLLM(); seedE.value = String(v); });
 
+  const i2pBackend = beGroup.makeBlock();
+  const rowGgufI = fieldRow("GGUF Model", ggufSelI);
+  const rowMmproj = fieldRow("mmproj", mmprojSel);
+  const rowGpuI = fieldRow("GPU Layers", gpuLayersI);
+  i2pBackend.localOnly.push(rowGgufI, rowMmproj, rowGpuI);
   i2pLeft.append(
     fieldRow("Image", imgWrap),
-    fieldRow("GGUF Model", ggufSelI),
-    fieldRow("mmproj", mmprojSel),
+    i2pBackend.el,
+    rowGgufI, rowMmproj,
     fieldRow("Vision Task", vtSel),
     fieldRow("Model Format", modelFmtSelI),
     fieldRow("Aesthetic", aestheticSelI),
     fieldRow("Custom Instruction", customInstrTA),
-    fieldRow("GPU Layers", gpuLayersI),
+    rowGpuI,
     fieldRow("Max Tokens", maxTokI),
     fieldRow("Temperature", tempI),
     fieldRow("Seed", seedI)
@@ -228,7 +240,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       const r = await comfyApi.fetchApi("/tj_studio_one/llm/image_to_prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_b64: imgB64, gguf_model: llm.gguf_model, mmproj_file: llm.mmproj_file, vision_task: llm.vision_task, model_format: llm.model_format, aesthetic: llm.aesthetic, custom_instruction: llm.custom_instruction, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed }),
+        body: JSON.stringify({ image_b64: imgB64, backend: llm.backend, or_model: llm.or_model, gguf_model: llm.gguf_model, mmproj_file: llm.mmproj_file, vision_task: llm.vision_task, model_format: llm.model_format, aesthetic: llm.aesthetic, custom_instruction: llm.custom_instruction, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed }),
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
@@ -270,7 +282,15 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   function loadModelsOnce() {
     if (modelsLoaded) return;
     modelsLoaded = true;
-    comfyApi.fetchApi("/tj_studio_one/llm/models").then((r) => r.json()).then((d) => {
+    Promise.all([
+      comfyApi.fetchApi("/tj_studio_one/llm/models").then((r) => r.json()).catch(() => ({})),
+      fetchOrModels(),
+    ]).then(([d, orModels]) => {
+      beGroup.fillAll(orModels, d.openrouter_key_hint || "");
+      if (d.or_model && !llm.or_model) { llm.or_model = d.or_model; saveLLM(); }
+      // TJ_NODE local LLM missing → fall back to OpenRouter (keeps the panel usable).
+      if (!d.ok || d._notInstalled) { llm.backend = "openrouter"; saveLLM(); beGroup.stripLocal(); }
+      beGroup.syncAll();
       if (!d.ok) return;
       if (d.gguf?.length) {
         [ggufSelE, ggufSelI].forEach((s) => populateSelect(s, d.gguf, llm.gguf_model));

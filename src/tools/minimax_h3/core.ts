@@ -133,6 +133,8 @@ export interface MinimaxState {
   visionSource: string; // was "ollama" | "native" — Ollama removed, always native now; field kept for saved-state compat
   nativeVisionClip: string;
   nativeBriefClip: string;
+  h3LlmBackend: string; // "native" (ComfyUI CLIP) | "openrouter" — Image→Brief backend
+  h3OrModel: string;
 
   // SolAttn (SolAttnPatch)
   solTau: number;
@@ -1087,6 +1089,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
+    h3LlmBackend: saved.h3LlmBackend || "native",
+    h3OrModel: saved.h3OrModel || "",
     pddFile: saved.pddFile || "none",
     pddFileReference: saved.pddFileReference || "none",
     pddNfe: String(saved.pddNfe ?? "8"),

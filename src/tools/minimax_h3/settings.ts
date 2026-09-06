@@ -4,6 +4,7 @@
 import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, panel, row, searchableSelect } from "../../shared/ui";
+import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
 import { C, BRAND } from "../../identity";
 import { buildDepFix } from "./depBanner";
 import {
@@ -186,6 +187,45 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     const wrap2 = renderModelPickersInto;
     if (!wrap2) return;
     clear(wrap2);
+
+    // Backend: native ComfyUI CLIP, or OpenRouter (cloud). The OpenRouter key is the one shared
+    // with the image + music nodes (server .env). 원본 근거: ui_app_settings_minimax.js (d1bc4d6).
+    const selStyle = { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } as Record<string, string>;
+    const beSel = el("select", { style: selStyle }) as HTMLSelectElement;
+    [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"]].forEach(([v, t]) => {
+      const o = el("option", { value: v, text: t }) as HTMLOptionElement;
+      if ((state.h3LlmBackend || "native") === v) o.selected = true;
+      beSel.appendChild(o);
+    });
+    beSel.addEventListener("change", () => { state.h3LlmBackend = beSel.value; ctx.persist(); renderModelPickers(); });
+    wrap2.appendChild(col([label("LLM backend"), beSel]));
+
+    if (state.h3LlmBackend === "openrouter") {
+      const orSel = el("select", { style: selStyle }) as HTMLSelectElement;
+      orSel.appendChild(el("option", { value: state.h3OrModel || "", text: state.h3OrModel || "loading models…" }));
+      orSel.addEventListener("change", () => { state.h3OrModel = orSel.value; ctx.persist(); pushLlmConfig({ or_model: orSel.value }); });
+      fetchOrModels().then((ms) => {
+        if (!ms.length) return;
+        clear(orSel);
+        ms.forEach((m) => { const o = el("option", { value: m, text: m }) as HTMLOptionElement; if (m === state.h3OrModel) o.selected = true; orSel.appendChild(o); });
+        if (!state.h3OrModel) { state.h3OrModel = ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]; ctx.persist(); orSel.value = state.h3OrModel; }
+      });
+      const keyIn = el("input", { type: "password", placeholder: "sk-or-… (stored in .env, shared)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit" } }) as HTMLInputElement;
+      keyIn.addEventListener("blur", () => {
+        const v = keyIn.value.trim();
+        if (!v || v.includes("*")) return;
+        pushLlmConfig({ openrouter_key: v });
+        keyIn.value = ""; keyIn.placeholder = "✓ key saved to .env";
+      });
+      fetchLlmKeyHint().then((h) => { if (h) keyIn.placeholder = h + " — click to replace"; });
+      wrap2.append(
+        col([label("OpenRouter model"), orSel]),
+        col([label("OpenRouter API key"), keyIn]),
+        el("div", { text: "Reads reference images + writes the brief through OpenRouter — no ComfyUI CLIP load, no queue turn.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } })
+      );
+      return;
+    }
+
     const missing: string[] = [];
     if (!availability.available?.TJ_MultiImageLoader) missing.push("TJ_MultiImageLoader (TJ_NODE)");
     if (!availability.available?.TextGenerate) missing.push("TextGenerate (ComfyUI core — update ComfyUI)");
@@ -402,6 +442,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       cache_max_steps: state.cacheMaxSteps ?? 2,
       vision_source: state.visionSource || "native",
       native_vision_clip: state.nativeVisionClip || "",
+      h3_llm_backend: state.h3LlmBackend || "native",
+      h3_or_model: state.h3OrModel || "",
       filename_prefix: state.filenamePrefix || "MMH3",
       stitch_at_end: state.stitchAtEnd ?? true,
       trim_last_clip: state.trimLastClip ?? false,
@@ -484,6 +526,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       // vision_source ignored on load — Ollama removed, always native regardless of what a
       // config saved before this change says.
       if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;
+      if (cfg.h3_llm_backend) state.h3LlmBackend = cfg.h3_llm_backend;
+      if (cfg.h3_or_model) state.h3OrModel = cfg.h3_or_model;
       if (cfg.filename_prefix) state.filenamePrefix = cfg.filename_prefix;
       if (cfg.stitch_at_end != null) state.stitchAtEnd = cfg.stitch_at_end;
       if (cfg.trim_last_clip != null) state.trimLastClip = cfg.trim_last_clip;

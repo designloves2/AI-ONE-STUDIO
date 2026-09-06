@@ -36,11 +36,14 @@ const seedKeys = [...cache]; // the pre-migration localStorage list, for the one
 let revealAll = false; // session-only "peek", never persisted
 let loaded = false;
 let loadingPromise: Promise<void> | null = null;
-const painters = new Set<() => void>(); // render() of every live tile, for repaint-on-load/change
+// render() of every live tile, for repaint-on-load/change; `alive` drops entries whose tile
+// has left the DOM (galleries rebuild their grid on refresh).
+const painters = new Set<{ render: () => void; alive: () => boolean }>();
 
 function repaintAll() {
   for (const p of [...painters]) {
-    try { p(); } catch {}
+    if (!p.alive()) { painters.delete(p); continue; }
+    try { p.render(); } catch {}
   }
 }
 
@@ -172,8 +175,6 @@ export function makeSensitiveControl(media: HTMLElement, key: string, afterRende
   eye.style.cssText = EYE_CSS;
 
   function render() {
-    // drop this painter once its tile leaves the DOM (galleries rebuild on refresh)
-    if (!media.isConnected && !shade.isConnected) { painters.delete(render); return; }
     const marked = isSensitive(key); // in the saved hidden set → 🙈 icon
     const blurred = isBlurred(key); // …and not peeking → actually blur it
     shade.style.opacity = blurred ? "1" : "0";
@@ -201,7 +202,7 @@ export function makeSensitiveControl(media: HTMLElement, key: string, afterRende
   // reveal — only the 👁 does that.
   shade.addEventListener("click", (e) => e.stopPropagation());
 
-  painters.add(render);
+  painters.add({ render, alive: () => media.isConnected || shade.isConnected || eye.isConnected });
   render();
   return { eye, shade, render };
 }

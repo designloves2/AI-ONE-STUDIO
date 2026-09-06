@@ -15,6 +15,7 @@ server-side automation. Each runs standalone — copy the folder, `node index.mj
 | `zimage-headless/` | Z-Image Turbo image | t2i, i2i |
 | `upscale-headless/` | SeedVR2 image upscale (shared Krea2/Z-Image graph) | — |
 | `video-rtx-headless/` | RTX video upscale / deblur (RTXVideoSuperResolution + TJ_RTXDeblur) | upscale / deblur / both |
+| `music-headless/` | MusicMaker song / instrumental | engine: acestep \| minimax |
 
 Each folder has its own `README.md` with the full `job.json` schema. This doc is the overview.
 
@@ -27,6 +28,7 @@ git clone https://github.com/designloves2/AI-ONE-STUDIO
 cp -r AI-ONE-STUDIO/krea2-headless   ~/.hermes/skills/krea2-generate
 cp -r AI-ONE-STUDIO/zimage-headless  ~/.hermes/skills/zimage-generate
 cp -r AI-ONE-STUDIO/upscale-headless ~/.hermes/skills/upscale
+cp -r AI-ONE-STUDIO/music-headless   ~/.hermes/skills/music-generate
 # (h3-headless was delivered earlier)
 ```
 
@@ -111,6 +113,26 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 - "영상 업스케일 해줘. 2.0배율, HIGH옵션" → `{op:"upscale", scale:2.0, quality:"HIGH", video:"…"}`.
   "영상 디블러 해줘, HIGH옵션" → `{op:"deblur", quality:"HIGH", video:"…"}`.
 
+**music (MusicMaker song / instrumental)**
+
+```json
+{ "engine": "acestep", "caption": "warm K-ballad, piano and strings, female vocal",
+  "lyrics": "[Verse]\n...\n[Chorus]\n...", "duration": 210, "title": "Leaving at Dawn",
+  "bpm": 72, "keyscale": "D minor", "vocalGender": "female" }
+{ "engine": "minimax", "caption": "lofi hip-hop, rainy night", "instrumental": true, "duration": 120 }
+```
+
+- **`caption` and `lyrics` are finished text** — no LLM step here (prompt authoring stays with
+  the Hermes prompt skill). `instrumental:true` forces no vocals. Album cover is out of scope.
+- `engine` = `acestep` (default, cleaner 48 kHz) or `minimax`. Model files come from
+  `GET /music_one/config` — omit `dit`/`aceUnet`/etc. normally.
+- Ace-Step reads `bpm`/`keyscale`/`timesignature` as structured inputs; MiniMax folds them
+  into the caption text (it has no structured fields).
+- `aceStages` = `[{steps,cfg,on?}]`; stage 1 always runs, 2 & 3 opt-in and sequential.
+- Renders are long — bump `comfy.json` `timeoutMs` (a 3-min Ace-Step 3-stage can take 30+ min
+  on a 16 GB card). Output type is `"audio"`; `format` `flac`|`mp3`|`opus`.
+- Full `job.json` schema in `music-headless/README.md`.
+
 ## Output shape
 
 ```json
@@ -140,10 +162,19 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 - **video-rtx** — `--dry-run` graph identical to the studio's `buildUpscaleGraph` RTX path;
   real `op:"upscale"` scale 2.0 / HIGH on a 544×352 clip → `srcclip_upscaled_00001_.mp4`
   rendered (822 KB, ~2.2× the source) → `--out` downloaded a valid `ftypisom` MP4.
+- **music** — `--dry-run` acestep graph = 16 nodes (unet/shift/clip/vae/pos/neg/lat/sel +
+  3× sched/SamplerCustom + dec/save), minimax graph = 9 nodes, both node-for-node identical
+  to the studio's `buildMusicGraph`; model files auto-pulled from `GET /music_one/config`;
+  vocal/BPM/key hints folded into the caption (minimax) or set as structured inputs (acestep);
+  `SaveAudioAdvanced` dotted key `format.quality`. Real minimax 30 s instrumental mp3 submit
+  → `MMM_00010.mp3` rendered → `--out` downloaded a valid 410 KB MP3.
 - All `.mjs` pass `node --check`; `--help` runs with zero deps.
 
 ## Not in scope
 
 Single output per call. No batching, no gallery, no post-processing chains, no clip relay.
-Krea2 Identity Edit and Z-Image inpaint/rebg/controlnet/face-redraw are not ported. Prompt
-authoring stays with the Hermes prompt skill — these consume finished text.
+Krea2 Identity Edit and Z-Image inpaint/rebg/controlnet/face-redraw are not ported.
+MusicMaker's LLM (caption/lyric authoring), album cover, generation queue, and tagged-MP3
+export are not ported — music-headless takes finished caption + lyrics and returns the raw
+`SaveAudioAdvanced` file. Prompt authoring stays with the Hermes prompt skill — these
+consume finished text.

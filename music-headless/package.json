@@ -1,0 +1,13 @@
+{
+  "name": "music-headless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless MusicMaker generator (MiniMax Music 3 / Ace-Step 1.5) — extracted from AI-ONE-STUDIO's graph_builder_music + ComfyUI client. Zero dependencies, Node 20+.",
+  "type": "module",
+  "bin": { "music-headless": "./index.mjs" },
+  "main": "./index.mjs",
+  "exports": { ".": "./index.mjs" },
+  "scripts": { "help": "node index.mjs --help" },
+  "engines": { "node": ">=20" },
+  "files": ["index.mjs", "graph.mjs", "comfy.mjs", "core-helpers.mjs", "README.md"]
+}

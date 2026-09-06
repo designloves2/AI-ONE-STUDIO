@@ -171,7 +171,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
       });
       cell.appendChild(chk);
     } else {
-      const star = el("button", { text: img.favorite ? "★" : "☆", type: "button", style: { position: "absolute", zIndex: "3", top: "2px", right: "2px", background: "rgba(0,0,0,0.15)", color: img.favorite ? BRAND : "#fff", border: "none", borderRadius: "8px", textShadow: "0 0 3px rgba(0,0,0,0.95)", width: "18px", height: "18px", fontSize: "13px", transform: "translateY(-2px)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: "1", padding: "0" } });
+      const star = el("button", { text: img.favorite ? "★" : "☆", type: "button", style: { position: "absolute", zIndex: "3", top: "2px", right: "2px", background: "transparent", color: img.favorite ? BRAND : "#fff", border: "none", textShadow: "0 0 3px rgba(0,0,0,0.95)", width: "18px", height: "18px", fontSize: "13px", transform: "translateY(-2px)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: "1", padding: "0" } });
       star.addEventListener("click", async (e) => {
         e.stopPropagation();
         const nv = !img.favorite; img.favorite = nv;

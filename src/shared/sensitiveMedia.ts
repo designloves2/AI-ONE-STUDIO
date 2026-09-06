@@ -48,9 +48,9 @@ export function setSensitive(key: string, on: boolean) {
 }
 
 const EYE_CSS =
-  "width:18px;height:18px;padding:0;border:none;border-radius:4px;line-height:1;" +
+  "width:18px;height:18px;padding:0;border:none;line-height:1;" +
   "display:flex;align-items:center;justify-content:center;flex:none;" +
-  "background:rgba(0,0,0,0.15);color:#fff;font-size:11px;cursor:pointer;" +
+  "background:transparent;color:#fff;font-size:11px;cursor:pointer;" +
   "text-shadow:0 0 3px rgba(0,0,0,0.95)";
 
 /**
@@ -124,7 +124,7 @@ export function attachSensitiveToggle(
   corner: Corner = "br"
 ) {
   const { eye, shade } = makeSensitiveControl(media, key);
-  eye.style.cssText += `;position:absolute;${CORNER_CSS[corner]};z-index:3;border-radius:8px`;
+  eye.style.cssText += `;position:absolute;${CORNER_CSS[corner]};z-index:3`;
   cell.appendChild(shade);
   cell.appendChild(eye);
 }

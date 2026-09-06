@@ -20,8 +20,8 @@ export const LS_KEY    = "music_one_state_v1";
 
 // ── engine axis ──────────────────────────────────────────────────────────────
 export const ENGINES = [
-  { key: "minimax", label: "MiniMax Music 3" },
   { key: "acestep", label: "Ace-Step 1.5" },
+  { key: "minimax", label: "MiniMax Music 3" },
 ];
 export const ACE_LANGUAGES = ["en", "ko", "ja", "zh", "es", "fr", "de", "auto"];
 export const ACE_KEYSCALES = [
@@ -101,7 +101,7 @@ export function saveState(s: any) {
 export function defaultState(saved: any): any {
   saved = saved || {};
   return {
-    engine: saved.engine || "minimax",
+    engine: saved.engine || "acestep",   // "acestep" | "minimax"
 
     dit:  saved.dit  || "",
     clip: saved.clip || "",
@@ -114,8 +114,10 @@ export function defaultState(saved: any): any {
     aceShift:       saved.aceShift       ?? 3,
     aceSamplerName: saved.aceSamplerName || "jkass_quality",
     aceScheduler:   saved.aceScheduler   || "sgm_uniform",
-    aceStages:      Array.isArray(saved.aceStages) ? saved.aceStages
-                    : [{ steps: 30, cfg: 0 }, { steps: 20, cfg: 1 }, { steps: 15, cfg: 1 }],
+    // stage 1 always runs; stages 2 & 3 are sequential opt-in (3 needs 2 on)
+    aceStages:      Array.isArray(saved.aceStages)
+                    ? saved.aceStages.map((s: any, i: number) => ({ steps: s.steps, cfg: s.cfg, on: i === 0 ? true : s.on !== false }))
+                    : [{ steps: 30, cfg: 0, on: true }, { steps: 20, cfg: 1, on: true }, { steps: 15, cfg: 1, on: true }],
     bpm:          saved.bpm          ?? 120,
     keyscale:     saved.keyscale     || "A minor",
     timesignature: saved.timesignature || "4",

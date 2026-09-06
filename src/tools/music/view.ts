@@ -17,6 +17,7 @@ import {
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
 import { comfyApi, jget, jpost, viewURL } from "./api";
 import { takeReuse } from "../../shared/galleryHandoff";
+import { attachSensitiveToggle, mediaKey } from "../../shared/sensitiveMedia";
 
 const UNIQUE_ID = "music_web";
 
@@ -310,6 +311,7 @@ export function renderMusic(container: HTMLElement) {
     if (t.cover) cover.style.backgroundImage = coverURL(t.cover);
     else cover.appendChild(coverPlaceholder(t));
     if (t.seconds) cover.appendChild(el("div", { className: "mmm-dur", text: fmtDur(t.seconds) }));
+    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "br");
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
     let clickT: any = null;
     const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Click to play/pause · double-click to restart" });

@@ -8,8 +8,7 @@
 import type { GalleryMount } from "./mounts";
 import { navigateToTool } from "../shared/galleryNav";
 import { stashReuse } from "../shared/galleryHandoff";
-import { mediaKey, isBlurred } from "../shared/sensitiveMedia";
-import { makeSensitiveControl } from "../shared/sensitiveMedia";
+import { mediaKey, attachSensitiveToggle } from "../shared/sensitiveMedia";
 import {
   C, PLAYER_H, SUBFOLDER, ensureMusicStyles,
   el, clear, defaultState, loadState, saveState, fmtDur, settingsBadge,
@@ -202,16 +201,10 @@ export function createMusicGalleryMount(): GalleryMount {
     lcol.append(cb, favBtn);
 
     const cover: any = el("div", { className: "mmm-cover", title: "Track info", onclick: (e: Event) => { e.stopPropagation(); showInfo(t); } });
-    if (t.cover) {
-      const img: any = el("img", { src: `${comfyApi.base}/view?filename=${encodeURIComponent(t.cover)}&subfolder=${encodeURIComponent(SUB() + "/covers")}&type=output`, style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } });
-      const key = mediaKey(t.cover, SUB() + "/covers");
-      const { shade, eye } = makeSensitiveControl(img, key);
-      img.style.filter = isBlurred(key) ? "blur(14px)" : "";
-      cover.append(img, shade, eye);
-    } else {
-      cover.appendChild(coverPlaceholder(t));
-    }
+    if (t.cover) cover.style.backgroundImage = coverURL(t.cover);
+    else cover.appendChild(coverPlaceholder(t));
     if (t.seconds) cover.appendChild(el("div", { className: "mmm-dur", text: fmtDur(t.seconds) }));
+    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "br");
 
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
     let clickT: any = null;

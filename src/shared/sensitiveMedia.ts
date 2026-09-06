@@ -40,11 +40,21 @@ export function isBlurred(key: string): boolean {
 }
 
 export function setSensitive(key: string, on: boolean) {
+  // Re-read storage and merge before writing, so a second tab (or a stale in-memory cache)
+  // can't clobber entries added elsewhere — the write only ever adds/removes this one key.
+  cache = load();
   if (on) cache.add(key);
   else cache.delete(key);
   try {
     localStorage.setItem(KEY, JSON.stringify([...cache]));
   } catch {}
+}
+
+// Keep the in-memory cache live when another tab changes the set.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (e) => {
+    if (e.key === KEY) cache = load();
+  });
 }
 
 const EYE_CSS =

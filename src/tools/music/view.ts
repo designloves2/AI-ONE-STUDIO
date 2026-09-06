@@ -7,7 +7,7 @@
 // LLM: local / openrouter 는 POST /music_one/llm/run (서버측), comfy 는 원본대로
 // TextGenerate 그래프를 큐에 넣어 처리 — 웹은 API 키를 들지 않는다.
 import {
-  C, BRAND, LEFT_W, PLAYER_H, PAD, API, SUBFOLDER,
+  C, BRAND, LEFT_W, PLAYER_H, PAD, API, SUBFOLDER, ensureMusicStyles,
   el, clear, loadState, saveState, defaultState, randomSeed,
   SAMPLERS, SCHEDULERS, AUDIO_FORMATS, STYLE_CHIPS, LYRIC_TAGS,
   DURATION_MIN, DURATION_MAX, LLM_BACKENDS, LLM_CLIP_TYPES, lyricsIntent, fmtDur, settingsBadge,
@@ -16,6 +16,7 @@ import {
 } from "./core";
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
 import { comfyApi, jget, jpost, viewURL } from "./api";
+import { takeReuse } from "../../shared/galleryHandoff";
 
 const UNIQUE_ID = "music_web";
 
@@ -41,206 +42,7 @@ export function renderMusic(container: HTMLElement) {
     persist();
   }
 
-  if (!document.getElementById("mmm-styles")) {
-    const s = document.createElement("style"); s.id = "mmm-styles";
-    s.textContent = `
-      .mmm-lp{scrollbar-width:thin;scrollbar-color:${C.border} transparent}
-      .mmm-lp::-webkit-scrollbar{width:6px}
-      .mmm-lp::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
-      .mmm-lp::-webkit-scrollbar-track{background:transparent}
-
-      .mmm-row{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:12px;
-               transition:background .13s ease;cursor:default}
-      .mmm-row:hover{background:${C.bg2}}
-      .mmm-row.on{background:${C.bg3}}
-      .mmm-cover{width:52px;height:52px;border-radius:10px;flex-shrink:0;background:${C.bg3};
-                 background-size:cover;background-position:center;box-shadow:0 2px 8px rgba(0,0,0,.45);
-                 display:flex;align-items:center;justify-content:center;font-size:18px;color:${C.muted};
-                 cursor:pointer;position:relative;overflow:hidden}
-      .mmm-engtxt{font-weight:800;letter-spacing:.5px;color:${C.text};font-family:inherit}
-      .mmm-cover::after{content:"⤢";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-                 font-size:15px;color:#fff;background:rgba(0,0,0,.42);opacity:0;transition:opacity .13s}
-      .mmm-row:hover .mmm-cover::after{opacity:1}
-      .mmm-dur{position:absolute;right:3px;bottom:3px;background:rgba(0,0,0,.72);color:#fff;font-size:9px;
-               line-height:1;padding:2px 4px;border-radius:4px;letter-spacing:.2px}
-      .mmm-tt{font-size:13.5px;color:${C.text};font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;flex:0 1 auto;min-width:0}
-      .mmm-tt:hover{color:#fff}
-      .mmm-row.on .mmm-tt{color:${BRAND}}
-      .mmm-trow{display:flex;align-items:center;gap:6px;min-width:0}
-      .mmm-trow .mmm-acts{margin-left:auto}
-      .mmm-eng{flex-shrink:0;font-size:9px;font-weight:600;letter-spacing:.2px;color:${C.muted};
-               border:1px solid ${C.border};border-radius:5px;padding:1px 5px;line-height:1.4;text-transform:uppercase}
-      .mmm-sub{font-size:11px;color:${C.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
-
-      .mmm-ib{background:transparent;border:0;color:${C.muted};cursor:pointer;width:28px;height:28px;
-              border-radius:50%;font-size:13px;display:flex;align-items:center;justify-content:center;
-              transition:background .12s,color .12s;flex-shrink:0}
-      .mmm-ib:hover{background:${C.bg3};color:${C.text}}
-      .mmm-ib.act{color:${BRAND}}
-      .mmm-acts{display:flex;gap:1px;flex-shrink:0;opacity:.55;transition:opacity .13s}
-      .mmm-row:hover .mmm-acts,.mmm-row.on .mmm-acts{opacity:1}
-      .mmm-lcol{display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0;width:16px}
-      .mmm-cb{opacity:0;transition:opacity .12s;accent-color:${BRAND};width:14px;height:14px;flex-shrink:0;cursor:pointer}
-      .mmm-row:hover .mmm-cb,.mmm-cb:checked,.mmm-selmode .mmm-cb{opacity:1}
-      .mmm-fav{background:transparent;border:0;color:${C.text};cursor:pointer;font-size:14px;line-height:1;
-               padding:0;width:16px;height:16px;opacity:0;transition:opacity .12s,color .12s}
-      .mmm-row:hover .mmm-fav{opacity:1}
-      .mmm-fav:hover{color:${BRAND}}
-      .mmm-fav.act{opacity:1;color:${BRAND}}
-      @media(pointer:coarse){.mmm-acts,.mmm-cb,.mmm-fav{opacity:1}}
-
-      .mmm-spark{background:${BRAND};border:0;color:#fff;cursor:pointer;width:30px;height:30px;
-                 border-radius:50%;font-size:14px;display:flex;align-items:center;justify-content:center;
-                 box-shadow:0 2px 8px ${BRAND}55;transition:transform .1s,filter .1s;flex-shrink:0}
-      .mmm-spark:hover{filter:brightness(1.12)}
-      .mmm-spark:active{transform:scale(.92)}
-      .mmm-spark:disabled{background:${C.bg3};box-shadow:none;color:${C.muted}}
-
-      .mmm-chip{background:${C.bg2};border:1px solid ${C.border};color:${C.text};border-radius:999px;
-                padding:4px 11px;font-size:11px;cursor:pointer;transition:border-color .12s,background .12s}
-      .mmm-chip:hover{border-color:${BRAND};background:${C.bg3}}
-
-      .mmm-sh{display:flex;align-items:center;gap:5px}
-      .mmm-sh .t{flex:1;font-weight:700;font-size:12.5px;color:${C.text}}
-      .mmm-tb{background:transparent;border:0;color:${C.muted};cursor:pointer;font-family:inherit;
-              font-size:10.5px;padding:4px 7px;border-radius:6px;white-space:nowrap;transition:background .12s,color .12s}
-      .mmm-tb:hover{background:${C.bg2};color:${C.text}}
-      .mmm-cinfo{background:${BRAND};border:0;color:#fff;cursor:pointer;font-family:inherit;
-                 font-size:11px;padding:8px 12px;border-radius:8px;white-space:nowrap;flex-shrink:0;
-                 line-height:1.15;transition:filter .12s}
-      .mmm-cinfo:hover{filter:brightness(1.12)}
-
-      .mmm-bar{flex-shrink:0;display:flex;align-items:center;gap:12px;padding:0 12px;
-               border-top:1px solid ${C.border};background:rgba(20,20,20,.72);
-               backdrop-filter:blur(6px);border-radius:10px}
-      .mmm-pp{background:${BRAND};border:0;color:#fff;width:38px;height:34px;border-radius:9px;
-              display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;
-              box-shadow:0 2px 10px ${BRAND}55;transition:filter .1s,transform .08s;flex-shrink:0}
-      .mmm-pp svg{display:block;fill:#fff}
-      .mmm-pp:hover{filter:brightness(1.12)} .mmm-pp:active{transform:scale(.95)}
-      .mmm-seek{flex:1;accent-color:${BRAND};height:4px}
-      .mmm-vol{width:74px;accent-color:${BRAND};height:4px}
-
-      .mmm-top{display:flex;align-items:center;gap:10px;flex-shrink:0}
-      .mmm-brand{color:${BRAND};font-weight:800;font-size:12px;letter-spacing:.5px}
-      .mmm-brand .m{color:${C.muted};font-weight:600;margin-left:6px;letter-spacing:0}
-
-      .mmm-seg{display:flex;background:${C.bg1};border:1px solid ${C.border};border-radius:9px;padding:2px;gap:2px}
-      .mmm-seg button{flex:1;border:0;background:transparent;color:${C.muted};cursor:pointer;
-                      padding:5px 12px;font-size:11px;border-radius:7px;white-space:nowrap;
-                      transition:background .12s,color .12s}
-      .mmm-seg button:hover{color:${C.text}}
-      .mmm-seg button.on{background:${BRAND};color:#fff;font-weight:600}
-
-      .mmm-lbl{font-size:10.5px;color:${C.muted};font-weight:600;margin-bottom:3px;display:block}
-      .mmm-fld,.mmm-sel{width:100%;box-sizing:border-box;background:${C.bg2};color:${C.text};
-                        border:1px solid ${C.border};border-radius:8px;padding:7px 9px;font-size:12px;
-                        font-family:inherit;outline:none;transition:border-color .12s}
-      .mmm-fld:focus,.mmm-sel:focus{border-color:${BRAND}}
-      .mmm-sel{cursor:pointer;appearance:none;
-               background-image:linear-gradient(45deg,transparent 50%,${C.muted} 50%),linear-gradient(135deg,${C.muted} 50%,transparent 50%);
-               background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
-      .mmm-range{width:100%;accent-color:${BRAND};height:4px;margin:6px 0}
-
-      .mmm-acc{display:flex;flex-direction:column;gap:9px;padding:11px;background:${C.bg1};
-               border:1px solid ${C.border};border-radius:10px}
-      .mmm-acc .hd{font-size:10.5px;color:${C.muted};font-weight:700;letter-spacing:.3px;text-transform:uppercase}
-      .mmm-grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-      .mmm-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-
-      .mmm-go{flex:1;background:${BRAND};border:0;color:#fff;font-weight:700;font-size:13px;cursor:pointer;
-              padding:11px;border-radius:10px;box-shadow:0 3px 12px ${BRAND}55;transition:filter .1s,transform .08s}
-      .mmm-go:hover{filter:brightness(1.12)} .mmm-go:active{transform:scale(.98)}
-      .mmm-go:disabled{background:${C.bg3};color:${C.muted};box-shadow:none;cursor:default}
-      .mmm-stop{background:${C.bg2};border:1px solid ${C.border};color:${C.text};cursor:pointer;
-                padding:11px 16px;border-radius:10px;font-size:12px;flex-shrink:0;font-family:inherit}
-      .mmm-stop:hover{border-color:${C.err};color:${C.err}}
-      .mmm-status{font-size:11px;color:#ffcf3f;font-weight:600;min-height:15px;text-align:center;
-                  text-shadow:0 1px 2px rgba(0,0,0,.5)}
-
-      .mmm-menu{position:fixed;z-index:10001;background:${C.bg1};border:1px solid ${C.border};
-                border-radius:10px;padding:4px;min-width:150px;box-shadow:0 8px 28px rgba(0,0,0,.55)}
-      .mmm-menu .it{padding:8px 11px;font-size:12px;cursor:pointer;border-radius:7px;color:${C.text};
-                    display:flex;align-items:center;gap:8px;white-space:nowrap}
-      .mmm-menu .it:hover{background:${C.bg3}}
-      .mmm-menu .it.danger:hover{background:${C.err}22;color:${C.err}}
-      .mmm-menu .sep{height:1px;background:${C.border};margin:4px 6px}
-
-      .mmm-ov{position:absolute;inset:0;z-index:9999;background:rgba(8,8,8,.985);border-radius:inherit;
-              display:flex;flex-direction:column;padding:18px;gap:12px;box-sizing:border-box}
-      .mmm-ov-hd{display:flex;align-items:center;gap:10px;flex-shrink:0}
-      .mmm-ov-hd .t{flex:1;font-size:14px;font-weight:700;color:#fff}
-      .mmm-x{background:${C.bg2};border:1px solid ${C.border};color:${C.text};cursor:pointer;
-             padding:6px 12px;border-radius:8px;font-size:12px}
-      .mmm-x:hover{border-color:${C.err};color:${C.err}}
-      .mmm-tabs{display:flex;gap:2px;background:${C.bg1};border:1px solid ${C.border};border-radius:9px;padding:2px;flex-shrink:0}
-      .mmm-tabs button{flex:1;border:0;background:transparent;color:${C.muted};cursor:pointer;padding:7px;
-                       font-size:11.5px;border-radius:7px;transition:background .12s,color .12s}
-      .mmm-tabs button.on{background:${BRAND};color:#fff;font-weight:600}
-      .mmm-tabs button:hover:not(.on){color:${C.text}}
-      .mmm-save{background:${BRAND};border:0;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;
-                padding:10px;border-radius:9px;box-shadow:0 3px 12px ${BRAND}55}
-      .mmm-save:hover{filter:brightness(1.12)}
-      .mmm-ov-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
-      .mmm-ov-body pre{white-space:pre-wrap;font-size:11px;color:${C.text};margin:2px 0;
-                       background:${C.bg1};border:1px solid ${C.border};border-radius:8px;padding:9px}
-      .mmm-k{color:${BRAND};font-size:10.5px;font-weight:700;margin-top:8px;text-transform:uppercase;letter-spacing:.3px}
-
-      .mmm-ss{width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:4px}
-      .mmm-ss .f{width:100%;box-sizing:border-box;background:${C.bg2};color:${C.text};border:1px solid ${C.border};
-                 border-radius:8px;padding:5px 9px;font-size:11px;font-family:inherit;outline:none;display:block}
-      .mmm-ss .f:focus{border-color:${BRAND}}
-      .mmm-ss select{width:100%;box-sizing:border-box;background:${C.bg2};color:${C.text};border:1px solid ${C.border};
-                     border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;outline:none;cursor:pointer}
-      .mmm-ss select:focus{border-color:${BRAND}}
-
-      .mmm-lora{display:flex;gap:6px;align-items:flex-start}
-      .mmm-lora .mmm-ss{flex:1;min-width:0}
-      .mmm-add{background:${C.bg2};border:1px dashed ${C.borderH};color:${C.text};cursor:pointer;
-               padding:7px;border-radius:8px;font-size:11.5px;width:100%;transition:border-color .12s}
-      .mmm-add:hover{border-color:${BRAND};color:${BRAND}}
-      .mmm-del{background:transparent;border:1px solid ${C.border};color:${C.muted};cursor:pointer;
-               flex-shrink:0;border-radius:8px;font-size:11px;padding:5px 0}
-      .mmm-del:hover{border-color:${C.err};color:${C.err}}
-      .mmm-hint{font-size:10px;color:${C.muted};text-align:center;padding:2px;line-height:1.5}
-
-      .mmm-pop{position:absolute;inset:0;z-index:10000;background:rgba(6,6,6,.75);display:flex;
-               align-items:center;justify-content:center;border-radius:inherit}
-      .mmm-pop .box{width:min(440px,84%);background:${C.bg1};border:1px solid ${C.borderH};border-radius:14px;
-                    padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 40px rgba(0,0,0,.6)}
-      .mmm-pop .box h4{margin:0;font-size:13px;color:#fff;font-weight:700}
-      .mmm-pop .box p{margin:0;font-size:10.5px;color:${C.muted};line-height:1.5}
-      .mmm-pop textarea{min-height:96px;resize:vertical}
-      .mmm-pop .btns{display:flex;gap:6px;justify-content:flex-end}
-
-      @keyframes mmm-pulse{0%,100%{opacity:.55}50%{opacity:1}}
-      .mmm-llmbusy{position:absolute;inset:0;z-index:5;border-radius:8px;
-                   background:rgba(12,12,12,.45);backdrop-filter:blur(3px);
-                   display:flex;align-items:center;justify-content:center;gap:7px;
-                   font-size:11.5px;font-weight:600;color:${BRAND}}
-      .mmm-llmbusy .dot{width:7px;height:7px;border-radius:50%;background:${BRAND};animation:mmm-pulse 1s ease-in-out infinite}
-
-      .mmm-row.gen{background:${C.bg2};cursor:default}
-      .mmm-row.gen .mmm-cover{color:${C.muted}}
-      .mmm-row.gen .mmm-cover::after{content:none}
-      @keyframes mmm-sheen{0%{background-position:-140px 0}100%{background-position:220px 0}}
-      .mmm-row.gen .mmm-cover.busy{background-image:linear-gradient(100deg,transparent 20%,${BRAND}44 50%,transparent 80%);
-                 background-size:200px 100%;background-repeat:no-repeat;animation:mmm-sheen 1.1s linear infinite}
-      @keyframes mmm-spin{to{transform:rotate(360deg)}}
-      .mmm-cover.regen::before{content:"";position:absolute;inset:0;z-index:1;
-                 background:linear-gradient(100deg,transparent 15%,${BRAND}66 50%,transparent 85%);
-                 background-size:200px 100%;background-repeat:no-repeat;animation:mmm-sheen 1.1s linear infinite}
-      .mmm-cover.regen::after{content:"↻";opacity:1;z-index:2;background:rgba(0,0,0,.55);
-                 animation:mmm-spin .9s linear infinite}
-      .mmm-prog{height:4px;border-radius:3px;background:${C.bg3};overflow:hidden;margin-top:6px}
-      .mmm-prog i{display:block;height:100%;background:${BRAND};border-radius:3px;transition:width .25s ease}
-      .mmm-stage{font-size:10.5px;color:${BRAND};margin-top:3px;display:flex;justify-content:space-between;gap:8px}
-      .mmm-stage .p{color:${C.muted}}
-      .mmm-row.gen.err .mmm-stage{color:${C.err}}
-      .mmm-row.gen.err .mmm-prog i{background:${C.err}}
-    `;
-    document.head.appendChild(s);
-  }
+  ensureMusicStyles();
 
   // ── styled form helpers (SUNO tone) ────────────────────────────────────────
   function fld(value: any, oninput: (v: any) => void, { ph = "", ta = false, num = false }: any = {}) {
@@ -653,25 +455,27 @@ export function renderMusic(container: HTMLElement) {
     root.appendChild(ov);
   }
 
+  function applyReuseMeta(m: any) {
+    if (!m) return;
+    const eng = m.engine === "acestep" ? "acestep" : "minimax";
+    if (eng !== state.engine) switchEngine(eng);
+    ENGINE_FIELDS.forEach((k) => { if (m[k] !== undefined) state[k] = m[k]; });
+    state.lyricsInput = m.lyricsInput ?? m.lyrics ?? "";
+    state.lyrics      = m.lyrics ?? "";
+    state.caption     = m.caption ?? "";
+    state.captionBrief = m.captionBrief ?? "";
+    state.styleChips  = Array.isArray(m.styleChips) ? m.styleChips : [];
+    state.title       = m.title || "";
+    state.coverBrief  = m.coverBrief || "";
+    if (m.seconds != null) state.duration = m.seconds;
+    state.seedMode = "fixed";
+    if (m.seed != null) state.seed = m.seed;
+    persist(); renderCompose(); loadPlaylist();
+    statusEl.textContent = `Reused — ${m.engine === "acestep" ? "Ace-Step" : "MiniMax"}`;
+  }
   function reuse(t: any) {
     jget(`/meta?filename=${encodeURIComponent(t.filename)}&subfolder=${encodeURIComponent(t.subfolder || SUB())}`).then((d) => {
-      if (!d.ok || !d.meta) return;
-      const m = d.meta;
-      const eng = m.engine === "acestep" ? "acestep" : "minimax";
-      if (eng !== state.engine) switchEngine(eng);
-      ENGINE_FIELDS.forEach((k) => { if (m[k] !== undefined) state[k] = m[k]; });
-      state.lyricsInput = m.lyricsInput ?? m.lyrics ?? "";
-      state.lyrics      = m.lyrics ?? "";
-      state.caption     = m.caption ?? "";
-      state.captionBrief = m.captionBrief ?? "";
-      state.styleChips  = Array.isArray(m.styleChips) ? m.styleChips : [];
-      state.title       = m.title || "";
-      state.coverBrief  = m.coverBrief || "";
-      if (m.seconds != null) state.duration = m.seconds;
-      state.seedMode = "fixed";
-      if (m.seed != null) state.seed = m.seed;
-      persist(); renderCompose(); loadPlaylist();
-      statusEl.textContent = `Reused — ${m.engine === "acestep" ? "Ace-Step" : "MiniMax"}`;
+      if (d.ok && d.meta) applyReuseMeta(d.meta);
     });
   }
 
@@ -1617,4 +1421,8 @@ export function renderMusic(container: HTMLElement) {
   }).catch(() => {});
   renderCompose();
   loadPlaylist();
+
+  // 별도 갤러리 페이지에서 트랙 ↺(Reuse)로 넘어온 경우 — 한 번만 소비.
+  const handoff = takeReuse("music");
+  if (handoff) applyReuseMeta(handoff);
 }

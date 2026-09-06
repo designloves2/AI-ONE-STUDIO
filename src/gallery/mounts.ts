@@ -32,6 +32,7 @@ import * as h3Core from "../tools/minimax_h3/core";
 import { createGalleryOverlay as h3Gallery } from "../tools/minimax_h3/galleryOverlay";
 import { createSettingsOverlay as h3Settings } from "../tools/minimax_h3/settings";
 import { getNodeAvailability } from "../tools/minimax_h3/api";
+import { createMusicGalleryMount } from "./musicMount";
 
 export interface GalleryMount {
   el: HTMLElement;
@@ -197,19 +198,7 @@ export function createGalleryMount(id: ToolId): GalleryMount {
       return imageMount(sdxlCore as any, "#sdxl", sdxlGallery as any, sdxlSettings as any, sendTo4Plain);
     case "minimax_h3":
       return h3Mount();
-    default: {
-      // MusicMaker(등)은 자체 플레이리스트를 쓰고 표준 갤러리가 없다 — 갤러리 페이지에서
-      // 이 탭이 선택되면 도구로 가라는 안내만 띄운다.
-      const box = document.createElement("div");
-      box.style.cssText = "position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--color-muted,#565656);font-size:13px;text-align:center;padding:24px";
-      box.textContent = "This tool has its own built-in library — open it from the top menu.";
-      return {
-        el: box,
-        show() { box.style.display = "flex"; },
-        hide() { box.style.display = "none"; },
-        refresh() {},
-        toggleSettings() { return false; },
-      };
-    }
+    case "music":
+      return createMusicGalleryMount();
   }
 }

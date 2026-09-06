@@ -407,6 +407,23 @@ export function ensureMusicStyles() {
     .mmm-stage .p{color:${C.muted}}
     .mmm-row.gen.err .mmm-stage{color:${C.err}}
     .mmm-row.gen.err .mmm-prog i{background:${C.err}}
+
+    /* ── mobile (≤767px) — the SUNO 2-pane layout stacks: compose on top, playlist
+       below, player bar pinned at the bottom. The drag-resize handle is gone. ── */
+    @media (max-width:767px){
+      .mmm-root{padding:8px;gap:8px}
+      .mmm-top{flex-wrap:wrap;row-gap:6px}
+      .mmm-top .mmm-seg{flex:1 1 100%}
+      .mmm-main{flex-direction:column;overflow-y:auto;gap:10px}
+      .mmm-dragh{display:none}
+      .mmm-composewrap{width:100%!important;flex:0 0 auto;min-height:0}
+      .mmm-compose{overflow-y:visible;flex:0 0 auto;padding-right:0}
+      .mmm-playlistwrap{flex:0 0 auto;min-height:70vh}
+      .mmm-bar{gap:8px}
+      .mmm-bar .mmm-nowwrap,.mmm-bar .mmm-vol{display:none}
+      .mmm-grid2,.mmm-grid3{grid-template-columns:1fr 1fr}
+      .mmm-lib-grid{grid-template-columns:1fr!important}
+    }
   `;
   document.head.appendChild(s);
 }

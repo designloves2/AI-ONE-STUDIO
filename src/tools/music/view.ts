@@ -147,7 +147,7 @@ export function renderMusic(container: HTMLElement) {
     setTimeout(() => document.addEventListener("mousedown", close), 0);
   }
 
-  const root: any = el("div", { style: {
+  const root: any = el("div", { className: "mmm-root", style: {
     position: "relative", flex: "1", minHeight: "0", width: "100%", padding: `${PAD}px`,
     display: "flex", flexDirection: "column", gap: `${PAD}px`,
     boxSizing: "border-box", color: C.text, fontSize: "12px", overflow: "hidden", background: C.bg0,
@@ -169,21 +169,21 @@ export function renderMusic(container: HTMLElement) {
 
   // ── main split: compose | playlist ─────────────────────────────────────
   const LEFT_MIN = LEFT_W, LEFT_MAX = 760;
-  const main = el("div", { style: { flex: "1", display: "flex", gap: "0", minHeight: 0 } });
+  const main = el("div", { className: "mmm-main", style: { flex: "1", display: "flex", gap: "0", minHeight: 0 } });
   const clampLeft = (w: number) => Math.max(LEFT_MIN, Math.min(LEFT_MAX, w));
   state.leftW = clampLeft(state.leftW || LEFT_W);
-  const composeWrap = el("div", { style: {
+  const composeWrap = el("div", { className: "mmm-composewrap", style: {
     width: `${state.leftW}px`, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0,
   }});
-  const compose = el("div", { className: "mmm-lp", style: {
+  const compose = el("div", { className: "mmm-lp mmm-compose", style: {
     flex: "1", overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px", paddingRight: "6px",
   }});
-  const composeFixed = el("div", { style: {
+  const composeFixed = el("div", { className: "mmm-composefixed", style: {
     flexShrink: 0, display: "flex", flexDirection: "column", gap: "7px",
     paddingTop: "9px", marginTop: "2px", borderTop: `1px solid ${C.border}`,
   }});
   composeWrap.append(compose, composeFixed);
-  const dragH = el("div", { title: "Drag to resize", style: {
+  const dragH = el("div", { className: "mmm-dragh", title: "Drag to resize", style: {
     width: `${PAD}px`, flexShrink: 0, cursor: "col-resize", display: "flex",
     alignItems: "center", justifyContent: "center",
   }});
@@ -197,7 +197,7 @@ export function renderMusic(container: HTMLElement) {
     const up = () => { persist(); document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
     document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
   });
-  const playlistWrap = el("div", { style: { flex: "1", display: "flex", flexDirection: "column", minWidth: 0, gap: "6px" } });
+  const playlistWrap = el("div", { className: "mmm-playlistwrap", style: { flex: "1", display: "flex", flexDirection: "column", minWidth: 0, gap: "6px" } });
   main.append(composeWrap, dragH, playlistWrap);
   root.appendChild(main);
 
@@ -206,7 +206,7 @@ export function renderMusic(container: HTMLElement) {
   const stopPlayback = () => { try { audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); } catch {} };
   const bar = el("div", { className: "mmm-bar", style: { height: `${PLAYER_H}px` } });
   const miniCover = el("div", { style: { width: "40px", height: "40px", borderRadius: "8px", background: C.bg3, flexShrink: 0, backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 1px 6px rgba(0,0,0,.4)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "12px", letterSpacing: ".5px", color: C.muted } });
-  const nowWrap = el("div", { style: { width: "150px", flexShrink: 0, overflow: "hidden" } });
+  const nowWrap = el("div", { className: "mmm-nowwrap", style: { width: "150px", flexShrink: 0, overflow: "hidden" } });
   const nowTitle = el("div", { style: { fontSize: "11.5px", color: C.text, fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, text: "Pick a track to play" });
   const nowSub = el("div", { style: { fontSize: "10px", color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, text: "" });
   nowWrap.append(nowTitle, nowSub);

@@ -81,8 +81,8 @@ export function createMusicGalleryMount(): GalleryMount {
   head.append(searchIn, favTgl, sortSel);
 
   const selBar = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", fontSize: "11.5px", color: C.text, padding: "4px 2px", flexShrink: 0 } });
-  // 2-column grid — rows are horizontal cards, two per line.
-  const listBody = el("div", { className: "mmm-lp", style: {
+  // 2-column grid — rows are horizontal cards, two per line (1 col on mobile).
+  const listBody = el("div", { className: "mmm-lp mmm-lib-grid", style: {
     flex: "1", overflowY: "auto", minHeight: 0,
     display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     gap: "4px 10px", alignContent: "start",

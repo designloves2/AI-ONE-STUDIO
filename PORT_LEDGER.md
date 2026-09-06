@@ -135,7 +135,15 @@ style block, SUNO layout, ENGINE_FIELDS engine swap, generation queue, Krea2 cov
 flow and the 3-backend LLM path (all via `POST /music_one/llm/run`, `comfy` backend
 queues a `TextGenerate` graph) are carried over verbatim. Registered next to MiniMax
 H3 under the renamed **Media Generator** menu group. Backend `/music_one/*` routes
-are the node's — verify end-to-end once the node ships.
+are the node's.
+
+**Live (node up, 2026-09-06):** playlist / covers / meta / config read paths
+browser-verified against real tracks; `/music_one/llm/run` POST fires with the
+right body; engine order (Ace-Step first + default) and sequential sampling-stage
+cascade verified. Dev proxy needed `/music_one` added to `vite.config.ts`
+`comfyPaths` (`9429fc2`) — was hitting the SPA fallback. Still to eyeball manually:
+the ✨ LLM result landing in the lyrics/style box (verbatim mirror of the node
+path; server salvage for the reasoning model verified node-side).
 
 | item | node | web | verified | origin | notes |
 |---|---|---|---|---|---|

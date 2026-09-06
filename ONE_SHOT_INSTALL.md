@@ -76,9 +76,11 @@ ComfyUI 포트 = 8188
        노드 팩을 clone/업데이트하며 각 requirements.txt 를 설치합니다.
      - `ComfyUI-Openrouter_node`(REPOS[24]) — MusicMaker / 이미지 도구 / MiniMax H3 의 OpenRouter
        LLM 백엔드. `JK-AceStep-Nodes`(REPOS[25], Manager 폴더 `comfyui-ace-step-ksampler`) —
-       MusicMaker Ace-Step 엔진 기본 샘플러 `jkass_quality`.
-     - MiniMax Music 3 · Ace-Step 1.5 의 인코드·latent·sampler-select 노드는 ComfyUI 코어에
-       내장이라 별도 팩이 필요 없습니다(EZi 가 ComfyUI 를 최신으로 갱신).
+       MusicMaker Ace-Step 엔진 기본 샘플러 `jkass_quality` 를 등록하는 **소프트 의존** 팩
+       (없으면 그 샘플러만 실패 → MusicMaker Settings 에서 `euler` 등 코어 샘플러로 변경 가능).
+     - MiniMax Music 3 · Ace-Step 1.5 의 인코드·latent·sampler-select·`VAEDecodeAudio`·
+       `SaveAudioAdvanced` 노드는 ComfyUI 코어(`comfy_extras/`)라 별도 팩이 필요 없습니다
+       (EZi 가 ComfyUI 를 최신으로 갱신).
      - 예상되는 무시 가능 경고: `groundingdino-py` 빌드 실패(cp949), 일부 오디오 패키지.
        그 외의 `[WARN]`/`[ERROR]` 는 원문 그대로 최종 보고에 포함하세요.
      - `< nul` 은 스크립트 끝의 `pause` 때문입니다(빼면 멈춤).

@@ -252,9 +252,10 @@ rem OpenRouter LLM node - the cloud LLM backend for MusicMaker lyrics / style pr
 rem the image tools' Enhance / Image-to-Prompt and MiniMax H3's Image-to-Brief. The API key
 rem is stored server-side in the node pack's .env (shared by all three), never in the browser.
 set REPOS[23]=https://github.com/gabe-init/ComfyUI-Openrouter_node
-rem JK-AceStep-Nodes - the JKASS "jkass_quality" sampler MusicMaker's Ace-Step 1.5 engine
-rem defaults to. The Ace-Step 1.5 / MiniMax Music 3 encode + latent + sampler-select nodes
-rem are ComfyUI core; only this quality sampler needs the pack.
+rem JK-AceStep-Nodes - registers the JKASS "jkass_quality" sampler_name that MusicMaker's
+rem Ace-Step 1.5 engine defaults to. SOFT dependency: without it only that one sampler fails
+rem - pick a core sampler (euler / dpmpp_2m / heun) in MusicMaker Settings instead. The
+rem Ace-Step 1.5 / MiniMax Music 3 encode + latent + sampler-select nodes are ComfyUI core.
 set REPOS[24]=https://github.com/jeankassio/JK-AceStep-Nodes
 
 set COUNT=25

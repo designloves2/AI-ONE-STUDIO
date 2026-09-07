@@ -162,7 +162,9 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 - **krea2** — `--dry-run` t2i/i2i graph node-for-node identical to the studio's `buildGraph`
   output; real `t2i` submit → `K2_00125_.png` rendered → `--out` downloaded a valid 1.5 MB PNG.
   Identity edit (`mode:"identity"`) — `--dry-run` graph matches the studio's `buildIdentityGraph`
-  (`Krea2EditModelPatch` / `Krea2EditGroundedEncode` + identity LoRA from `identity_lora`).
+  (`Krea2EditModelPatch` / `Krea2EditGroundedEncode` + identity LoRA auto-pulled from
+  `identity_lora`); real submit on a portrait → `K2_00167_.png` rendered → `--out` downloaded
+  a valid 1.2 MB PNG.
 - **zimage** — `--dry-run` t2i graph identical to the studio (`ModelSamplingAuraFlow`, clip
   type `lumina2`); real `t2i` submit → `ZIT_00092_.png` rendered → downloaded.
 - **upscale** — `--dry-run` graph identical to the studio's `buildUpscaleGraph`;

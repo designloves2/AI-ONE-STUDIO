@@ -1,7 +1,9 @@
-// graph.mjs — Krea2 ComfyUI API graph builder (t2i / i2i slice).
+// graph.mjs — Krea2 ComfyUI API graph builder (t2i / i2i / identity-edit slice).
 // Ported node-for-node from src/tools/krea2/graphBuilder.ts — node id strings, class_type names
 // and input field names kept identical to the studio build (and to the original
-// graph_builder_krea2.js). Identity Edit and SeedVR2 upscale are out of scope here.
+// graph_builder_krea2.js). SeedVR2 upscale is out of scope here.
+// Identity Edit needs `comfyui-krea2edit` on the ComfyUI server
+// (Krea2EditModelPatch / Krea2EditGroundedEncode) + a krea2 identity-edit LoRA.
 
 import { SUBFOLDER, safeDepthCkpt, buildPromptText, controlOutputSize, controlLoraForType } from "./core-helpers.mjs";
 
@@ -156,7 +158,78 @@ export function buildI2IGraph(state) {
   return { graph: g, meta: { saveNode: "K2:save", denoise: g["K2:sampler"].inputs.denoise, steps: g["K2:sampler"].inputs.steps, seed: g["K2:sampler"].inputs.seed, samplerUsed: g["K2:sampler"].inputs.sampler_name } };
 }
 
+// ── IDENTITY EDIT (comfyui-krea2edit + krea2 identity-edit LoRA) ─────────────
+// Wiring (lbouaraba/comfyui-krea2edit):
+//   UNETLoader → LoraLoaderModelOnly(identity LoRA) [+ user LoRAs] → Krea2EditModelPatch.model
+//   LoadImage ─┬─ VAEEncode → Krea2EditModelPatch.source_latent
+//              └─ Krea2EditGroundedEncode.image  (+ instruction prompt)
+//   Krea2EditGroundedEncode(empty prompt, same image) → KSampler.negative (trained uncond)
+//   Krea2EditModelPatch → KSampler.model ; EmptySD3LatentImage → KSampler.latent_image
+export function buildIdentityGraph(state) {
+  if (!state.identityImage) throw tag(new Error("identity mode needs `identityImage` (an absolute path)."), "config");
+  const idLora = state.identityLora;
+  if (!idLora || idLora === "none")
+    throw tag(new Error("No identity-edit LoRA — set `identityLora` in the job, or `identity_lora` in the studio config."), "config");
+
+  const modelName = state.model || "";
+  const clipName = state.textEncoder || "";
+  const vaeName = state.vae || "";
+  if (!modelName) throw tag(new Error("No model — set `model` or `selected_model` in the config."), "config");
+  if (!clipName) throw tag(new Error("No text encoder — set `textEncoder` or `selected_text_encoder`."), "config");
+  if (!vaeName) throw tag(new Error("No VAE — set `vae` or `selected_vae`."), "config");
+
+  const instruction = String(
+    (state.promptsByMode && "identity" in state.promptsByMode) ? state.promptsByMode.identity : (state.prompt || "")
+  ).trim();
+  if (!instruction) throw tag(new Error('identity mode needs an edit instruction (job.prompt, e.g. "recolor the car to matte black").'), "config");
+
+  const g = {};
+  g["K2:unet"] = unetNode(modelName);
+  if ((clipName || "").toLowerCase().endsWith(".gguf")) g["K2:clip"] = { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipName, type: "krea2" } };
+  else g["K2:clip"] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "krea2", device: "default" } };
+  g["K2:vae"] = { class_type: "VAELoader", inputs: { vae_name: vaeName } };
+
+  // identity-edit LoRA (model-only), then any extra user LoRAs on top
+  g["ID:lora"] = { class_type: "LoraLoaderModelOnly", inputs: { model: ["K2:unet", 0], lora_name: idLora, strength_model: state.identityLoraStrength ?? 1.0 } };
+  const { graph: lg, modelOut } = withLoraChain(["ID:lora", 0], state.loras || []);
+  Object.assign(g, lg);
+
+  g["ID:load"] = { class_type: "LoadImage", inputs: { image: state.identityImage } };
+  g["ID:encode"] = { class_type: "VAEEncode", inputs: { pixels: ["ID:load", 0], vae: ["K2:vae", 0] } };
+
+  const hasB = !!state.identityImageB;
+  if (hasB) {
+    g["ID:loadB"] = { class_type: "LoadImage", inputs: { image: state.identityImageB } };
+    g["ID:encodeB"] = { class_type: "VAEEncode", inputs: { pixels: ["ID:loadB", 0], vae: ["K2:vae", 0] } };
+  }
+
+  const fitMode = state.identityFitMode || "fit";
+  const patchInputs = { model: modelOut, source_latent: ["ID:encode", 0], vae: ["K2:vae", 0], source_image: ["ID:load", 0], fit_mode: fitMode, ref_boost: state.identityRefBoost ?? 1.0 };
+  if (hasB) { patchInputs.source_latent_b = ["ID:encodeB", 0]; patchInputs.source_image_b = ["ID:loadB", 0]; }
+  g["ID:patch"] = { class_type: "Krea2EditModelPatch", inputs: patchInputs };
+
+  // The negative side is trained to expect an empty prompt — a real negative here
+  // breaks identity grounding. Identity mode ignores negativePrompt on purpose.
+  const groundingPx = state.identityGroundingPx ?? 768;
+  const posEnc = { clip: ["K2:clip", 0], prompt: instruction, image: ["ID:load", 0], grounding_px: groundingPx };
+  const negEnc = { clip: ["K2:clip", 0], prompt: "", image: ["ID:load", 0], grounding_px: groundingPx };
+  if (hasB) { posEnc.image_b = ["ID:loadB", 0]; negEnc.image_b = ["ID:loadB", 0]; }
+  g["ID:positive"] = { class_type: "Krea2EditGroundedEncode", inputs: posEnc };
+  g["ID:negative"] = { class_type: "Krea2EditGroundedEncode", inputs: negEnc };
+
+  g["ID:latent"] = { class_type: "EmptySD3LatentImage", inputs: { width: state.identityWidth || 1024, height: state.identityHeight || 1024, batch_size: 1 } };
+
+  g["ID:sampler"] = {
+    class_type: "KSampler",
+    inputs: { model: ["ID:patch", 0], positive: ["ID:positive", 0], negative: ["ID:negative", 0], latent_image: ["ID:latent", 0], seed: state.seed ?? 0, steps: state.steps ?? 8, cfg: state.cfg ?? 1, sampler_name: state.sampler || "euler", scheduler: state.scheduler || "simple", denoise: 1 },
+  };
+  g["ID:decode"] = { class_type: "VAEDecode", inputs: { samples: ["ID:sampler", 0], vae: ["K2:vae", 0] } };
+  g["ID:save"] = saveNode(["ID:decode", 0], state);
+  return { graph: g, meta: { saveNode: "ID:save", width: g["ID:latent"].inputs.width, height: g["ID:latent"].inputs.height, steps: g["ID:sampler"].inputs.steps, seed: g["ID:sampler"].inputs.seed, samplerUsed: g["ID:sampler"].inputs.sampler_name, identityLora: idLora, identityLoraStrength: g["ID:lora"].inputs.strength_model } };
+}
+
 export function buildGraph(state) {
+  if (state.mode === "identity") return buildIdentityGraph(state);
   return state.mode === "i2i" ? buildI2IGraph(state) : buildT2IGraph(state);
 }
 

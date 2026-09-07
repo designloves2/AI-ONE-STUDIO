@@ -17,7 +17,7 @@ import { makeClient, extractOutputs } from "./comfy.mjs";
 import { buildGraph } from "./graph.mjs";
 import { API, defaultState, applyConfig, randomSeed } from "./core-helpers.mjs";
 
-const HELP = `krea2-headless — Krea2 T2I / I2I image generator (AI-ONE-STUDIO extract)
+const HELP = `krea2-headless — Krea2 T2I / I2I / Identity-Edit image generator (AI-ONE-STUDIO extract)
 
 USAGE
   node index.mjs --config <comfy.json> --job <job.json> [--dry-run] [--out <dir>]
@@ -29,9 +29,10 @@ USAGE
 
 job.json
   {
-    "mode": "t2i" | "i2i",
+    "mode": "t2i" | "i2i" | "identity",
     "prompt": "a red bicycle ...",          // or { "positive": "...", "negative": "..." }
-    "negativePrompt": "blurry, text",       // optional (overridden by prompt.negative)
+                                            //   in identity mode this is the EDIT INSTRUCTION
+    "negativePrompt": "blurry, text",       // optional (ignored in identity mode)
     "width": 1024, "height": 1536,          // t2i
     "steps": 8, "cfg": 1, "sampler": "euler", "scheduler": "simple",
     "seed": null,                           // null -> random
@@ -42,7 +43,16 @@ job.json
     "i2iImage": "/abs/path/src.png", "i2iDenoise": 0.75, "i2iWidth": null, "i2iHeight": null,
     // ControlNet (optional, t2i or i2i):
     "control": { "enabled": true, "type": "depth"|"canny", "image": "/abs/ctrl.png",
-                 "strength": 1.0, "imageW": 1024, "imageH": 1536 }
+                 "strength": 1.0, "imageW": 1024, "imageH": 1536 },
+    // identity edit (needs comfyui-krea2edit on the server + a krea2 identity-edit LoRA):
+    "identityImage": "/abs/src.png",         // required
+    "identityImageB": "/abs/src2.png",       // optional second reference
+    "identityLora": "krea2_identity.safetensors",  // omit -> from config identity_lora
+    "identityLoraStrength": 1.0,
+    "identityFitMode": "fit",                // "fit" | "crop (legacy)"
+    "identityRefBoost": 1.0,
+    "identityGroundingPx": 768,              // 0 = native, else >= 64
+    "identityWidth": 1024, "identityHeight": 1024
   }
 
 OUTPUT (stdout JSON)
@@ -71,7 +81,7 @@ export async function generate(job, comfyConfig, opts = {}) {
   const { dryRun = false, outDir = null, onPoll } = opts;
   try {
     if (!job || typeof job !== "object") throw tag(new Error("job spec is required"), "config");
-    const mode = job.mode === "i2i" ? "i2i" : "t2i";
+    const mode = job.mode === "i2i" ? "i2i" : job.mode === "identity" ? "identity" : "t2i";
     const client = makeClient(comfyConfig, { apiPrefix: API });
 
     const cfg = await client.cfg();
@@ -79,15 +89,17 @@ export async function generate(job, comfyConfig, opts = {}) {
     applyConfig(state, cfg);
     state.mode = mode;
 
-    // prompt
+    // prompt (for identity mode the string is the edit instruction)
     const p = job.prompt;
     const promptText = p && typeof p === "object" ? (p.positive || "") : (p || "");
     state.prompt = String(promptText);
+    if (mode === "identity") state.promptsByMode = { identity: String(promptText) };
     if (p && typeof p === "object" && p.negative != null) state.negativePrompt = String(p.negative);
     if (job.negativePrompt != null) state.negativePrompt = String(job.negativePrompt);
 
     // sampler / size / misc overrides
-    for (const k of ["steps", "cfg", "sampler", "scheduler", "width", "height", "i2iDenoise", "i2iWidth", "i2iHeight", "saveSubfolder", "model", "textEncoder", "vae", "outputMode"]) {
+    for (const k of ["steps", "cfg", "sampler", "scheduler", "width", "height", "i2iDenoise", "i2iWidth", "i2iHeight", "saveSubfolder", "model", "textEncoder", "vae", "outputMode",
+                     "identityLora", "identityLoraStrength", "identityFitMode", "identityRefBoost", "identityGroundingPx", "identityWidth", "identityHeight"]) {
       if (job[k] != null) state[k] = job[k];
     }
     if (Array.isArray(job.loras)) state.loras = job.loras;
@@ -113,19 +125,27 @@ export async function generate(job, comfyConfig, opts = {}) {
       state.i2iImage = await client.uploadImage(abspath(job.i2iImage));
     }
 
+    // identity source(s)
+    if (mode === "identity") {
+      if (!job.identityImage) throw tag(new Error("identity mode needs job.identityImage"), "config");
+      state.identityImage = await client.uploadImage(abspath(job.identityImage));
+      if (job.identityImageB) state.identityImageB = await client.uploadImage(abspath(job.identityImageB));
+    }
+
     const { graph, meta } = buildGraph(state);
 
     const base = {
       mode,
       model: { used: state.model, textEncoder: state.textEncoder, vae: state.vae },
       prompt: state.prompt,
-      negativePrompt: state.negativePrompt,
+      negativePrompt: mode === "identity" ? undefined : state.negativePrompt,
       resolution: meta.width && meta.height ? { width: meta.width, height: meta.height } : undefined,
       steps: meta.steps,
       seed,
       sampler: meta.samplerUsed,
       denoise: meta.denoise,
       loras: state.loras.filter((l) => l && l.name && l.name !== "none" && l.enabled !== false).map((l) => l.name),
+      identity: mode === "identity" ? { lora: meta.identityLora, loraStrength: meta.identityLoraStrength, fitMode: state.identityFitMode, refBoost: state.identityRefBoost, groundingPx: state.identityGroundingPx } : undefined,
       graphSubmitted: graph,
     };
 

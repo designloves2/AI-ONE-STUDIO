@@ -1,8 +1,8 @@
 # krea2-headless
 
-Headless **Krea2 Text→Image / Image→Image** generator — the graph-build + ComfyUI submit logic
-from AI-ONE-STUDIO's `src/tools/krea2/`, extracted to a **zero-dependency Node package**.
-No browser, no build step, no `npm install`. Node 20+.
+Headless **Krea2 Text→Image / Image→Image / Identity Edit** generator — the graph-build +
+ComfyUI submit logic from AI-ONE-STUDIO's `src/tools/krea2/`, extracted to a
+**zero-dependency Node package**. No browser, no build step, no `npm install`. Node 20+.
 
 ```
 node index.mjs --config comfy.json --job job.json [--dry-run] [--out ./result]
@@ -20,7 +20,7 @@ const result = await generate(jobSpec, comfyConfig);
 | file | what |
 |---|---|
 | `index.mjs` | CLI + `generate()` — config → job → (upload) → `buildGraph` → `/prompt` → `/history` poll → `/view` download |
-| `graph.mjs` | `buildT2IGraph` / `buildI2IGraph` port (+ optional ControlNet chain) — node-for-node identical to the studio build |
+| `graph.mjs` | `buildT2IGraph` / `buildI2IGraph` / `buildIdentityGraph` port (+ optional ControlNet chain) — node-for-node identical to the studio build |
 | `comfy.mjs` | ComfyUI HTTP client. Injects `comfy.json.headers` on every request. `401`/`403` → `{ ok:false, stage:"auth" }` |
 | `core-helpers.mjs` | `defaultState`, `applyConfig` (GET `/krea2_one/config` → state), `buildPromptText`, control helpers |
 
@@ -52,12 +52,44 @@ const result = await generate(jobSpec, comfyConfig);
 
 | field | notes |
 |---|---|
-| `mode` | `t2i` \| `i2i` |
-| `prompt` | a string, or `{ "positive": "...", "negative": "..." }` |
+| `mode` | `t2i` \| `i2i` \| `identity` |
+| `prompt` | a string, or `{ "positive": "...", "negative": "..." }`. **In `identity` mode this is the edit instruction** (e.g. `"recolor the car to matte black"`) |
 | `model` / `textEncoder` / `vae` | optional override — otherwise taken from the ComfyUI config (`selected_model` etc.) |
 | `seed` | `null` → random |
 | i2i | `i2iImage` (abs path, required), `i2iDenoise` (0.75), `i2iWidth` / `i2iHeight` (null → keep source size) |
 | `control` | optional: `{ enabled, type: "depth"\|"canny", image: "/abs", strength, imageW, imageH }` — the control LoRA files come from the config (`control_lora_depth` / `control_lora_canny`) |
+
+### Identity Edit (`mode: "identity"`)
+
+`comfyui-krea2edit` must be installed on the ComfyUI server (`Krea2EditModelPatch`,
+`Krea2EditGroundedEncode`), and a **krea2 identity-edit LoRA** must be available. The LoRA
+comes from the studio config (`identity_lora`, whatever the owner picked in Settings →
+Identity Edit) — pass `identityLora` in the job only to override it.
+
+```json
+{
+  "mode": "identity",
+  "prompt": "give her a red leather jacket",
+  "identityImage": "/abs/portrait.png",
+  "identityWidth": 1024, "identityHeight": 1024,
+  "steps": 8, "cfg": 1, "seed": null
+}
+```
+
+| field | notes |
+|---|---|
+| `identityImage` | abs path — **required**. The face/subject to preserve. |
+| `identityImageB` | optional second reference image |
+| `identityLora` | LoRA filename; omit → `identity_lora` from the config |
+| `identityLoraStrength` | default `1.0` (or `identity_lora_strength` from the config) |
+| `identityFitMode` | `"fit"` (default) or `"crop (legacy)"` |
+| `identityRefBoost` | default `1.0` — how strongly the reference is held |
+| `identityGroundingPx` | default `768`; `0` = native. Values in `1..63` are rejected (broken identity). |
+| `identityWidth` / `identityHeight` | output size, default `1024×1024` |
+
+`negativePrompt` is **ignored** in identity mode — the model's negative side is trained to
+expect an empty prompt, and a real one breaks identity grounding. The output `base`
+carries an `identity: { lora, loraStrength, fitMode, refBoost, groundingPx }` block.
 
 ## Output (stdout JSON)
 
@@ -72,5 +104,6 @@ Exit code `0` on success, `1` otherwise (`2` for a bad CLI invocation).
 
 ## Scope
 
-`t2i` / `i2i` only. Identity Edit and SeedVR2 Upscale are separate packages
-(`upscale-headless/` for the latter). Prompt authoring is done upstream.
+`t2i` / `i2i` / `identity` (single image per call). SeedVR2 Upscale is a separate package
+(`upscale-headless/`). No batching, no gallery, no inpaint/faceswap. Prompt authoring is
+done upstream.

@@ -11,7 +11,7 @@ server-side automation. Each runs standalone — copy the folder, `node index.mj
 | package | what | modes |
 |---|---|---|
 | `h3-headless/` | MiniMax H3 single-clip video | ref2va / fl2va / l2va / t2va |
-| `krea2-headless/` | Krea2 image | t2i, i2i (+ optional ControlNet) |
+| `krea2-headless/` | Krea2 image | t2i, i2i, identity-edit (+ optional ControlNet) |
 | `zimage-headless/` | Z-Image Turbo image | t2i, i2i |
 | `upscale-headless/` | SeedVR2 image upscale (shared Krea2/Z-Image graph) | — |
 | `video-rtx-headless/` | RTX video upscale / deblur (RTXVideoSuperResolution + TJ_RTXDeblur) | upscale / deblur / both |
@@ -84,6 +84,12 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 - zimage also takes `shift` (ModelSamplingAuraFlow, default 3).
 - krea2 also takes `control: { enabled, type:"depth"|"canny", image:"/abs", strength }` — the
   control-LoRA files come from the config.
+- **krea2 identity edit** — `mode:"identity"`, `identityImage:"/abs/portrait.png"`, and
+  `prompt` is the edit instruction. The identity-edit LoRA comes from the config
+  (`identity_lora`); pass `identityLora` only to override. Needs `comfyui-krea2edit` on the
+  server. Optional: `identityImageB`, `identityLoraStrength`, `identityFitMode`,
+  `identityRefBoost`, `identityGroundingPx` (0 = native), `identityWidth`/`identityHeight`.
+  `negativePrompt` is ignored (breaks identity grounding). Full schema: `krea2-headless/README.md`.
 
 **upscale**
 
@@ -155,6 +161,8 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 
 - **krea2** — `--dry-run` t2i/i2i graph node-for-node identical to the studio's `buildGraph`
   output; real `t2i` submit → `K2_00125_.png` rendered → `--out` downloaded a valid 1.5 MB PNG.
+  Identity edit (`mode:"identity"`) — `--dry-run` graph matches the studio's `buildIdentityGraph`
+  (`Krea2EditModelPatch` / `Krea2EditGroundedEncode` + identity LoRA from `identity_lora`).
 - **zimage** — `--dry-run` t2i graph identical to the studio (`ModelSamplingAuraFlow`, clip
   type `lumina2`); real `t2i` submit → `ZIT_00092_.png` rendered → downloaded.
 - **upscale** — `--dry-run` graph identical to the studio's `buildUpscaleGraph`;
@@ -173,7 +181,8 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 ## Not in scope
 
 Single output per call. No batching, no gallery, no post-processing chains, no clip relay.
-Krea2 Identity Edit and Z-Image inpaint/rebg/controlnet/face-redraw are not ported.
+Z-Image inpaint/rebg/controlnet/face-redraw are not ported (Krea2 t2i/i2i/identity and
+ControlNet are).
 MusicMaker's LLM (caption/lyric authoring), album cover, generation queue, and tagged-MP3
 export are not ported — music-headless takes finished caption + lyrics and returns the raw
 `SaveAudioAdvanced` file. Prompt authoring stays with the Hermes prompt skill — these

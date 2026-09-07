@@ -70,6 +70,24 @@ export function defaultState(saved = {}) {
     i2iControlImageW: saved.i2iControlImageW || null,
     i2iControlImageH: saved.i2iControlImageH || null,
 
+    // IDENTITY EDIT (comfyui-krea2edit — Krea2EditModelPatch + Krea2EditGroundedEncode
+    // + the krea2 identity-edit LoRA). `promptsByMode.identity` (or `prompt`) is the
+    // edit instruction. identityLora / identityLoraStrength default from the studio
+    // config; the rest match core.ts.
+    promptsByMode: (saved.promptsByMode && typeof saved.promptsByMode === "object") ? { ...saved.promptsByMode } : {},
+    identityImage: saved.identityImage || "",
+    identityImageB: saved.identityImageB || "",
+    identityWidth: saved.identityWidth || null,
+    identityHeight: saved.identityHeight || null,
+    identityRefBoost: saved.identityRefBoost ?? 1.0,
+    identityGroundingPx: (() => {
+      const v = saved.identityGroundingPx;
+      return v === 0 || (v ?? 0) >= 64 ? v : 768;
+    })(),
+    identityFitMode: (saved.identityFitMode === "fit" || saved.identityFitMode === "crop (legacy)") ? saved.identityFitMode : "fit",
+    identityLora: saved.identityLora || "none",
+    identityLoraStrength: saved.identityLoraStrength ?? 1.0,
+
     outputMode: saved.outputMode || "save",
     saveSubfolder: saved.saveSubfolder || "",
   };
@@ -86,6 +104,8 @@ export function applyConfig(state, cfg = {}) {
   if (cfg.control_lora_depth && cfg.control_lora_depth !== "none") state.controlLoraDepth = cfg.control_lora_depth;
   if (cfg.control_lora_canny && cfg.control_lora_canny !== "none") state.controlLoraCanny = cfg.control_lora_canny;
   if (cfg.depth_ckpt) state.depthCkpt = safeDepthCkpt(cfg.depth_ckpt);
+  if (cfg.identity_lora && cfg.identity_lora !== "none") state.identityLora = cfg.identity_lora;
+  if (cfg.identity_lora_strength != null) state.identityLoraStrength = cfg.identity_lora_strength;
   return state;
 }
 

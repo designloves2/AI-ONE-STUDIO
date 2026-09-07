@@ -3,7 +3,7 @@
 **Repo:** `https://github.com/designloves2/AI-ONE-STUDIO`  (branch `master`)
 **To:** the Hermes Agent session (Mac)
 
-Four zero-dependency Node packages that reproduce what the studio frontend does internally
+Zero-dependency Node packages that reproduce what the studio frontend does internally
 (build the ComfyUI API graph → `POST /prompt` → poll `/history` → download `/view`), for
 server-side automation. Each runs standalone — copy the folder, `node index.mjs`. No
 `npm install`, no build step, Node 20+.
@@ -13,6 +13,7 @@ server-side automation. Each runs standalone — copy the folder, `node index.mj
 | `h3-headless/` | MiniMax H3 single-clip video | ref2va / fl2va / l2va / t2va |
 | `krea2-headless/` | Krea2 image | t2i, i2i, identity-edit (+ optional ControlNet) |
 | `zimage-headless/` | Z-Image Turbo image | t2i, i2i |
+| `klein-headless/` | Flux2 Klein image | t2i, i2i, edit, inpaint, outpaint, faceswap |
 | `upscale-headless/` | SeedVR2 image upscale (shared Krea2/Z-Image graph) | — |
 | `video-rtx-headless/` | RTX video upscale / deblur (RTXVideoSuperResolution + TJ_RTXDeblur) | upscale / deblur / both |
 | `music-headless/` | MusicMaker song / instrumental | engine: acestep \| minimax |
@@ -27,6 +28,7 @@ Each folder has its own `README.md` with the full `job.json` schema. This doc is
 git clone https://github.com/designloves2/AI-ONE-STUDIO
 cp -r AI-ONE-STUDIO/krea2-headless   ~/.hermes/skills/krea2-generate
 cp -r AI-ONE-STUDIO/zimage-headless  ~/.hermes/skills/zimage-generate
+cp -r AI-ONE-STUDIO/klein-headless   ~/.hermes/skills/klein-generate
 cp -r AI-ONE-STUDIO/upscale-headless ~/.hermes/skills/upscale
 cp -r AI-ONE-STUDIO/music-headless   ~/.hermes/skills/music-generate
 # (h3-headless was delivered earlier)
@@ -90,6 +92,33 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
   server. Optional: `identityImageB`, `identityLoraStrength`, `identityFitMode`,
   `identityRefBoost`, `identityGroundingPx` (0 = native), `identityWidth`/`identityHeight`.
   `negativePrompt` is ignored (breaks identity grounding). Full schema: `krea2-headless/README.md`.
+
+**klein (Flux2 Klein — t2i / i2i / edit / inpaint / outpaint / faceswap)**
+
+```json
+{ "mode": "t2i", "prompt": "a red bicycle on a white wall", "width": 1024, "height": 1536,
+  "steps": 4, "cfg": 1, "seed": null }
+{ "mode": "edit", "prompt": "put her in a red jacket", "editImage1": "/abs/a.png",
+  "editImage2": "/abs/b.png" }
+{ "mode": "inpaint", "prompt": "a vase of flowers", "inpaintImage": "/abs/src.png",
+  "inpaintMaskImage": "/abs/mask.png", "inpaintDenoise": 0.85 }
+{ "mode": "outpaint", "prompt": "the rest of the room", "outpaintImage": "/abs/src.png",
+  "outpaintUp": 256, "outpaintLeft": 256 }
+{ "mode": "faceswap", "faceswapTarget": "/abs/scene.png", "faceswapSource": "/abs/face.png",
+  "bfsLora": { "name": "bfs.safetensors", "strength": 1.0, "enabled": true } }
+```
+
+- Klein fetches a **pre-made workflow JSON per mode** from the server (`/flux_klein/workflow_<mode>`)
+  and patches it — so a reachable ComfyUI with the `flux_klein` pack is required even for
+  `--dry-run`.
+- `model`/`textEncoder`/`vae` from `GET /flux_klein/config` — omit normally. `kvCacheOverride`
+  `"auto"` (on when the model name has `kv`) | `"on"` | `"off"`. `cfg` defaults to `5` for a
+  `*base*` model, `1` otherwise.
+- `i2i`: `i2iImage`, `i2iDenoise` (0.75), `i2iWidth`/`i2iHeight`. `edit`: `editImage1` (req),
+  `editImage2`, `editSizeSource` (`"img1"` | `"manual"`). `inpaint`: `inpaintImage` +
+  `inpaintMaskImage` (b/w). `outpaint`: `outpaintImage` + ≥1 of `outpaintUp/Down/Left/Right`
+  (px), `outpaintPad{R,G,B}`. `faceswap`: `faceswapTarget` + `faceswapSource` + `bfsLora`.
+- Full schema: `klein-headless/README.md`.
 
 **upscale**
 
@@ -167,6 +196,11 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
   a valid 1.2 MB PNG.
 - **zimage** — `--dry-run` t2i graph identical to the studio (`ModelSamplingAuraFlow`, clip
   type `lumina2`); real `t2i` submit → `ZIT_00092_.png` rendered → downloaded.
+- **klein** — `--dry-run` t2i fetched `workflow_t2i` from the server and patched
+  model/clip/vae/prompt/latent/sampler exactly as `src/tools/klein/graphBuilder.ts`; model
+  files auto-pulled from `GET /flux_klein/config`. Real `t2i` submit → `FK_00049_.png`
+  rendered → `--out` downloaded. i2i/edit/inpaint/outpaint/faceswap share the same patch
+  helpers (port is line-for-line).
 - **upscale** — `--dry-run` graph identical to the studio's `buildUpscaleGraph`;
   `--list-models` returns the server's 5 SeedVR2 files.
 - **video-rtx** — `--dry-run` graph identical to the studio's `buildUpscaleGraph` RTX path;
@@ -184,7 +218,8 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 
 Single output per call. No batching, no gallery, no post-processing chains, no clip relay.
 Z-Image inpaint/rebg/controlnet/face-redraw are not ported (Krea2 t2i/i2i/identity and
-ControlNet are).
+ControlNet are). Klein's SeedVR2 upscale mode is not ported (use `upscale-headless/`);
+its t2i/i2i/edit/inpaint/outpaint/faceswap are.
 MusicMaker's LLM (caption/lyric authoring), album cover, generation queue, and tagged-MP3
 export are not ported — music-headless takes finished caption + lyrics and returns the raw
 `SaveAudioAdvanced` file. Prompt authoring stays with the Hermes prompt skill — these

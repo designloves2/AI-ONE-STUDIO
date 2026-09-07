@@ -1,0 +1,13 @@
+{
+  "name": "klein-headless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless Flux2 Klein image generator (T2I / I2I / Edit / Inpaint / Outpaint / Faceswap) — extracted from AI-ONE-STUDIO's graphBuilder + ComfyUI client. Zero dependencies, Node 20+.",
+  "type": "module",
+  "bin": { "klein-headless": "./index.mjs" },
+  "main": "./index.mjs",
+  "exports": { ".": "./index.mjs" },
+  "scripts": { "help": "node index.mjs --help" },
+  "engines": { "node": ">=20" },
+  "files": ["index.mjs", "graph.mjs", "comfy.mjs", "core-helpers.mjs", "README.md"]
+}

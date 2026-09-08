@@ -46,6 +46,7 @@ import {
   presetFromState,
   type UserPipelinePreset,
   composeStitchedPrompt,
+  buildAgentJob,
   clipAssets,
   promptOverrides,
   promptEnabled,
@@ -656,6 +657,19 @@ export function renderMinimaxH3(container: HTMLElement) {
     return clipPlan(state);
   }
 
+  // h3-headless's job.json schema, straight from this clip's resolved state — see buildAgentJob().
+  function downloadAgentJob(i: number) {
+    const presetName = matchUserPreset(state, userPresets)?.name || matchPreset(state)?.label || null;
+    const job = buildAgentJob(state, i, presetName);
+    const blob = new Blob([JSON.stringify(job, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: `job_C${i + 1}.json` }) as HTMLAnchorElement;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function renderPrompts() {
     promptList.innerHTML = "";
     const plan = currentPlan();
@@ -676,6 +690,12 @@ export function renderMinimaxH3(container: HTMLElement) {
         refreshPlan();
       });
       sideCol.appendChild(cb);
+      const jsonBtn = el("button", {
+        type: "button", text: "⬇", title: "Download this clip as a job.json for the h3-headless agent",
+        style: { cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "11px", padding: "0" },
+      });
+      jsonBtn.addEventListener("click", () => downloadAgentJob(i));
+      sideCol.appendChild(jsonBtn);
 
       const ta = el("textarea", {
         placeholder: i === 0 ? "Describe the shot…" : "(blank = reuse the previous prompt)",

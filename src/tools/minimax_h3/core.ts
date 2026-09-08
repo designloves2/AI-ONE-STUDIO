@@ -928,6 +928,65 @@ export function composeClipPrompt(state: MinimaxState, i: number) {
     .join("\n\n");
 }
 
+export interface AgentJob {
+  mode: "t2va" | "fl2va" | "ref2va";
+  preset: string | null;
+  durationSeconds: number;
+  megapixels: number;
+  aspect: string;
+  seed: number | null;
+  prompt: string;
+  refImages?: string[];
+  firstFrame?: string | null;
+  lastFrame?: string | null;
+  unetFirstLast?: string;
+  unetReference?: string;
+}
+
+/** Exports one clip as a job.json matching h3-headless's schema 1:1 (mode/preset/duration/
+ * megapixels/aspect/seed/prompt/refImages/firstFrame/lastFrame) — so a Hermes agent can run
+ * `node index.mjs --job <this>` with no translation step. Mirrors the exact per-clip resolution
+ * the render loop (view.ts's runGenerate) does: clipAssets() for the §1 override, then the
+ * always-on per-clip first-frame override (promptFirstFrame) on top, which forces firstlast
+ * mode regardless of the panel's generationMode. `refImages`/`firstFrame`/`lastFrame` here are
+ * the filenames already uploaded to this ComfyUI server's input/ (this studio and the agent's
+ * target server are the same instance) — not local paths on the agent's machine. */
+export function buildAgentJob(state: MinimaxState, i: number, presetName: string | null = null): AgentJob {
+  const isRef = state.generationMode === "reference";
+  const assets = clipAssets(state, i);
+  let firstFrame: string | null = isRef ? null : state.firstFrameImage || null;
+  let refImages: string[] = assets.refImages;
+  const override = promptFirstFrame((state.prompts || [])[i]);
+  let overridden = false;
+  if (override) {
+    firstFrame = override;
+    refImages = [];
+    overridden = true;
+  }
+  const lastFrame = assets.lastFrame || state.lastFrameImage || null;
+  const modeForClip = overridden ? "firstlast" : state.generationMode || "t2v";
+  const mode: AgentJob["mode"] = modeForClip === "reference" ? "ref2va" : modeForClip === "firstlast" ? "fl2va" : "t2va";
+  const seed = state.seedPerClip ? ((state.seed ?? 0) + i) % Number.MAX_SAFE_INTEGER : state.seed ?? 0;
+
+  const job: AgentJob = {
+    mode,
+    preset: presetName,
+    durationSeconds: framesToSeconds(state.clipFrames ?? 192),
+    megapixels: state.megapixels,
+    aspect: state.aspect,
+    seed: state.seedMode === "randomize" ? null : seed,
+    prompt: composeClipPrompt(state, i),
+  };
+  if (mode === "ref2va") job.refImages = refImages;
+  if (mode === "fl2va") {
+    job.firstFrame = firstFrame;
+    job.lastFrame = lastFrame;
+  }
+  if (state.unetFirstLast) job.unetFirstLast = state.unetFirstLast;
+  if (state.unetReference) job.unetReference = state.unetReference;
+  return job;
+}
+
 export function loraTriggers(state: MinimaxState) {
   return (state.loras || [])
     .filter((l) => l && l.enabled !== false && l.name && l.name !== "none" && l.triggerWord)

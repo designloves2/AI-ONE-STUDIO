@@ -657,11 +657,14 @@ export function renderMinimaxH3(container: HTMLElement) {
     return clipPlan(state);
   }
 
-  // h3-headless's job.json schema, straight from this clip's resolved state — see buildAgentJob().
+  // Hermes agent job file: {tool:"h3", job:{...}, target:"..."} — straight from this clip's
+  // resolved state, see buildAgentJob(). `target` (e.g. "telegram:<chat id>") is agent-side
+  // delivery routing this studio has no notion of — left blank for the user to fill in.
   function downloadAgentJob(i: number) {
     const presetName = matchUserPreset(state, userPresets)?.name || matchPreset(state)?.label || null;
     const job = buildAgentJob(state, i, presetName);
-    const blob = new Blob([JSON.stringify(job, null, 2)], { type: "application/json" });
+    const envelope = { tool: "h3", job, target: "" };
+    const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = el("a", { href: url, download: `job_C${i + 1}.json` }) as HTMLAnchorElement;
     document.body.appendChild(a);

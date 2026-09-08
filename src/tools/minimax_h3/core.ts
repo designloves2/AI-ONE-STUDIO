@@ -941,16 +941,17 @@ export interface AgentJob {
   lastFrame?: string | null;
   unetFirstLast?: string;
   unetReference?: string;
+  loras?: { name: string; strength: number }[];
 }
 
-/** Exports one clip as a job.json matching h3-headless's schema 1:1 (mode/preset/duration/
- * megapixels/aspect/seed/prompt/refImages/firstFrame/lastFrame) — so a Hermes agent can run
- * `node index.mjs --job <this>` with no translation step. Mirrors the exact per-clip resolution
- * the render loop (view.ts's runGenerate) does: clipAssets() for the §1 override, then the
+/** Exports one clip's `job` object for the Hermes agent (the inner object of its
+ * `{tool:"h3", job:{...}, target:"..."}` job files) — mode/preset/duration/megapixels/aspect/
+ * seed/prompt/refImages/firstFrame/lastFrame/loras. Mirrors the exact per-clip resolution the
+ * render loop (view.ts's runGenerate) does: clipAssets() for the §1 override, then the
  * always-on per-clip first-frame override (promptFirstFrame) on top, which forces firstlast
  * mode regardless of the panel's generationMode. `refImages`/`firstFrame`/`lastFrame` here are
- * the filenames already uploaded to this ComfyUI server's input/ (this studio and the agent's
- * target server are the same instance) — not local paths on the agent's machine. */
+ * this studio's own filenames, not local paths on the agent's machine — the user places
+ * matching local files for the agent to read, same as any other job file. */
 export function buildAgentJob(state: MinimaxState, i: number, presetName: string | null = null): AgentJob {
   const isRef = state.generationMode === "reference";
   const assets = clipAssets(state, i);
@@ -984,6 +985,10 @@ export function buildAgentJob(state: MinimaxState, i: number, presetName: string
   }
   if (state.unetFirstLast) job.unetFirstLast = state.unetFirstLast;
   if (state.unetReference) job.unetReference = state.unetReference;
+  const loras = (state.loras || [])
+    .filter((l) => l && l.enabled !== false && l.name && l.name !== "none")
+    .map((l) => ({ name: l.name, strength: l.strength ?? 1.0 }));
+  if (loras.length) job.loras = loras;
   return job;
 }
 

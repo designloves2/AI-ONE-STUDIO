@@ -666,7 +666,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     const envelope = { tool: "h3", job, target: "" };
     const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const a = el("a", { href: url, download: `job_C${i + 1}.json` }) as HTMLAnchorElement;
+    // job_<seed>_<clip label>.json — same per-clip seed resolution as buildAgentJob() itself.
+    const seed = state.seedPerClip ? ((state.seed ?? 0) + i) % Number.MAX_SAFE_INTEGER : state.seed ?? 0;
+    const a = el("a", { href: url, download: `job_${seed}_C${i + 1}.json` }) as HTMLAnchorElement;
     document.body.appendChild(a);
     a.click();
     a.remove();

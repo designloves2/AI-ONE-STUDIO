@@ -947,7 +947,7 @@ export interface AgentJob {
 // The Hermes agent's render-queue layout (~/.hermes/render-queue/{inputs,outputs,archive}/) —
 // the user drops matching local image files into inputs/ by filename, so a job file's
 // refImages/firstFrame/lastFrame have to point there, not at this studio's own filenames.
-export const AGENT_INPUTS_DIR = "~/.hermes/render-queue/inputs/";
+export const AGENT_INPUTS_DIR = "/Users/hermes/.hermes/render-queue/inputs/";
 function agentInputPath(filename: string | null | undefined): string | null {
   if (!filename) return null;
   const base = String(filename).split(/[/\\]/).pop() || filename;

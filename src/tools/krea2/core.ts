@@ -352,7 +352,7 @@ export interface Krea2AgentJob {
 
 // Same ~/.hermes/render-queue/inputs/ convention as h3's buildAgentJob() — the user drops a
 // matching local copy of the image there before running the job.
-export const AGENT_INPUTS_DIR = "~/.hermes/render-queue/inputs/";
+export const AGENT_INPUTS_DIR = "/Users/hermes/.hermes/render-queue/inputs/";
 function agentInputPath(filename: string | null | undefined): string {
   const base = String(filename || "").split(/[/\\]/).pop() || "";
   return base ? AGENT_INPUTS_DIR + base : "";

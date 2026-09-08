@@ -11,6 +11,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { makeClient, extractOutputs } from "./comfy.mjs";
@@ -74,7 +75,11 @@ function parseArgs(argv) {
   return a;
 }
 
-const abspath = (p, from = process.cwd()) => (p == null ? p : isAbsolute(p) ? p : resolve(from, p));
+const abspath = (p, from = process.cwd()) => {
+  if (p == null) return p;
+  if (p === "~" || p.startsWith("~/") || p.startsWith("~\\")) return resolve(homedir(), p.slice(2));
+  return isAbsolute(p) ? p : resolve(from, p);
+};
 function tag(err, stage) { err.stage = stage; return err; }
 
 export async function generate(job, comfyConfig, opts = {}) {

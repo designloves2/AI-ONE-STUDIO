@@ -291,11 +291,20 @@ export interface ZImageAgentJob {
   i2iHeight?: number | null;
 }
 
+// Same ~/.hermes/render-queue/inputs/ convention as h3/krea2's buildAgentJob() — the user
+// drops a matching local copy of the image there before running the job.
+export const AGENT_INPUTS_DIR = "~/.hermes/render-queue/inputs/";
+function agentInputPath(filename: string | null | undefined): string {
+  const base = String(filename || "").split(/[/\\]/).pop() || "";
+  return base ? AGENT_INPUTS_DIR + base : "";
+}
+
 /** Exports the panel's current settings as zimage-headless's `job` object (mode/prompt/width/
  * height/steps/cfg/shift/sampler/scheduler/seed/loras, plus the i2i extras) — the inner object
- * of a Hermes `{tool:"zimage", job:{...}, target:"..."}` job file. `i2iImage` is this studio's
- * own filename, not a local agent-machine path (same convention as h3/krea2). Only t2i/i2i are
- * covered — inpaint/rebg/controlnet/face_redraw/upscale aren't in zimage-headless's scope. */
+ * of a Hermes `{tool:"zimage", job:{...}, target:"..."}` job file. `i2iImage` is rewritten to
+ * ~/.hermes/render-queue/inputs/<filename> (agentInputPath()), not this studio's own path.
+ * Only t2i/i2i are covered — inpaint/rebg/controlnet/face_redraw/upscale aren't in
+ * zimage-headless's scope. */
 export function buildAgentJob(state: ZImageState): ZImageAgentJob | null {
   if (state.mode !== "t2i" && state.mode !== "i2i") return null;
   const loras = (state.loras || []).filter((l) => l && l.enabled !== false && l.name && l.name !== "none");
@@ -316,7 +325,7 @@ export function buildAgentJob(state: ZImageState): ZImageAgentJob | null {
     job.width = state.width || 1024;
     job.height = state.height || 1536;
   } else {
-    job.i2iImage = state.i2iImage || "";
+    job.i2iImage = agentInputPath(state.i2iImage);
     job.i2iDenoise = state.i2iDenoise ?? 0.75;
     job.i2iWidth = state.i2iWidth || null;
     job.i2iHeight = state.i2iHeight || null;

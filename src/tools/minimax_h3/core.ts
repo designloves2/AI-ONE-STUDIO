@@ -944,14 +944,25 @@ export interface AgentJob {
   loras?: { name: string; strength: number }[];
 }
 
+// The Hermes agent's render-queue layout (~/.hermes/render-queue/{inputs,outputs,archive}/) —
+// the user drops matching local image files into inputs/ by filename, so a job file's
+// refImages/firstFrame/lastFrame have to point there, not at this studio's own filenames.
+export const AGENT_INPUTS_DIR = "~/.hermes/render-queue/inputs/";
+function agentInputPath(filename: string | null | undefined): string | null {
+  if (!filename) return null;
+  const base = String(filename).split(/[/\\]/).pop() || filename;
+  return AGENT_INPUTS_DIR + base;
+}
+
 /** Exports one clip's `job` object for the Hermes agent (the inner object of its
  * `{tool:"h3", job:{...}, target:"..."}` job files) — mode/preset/duration/megapixels/aspect/
  * seed/prompt/refImages/firstFrame/lastFrame/loras. Mirrors the exact per-clip resolution the
  * render loop (view.ts's runGenerate) does: clipAssets() for the §1 override, then the
  * always-on per-clip first-frame override (promptFirstFrame) on top, which forces firstlast
  * mode regardless of the panel's generationMode. `refImages`/`firstFrame`/`lastFrame` here are
- * this studio's own filenames, not local paths on the agent's machine — the user places
- * matching local files for the agent to read, same as any other job file. */
+ * rewritten to ~/.hermes/render-queue/inputs/<filename> (agentInputPath()) — same basename as
+ * this studio's own file, but pointed at the agent's own input folder, where the user places a
+ * matching local copy before running the job. */
 export function buildAgentJob(state: MinimaxState, i: number, presetName: string | null = null): AgentJob {
   const isRef = state.generationMode === "reference";
   const assets = clipAssets(state, i);
@@ -978,10 +989,10 @@ export function buildAgentJob(state: MinimaxState, i: number, presetName: string
     seed: state.seedMode === "randomize" ? null : seed,
     prompt: composeClipPrompt(state, i),
   };
-  if (mode === "ref2va") job.refImages = refImages;
+  if (mode === "ref2va") job.refImages = refImages.map((f) => agentInputPath(f)!).filter(Boolean);
   if (mode === "fl2va") {
-    job.firstFrame = firstFrame;
-    job.lastFrame = lastFrame;
+    job.firstFrame = agentInputPath(firstFrame);
+    job.lastFrame = agentInputPath(lastFrame);
   }
   if (state.unetFirstLast) job.unetFirstLast = state.unetFirstLast;
   if (state.unetReference) job.unetReference = state.unetReference;

@@ -350,12 +350,20 @@ export interface Krea2AgentJob {
   identityGroundingPx?: number;
 }
 
+// Same ~/.hermes/render-queue/inputs/ convention as h3's buildAgentJob() — the user drops a
+// matching local copy of the image there before running the job.
+export const AGENT_INPUTS_DIR = "~/.hermes/render-queue/inputs/";
+function agentInputPath(filename: string | null | undefined): string {
+  const base = String(filename || "").split(/[/\\]/).pop() || "";
+  return base ? AGENT_INPUTS_DIR + base : "";
+}
+
 /** Exports the panel's current settings as krea2-headless's `job` object (its schema:
  * mode/prompt/width/height/steps/cfg/sampler/scheduler/seed/loras, plus the i2i/identity
  * extras) — the inner object of a Hermes `{tool:"krea2", job:{...}, target:"..."}` job file.
- * `i2iImage`/`identityImage(B)` are this studio's own filenames, not local agent-machine
- * paths — same convention as h3's buildAgentJob(). Only t2i/i2i/identity are covered;
- * upscale is a separate headless package (upscale-headless) with its own job schema. */
+ * `i2iImage`/`identityImage(B)` are rewritten to ~/.hermes/render-queue/inputs/<filename>
+ * (agentInputPath()), not this studio's own path. Only t2i/i2i/identity are covered; upscale
+ * is a separate headless package (upscale-headless) with its own job schema. */
 export function buildAgentJob(state: Krea2State): Krea2AgentJob | null {
   if (state.mode !== "t2i" && state.mode !== "i2i" && state.mode !== "identity") return null;
   const loras = (state.loras || []).filter((l) => l && l.enabled !== false && l.name && l.name !== "none");
@@ -375,13 +383,13 @@ export function buildAgentJob(state: Krea2State): Krea2AgentJob | null {
     job.width = state.width || 1024;
     job.height = state.height || 1024;
   } else if (state.mode === "i2i") {
-    job.i2iImage = state.i2iImage || "";
+    job.i2iImage = agentInputPath(state.i2iImage);
     job.i2iDenoise = state.i2iDenoise ?? 0.75;
     job.i2iWidth = state.i2iWidth || null;
     job.i2iHeight = state.i2iHeight || null;
   } else if (state.mode === "identity") {
-    job.identityImage = state.identityImage || "";
-    if (state.identityImageB) job.identityImageB = state.identityImageB;
+    job.identityImage = agentInputPath(state.identityImage);
+    if (state.identityImageB) job.identityImageB = agentInputPath(state.identityImageB);
     job.identityWidth = state.identityWidth || 1024;
     job.identityHeight = state.identityHeight || 1024;
     if (state.identityLora && state.identityLora !== "none") job.identityLora = state.identityLora;

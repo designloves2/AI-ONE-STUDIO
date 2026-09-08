@@ -57,7 +57,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const panelEdit = el("div", { style: { display: "flex", flex: "1" } }, [editTA]);
 
   const llm = Object.assign(
-    { backend: "local", or_model: "", gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
+    { backend: "local", or_model: "", or_model_vision: "", gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
     loadLLMSettings()
   );
   function saveLLM() { saveLLMSettings(llm); }
@@ -75,7 +75,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const maxTokE = mkNum(llm.max_tokens, 50, 4096, 50, (v) => { llm.max_tokens = v; saveLLM(); maxTokI.value = String(v); });
   const tempE = mkNum(llm.temperature, 0, 2, 0.05, (v) => { llm.temperature = v; saveLLM(); tempI.value = String(v); });
   const seedE = mkNum(llm.seed, 0, 999999999, 1, (v) => { llm.seed = v; saveLLM(); seedI.value = String(v); });
-  const enhBackend = beGroup.makeBlock();
+  const enhBackend = beGroup.makeBlock("text");
   const rowGgufE = fieldRow("GGUF Model", ggufSelE);
   const rowGpuE = fieldRow("GPU Layers", gpuLayersE);
   const rowCtxE = fieldRow("Context Size", nCtxE);
@@ -192,7 +192,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const tempI = mkNum(llm.temperature, 0, 2, 0.05, (v) => { llm.temperature = v; saveLLM(); tempE.value = String(v); });
   const seedI = mkNum(llm.seed, 0, 999999999, 1, (v) => { llm.seed = v; saveLLM(); seedE.value = String(v); });
 
-  const i2pBackend = beGroup.makeBlock();
+  const i2pBackend = beGroup.makeBlock("vision");
   const rowGgufI = fieldRow("GGUF Model", ggufSelI);
   const rowMmproj = fieldRow("mmproj", mmprojSel);
   const rowGpuI = fieldRow("GPU Layers", gpuLayersI);
@@ -226,7 +226,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       const r = await comfyApi.fetchApi("/tj_studio_one/llm/image_to_prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_b64: imgB64, backend: llm.backend, or_model: llm.or_model, gguf_model: llm.gguf_model, mmproj_file: llm.mmproj_file, vision_task: llm.vision_task, model_format: llm.model_format, aesthetic: llm.aesthetic, custom_instruction: llm.custom_instruction, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed }),
+        body: JSON.stringify({ image_b64: imgB64, backend: llm.backend, or_model: llm.or_model_vision, gguf_model: llm.gguf_model, mmproj_file: llm.mmproj_file, vision_task: llm.vision_task, model_format: llm.model_format, aesthetic: llm.aesthetic, custom_instruction: llm.custom_instruction, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed }),
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
@@ -272,7 +272,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       fetchOrModels(),
     ]).then(([d, orModels]) => {
       beGroup.fillAll(orModels, d.openrouter_key_hint || "");
-      if (d.or_model && !llm.or_model) { llm.or_model = d.or_model; saveLLM(); }
+      if (d.or_model_text && !llm.or_model) { llm.or_model = d.or_model_text; saveLLM(); } if (d.or_model_vision && !llm.or_model_vision) { llm.or_model_vision = d.or_model_vision; saveLLM(); }
       if (!d.ok || d._notInstalled) { llm.backend = "openrouter"; saveLLM(); beGroup.stripLocal(); }
       beGroup.syncAll();
       if (!d.ok) return;

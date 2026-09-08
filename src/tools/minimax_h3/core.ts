@@ -134,7 +134,8 @@ export interface MinimaxState {
   nativeVisionClip: string;
   nativeBriefClip: string;
   h3LlmBackend: string; // "native" (ComfyUI CLIP) | "openrouter" — Image→Brief backend
-  h3OrModel: string;
+  h3OrModel: string;        // OpenRouter brief model (writes the prompt — text only)
+  h3OrModelVision: string;  // OpenRouter vision model (reads the reference images — multimodal)
 
   // SolAttn (SolAttnPatch)
   solTau: number;
@@ -1166,6 +1167,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
     h3LlmBackend: saved.h3LlmBackend || "native",
     h3OrModel: saved.h3OrModel || "",
+    h3OrModelVision: saved.h3OrModelVision || "",
     pddFile: saved.pddFile || "none",
     pddFileReference: saved.pddFileReference || "none",
     pddNfe: String(saved.pddNfe ?? "8"),

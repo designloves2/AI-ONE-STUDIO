@@ -840,7 +840,7 @@ export function createPromptEditOverlay(
   // out of the clip editor's height, for a setting that's shared by every clip anyway).
   function renderModelLine(target: HTMLElement) {
     if (state.h3LlmBackend === "openrouter") {
-      target.textContent = `OpenRouter · ${state.h3OrModel || "default model"} — change in Settings → LLM`;
+      target.textContent = `OpenRouter · brief ${state.h3OrModel || "default"} · vision ${state.h3OrModelVision || "default"} — change in Settings → LLM`;
       target.style.color = C.muted;
       return;
     }
@@ -942,7 +942,7 @@ export function createPromptEditOverlay(
           : `Analyzing ${images.length} image(s) (native, one batch)…`);
         const prompt = `${VISION_SYSTEM_PROMPT} There are ${images.length} images, in order. Describe each one separately, each on its own line starting with "Image N: ".`;
         imageSummary = (useOR
-          ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModel)
+          ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModel)
           : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
       }
       progressStage("Writing brief…");

@@ -29,14 +29,18 @@ export async function fetchLlmKeyHint(): Promise<string> {
   } catch { return ""; }
 }
 
-/** POST a patch to the shared LLM config (`or_model` and/or `openrouter_key`). */
+/** POST a patch to the shared LLM config (`or_model_text` / `or_model_vision` / `openrouter_key`). */
 export function pushLlmConfig(patch: Record<string, any>) {
   fetchApi("/tj_studio_one/llm/config", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
   }).catch(() => {});
 }
 
-export interface LlmBackendState { backend?: string; or_model?: string; [k: string]: any }
+// The Enhance panel writes the prompt (text-only) → cheap text model; Image→Prompt reads
+// pixels → multimodal model. Separate OpenRouter model strings, one shared key (node 49422ca).
+export type LlmRole = "text" | "vision";
+
+export interface LlmBackendState { backend?: string; or_model?: string; or_model_vision?: string; [k: string]: any }
 
 interface Block {
   el: HTMLElement;
@@ -47,7 +51,9 @@ interface Block {
 }
 
 export interface LlmBackendGroup {
-  makeBlock: () => Block;
+  /** role picks which OpenRouter model string the block edits — "text" → state.or_model,
+   *  "vision" → state.or_model_vision. Defaults to "text" for callers that don't split. */
+  makeBlock: (role?: LlmRole) => Block;
   syncAll: () => void;
   fillAll: (orModels: string[], keyHint: string) => void;
   /** drop every local-only row from every block (TJ_NODE not installed → OpenRouter-only) */
@@ -74,12 +80,18 @@ function sel(options: string[], value: string, onChange: (v: string) => void) {
 export function createLlmBackendGroup(state: LlmBackendState, save: () => void): LlmBackendGroup {
   state.backend = state.backend || "local";
   state.or_model = state.or_model || "";
+  state.or_model_vision = state.or_model_vision || "";
   const blocks: Block[] = [];
   const syncAll = () => blocks.forEach((b) => b.syncFromState());
   const fillAll = (m: string[], k: string) => blocks.forEach((b) => b.fill(m, k));
   const stripLocal = () => blocks.forEach((b) => { b.localOnly.forEach((r) => r.remove()); b.localOnly.length = 0; b.syncFromState(); });
 
-  function makeBlock(): Block {
+  function makeBlock(role: LlmRole = "text"): Block {
+    const getModel = () => (role === "vision" ? state.or_model_vision : state.or_model) || "";
+    const setModel = (v: string) => {
+      if (role === "vision") { state.or_model_vision = v; pushLlmConfig({ or_model_vision: v }); }
+      else { state.or_model = v; pushLlmConfig({ or_model_text: v }); }
+    };
     const wrap = document.createElement("div");
     Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "6px", marginBottom: "2px" });
 
@@ -89,9 +101,9 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
 
     const orGroup = document.createElement("div");
     Object.assign(orGroup.style, { display: "flex", flexDirection: "column", gap: "6px" });
-    const orSel = sel([state.or_model || "Loading…"], state.or_model || "",
-      (v) => { state.or_model = v; save(); pushLlmConfig({ or_model: v }); syncAll(); });
-    orGroup.appendChild(lblRow("OpenRouter model", orSel));
+    const orSel = sel([getModel() || "Loading…"], getModel(),
+      (v) => { setModel(v); save(); syncAll(); });
+    orGroup.appendChild(lblRow(role === "vision" ? "OpenRouter model — vision (reads images)" : "OpenRouter model — text (writes prompt)", orSel));
 
     const keyInp = document.createElement("input");
     keyInp.type = "password";
@@ -111,7 +123,7 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
       localOnly: [],
       syncFromState() {
         beSel.value = state.backend === "openrouter" ? "OpenRouter" : "Local GGUF";
-        if (state.or_model) orSel.value = state.or_model;
+        if (getModel()) orSel.value = getModel();
         const or = state.backend === "openrouter";
         orGroup.style.display = or ? "flex" : "none";
         block.localOnly.forEach((r) => (r.style.display = or ? "none" : "flex"));
@@ -122,12 +134,12 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
           for (const m of orModels) {
             const o = document.createElement("option");
             o.value = m; o.textContent = m;
-            if (m === state.or_model) o.selected = true;
+            if (m === getModel()) o.selected = true;
             orSel.appendChild(o);
           }
-          if (!state.or_model) {
-            state.or_model = orModels.find((m) => /gemini-2\.5-flash/.test(m)) || orModels[0];
-            save(); orSel.value = state.or_model;
+          if (!getModel()) {
+            setModel(orModels.find((m) => /gemini-2\.5-flash/.test(m)) || orModels[0]);
+            save(); orSel.value = getModel();
           }
         }
         if (keyHint) keyInp.placeholder = keyHint + "  — click to replace";

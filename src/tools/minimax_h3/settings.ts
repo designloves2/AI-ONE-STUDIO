@@ -201,15 +201,23 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     wrap2.appendChild(col([label("LLM backend"), beSel]));
 
     if (state.h3LlmBackend === "openrouter") {
-      const orSel = el("select", { style: selStyle }) as HTMLSelectElement;
-      orSel.appendChild(el("option", { value: state.h3OrModel || "", text: state.h3OrModel || "loading models…" }));
-      orSel.addEventListener("change", () => { state.h3OrModel = orSel.value; ctx.persist(); pushLlmConfig({ or_model: orSel.value }); });
-      fetchOrModels().then((ms) => {
-        if (!ms.length) return;
-        clear(orSel);
-        ms.forEach((m) => { const o = el("option", { value: m, text: m }) as HTMLOptionElement; if (m === state.h3OrModel) o.selected = true; orSel.appendChild(o); });
-        if (!state.h3OrModel) { state.h3OrModel = ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]; ctx.persist(); orSel.value = state.h3OrModel; }
-      });
+      // Two OpenRouter models: brief (writes the prompt — text only, can be a cheap model) and
+      // vision (reads the reference images — must be multimodal). Cost differs, so the user picks
+      // each. Shared key. 원본 근거: ui_app_settings_minimax.js (node 49422ca).
+      const orModelSel = (get: () => string, set: (v: string) => void) => {
+        const s = el("select", { style: selStyle }) as HTMLSelectElement;
+        s.appendChild(el("option", { value: get() || "", text: get() || "loading models…" }));
+        s.addEventListener("change", () => { set(s.value); ctx.persist(); });
+        fetchOrModels().then((ms) => {
+          if (!ms.length) return;
+          clear(s);
+          ms.forEach((m) => { const o = el("option", { value: m, text: m }) as HTMLOptionElement; if (m === get()) o.selected = true; s.appendChild(o); });
+          if (!get()) { set(ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]); s.value = get(); }
+        });
+        return s;
+      };
+      const briefSel = orModelSel(() => state.h3OrModel, (v) => { state.h3OrModel = v; pushLlmConfig({ or_model_text: v }); });
+      const visionSel = orModelSel(() => state.h3OrModelVision, (v) => { state.h3OrModelVision = v; pushLlmConfig({ or_model_vision: v }); });
       const keyIn = el("input", { type: "password", placeholder: "sk-or-… (stored in .env, shared)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit" } }) as HTMLInputElement;
       keyIn.addEventListener("blur", () => {
         const v = keyIn.value.trim();
@@ -219,9 +227,10 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       });
       fetchLlmKeyHint().then((h) => { if (h) keyIn.placeholder = h + " — click to replace"; });
       wrap2.append(
-        col([label("OpenRouter model"), orSel]),
+        col([label("OpenRouter model — brief (writes the prompt)"), briefSel]),
+        col([label("OpenRouter model — vision (reads images)"), visionSel]),
         col([label("OpenRouter API key"), keyIn]),
-        el("div", { text: "Reads reference images + writes the brief through OpenRouter — no ComfyUI CLIP load, no queue turn.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } })
+        el("div", { text: "Reads reference images (vision model) + writes the brief (brief model) through OpenRouter — no ComfyUI CLIP load, no queue turn.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } })
       );
       return;
     }
@@ -443,7 +452,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       vision_source: state.visionSource || "native",
       native_vision_clip: state.nativeVisionClip || "",
       h3_llm_backend: state.h3LlmBackend || "native",
-      h3_or_model: state.h3OrModel || "",
+      h3_or_model_brief: state.h3OrModel || "",
+      h3_or_model_vision: state.h3OrModelVision || "",
       filename_prefix: state.filenamePrefix || "MMH3",
       stitch_at_end: state.stitchAtEnd ?? true,
       trim_last_clip: state.trimLastClip ?? false,
@@ -527,7 +537,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       // config saved before this change says.
       if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;
       if (cfg.h3_llm_backend) state.h3LlmBackend = cfg.h3_llm_backend;
-      if (cfg.h3_or_model) state.h3OrModel = cfg.h3_or_model;
+      // brief model: new key, fall back to the pre-split h3_or_model (node migrates it too)
+      if (cfg.h3_or_model_brief || cfg.h3_or_model) state.h3OrModel = (cfg.h3_or_model_brief || cfg.h3_or_model)!;
+      if (cfg.h3_or_model_vision) state.h3OrModelVision = cfg.h3_or_model_vision;
       if (cfg.filename_prefix) state.filenamePrefix = cfg.filename_prefix;
       if (cfg.stitch_at_end != null) state.stitchAtEnd = cfg.stitch_at_end;
       if (cfg.trim_last_clip != null) state.trimLastClip = cfg.trim_last_clip;

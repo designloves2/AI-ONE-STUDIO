@@ -104,7 +104,9 @@ export interface MmhConfig {
   vision_source?: string;
   native_vision_clip?: string;
   h3_llm_backend?: string;
-  h3_or_model?: string;
+  h3_or_model?: string;         // pre-split; still returned by the node as the brief value
+  h3_or_model_brief?: string;
+  h3_or_model_vision?: string;
   filename_prefix?: string;
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;

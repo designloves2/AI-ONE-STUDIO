@@ -200,17 +200,17 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     if (!availability.available?.TJStudioOneTextOutput) missing.push("TJStudioOneTextOutput (this package)");
     const clipList = ["none", ...(modelData.text_encoders || []).filter((x) => x !== "none")];
 
+    // full OpenRouter model list with a filter box — no vision-capability filter, the user
+    // owns the choice (node 6a6ffb0 / d33aab3). Soft pre-select of gemini-2.5-flash only.
     const orModelSel = (get: () => string, set: (v: string) => void) => {
-      const s = el("select", { style: selStyle }) as HTMLSelectElement;
-      s.appendChild(el("option", { value: get() || "", text: get() || "loading models…" }));
-      s.addEventListener("change", () => { set(s.value); ctx.persist(); });
+      const ss = searchableSelect([get() || "loading models…"], get(), (v) => { set(v); ctx.persist(); });
       fetchOrModels().then((ms) => {
         if (!ms.length) return;
-        clear(s);
-        ms.forEach((m) => { const o = el("option", { value: m, text: m }) as HTMLOptionElement; if (m === get()) o.selected = true; s.appendChild(o); });
-        if (!get()) { set(ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]); s.value = get(); }
+        ss.setOptions(ms);
+        if (!get()) { set(ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]); ctx.persist(); }
+        ss.setValue(get());
       });
-      return s;
+      return ss.el;
     };
 
     // one row: backend select + (native → CLIP picker | openrouter → OR model select)

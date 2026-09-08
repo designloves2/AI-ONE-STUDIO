@@ -6,6 +6,7 @@
 // 로 갱신하고, 키 자체는 서버 `.env` 로 (뮤직 노드와 동일한 키).
 import { getComfyBase } from "./comfyBase";
 import { C } from "../identity";
+import { searchableSelect } from "./ui";
 
 // credentials: "include" — external access is behind Cloudflare Access (see comfyBase.ts).
 const fetchApi = (path: string, opts?: RequestInit) => fetch(`${getComfyBase()}${path}`, { ...opts, credentials: "include" });
@@ -122,9 +123,10 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
 
     const orGroup = document.createElement("div");
     Object.assign(orGroup.style, { display: "flex", flexDirection: "column", gap: "6px" });
-    const orSel = sel([getModel() || "Loading…"], getModel(),
+    // full OpenRouter list + filter box — no capability filter, user's choice (node d33aab3).
+    const orSS = searchableSelect([getModel() || "Loading…"], getModel(),
       (v) => { setModel(v); save(); syncAll(); });
-    orGroup.appendChild(lblRow(role === "vision" ? "OpenRouter model — vision (reads images)" : "OpenRouter model — text (writes prompt)", orSel));
+    orGroup.appendChild(lblRow(role === "vision" ? "OpenRouter model — vision (reads images)" : "OpenRouter model — text (writes prompt)", orSS.el));
 
     const keyInp = document.createElement("input");
     keyInp.type = "password";
@@ -144,24 +146,19 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
       localOnly: [],
       syncFromState() {
         beSel.value = getBackend() === "openrouter" ? "OpenRouter" : "Local GGUF";
-        if (getModel()) orSel.value = getModel();
+        if (getModel()) orSS.setValue(getModel());
         const or = getBackend() === "openrouter";
         orGroup.style.display = or ? "flex" : "none";
         block.localOnly.forEach((r) => (r.style.display = or ? "none" : "flex"));
       },
       fill(orModels, keyHint) {
         if (orModels && orModels.length) {
-          orSel.innerHTML = "";
-          for (const m of orModels) {
-            const o = document.createElement("option");
-            o.value = m; o.textContent = m;
-            if (m === getModel()) o.selected = true;
-            orSel.appendChild(o);
-          }
+          orSS.setOptions(orModels);
           if (!getModel()) {
             setModel(orModels.find((m) => /gemini-2\.5-flash/.test(m)) || orModels[0]);
-            save(); orSel.value = getModel();
+            save();
           }
+          orSS.setValue(getModel());
         }
         if (keyHint) keyInp.placeholder = keyHint + "  — click to replace";
       },

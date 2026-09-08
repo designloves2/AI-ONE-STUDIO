@@ -23,6 +23,30 @@ function localComfyPort(): string {
 
 const COMFY = `http://127.0.0.1:${localComfyPort()}`;
 
+// LLM routes (OpenRouter / local GGUF / TextGenerate) can legitimately run a minute or more
+// server-side. http-proxy defaults to a short socket timeout and, on timeout, silently RESETs
+// the connection — the browser then sees only a raw `TypeError: Failed to fetch` with no
+// status to surface. Give upstream a long leash, and when it does fail, hand back a readable
+// 504 JSON body instead of a dead socket.
+const PROXY_TIMEOUT_MS = 600_000;
+const longProxy = (extra: Record<string, unknown> = {}) => ({
+  target: COMFY,
+  changeOrigin: true,
+  timeout: PROXY_TIMEOUT_MS,
+  proxyTimeout: PROXY_TIMEOUT_MS,
+  configure: (proxy: any) => {
+    proxy.on("error", (err: any, _req: any, res: any) => {
+      if (res && !res.headersSent && typeof res.writeHead === "function") {
+        res.writeHead(504, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: `upstream proxy error: ${err?.code || err?.message || "failed"}`, stage: "proxy" }));
+      } else if (res && typeof res.end === "function") {
+        try { res.end(); } catch {}
+      }
+    });
+  },
+  ...extra,
+});
+
 // Every path prefix ComfyUI (core + the TJ_NODE_STUDIO_ONE packs + Manager) serves. On a local
 // or LAN visit the frontend talks to its own origin (getComfyBase() === "") and Vite forwards
 // these here — so a direct :8774→:8188 request, which the studio-only --enable-cors-header would
@@ -58,8 +82,8 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: ["studio.tjtj.cloud"],
     proxy: {
-      ...Object.fromEntries(comfyPaths.map((p) => [p, { target: COMFY, changeOrigin: true }])),
-      "/ws": { target: COMFY.replace(/^http/, "ws"), ws: true, changeOrigin: true },
+      ...Object.fromEntries(comfyPaths.map((p) => [p, longProxy()])),
+      "/ws": longProxy({ target: COMFY.replace(/^http/, "ws"), ws: true }),
     },
   },
 });

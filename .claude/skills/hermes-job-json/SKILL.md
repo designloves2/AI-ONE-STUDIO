@@ -47,10 +47,14 @@ Sensible defaults (state them, don't ask): h3 `t2va` `durationSeconds:10` `aspec
 ### 2. Write the prompts
 
 - **h3 video** — load the `minimax-h3-prompt` skill and use it for every clip. Batch → each clip is its own short brief. Sequence → one story as a shot list, one clip per shot, carrying a shared style header + sound footer.
-- **images** — write the prompt string directly. Batch/"free" → spread across subjects, lenses, lighting, and styles so no two are near-duplicates. Keep each a single vivid line (see `dataviz`/prose conventions — concrete over abstract, one core idea).
+- **images** (krea2 / zimage / klein / sdxl / anima / qwen2511) — load the
+  `studio-image-prompt` skill. It holds the per-model dialect (Krea2 prose, SDXL
+  tags+weights, Anima anime prose, …) and the batch-diversity method; hand it the
+  tool + count + theme and it returns a JSON array of prompt strings.
 - **music** — `caption` (finished style text) + `lyrics` (`[Verse]`/`[Chorus]` tags) or `instrumental:true`. Sequence = one song; there is only ever one music job unless the user wants variations.
 
-Generate in groups if the count is large — a compact intermediate list (`NNN\t<prompt>` lines, or a JSON array) that `write_jobs.mjs` expands into files, rather than writing 200 files by hand.
+Generate in groups if the count is large — a compact JSON array that `write_jobs.mjs`
+expands into files, rather than writing 200 files by hand.
 
 ### 3. Build the jobs
 

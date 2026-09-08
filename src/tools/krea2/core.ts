@@ -323,6 +323,76 @@ export function controlOutputSize(state: Krea2State, mode: "t2i" | "i2i"): { W: 
   return { W: snap(W), H: snap(H) };
 }
 
+export interface Krea2AgentJob {
+  mode: "t2i" | "i2i" | "identity";
+  prompt: string;
+  negativePrompt?: string;
+  width?: number;
+  height?: number;
+  steps: number;
+  cfg: number;
+  sampler?: string;
+  scheduler?: string;
+  seed: number | null;
+  loras?: { name: string; strength: number; triggerWord: string; enabled: boolean }[];
+  i2iImage?: string;
+  i2iDenoise?: number;
+  i2iWidth?: number | null;
+  i2iHeight?: number | null;
+  identityImage?: string;
+  identityImageB?: string;
+  identityWidth?: number | null;
+  identityHeight?: number | null;
+  identityLora?: string;
+  identityLoraStrength?: number;
+  identityFitMode?: string;
+  identityRefBoost?: number;
+  identityGroundingPx?: number;
+}
+
+/** Exports the panel's current settings as krea2-headless's `job` object (its schema:
+ * mode/prompt/width/height/steps/cfg/sampler/scheduler/seed/loras, plus the i2i/identity
+ * extras) — the inner object of a Hermes `{tool:"krea2", job:{...}, target:"..."}` job file.
+ * `i2iImage`/`identityImage(B)` are this studio's own filenames, not local agent-machine
+ * paths — same convention as h3's buildAgentJob(). Only t2i/i2i/identity are covered;
+ * upscale is a separate headless package (upscale-headless) with its own job schema. */
+export function buildAgentJob(state: Krea2State): Krea2AgentJob | null {
+  if (state.mode !== "t2i" && state.mode !== "i2i" && state.mode !== "identity") return null;
+  const loras = (state.loras || []).filter((l) => l && l.enabled !== false && l.name && l.name !== "none");
+  const job: Krea2AgentJob = {
+    mode: state.mode,
+    prompt: buildPromptText(state),
+    steps: state.steps ?? 8,
+    cfg: state.cfg ?? 1,
+    seed: state.seedMode === "randomize" ? null : state.seed ?? 0,
+  };
+  if (state.negativePrompt && state.mode !== "identity") job.negativePrompt = state.negativePrompt;
+  if (state.sampler) job.sampler = state.sampler;
+  if (state.scheduler) job.scheduler = state.scheduler;
+  if (loras.length) job.loras = loras.map((l) => ({ name: l.name, strength: l.strength ?? 0.8, triggerWord: l.triggerWord || "", enabled: true }));
+
+  if (state.mode === "t2i") {
+    job.width = state.width || 1024;
+    job.height = state.height || 1024;
+  } else if (state.mode === "i2i") {
+    job.i2iImage = state.i2iImage || "";
+    job.i2iDenoise = state.i2iDenoise ?? 0.75;
+    job.i2iWidth = state.i2iWidth || null;
+    job.i2iHeight = state.i2iHeight || null;
+  } else if (state.mode === "identity") {
+    job.identityImage = state.identityImage || "";
+    if (state.identityImageB) job.identityImageB = state.identityImageB;
+    job.identityWidth = state.identityWidth || 1024;
+    job.identityHeight = state.identityHeight || 1024;
+    if (state.identityLora && state.identityLora !== "none") job.identityLora = state.identityLora;
+    job.identityLoraStrength = state.identityLoraStrength ?? 1.0;
+    job.identityFitMode = state.identityFitMode || "fit";
+    job.identityRefBoost = state.identityRefBoost ?? 1.0;
+    job.identityGroundingPx = state.identityGroundingPx ?? 768;
+  }
+  return job;
+}
+
 export function controlLoraForType(state: Krea2State, type?: string): string {
   return (type || state.controlType || "depth") === "canny" ? state.controlLoraCanny : state.controlLoraDepth;
 }

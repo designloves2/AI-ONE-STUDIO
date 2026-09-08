@@ -271,3 +271,55 @@ export function setModePrompt(state: ZImageState, mode: string, text: string) {
 export function randomSeed() {
   return Math.floor(Math.random() * 1e15);
 }
+
+export interface ZImageAgentJob {
+  mode: "t2i" | "i2i";
+  prompt: string;
+  negativePrompt?: string;
+  width?: number;
+  height?: number;
+  steps: number;
+  cfg: number;
+  shift: number;
+  sampler?: string;
+  scheduler?: string;
+  seed: number | null;
+  loras?: { name: string; strength: number; triggerWord: string; enabled: boolean }[];
+  i2iImage?: string;
+  i2iDenoise?: number;
+  i2iWidth?: number | null;
+  i2iHeight?: number | null;
+}
+
+/** Exports the panel's current settings as zimage-headless's `job` object (mode/prompt/width/
+ * height/steps/cfg/shift/sampler/scheduler/seed/loras, plus the i2i extras) — the inner object
+ * of a Hermes `{tool:"zimage", job:{...}, target:"..."}` job file. `i2iImage` is this studio's
+ * own filename, not a local agent-machine path (same convention as h3/krea2). Only t2i/i2i are
+ * covered — inpaint/rebg/controlnet/face_redraw/upscale aren't in zimage-headless's scope. */
+export function buildAgentJob(state: ZImageState): ZImageAgentJob | null {
+  if (state.mode !== "t2i" && state.mode !== "i2i") return null;
+  const loras = (state.loras || []).filter((l) => l && l.enabled !== false && l.name && l.name !== "none");
+  const job: ZImageAgentJob = {
+    mode: state.mode,
+    prompt: [getModePrompt(state), state.promptSuffix].map((s) => (s || "").trim()).filter(Boolean).join(", "),
+    steps: state.steps || 8,
+    cfg: state.cfg || 1,
+    shift: state.shift || 3,
+    seed: state.seedMode === "randomize" ? null : state.seed ?? 0,
+  };
+  if (state.negativePrompt) job.negativePrompt = state.negativePrompt;
+  if (state.sampler) job.sampler = state.sampler;
+  if (state.scheduler) job.scheduler = state.scheduler;
+  if (loras.length) job.loras = loras.map((l) => ({ name: l.name, strength: l.strength ?? 1, triggerWord: l.triggerWord || "", enabled: true }));
+
+  if (state.mode === "t2i") {
+    job.width = state.width || 1024;
+    job.height = state.height || 1536;
+  } else {
+    job.i2iImage = state.i2iImage || "";
+    job.i2iDenoise = state.i2iDenoise ?? 0.75;
+    job.i2iWidth = state.i2iWidth || null;
+    job.i2iHeight = state.i2iHeight || null;
+  }
+  return job;
+}

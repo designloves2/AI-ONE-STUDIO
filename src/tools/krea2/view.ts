@@ -6,7 +6,7 @@ import type { Krea2State } from "./core";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, DEPTH_CKPTS, SEND_TO,
-  defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
+  defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8, buildAgentJob,
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
@@ -316,6 +316,26 @@ export function renderKrea2(root: HTMLElement) {
   stopBtn.style.width = "100%";
   stopBtn.style.display = "none";
   leftBottomBar.append(genBtn, stopBtn);
+
+  // Hermes agent job file: {tool:"krea2", job:{...}, target:"..."} — straight from the panel's
+  // current settings, see buildAgentJob(). Hidden in Upscale mode (separate headless package).
+  const agentJsonBtn = el("button", {
+    type: "button", text: "⬇ Agent JSON", title: "Download this setup as a job.json for the krea2-headless agent",
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}`, width: "100%" },
+  });
+  agentJsonBtn.addEventListener("click", () => {
+    const job = buildAgentJob(state);
+    if (!job) { window.alert("Agent JSON isn't available for Upscale mode — that's a separate headless package (upscale-headless)."); return; }
+    const envelope = { tool: "krea2", job, target: "" };
+    const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: `krea2_${state.mode}.json` }) as HTMLAnchorElement;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  leftBottomBar.appendChild(agentJsonBtn);
 
   // ── Overlays ────────────────────────────────────────────────────────────
   const settingsOv = createSettingsOverlay(state, {

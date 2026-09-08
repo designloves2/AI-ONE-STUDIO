@@ -8,7 +8,7 @@ import type { ZImageState, ZImageMode } from "./core";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO, IMPLEMENTED_MODES,
-  defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
+  defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8, buildAgentJob,
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
@@ -315,6 +315,26 @@ export function renderZImage(root: HTMLElement) {
   stopBtn.style.width = "100%";
   stopBtn.style.display = "none";
   leftBottomBar.append(genBtn, stopBtn);
+
+  // Hermes agent job file: {tool:"zimage", job:{...}, target:"..."} — straight from the panel's
+  // current settings, see buildAgentJob(). Hidden outside t2i/i2i (not in zimage-headless's scope).
+  const agentJsonBtn = el("button", {
+    type: "button", text: "⬇ Agent JSON", title: "Download this setup as a job.json for the zimage-headless agent",
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}`, width: "100%" },
+  });
+  agentJsonBtn.addEventListener("click", () => {
+    const job = buildAgentJob(state);
+    if (!job) { window.alert("Agent JSON is only available in Text-only and Image-to-Image mode — the other modes aren't in zimage-headless's scope."); return; }
+    const envelope = { tool: "zimage", job, target: "" };
+    const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: `zimage_${state.mode}.json` }) as HTMLAnchorElement;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  leftBottomBar.appendChild(agentJsonBtn);
 
   // ── Overlays ────────────────────────────────────────────────────────────
   const settingsOv = createSettingsOverlay(state, {

@@ -183,6 +183,57 @@ export function defaultState(saved: any): any {
   };
 }
 
+/** Exports the panel's current settings as music-headless's `job` object (README's field
+ * table: caption/lyrics/instrumental/duration/title/bpm/keyscale/timesignature/language/
+ * vocalGender/vocalStyle/voiceTone/loras/format/audioQuality, plus the engine-specific
+ * sampling params) — the inner object of a Hermes `{tool:"music", job:{...}, target:"..."}`
+ * job file. `caption`/`lyrics` are taken as finished text exactly as music-headless expects —
+ * no LLM step on either side. */
+export function buildAgentJob(state: any): Record<string, any> {
+  const job: Record<string, any> = {
+    engine: state.engine || "acestep",
+    caption: state.caption || "",
+    duration: state.duration ?? DURATION_DEFAULT,
+    seed: state.seedMode === "random" ? null : state.seed ?? 0,
+  };
+  if (state.instrumental) job.instrumental = true;
+  else if (state.lyrics) job.lyrics = state.lyrics;
+  if (state.title) job.title = state.title;
+  if (state.bpm != null) job.bpm = state.bpm;
+  if (state.keyscale) job.keyscale = state.keyscale;
+  if (state.timesignature) job.timesignature = state.timesignature;
+  if (state.vocalGender && state.vocalGender !== "auto") job.vocalGender = state.vocalGender;
+  if (state.vocalStyle && state.vocalStyle !== "auto") job.vocalStyle = state.vocalStyle;
+  if (state.voiceTone && state.voiceTone !== "auto") job.voiceTone = state.voiceTone;
+  if (state.format) job.format = state.format;
+  if (state.audioQuality) job.audioQuality = state.audioQuality;
+
+  const loras = (state.loras || []).filter((l: any) => l && l.enabled !== false && l.name && l.name !== "none");
+  if (loras.length) job.loras = loras.map((l: any) => ({ name: l.name, strength: l.strength ?? 1.0, enabled: true }));
+
+  if (state.engine === "minimax") {
+    job.steps = state.steps ?? 30;
+    job.cfgScale = state.cfgScale ?? 1.7;
+    job.topK = state.topK ?? 50;
+    job.sampler = state.sampler || "euler";
+    job.scheduler = state.scheduler || "simple";
+    job.tiledDecode = !!state.tiledDecode;
+  } else {
+    job.language = state.language || "en";
+    job.cfgScaleAce = state.cfgScaleAce ?? 2.5;
+    job.temperature = state.temperature ?? 0.75;
+    job.topP = state.topP ?? 0.9;
+    job.minP = state.minP ?? 0;
+    job.topKAce = state.topKAce ?? 0;
+    job.genAudioCodes = state.genAudioCodes ?? true;
+    job.aceShift = state.aceShift ?? 3;
+    job.aceSamplerName = state.aceSamplerName || "jkass_quality";
+    job.aceScheduler = state.aceScheduler || "sgm_uniform";
+    job.aceStages = (state.aceStages || []).map((s: any) => ({ steps: s.steps, cfg: s.cfg, on: s.on !== false }));
+  }
+  return job;
+}
+
 export function el(tag: string, props?: any, children?: any[]): any {
   const node = document.createElement(tag);
   if (props) {

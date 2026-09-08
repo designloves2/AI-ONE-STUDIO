@@ -12,7 +12,7 @@ import {
   SAMPLERS, SCHEDULERS, AUDIO_FORMATS, STYLE_CHIPS, LYRIC_TAGS,
   DURATION_MIN, DURATION_MAX, LLM_BACKENDS, LLM_CLIP_TYPES, lyricsIntent, fmtDur, settingsBadge,
   ENGINES, ENGINE_FIELDS, ACE_LANGUAGES, ACE_KEYSCALES, ACE_TIMESIGS,
-  VOCAL_GENDER, VOCAL_STYLE, VOICE_TONE,
+  VOCAL_GENDER, VOCAL_STYLE, VOICE_TONE, buildAgentJob,
 } from "./core";
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
 import { comfyApi, jget, jpost, playableAudioUrl } from "./api";
@@ -492,6 +492,23 @@ export function renderMusic(container: HTMLElement) {
   // ── compose panel ──────────────────────────────────────────────────────
   const genBtn = el("button", { className: "mmm-go", text: "▶ Generate", onclick: () => enqueueGen() });
   const stopBtn = el("button", { className: "mmm-stop", text: "■ Stop", title: "Stop the current run and clear the queue", onclick: () => stopQueue() });
+  // Hermes agent job file: {tool:"music", job:{...}, target:"..."} — straight from the panel's
+  // current settings, see buildAgentJob() in core.ts.
+  const agentJsonBtn = el("button", {
+    text: "⬇ Agent JSON", title: "Download this setup as a job.json for the music-headless agent",
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "6px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, width: "100%" },
+    onclick: () => {
+      const job = buildAgentJob(state);
+      const envelope = { tool: "music", job, target: "" };
+      const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = el("a", { href: url, download: `music_${state.engine || "acestep"}.json` });
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+  });
   const statusEl = el("div", { className: "mmm-status" });
   let lyricsTA: any, styleTA: any, lyricsWrap: any, styleWrap: any;
 
@@ -590,8 +607,14 @@ export function renderMusic(container: HTMLElement) {
       if (text) { apply(text); statusEl.textContent = "LLM ✓"; }
       else { statusEl.textContent = "LLM: empty response"; if (throwOnFail) throw new Error("LLM returned no text"); }
     } catch (e: any) {
-      statusEl.textContent = "LLM: " + e.message;
-      if (throwOnFail) throw e;
+      // "Failed to fetch" = the request never got a response (proxy/tunnel reset the
+      // socket because the LLM call ran long). Reasoning models (deepseek *-flash, o*,
+      // *-thinking) are the usual culprit — point the user at Settings.
+      const msg = /failed to fetch|networkerror|load failed/i.test(e?.message || "")
+        ? "LLM 서버 응답 지연 — Settings에서 더 빠른 모델(google/gemini-2.5-flash 등)을 고르거나 잠시 후 재시도"
+        : "LLM: " + e.message;
+      statusEl.textContent = msg;
+      if (throwOnFail) throw new Error(msg);
     }
     finally { done(); }
   }
@@ -973,6 +996,7 @@ export function renderMusic(container: HTMLElement) {
     const genRow = el("div", { style: { display: "flex", gap: "6px" } });
     genRow.append(genBtn, stopBtn);
     composeFixed.appendChild(genRow);
+    composeFixed.appendChild(el("div", { style: { marginTop: "6px" } }, [agentJsonBtn]));
   }
 
   async function submitPrompt(graph: any, label: string): Promise<any> {

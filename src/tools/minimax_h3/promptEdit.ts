@@ -839,17 +839,16 @@ export function createPromptEditOverlay(
   // OVERRIDE.md peer note: a picker here just eats two rows of vertical space that come straight
   // out of the clip editor's height, for a setting that's shared by every clip anyway).
   function renderModelLine(target: HTMLElement) {
-    if (state.h3LlmBackend === "openrouter") {
-      target.textContent = `OpenRouter · brief ${state.h3OrModel || "default"} · vision ${state.h3OrModelVision || "default"} — change in Settings → LLM`;
-      target.style.color = C.muted;
-      return;
-    }
-    if (!clipModels.length) {
+    const briefDesc = state.h3BriefBackend === "openrouter"
+      ? `OpenRouter ${state.h3OrModelBrief || "default"}` : (state.nativeBriefClip || "(none)");
+    const visionDesc = state.h3VisionBackend === "openrouter"
+      ? `OpenRouter ${state.h3OrModelVision || "default"}` : (state.nativeVisionClip || "(none)");
+    if ((state.h3BriefBackend !== "openrouter" || state.h3VisionBackend !== "openrouter") && !clipModels.length) {
       target.textContent = "Could not load the CLIP list — check the ComfyUI connection";
       target.style.color = C.warn;
       return;
     }
-    target.textContent = `Brief: ${state.nativeBriefClip || "(none)"} . Vision: ${state.nativeVisionClip || "(none)"}`;
+    target.textContent = `Brief: ${briefDesc} · Vision: ${visionDesc} — change in Settings → LLM`;
     target.style.color = C.muted;
   }
 
@@ -915,13 +914,14 @@ export function createPromptEditOverlay(
     if (busy) return;
     const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean) : [];
 
-    const useOR = state.h3LlmBackend === "openrouter";
-    if (!useOR && !state.nativeBriefClip) {
-      ctx.showPopup("Enter a Brief CLIP filename (or switch the LLM backend to OpenRouter in Settings).", true);
+    const briefOR = state.h3BriefBackend === "openrouter";
+    const visionOR = state.h3VisionBackend === "openrouter";
+    if (!briefOR && !state.nativeBriefClip) {
+      ctx.showPopup("Set a Brief CLIP (or switch the Brief backend to OpenRouter in Settings).", true);
       return;
     }
-    if (!useOR && images.length && !state.nativeVisionClip) {
-      ctx.showPopup("Enter a Vision CLIP filename.", true);
+    if (!visionOR && images.length && !state.nativeVisionClip) {
+      ctx.showPopup("Set a Vision CLIP (or switch the Vision backend to OpenRouter in Settings).", true);
       return;
     }
     const base = (editor.value || "").trim();
@@ -937,17 +937,17 @@ export function createPromptEditOverlay(
     try {
       let imageSummary = "";
       if (images.length) {
-        progressStage(useOR
+        progressStage(visionOR
           ? `Analyzing ${images.length} image(s) (OpenRouter)…`
           : `Analyzing ${images.length} image(s) (native, one batch)…`);
         const prompt = `${VISION_SYSTEM_PROMPT} There are ${images.length} images, in order. Describe each one separately, each on its own line starting with "Image N: ".`;
-        imageSummary = (useOR
-          ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModel)
+        imageSummary = (visionOR
+          ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModelBrief)
           : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
       }
       progressStage("Writing brief…");
-      const text = (useOR
-        ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary), state.h3OrModel)
+      const text = (briefOR
+        ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary), state.h3OrModelBrief)
         : await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary))).trim();
       if (!text) throw new Error("empty response");
       openReview(text, (targetSel as HTMLSelectElement).value);

@@ -133,8 +133,11 @@ export interface MinimaxState {
   visionSource: string; // was "ollama" | "native" — Ollama removed, always native now; field kept for saved-state compat
   nativeVisionClip: string;
   nativeBriefClip: string;
-  h3LlmBackend: string; // "native" (ComfyUI CLIP) | "openrouter" — Image→Brief backend
-  h3OrModel: string;        // OpenRouter brief model (writes the prompt — text only)
+  // Image→Brief: brief (writes the prompt) and vision (reads images) pick backend + model
+  // independently — "native" (ComfyUI CLIP) | "openrouter", any combination.
+  h3BriefBackend: string;
+  h3VisionBackend: string;
+  h3OrModelBrief: string;   // OpenRouter brief model (writes the prompt — text only)
   h3OrModelVision: string;  // OpenRouter vision model (reads the reference images — multimodal)
 
   // SolAttn (SolAttnPatch)
@@ -1165,8 +1168,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
-    h3LlmBackend: saved.h3LlmBackend || "native",
-    h3OrModel: saved.h3OrModel || "",
+    h3BriefBackend: saved.h3BriefBackend || (saved as any).h3LlmBackend || "native",
+    h3VisionBackend: saved.h3VisionBackend || (saved as any).h3LlmBackend || "native",
+    h3OrModelBrief: saved.h3OrModelBrief || (saved as any).h3OrModel || "",
     h3OrModelVision: saved.h3OrModelVision || "",
     pddFile: saved.pddFile || "none",
     pddFileReference: saved.pddFileReference || "none",

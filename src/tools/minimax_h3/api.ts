@@ -21,7 +21,8 @@ export interface ModelLists {
   loras?: string[];
   upscale_models?: string[];
   vae_approx?: string[];
-  pdd_acc?: string[]; // MiniMaxH3PDDAccApply's models/pdd_acc folder — empty if the pack isn't installed, not an error.
+  // pdd_acc folder dropped 2026-09-11 — PDD is core-native since ComfyUI v0.35.0 and the
+  // Acc file is a plain model-only LoRA now, picked from `loras`.
   [key: string]: string[] | undefined;
 }
 
@@ -97,10 +98,6 @@ export interface MmhConfig {
   fbc_end_percent?: number;
   fbc_max_consecutive_hits?: number;
   fbc_temporal_guard?: boolean;
-  cache_threshold?: number;
-  cache_start?: number;
-  cache_end?: number;
-  cache_max_steps?: number;
   vision_source?: string;
   native_vision_clip?: string;
   h3_llm_backend?: string;      // pre-split; node migrates to brief + vision backend
@@ -160,7 +157,8 @@ export const MMH3_OPTIONAL_NODES = [
   // H3-Optimizations (Zironic) — backend-preserving VRAM optimizer + optional sparse attention.
   "H3MemoryOptimization",
   "H3SparseAttention",
-  "MiniMaxH3Cache",
+  // "MiniMaxH3Cache" (ComfyUI-MiniMaxH3-Cache) retired 2026-09-11 — global-patched a
+  // pre-#15908 forward, broke every H3 render on ComfyUI 0.35+.
   "ApplyMiniMaxH3FirstBlockCache",
   "MiniMaxH3TurboSampler",
   "MiniMaxH3TurboLoRA",
@@ -185,8 +183,8 @@ export const MMH3_OPTIONAL_NODES = [
   "TextGenerate",
   "TJStudioOneTextOutput",
   "TJ_FreeTextEncoderVRAM",
-  // PDD Acc turbo mode — SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md.
-  "MiniMaxH3PDDAccApply",
+  // PDD Acc turbo mode is core-native since ComfyUI v0.35.0 (#15908) — no "MiniMaxH3PDDAccApply"
+  // node, the Acc file loads through LoraLoaderModelOnly. SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md.
   // RTX Deblur — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15.
   "TJ_RTXDeblur",
 ];

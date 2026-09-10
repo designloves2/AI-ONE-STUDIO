@@ -57,7 +57,6 @@ export interface MinimaxState {
   pddFileReference: string;
   pddNfe: string;
   pddLoraStrength: number;
-  pddHeadStrength: number;
   upscaleModel: string;
   targetLength: string;
   audioLock: boolean;
@@ -172,10 +171,6 @@ export interface MinimaxState {
   ckAttentionBackend: string;
   useTorchPatch: boolean;
   fp16Accum: boolean;
-  cacheThreshold: number;
-  cacheMaxSteps: number;
-  cacheStart: number;
-  cacheEnd: number;
 
   // H3 SLA Attention (block-sparse, last before the sampler)
   useSlaAttention: boolean;
@@ -201,10 +196,10 @@ export interface MinimaxState {
   // These are now the source of truth for buildModelChain(); the legacy fields above
   // (accelMode, useSageAttn, useCkAttention, useSlaAttention, useMemEffSage, useCache,
   // useFirstBlockCache) are read only by migratePipelineState() to seed these once.
-  turboMode: string; // "none" | "larryvrh" | "lightx2v" | "pdd" (lightx2v is a regular LoRA — add it in the LoRA section; picking it here just forces attnBackend to "sla" and suggests 6 steps. pdd is not a LoRA either — it swaps the model's final projection via MiniMaxH3PDDAccApply and forces sampler=euler + SigmaShift 12/3, see SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md)
+  turboMode: string; // "none" | "larryvrh" | "lightx2v" | "pdd" (lightx2v is a regular LoRA — add it in the LoRA section; picking it here just forces attnBackend to "sla" and suggests 6 steps. pdd since ComfyUI v0.35.0 (#15908) is core-native — the ComfyUI-converted Acc file loads as a plain model-only LoRA and FinalLayer picks the per-interval head off the sampler's own schedule; still forces sampler=euler + SigmaShift 12/3, see SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md)
   attnBackend: string; // "none" | "sage" | "ck" | "solattn_kijai" | "sla" — L6/L7, single-select
   attnForward: string; // "none" | "memeff_sage" | "solattn_saganaki" — L5, blocked whenever attnBackend replaces attn.forward itself (ck/solattn_kijai/sla)
-  blockCache: string; // "none" | "h3cache" | "fbcache" — L2/L3, blocked entirely under either Turbo mode
+  blockCache: string; // "none" | "fbcache" — L3, blocked entirely under either Turbo mode (the "h3cache" MiniMaxH3Cache pack was retired — it global-patched a pre-#15908 forward)
   // H3-Optimizations (Zironic) — backend-preserving VRAM / sparse axis. "none" | "memory" | "memory_sparse"
   h3Optimizer: string;
   h3MemChunkRows: number;
@@ -437,7 +432,7 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPi
   state.turboMode = preset.turbo;
   state.attnBackend = preset.backend;
   state.attnForward = preset.forward;
-  state.blockCache = preset.cache;
+  state.blockCache = preset.cache === "h3cache" ? "none" : preset.cache; // H3 Cache pack retired 2026-09-11
   state.useSpectrum = preset.spectrum;
   state.useTorchPatch = preset.torch;
   state.useFusedModulation = preset.fused;
@@ -556,7 +551,9 @@ export const ATTN_FORWARDS = [
 
 export const BLOCK_CACHES = [
   { key: "none", label: "None" },
-  { key: "h3cache", label: "H3 Cache", node: "MiniMaxH3Cache" },
+  // "h3cache" (ComfyUI-MiniMaxH3-Cache) retired 2026-09-11 — it global-patched
+  // MiniMaxH3Model._forward at import with a pre-#15908 fork, breaking every H3 render on
+  // ComfyUI core 0.35+. FirstBlockCache is the survivor; legacy h3cache state → "none".
   { key: "fbcache", label: "FirstBlockCache", node: "ApplyMiniMaxH3FirstBlockCache" },
 ] as const;
 
@@ -664,6 +661,8 @@ export function blockCacheBlockedReason(state: MinimaxState, key: string): strin
  * reads turboMode/attnBackend/etc. off it. Guarded by pipelineMigrated so it only ever runs once.
  */
 export function migratePipelineState(saved: Partial<MinimaxState> & Record<string, any>): void {
+  // A workflow saved with the retired H3 Cache pack still names it — clamp on every load.
+  if (saved.blockCache === "h3cache") saved.blockCache = "none";
   if (saved.pipelineMigrated) return;
 
   if (saved.turboMode == null) {
@@ -687,7 +686,9 @@ export function migratePipelineState(saved: Partial<MinimaxState> & Record<strin
     saved.attnForward = saved.useMemEffSage ? "memeff_sage" : "none";
   }
   if (saved.blockCache == null) {
-    saved.blockCache = saved.useFirstBlockCache ? "fbcache" : saved.useCache ? "h3cache" : "none";
+    // The old `useCache` mapped to the H3 Cache pack, retired 2026-09-11 (broke every H3
+    // render on ComfyUI 0.35+). FirstBlockCache is the only survivor.
+    saved.blockCache = saved.useFirstBlockCache ? "fbcache" : "none";
   }
   saved.pipelineMigrated = true;
 }
@@ -1176,7 +1177,6 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     pddFileReference: saved.pddFileReference || "none",
     pddNfe: String(saved.pddNfe ?? "8"),
     pddLoraStrength: saved.pddLoraStrength ?? 1.0,
-    pddHeadStrength: saved.pddHeadStrength ?? 1.0,
     solTau: saved.solTau ?? 1.3,
     solMinTokens: saved.solMinTokens ?? 4096,
     solStart: saved.solStart ?? 0.2,
@@ -1214,10 +1214,6 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     fbcEndPercent: saved.fbcEndPercent ?? 0.95,
     fbcMaxConsecutiveHits: saved.fbcMaxConsecutiveHits ?? 2,
     fbcTemporalGuard: saved.fbcTemporalGuard ?? false,
-    cacheThreshold: saved.cacheThreshold ?? 0.3,
-    cacheMaxSteps: saved.cacheMaxSteps ?? 2,
-    cacheStart: saved.cacheStart ?? 0.15,
-    cacheEnd: saved.cacheEnd ?? 0.9,
     previewEnabled: saved.previewEnabled ?? true,
     previewFrames: saved.previewFrames ?? 8,
     previewFps: saved.previewFps ?? 12,

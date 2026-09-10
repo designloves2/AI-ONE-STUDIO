@@ -17,7 +17,6 @@ const N = {
   ckAttn: "MM:ck_attn",
   torch: "MM:torch",
   shift: "MM:sigma_shift",
-  cache: "MM:cache",
   fbcache: "MM:fbcache",
   h3mem: "MM:h3_mem",
   h3sparse: "MM:h3_sparse",
@@ -76,11 +75,10 @@ export function previewNodeKey(nodeId: string | number) {
   return `MMH3_preview_${nodeId}`;
 }
 
-/** Resolves turboMode "larryvrh"/"pdd" down to "none" if its file/node isn't actually available.
- * PDD is not a LoRA — the checkpoint carries a trunk LoRA plus a 32-interval head bank, and
- * loading it through an ordinary LoRA loader would drop the head bank and silently render
- * nonsense, so a missing pack or file has to fall back rather than improvise (same shape as
- * larryvrh's own fallback below). */
+/** Resolves turboMode "larryvrh"/"pdd" down to "none" if its file isn't actually set.
+ * PDD is core-native since ComfyUI v0.35.0 (#15908) — the ComfyUI-converted Acc file loads
+ * as a plain model-only LoRA (no apply node, no dedicated pack), so only a missing file
+ * forces the fallback now, same shape as larryvrh's below. */
 export function turboEffective(state: MinimaxState, avail?: Avail): string {
   if (state.turboMode === "larryvrh") {
     if (!turboLoraForMode(state)) return "none";
@@ -89,7 +87,6 @@ export function turboEffective(state: MinimaxState, avail?: Avail): string {
   }
   if (state.turboMode === "pdd") {
     if (!pddFileForMode(state)) return "none";
-    if (avail && Object.keys(avail).length && !avail.MiniMaxH3PDDAccApply) return "none";
     return "pdd";
   }
   return state.turboMode || "none";
@@ -266,16 +263,12 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
     m = [id, 0];
   });
 
-  // ── Block cache (L2/L3) — single-select, blocked entirely under either Turbo mode (same
-  // approximation stacked on top of an already-distilled/4-step model isn't validated).
+  // ── Block cache (L3) — blocked entirely under either Turbo mode (the same approximation
+  // stacked on an already-distilled/4-step model isn't validated). "h3cache" (MiniMaxH3Cache)
+  // was retired 2026-09-11 — it global-patched a pre-#15908 forward and broke every H3 render
+  // on ComfyUI core 0.35+; FirstBlockCache is the only survivor.
   if (!blockCacheBlockedReason(state, state.blockCache)) {
-    if (state.blockCache === "h3cache" && has(avail, "MiniMaxH3Cache")) {
-      g[N.cache] = {
-        class_type: "MiniMaxH3Cache",
-        inputs: { model: m, resuse_threshold: state.cacheThreshold ?? 0.3, start_percent: state.cacheStart ?? 0.15, end_percent: state.cacheEnd ?? 0.9, max_steps: state.cacheMaxSteps ?? 2, device: "auto", verbose: false },
-      };
-      m = [N.cache, 0];
-    } else if (state.blockCache === "fbcache" && has(avail, "ApplyMiniMaxH3FirstBlockCache")) {
+    if (state.blockCache === "fbcache" && has(avail, "ApplyMiniMaxH3FirstBlockCache")) {
       g[N.fbcache] = {
         class_type: "ApplyMiniMaxH3FirstBlockCache",
         inputs: {
@@ -329,29 +322,28 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
     m = [N.h3sparse, 0];
   }
 
-  // ── Turbo (L8, weights) — larryvrh's own LoRA node, or PDD's model-patch+sigmas apply.
+  // ── Turbo (L8, weights) — larryvrh's own LoRA node, or PDD's plain model-only LoRA.
   // lightx2v is a regular LoRA, already applied above via the loras[] loop, gated to SLA
   // attention entirely through the UI/attnBackend axis.
   const turboWeights = turboEffective(state, avail);
   if (turboWeights === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
     g[N.turbo] = { class_type: "MiniMaxH3TurboLoRA", inputs: { model: m, lora_name: turboLoraForMode(state), strength: state.turboLoraStrength ?? 1.0, low_vram: !!state.turboLoraLowVram } };
     m = [N.turbo, 0];
-  } else if (turboWeights === "pdd" && has(avail, "MiniMaxH3PDDAccApply")) {
-    // Not a LoRA load: the apply node swaps the model's final projection for the trained
-    // 32-interval head bank and returns the sigmas sitting on that bank's block boundaries.
-    // Those sigmas are the whole contract — evaluating the model anywhere else is off the
-    // trained grid, which is why on_off_grid stays "error" rather than clamping a wrong
-    // schedule into something that silently renders as noise. The sampler reads them
-    // instead of BasicScheduler's — see the sigmas wiring in buildClipGraph below.
+  } else if (turboWeights === "pdd") {
+    // Core-native since ComfyUI v0.35.0 (#15908 "Support PDD LoRA"). The ComfyUI-converted
+    // Acc checkpoint (not the raw alibaba-pai file — its DiffSynth key names map to nothing
+    // and it silently applies 0 patches) is an ordinary model-only LoRA that expands
+    // video_out / audio_out into an N-interval head bank; core's FinalLayer.forward detects
+    // the bank from the weight shape and picks the head(s) spanning each step's sigma range
+    // off the sampler's own schedule. So there's no apply node, no emitted sigmas, no
+    // on-grid contract — a plain BasicScheduler at the distilled step count feeds it (see
+    // the sigmas wiring in buildClipGraph below). Needs core >= v0.35.0.
     g[N.pdd] = {
-      class_type: "MiniMaxH3PDDAccApply",
+      class_type: "LoraLoaderModelOnly",
       inputs: {
         model: m,
-        pdd_file: pddFileForMode(state),
-        nfe: String(state.pddNfe ?? "8"),
-        lora_strength: state.pddLoraStrength ?? 1.0,
-        head_strength: state.pddHeadStrength ?? 1.0,
-        on_off_grid: "error",
+        lora_name: pddFileForMode(state),
+        strength_model: state.pddLoraStrength ?? 1.0,
       },
     };
     m = [N.pdd, 0];
@@ -544,18 +536,15 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     g[N.sampSel] = { class_type: "MiniMaxH3TurboSampler", inputs: {} };
     samplerUsed = "MiniMaxH3TurboSampler";
   } else if (turboEff === "pdd") {
-    // PDD distils a mean velocity per block, which is what one Euler step over that block's
-    // boundaries consumes — an ancestral or multistep sampler would evaluate between
-    // boundaries (off the trained grid), so the sampler isn't the user's to pick here, the
-    // same way the sigmas below aren't.
+    // PDD distils a mean velocity per interval, which is what one Euler step consumes — an
+    // ancestral or multistep sampler would evaluate between the points the head bank was
+    // trained for, so the sampler is fixed here even though the schedule is now a plain one.
     samplerUsed = "euler";
     g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
   } else {
     samplerUsed = state.sampler || "er_sde";
     g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: samplerUsed } };
   }
-  // Still built under PDD even though its output goes unused below — ComfyUI only executes
-  // what an output needs, so this is a harmless no-op node rather than something to special-case.
   g[N.sched] = { class_type: "BasicScheduler", inputs: { model: modelLink, scheduler: state.scheduler || "simple", steps, denoise: state.denoise ?? 1.0 } };
   g[N.guider] = { class_type: "BasicGuider", inputs: { model: modelLink, conditioning: condLink } };
 
@@ -563,9 +552,9 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   const preOneTakeLatent = lockAudio ? [N.audioLock, 0] : [N.cond, 1];
   const latentImage = buildOneTake(g, state, avail, clipIndex, prevCheckpointName, preOneTakeLatent);
 
-  // PDD supplies its own sigmas — the block boundaries its head bank was distilled on.
-  // BasicScheduler's curve would put the model on timesteps no head was trained for.
-  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: turboEff === "pdd" ? [N.pdd, 1] : [N.sched, 0], latent_image: latentImage } };
+  // Core-native PDD (v0.35.0+) reads the sampler's own schedule per step and maps it onto its
+  // head bank, so BasicScheduler feeds it like any other run — no special sigma wiring.
+  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: [N.sched, 0], latent_image: latentImage } };
   saveOneTakeCheckpoint(g, state, avail, checkpointName);
 
   g[N.decode] = { class_type: "VAEDecode", inputs: { samples: [N.sampler, 0], vae: [N.vaeV, 0] } };

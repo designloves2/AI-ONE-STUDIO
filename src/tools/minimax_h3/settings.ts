@@ -113,7 +113,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     const vae = ["none", ...(modelData.vaes || []).filter((x) => x !== "none")];
     const lor = ["none", ...(modelData.loras || []).filter((x) => x !== "none")];
     const ups = ["none", ...(modelData.upscale_models || []).filter((x) => x !== "none")];
-    const pdd = ["none", ...(modelData.pdd_acc || []).filter((x) => x !== "none")];
+    // Core-native PDD (ComfyUI v0.35.0+) loads the Acc file as a plain model-only LoRA, so it
+    // comes from the normal loras list — not the pdd_acc folder the retired pack registered.
+    const pdd = ["none", ...(modelData.loras || []).filter((x) => x !== "none")];
 
     const uFL = searchableSelect(diff, state.unetFirstLast || "none", (v) => { state.unetFirstLast = v; ctx.persist(); ctx.refreshModes?.(); });
     const uRF = searchableSelect(diff, state.unetReference || "none", (v) => { state.unetReference = v; ctx.persist(); ctx.refreshModes?.(); });
@@ -146,8 +148,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         label("Model Files"),
         col([label("Turbo LoRA (larryvrh) file"), tl.el]),
         col([label("Upscale Model (used when Upscale = Upscale Model)"), um.el]),
-        row([col([label("PDD Acc file · First/Last & Text-only (FL2VA)"), pf.el]), col([label("PDD Acc file · Reference (Ref2VA)"), pfRef.el])]),
-        el("div", { html: "Pairing a file with the wrong UNET is a silent quality failure, not an error — keep FL2VA/Ref2VA matched to the generation mode. → <code>models/pdd_acc/</code>", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        row([col([label("PDD Acc LoRA · First/Last & Text-only (FL2VA)"), pf.el]), col([label("PDD Acc LoRA · Reference (Ref2VA)"), pfRef.el])]),
+        el("div", { html: "Core-native since ComfyUI v0.35.0 — pick the ComfyUI-converted file (<code>…_pruned_comfy.safetensors</code>) from <code>models/loras/</code>; the raw alibaba-pai one applies 0 patches. Pairing a file with the wrong UNET is a silent quality failure — keep FL2VA/Ref2VA matched to the generation mode.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         el("div", {
           text: "Turbo mode, Attention backend/forward, Block Cache, Spectrum, and Model Patches (Fused Modulation/Torch/fp16) moved to the left panel's Pipeline accordion — they're per-run settings now, not fixed config.",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
@@ -454,10 +456,6 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       fbc_end_percent: state.fbcEndPercent ?? 0.95,
       fbc_max_consecutive_hits: state.fbcMaxConsecutiveHits ?? 2,
       fbc_temporal_guard: state.fbcTemporalGuard ?? false,
-      cache_threshold: state.cacheThreshold ?? 0.3,
-      cache_start: state.cacheStart ?? 0.15,
-      cache_end: state.cacheEnd ?? 0.9,
-      cache_max_steps: state.cacheMaxSteps ?? 2,
       vision_source: state.visionSource || "native",
       native_vision_clip: state.nativeVisionClip || "",
       h3_brief_backend: state.h3BriefBackend || "native",
@@ -539,10 +537,6 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.fbc_end_percent != null) state.fbcEndPercent = cfg.fbc_end_percent;
       if (cfg.fbc_max_consecutive_hits != null) state.fbcMaxConsecutiveHits = cfg.fbc_max_consecutive_hits;
       if (cfg.fbc_temporal_guard != null) state.fbcTemporalGuard = cfg.fbc_temporal_guard;
-      if (cfg.cache_threshold != null) state.cacheThreshold = cfg.cache_threshold;
-      if (cfg.cache_start != null) state.cacheStart = cfg.cache_start;
-      if (cfg.cache_end != null) state.cacheEnd = cfg.cache_end;
-      if (cfg.cache_max_steps != null) state.cacheMaxSteps = cfg.cache_max_steps;
       // vision_source ignored on load — Ollama removed, always native regardless of what a
       // config saved before this change says.
       if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;

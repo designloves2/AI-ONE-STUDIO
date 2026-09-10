@@ -1014,8 +1014,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     const reason =
       state.turboMode === "larryvrh" && !turboLoraSet() ? "no turbo LoRA set"
       : state.turboMode === "larryvrh" ? "MiniMaxH3TurboLoRA not installed"
-      : state.turboMode === "pdd" && !pddFileForMode(state) ? "no PDD Acc file set for this mode"
-      : state.turboMode === "pdd" ? "MiniMaxH3PDDAccApply not installed"
+      : state.turboMode === "pdd" && !pddFileForMode(state) ? "no PDD Acc LoRA set for this mode"
       : "unavailable";
     return `${label} · inactive — ${reason}`;
   }
@@ -1049,19 +1048,16 @@ export function renderMinimaxH3(container: HTMLElement) {
           label("Model evaluations (nfe)"),
           select(PDD_NFE_CHOICES.map((s) => ({ value: s, label: s })), String(state.pddNfe ?? "8"), (v) => { state.pddNfe = v; persist(); }),
         ]),
-        row([
-          col([label("LoRA strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
-          col([label("Head strength"), n(state.pddHeadStrength ?? 1.0, (v) => (state.pddHeadStrength = v))]),
-        ]),
+        col([label("LoRA strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         el("div", {
           text: "8 = trained block size 4. 4 regroups two blocks per step (faster, official); 6 uses the non-uniform default partition. Higher counts are off the training envelope and render as noise.",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
         }),
         el("div", {
-          text: "Not a LoRA — swaps the model's final head via MiniMaxH3PDDAccApply and forces sampler=euler + SigmaShift 12/3 regardless of the values set elsewhere. The PDD Acc file itself (per generation mode) is set in ⚙ Settings → Models.",
+          text: "Core-native since ComfyUI v0.35.0 — the Acc file loads as a plain model-only LoRA (no separate pack); euler runs on a normal schedule and core's FinalLayer picks the per-interval head off it. Still forces sampler=euler + SigmaShift 12/3. Use the ComfyUI-converted file (…_pruned_comfy.safetensors) — the raw alibaba-pai one applies 0 patches. The Acc LoRA itself (per generation mode) is set in ⚙ Settings → Models.",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
         }),
-        ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No PDD Acc file selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
+        ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No PDD Acc LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
     return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
@@ -1182,18 +1178,6 @@ export function renderMinimaxH3(container: HTMLElement) {
     return BLOCK_CACHES.find((b) => b.key === state.blockCache)?.label || "None";
   }
   function blockCacheSettings() {
-    if (state.blockCache === "h3cache") {
-      return [
-        row([
-          col([label("reuse threshold"), n(state.cacheThreshold ?? 0.3, (v) => (state.cacheThreshold = v), 0.01)]),
-          col([label("max steps"), n(state.cacheMaxSteps ?? 2, (v) => (state.cacheMaxSteps = Math.round(v)), 1)]),
-        ]),
-        row([
-          col([label("start %"), n(state.cacheStart ?? 0.15, (v) => (state.cacheStart = v), 0.01)]),
-          col([label("end %"), n(state.cacheEnd ?? 0.9, (v) => (state.cacheEnd = v), 0.01)]),
-        ]),
-      ];
-    }
     if (state.blockCache === "fbcache") {
       return [
         col([

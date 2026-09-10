@@ -3,6 +3,32 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.3.1] — 2026-09-11
+
+Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` v1.25.x (node → web). See `PORT_LEDGER.md`.
+
+### Changed
+- **OpenRouter LLM: separate text and vision model + backend per surface** (node `49422ca` /
+  `488bad2` / `b995d8d`). The Enhance / brief-writing call (text only — can be a cheap model
+  like DeepSeek) and the Image→Prompt / analyze call (reads pixels — needs a multimodal model
+  like Gemini or Qwen-VL) each pick their own OpenRouter model **and** backend. Image tools:
+  `backend`/`or_model` → `backend_text`/`backend_vision` + `or_model_text`/`or_model_vision`.
+  MiniMax H3 Settings → LLM: two independent rows (Brief / Vision), any native/OpenRouter
+  combination. One shared `.env` key. Legacy single values migrate into both roles. Model
+  pickers are now a filterable full list (no capability filter — the user chooses).
+- **MiniMax H3 — PDD Acc is a core-native LoRA now** (node `e77dfc9` / v1.25.1). ComfyUI
+  v0.35.0 (#15908) absorbed the PDD progressive-distillation head bank into core `FinalLayer`.
+  PDD turbo now emits `LoraLoaderModelOnly` (was `MiniMaxH3PDDAccApply`) on a plain
+  `BasicScheduler` — no apply node, no dedicated pack. The PDD Acc picker draws from the
+  regular LoRA list; "head strength" is gone. **Use the ComfyUI-converted file**
+  (`…_pruned_comfy.safetensors`) — the raw alibaba-pai one applies 0 patches. Needs core ≥ v0.35.0.
+
+### Removed
+- **MiniMax H3 — "H3 Cache" block-cache option** (`ComfyUI-MiniMaxH3-Cache`). It global-patched
+  `MiniMaxH3Model._forward` at import with a pre-#15908 fork, breaking **every** H3 render on
+  ComfyUI core 0.35+. `FirstBlockCache` is the survivor; a saved `h3cache` state / preset
+  falls back to `none`. Its `reuse threshold` / `max steps` / `start %` / `end %` fields are gone.
+
 ## [0.3.0] — 2026-09-06
 
 **MusicMaker** joins the studio, and an **OpenRouter cloud LLM backend** is wired through

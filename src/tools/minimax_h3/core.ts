@@ -96,7 +96,13 @@ export interface MinimaxState {
   ltxVaeVideo: string;
   ltxVaeAudio: string;
   ltxTinyVae: string;        // preview TAE — falls back to the H3 preview tiny_vae if unset
-  ltxLlmPrompt: string;      // ✨ vision instruction (native path); OpenRouter path reuses H3 vision cfg
+  // The ✨ vision LLM for LTX Upscale — its own backend + model, never inherits an H3 value
+  // (⚙ Settings → LLM Setting → "LTX Upscale ✨", a 3rd role next to H3 Brief/Vision).
+  ltxVisionBackend: string;  // "native" | "openrouter"
+  ltxVisionClip: string;     // native: the vision CLIP (text_encoders)
+  ltxVisionOrModel: string;  // openrouter: model id
+  ltxLlmPrompt: string;      // ✨ "Write from source frame" instruction (vision)
+  ltxConvertPrompt: string;  // "H3 → LTX 2.5" instruction (text-only, rewrites an H3 brief)
 
   accelMode: string;
   upscaleMode: string;
@@ -343,6 +349,63 @@ export const GENERATION_MODES = [
   { key: "reference", label: "Reference", hint: "up to 9 reference images (REF2VA)" },
   { key: "ltxupscale", label: "LTX Upscale", hint: "2x refine an existing clip (LTX 2.5)" },
 ];
+
+// The ✨ button's default system prompt — a ready-to-use LTX-2.5 prompt author written to
+// the official LTX-2.5 prompt guide (six elements in order: shot / scene / action /
+// character / camera / audio; present tense; physical emotion cues not labels; quoted
+// speech; no boosters or negatives). Shown one still frame from the source clip, it returns
+// the prompt for a light refine pass, so it must describe the clip that already exists.
+// Editable in Settings but works as-is. Mirrors node `LTX_UPSCALE_LLM_PROMPT` (0c78cc7).
+export const LTX_UPSCALE_LLM_PROMPT =
+  "You write prompts for the LTX-2.5 video model, following the official LTX-2.5 prompt " +
+  "guide. You are given ONE still frame from near the start of a short existing clip that " +
+  "is about to go through a light 2x upscale + refine at low denoise, so your prompt must " +
+  "describe the clip that ALREADY EXISTS — not a new idea, no new cuts, no camera move " +
+  "that is not already in the footage, and nothing that is not visible or clearly implied.\n\n" +
+  "Write ONE flowing present-tense paragraph, about 4-8 sentences (~60-120 words), that " +
+  "covers these six elements in this order:\n" +
+  "1. Establish the shot — shot scale and angle that match the framing shown (wide / " +
+  "medium / medium close-up / close-up; low / high / eye-level / over-the-shoulder).\n" +
+  "2. Set the scene — lighting condition and direction, colour palette, key textures, " +
+  "atmosphere (haze, fog, rain, dust, bokeh). One coherent light logic.\n" +
+  "3. Describe the action — the main action as one natural sequence, flowing from what " +
+  "this frame shows to how the motion plausibly continues.\n" +
+  "4. Define the character(s) — age, hairstyle, clothing, distinguishing features, props. " +
+  "Show emotion through physical cues (jaw tightens, shoulders drop, a slow exhale), " +
+  "never abstract labels like 'sad' or 'angry'.\n" +
+  "5. Camera movement — how and when the camera moves (static frame, slow push-in, pull " +
+  "back, pan across, tilt, tracking, handheld, orbit); describe how the subject is framed " +
+  "after the move.\n" +
+  "6. Audio — ambient sound, music, and any speech. Put spoken lines in quotation marks " +
+  "and name the language/accent. If the frame gives no basis for sound, use one short " +
+  "plausible ambient sentence.\n\n" +
+  "Natural cinematic language only. No bullet points, no keyword lists, no parenthetical " +
+  "weights, no \"masterpiece / 4k / best quality\" boosters, no negative phrasing, and " +
+  "never mention upscaling, resolution or the refine pass. Output only the paragraph.";
+
+// The "H3 → LTX 2.5" button's default instruction — rewrites a gallery clip's saved MiniMax
+// H3 structured brief into a plain LTX-2.5 prompt. Text-only, no image. Mirrors node
+// `LTX_CONVERT_LLM_PROMPT` (0c78cc7).
+export const LTX_CONVERT_LLM_PROMPT =
+  "The text below is a MiniMax-H3 video brief: a structured document with sections like " +
+  "technical_settings, subject_definitions, <Subject 1> / <Reference Image N> tokens, " +
+  "summary, detailed_description, retention_analysis, and audio sections. Rewrite it as a " +
+  "single prompt for the LTX-2.5 video model, following the official LTX-2.5 prompt guide.\n\n" +
+  "Keep every subject and their exact appearance and wardrobe, their left-to-right order, " +
+  "the setting, the lighting, the camera move, the shot progression and the sound. Resolve " +
+  "the <Subject N> / <Reference Image N> tokens to plain descriptions. Drop the H3 " +
+  "headings, the reference-image bookkeeping, the retention_analysis and the " +
+  "technical_settings line; fold the structured audio block into one plain audio sentence.\n\n" +
+  "Produce ONE flowing present-tense paragraph, about 4-8 sentences (~60-130 words), " +
+  "covering the six LTX-2.5 elements in order: (1) establish the shot (scale + angle); " +
+  "(2) set the scene (lighting, palette, textures, atmosphere, one light logic); (3) " +
+  "describe the action as one natural sequence; (4) define the character(s) with emotion " +
+  "shown through physical cues, not labels; (5) camera movement — how and when it moves, " +
+  "and how the subject is framed afterward; (6) audio — ambient, music and any speech, " +
+  "with spoken lines in quotation marks and the language/accent named. If the brief has " +
+  "real cuts, write it as one chronological paragraph and name each transition in prose. " +
+  "Natural cinematic language only — no bullet points, no keyword lists, no quality " +
+  "boosters, no negative phrasing. Output only the paragraph.";
 
 // LTX 2.5 Upscale mode is a standalone refine pass — not an H3 render. It needs its own
 // model set configured in Settings (the LTX unet, latent upscaler, text encoder, and the
@@ -1187,11 +1250,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ltxVaeVideo: saved.ltxVaeVideo || "",
     ltxVaeAudio: saved.ltxVaeAudio || "",
     ltxTinyVae: saved.ltxTinyVae || "",
-    ltxLlmPrompt: saved.ltxLlmPrompt ||
-      "Describe this single video frame as one flowing text-to-image prompt for an LTX video " +
-      "upscale/refine pass. Match what is shown exactly — subjects, their attributes and " +
-      "positions, setting, lighting, colour, camera framing and motion feel, overall style " +
-      "and medium. Do not invent anything not visible. One paragraph, no lists, no preamble.",
+    ltxVisionBackend: saved.ltxVisionBackend || "native",
+    ltxVisionClip: saved.ltxVisionClip || "",
+    ltxVisionOrModel: saved.ltxVisionOrModel || "",
+    ltxLlmPrompt: saved.ltxLlmPrompt || LTX_UPSCALE_LLM_PROMPT,
+    ltxConvertPrompt: saved.ltxConvertPrompt || LTX_CONVERT_LLM_PROMPT,
 
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",

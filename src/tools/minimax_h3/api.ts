@@ -117,6 +117,10 @@ export interface MmhConfig {
   ltx_vae_audio?: string;
   ltx_tiny_vae?: string;
   ltx_llm_prompt?: string;
+  ltx_convert_prompt?: string;
+  ltx_vision_backend?: string;
+  ltx_vision_clip?: string;
+  ltx_vision_or_model?: string;
   filename_prefix?: string;
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;

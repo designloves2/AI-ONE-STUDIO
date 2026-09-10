@@ -23,6 +23,9 @@ export interface ModelLists {
   vae_approx?: string[];
   // pdd_acc folder dropped 2026-09-11 — PDD is core-native since ComfyUI v0.35.0 and the
   // Acc file is a plain model-only LoRA now, picked from `loras`.
+  // LTX 2.5 Upscale mode (node 8427b5b):
+  latent_upscale_models?: string[];
+  text_encoders_all?: string[]; // safetensors + gguf — the LTX text encoder can be either
   [key: string]: string[] | undefined;
 }
 
@@ -106,6 +109,13 @@ export interface MmhConfig {
   h3_or_model?: string;         // pre-split; still returned by the node as the brief value
   h3_or_model_brief?: string;
   h3_or_model_vision?: string;
+  // LTX 2.5 Upscale mode — its own model set (node 8427b5b)
+  ltx_unet?: string;
+  ltx_latent_upscaler?: string;
+  ltx_clip?: string;
+  ltx_vae_video?: string;
+  ltx_vae_audio?: string;
+  ltx_tiny_vae?: string;
   filename_prefix?: string;
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;

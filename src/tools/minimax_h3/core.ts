@@ -68,6 +68,28 @@ export interface MinimaxState {
   audioLockTrimEnd: number;
   loras: LoraEntry[];
   generationMode: string;
+
+  // ── LTX 2.5 Upscale mode (generationMode "ltxupscale") ────────────────────────────────
+  // A standalone 2x latent-upscale + light refine pass over a finished/uploaded clip — does
+  // not touch the H3 conditioning/sampler chain (see buildLtxUpscaleGraph).
+  ltxSource: string;        // source video filename (gallery pick or upload)
+  ltxSourceKind: string;    // "gallery" | "upload"
+  ltxPrompt: string;
+  ltxNegPrompt: string;
+  ltxSteps: number;
+  ltxDenoise: number;
+  ltxSampler: string;
+  ltxScheduler: string;
+  ltxSeed: number;
+  ltxSeedMode: string;
+  // configured once in ⚙ Settings → LTX 2.5 Upscale (round-trip through the config route)
+  ltxUnet: string;           // .gguf → UnetLoaderGGUF; .safetensors → UNETLoader
+  ltxLatentUpscaler: string; // models/latent_upscale_models/
+  ltxClip: string;           // .gguf → TJ_LTX25ClipLoaderGGUF; else core CLIPLoader(type ltxv)
+  ltxVaeVideo: string;
+  ltxVaeAudio: string;
+  ltxTinyVae: string;        // preview TAE — falls back to the H3 preview tiny_vae if unset
+
   accelMode: string;
   upscaleMode: string;
   // RTX Deblur (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15) — a pre-pass before upscale, not one
@@ -311,7 +333,23 @@ export const GENERATION_MODES = [
   { key: "t2v", label: "Text only", hint: "prompt only (T2VA)" },
   { key: "firstlast", label: "First/Last Frame", hint: "start + end keyframe (FL2VA)" },
   { key: "reference", label: "Reference", hint: "up to 9 reference images (REF2VA)" },
+  { key: "ltxupscale", label: "LTX Upscale", hint: "2x refine an existing clip (LTX 2.5)" },
 ];
+
+// LTX 2.5 Upscale mode is a standalone refine pass — not an H3 render. It needs its own
+// model set configured in Settings (the LTX unet, latent upscaler, text encoder, and the
+// LTX video + audio VAEs). A missing piece disables the mode rather than failing at run.
+export function ltxUpscaleReady(state: MinimaxState): boolean {
+  const need = [state.ltxUnet, state.ltxLatentUpscaler, state.ltxClip, state.ltxVaeVideo, state.ltxVaeAudio];
+  return need.every((v) => v && v !== "none");
+}
+export function ltxUpscaleMissing(state: MinimaxState): string[] {
+  const map: Record<string, string> = {
+    ltxUnet: "LTX unet", ltxLatentUpscaler: "latent upscaler", ltxClip: "text encoder",
+    ltxVaeVideo: "video VAE", ltxVaeAudio: "audio VAE",
+  };
+  return Object.keys(map).filter((k) => !(state as any)[k] || (state as any)[k] === "none").map((k) => map[k]);
+}
 
 export const ACCEL_MODES = [
   { key: "turbo", label: "Turbo LoRA(larryvrh)", node: "MiniMaxH3TurboLoRA", modes: ["t2v", "firstlast", "reference"] },
@@ -741,6 +779,10 @@ export function configIssues(state: MinimaxState) {
 export function generationModesFor(state: MinimaxState) {
   const a = modelAvailability(state);
   return GENERATION_MODES.map((m) => {
+    if (m.key === "ltxupscale") {
+      const ok = ltxUpscaleReady(state);
+      return { ...m, enabled: ok, reason: ok ? "" : `Set the LTX 2.5 models in ⚙ Settings (missing: ${ltxUpscaleMissing(state).join(", ")})` };
+    }
     const ok = m.key === "reference" ? a.ref : a.fl;
     return { ...m, enabled: ok, reason: ok ? "" : `Set the ${m.key === "reference" ? "Reference" : "First/Last"} UNET in ⚙ Settings → Models` };
   });
@@ -1118,6 +1160,25 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
       ? saved.loras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))
       : [],
     generationMode: saved.generationMode || "t2v",
+
+    // ── LTX 2.5 Upscale mode ────────────────────────────────────────────────
+    ltxSource: saved.ltxSource || "",
+    ltxSourceKind: saved.ltxSourceKind || "gallery",
+    ltxPrompt: saved.ltxPrompt || "",
+    ltxNegPrompt: saved.ltxNegPrompt || "bad anatomy, inconsistent look, low resolution,",
+    ltxSteps: saved.ltxSteps ?? 3,
+    ltxDenoise: saved.ltxDenoise ?? 0.15,
+    ltxSampler: saved.ltxSampler || "euler_ancestral",
+    ltxScheduler: saved.ltxScheduler || "simple",
+    ltxSeed: saved.ltxSeed ?? 0,
+    ltxSeedMode: saved.ltxSeedMode || "randomize",
+    ltxUnet: saved.ltxUnet || "",
+    ltxLatentUpscaler: saved.ltxLatentUpscaler || "",
+    ltxClip: saved.ltxClip || "",
+    ltxVaeVideo: saved.ltxVaeVideo || "",
+    ltxVaeAudio: saved.ltxVaeAudio || "",
+    ltxTinyVae: saved.ltxTinyVae || "",
+
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",
     deblurStrength: saved.deblurStrength || "none",

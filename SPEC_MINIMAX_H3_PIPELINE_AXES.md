@@ -120,6 +120,13 @@ availability 리스트: 웹 `api.ts` `MMH3_OPTIONAL_NODES` + 노드 양쪽에 `H
 
 ## Part 1 — 패치 계층 감사 결과
 
+> **2026-09-11 갱신 (node `e77dfc9` / web `54a6fd1`):** **"H3 Cache" (`MiniMaxH3Cache`,
+> `ComfyUI-MiniMaxH3-Cache`) 는 제거되었습니다.** import 시점에 `MiniMaxH3Model._forward` 를
+> pre-#15908 fork 로 전역 monkeypatch 하는데, ComfyUI 코어 v0.35.0+ 에서는 그 fork 가
+> 코어와 어긋나 **모든 H3 렌더가 깨집니다.** `blockCache` 축은 이제 `none | fbcache` 뿐이고,
+> 아래 표/설명의 "H3 Cache / L2" 항목은 히스토리로만 남깁니다. FirstBlockCache 가 유일한
+> 스텝 재사용 캐시입니다. (같은 커밋에서 PDD Acc 도 코어 네이티브 LoRA 로 이동 — Part 2 참고.)
+
 | 계층 | 훅 | 노드 |
 |---|---|---|
 | L1 샘플러 래퍼 | `OUTER_SAMPLE` / `PREDICT_NOISE` | Spectrum, H3 Cache, FirstBlockCache |
@@ -176,7 +183,7 @@ availability 리스트: 웹 `api.ts` `MMH3_OPTIONAL_NODES` + 노드 양쪽에 `H
                    └ LoRA 선택(검색+목록) · strength · steps · low VRAM
 ▶ 어텐션           백엔드  [None | Sage | CK | SolAttn(kijai) | SLA]      ← L6/L7
                    H3 fwd [None | MemEff Sage | SolAttn(Saganaki22)]      ← L5
-▶ 블록 캐시        [None | H3 Cache | FirstBlockCache]                    ← L2/L3
+▶ 블록 캐시        [None | FirstBlockCache]   (H3 Cache 제거 — 상단 note)   ← L3
 ▶ Spectrum         ☑ (독립 — 캐시와 함께 사용 가능)                        ← L1
 ▶ 모델 패치        ☑ Fused Modulation  ☑ Torch/fp16                       ← L4
 ▶ 업스케일 / ▶ 연속성 / ▶ 오디오 락 / ▶ Images / ▶ LoRA
@@ -243,7 +250,7 @@ accelMode "solattn"  → attnBackend = "solattn_kijai"
 useSlaAttention      → attnBackend = "sla"   (SLA가 실제로 이기고 있었으므로 그대로 반영)
 useCkAttention/useSageAttn → attnBackend = "ck" / "sage"
 useMemEffSage        → attnForward = "memeff_sage"
-useFirstBlockCache / useCache → blockCache = "fbcache" / "h3cache"
+useFirstBlockCache → blockCache = "fbcache"   (useCache/"h3cache" 는 제거 — 항상 "none" 으로 clamp)
 ```
 `pipelineMigrated` 플래그로 1회만 실행. 웹 버전의 기존 저장 구조에 맞춰 같은 취지로 구현해
 주세요.

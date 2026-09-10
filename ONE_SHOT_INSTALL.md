@@ -69,13 +69,20 @@ ComfyUI 포트 = 8188
   1. `<COMFY>\custom_nodes` 로 이동(없으면 생성).
   2. `git clone https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE.git`
      (이미 있으면 `git -C ComfyUI-TJ_NODE_STUDIO_ONE pull --ff-only`)
-  3. `pyproject.toml`의 `version` 이 1.25.0 이상인지 확인. 낮으면 위 pull 재시도.
+  3. `pyproject.toml`의 `version` 이 1.25.1 이상인지 확인. 낮으면 위 pull 재시도.
+     ComfyUI 코어도 **v0.35.0 이상**이어야 합니다(MiniMax H3 PDD Acc 가 코어 네이티브로
+     이동 — #15908). EZi 최신 배포판이면 충족.
   4. 의존 팩 + Python 패키지 설치:
        cmd /c ""<COMFY>\custom_nodes\ComfyUI-TJ_NODE_STUDIO_ONE\install_requirements.bat" "<COMFY>"" < nul
-     - 이 스크립트가 <COMFY>의 Python(.venv 또는 python_embeded)을 자동 탐지하고, 26개 의존
+     - 이 스크립트가 <COMFY>의 Python(.venv 또는 python_embeded)을 자동 탐지하고, 24개 의존
        노드 팩을 clone/업데이트하며 각 requirements.txt 를 설치합니다.
-     - `ComfyUI-Openrouter_node`(REPOS[24]) — MusicMaker / 이미지 도구 / MiniMax H3 의 OpenRouter
-       LLM 백엔드. `JK-AceStep-Nodes`(REPOS[25], Manager 폴더 `comfyui-ace-step-ksampler`) —
+     - `ComfyUI-MiniMaxH3-Cache`(구 "H3 Cache")는 **v1.25.1 에서 제거**됨 — import 시점에
+       구버전 코어 forward 를 전역 몽키패치해서 ComfyUI 0.35+ 에서 모든 H3 렌더가 깨집니다.
+       FirstBlockCache 가 유일한 스텝 재사용 캐시입니다. PDD Acc 는 이제 코어 네이티브 LoRA
+       라 별도 팩 없이 `models/loras/` 의 ComfyUI 변환본(`..._pruned_comfy.safetensors`)만
+       넣으면 됩니다(원본 alibaba-pai 파일은 0 patches — 조용히 베이스 렌더).
+     - `ComfyUI-Openrouter_node`(REPOS[22]) — MusicMaker / 이미지 도구 / MiniMax H3 의 OpenRouter
+       LLM 백엔드. `JK-AceStep-Nodes`(REPOS[23], Manager 폴더 `comfyui-ace-step-ksampler`) —
        MusicMaker Ace-Step 엔진 기본 샘플러 `jkass_quality` 를 등록하는 **소프트 의존** 팩
        (없으면 그 샘플러만 실패 → MusicMaker Settings 에서 `euler` 등 코어 샘플러로 변경 가능).
      - MiniMax Music 3 · Ace-Step 1.5 의 인코드·latent·sampler-select·`VAEDecodeAudio`·
@@ -136,7 +143,8 @@ ComfyUI 포트 = 8188
         - models/diffusion_models/ : minimax_h3_fl2va_* , minimax_h3_ref2va_*
         - models/text_encoders/    : qwen3vl_*_minimax_h3_*  (약 20GB)
         - models/vae/              : minimax_h3_video_vae_* , minimax_h3_audio_vae_*
-        - models/loras/            : minimax_h3 turbo / PDD Acc LoRA (선택)
+        - models/loras/            : minimax_h3 turbo / PDD Acc LoRA (선택; PDD 는
+          `MiniMax-H3-{FL2VA,Ref2VA}-Acc-8Step_pruned_comfy.safetensors` ComfyUI 변환본)
       · MusicMaker (엔진 2개 — 둘 중 하나만 받아도 그 엔진은 동작). 파일 목록·출처는 노드
         README 및 각 모델의 공식 배포처를 참고하세요:
         - MiniMax Music 3: DiT(diffusion_models) · text encoder(text_encoders) · audio VAE(vae)

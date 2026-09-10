@@ -7,36 +7,51 @@ website's MiniMax H3 tool needs to mirror.
 
 `turboMode` now has a third value alongside `none | larryvrh | lightx2v`: **`pdd`**.
 
-Not a LoRA. The checkpoint (alibaba-pai's PDD Acc release) carries a trunk LoRA plus a
-32-interval output-head bank, applied via the `MiniMaxH3PDDAccApply` node
-(package `Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc`, optional — gate on it like any other
-third-party node).
+> **Updated 2026-09-11 (node `e77dfc9` / web `54a6fd1`):** PDD Acc is **core-native** since
+> ComfyUI v0.35.0 (PR #15908 "Support PDD LoRA"). The progressive-distillation head bank moved
+> into core `FinalLayer`; the `MiniMaxH3PDDAccApply` node and the
+> `Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc` pack are **gone**. The section below is kept for
+> history; the box after it is the current behaviour.
 
-New per-mode state fields (mirror the larryvrh/lightx2v pattern — separate slots per
-generation mode, since the release is split into Ref2VA / FL2VA files):
+<details><summary>Original (pre-v0.35.0) design — apply node + emitted sigmas</summary>
+
+Not a LoRA. The checkpoint (alibaba-pai's PDD Acc release) carries a trunk LoRA plus a
+32-interval output-head bank, applied via the `MiniMaxH3PDDAccApply` node. When
+`turboMode === "pdd"` the graph got that node right after SigmaShift, took its `sigmas`
+output instead of `BasicScheduler`'s, and set `on_off_grid: "error"`. State also carried
+`pddHeadStrength` (default 1.0). `GET /minimax_h3_one/models` returned a `pdd_acc` array.
+
+</details>
+
+**Current behaviour (v0.35.0+):** the ComfyUI-converted Acc file
+(`MiniMax-H3-{FL2VA,Ref2VA}-Acc-8Step_pruned_comfy.safetensors` — the raw alibaba-pai file
+maps to no core loader and silently applies 0 patches) is an ordinary **model-only LoRA**.
+Core's `FinalLayer.forward` detects the head bank from the weight shape and picks the head(s)
+spanning each step's sigma range off the sampler's own schedule.
+
+Per-mode state fields (separate slots per generation mode — the release is split Ref2VA / FL2VA):
 
 ```
-pddFile            // FL2VA file, for firstlast/t2v
-pddFileReference   // Ref2VA file, for reference mode
-pddNfe             // "8" | "4" | "6" — string, a discrete choice not a free number
+pddFile            // FL2VA LoRA, for firstlast/t2v      (picked from models/loras/)
+pddFileReference   // Ref2VA LoRA, for reference mode
+pddNfe             // "8" | "4" | "6" — string, the distilled step count
 pddLoraStrength    // default 1.0
-pddHeadStrength    // default 1.0
 ```
 
 When `turboMode === "pdd"`, the graph:
-- gets `MiniMaxH3PDDAccApply` inserted where the other turbo LoRAs go (right after SigmaShift)
-- takes its `sigmas` output instead of `BasicScheduler`'s
-- forces the sampler to `euler` (KSamplerSelect, not the turbo sampler)
+- inserts a plain `LoraLoaderModelOnly { model, lora_name: pddFileForMode, strength_model:
+  pddLoraStrength }` where the other turbo LoRAs go (right after SigmaShift)
+- feeds the sampler from `BasicScheduler` like any other run (no special sigma wiring)
+- forces the sampler to `euler` (KSamplerSelect, not the turbo sampler) — the head bank was
+  distilled for one Euler step per interval
 - forces `MiniMaxH3SigmaShift` to `12/3` regardless of the panel's shiftVideo/shiftAudio
-  (the node's wrapper hard-errors on any other shift, and it does mid-render — pin it,
-  don't just default it)
 - effective step count is `Number(pddNfe)`, not the panel's `steps` field
-- block cache is force-disabled the same as under larryvrh/lightx2v (a turbo schedule
-  never reaches the caches' reuse threshold)
+- block cache is force-disabled the same as under larryvrh/lightx2v
+- **needs ComfyUI core ≥ v0.35.0** — on an older core the shape-changing LoRA load errors at
+  patch time (a loud failure, not a silent bad render)
 
-`GET /minimax_h3_one/models` now also returns a `pdd_acc` array (files from the
-`pdd_acc` model folder, gated on the node pack being installed — empty array otherwise,
-not an error).
+The `pdd_acc` model folder / `GET /minimax_h3_one/models` `pdd_acc` array are **removed** — the
+PDD picker draws from the regular `loras` list.
 
 ## 2. GPU temperature telemetry
 

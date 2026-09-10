@@ -251,10 +251,10 @@ run.</sub>
   none is found does it ask before touching the system Python — default is to skip pip. Then upgrades
   `pip`/`setuptools`/`wheel`.</sub>
 - `<ComfyUI>\custom_nodes\` 아래로 `ComfyUI-TJ_NODE_STUDIO_ONE` + 의존 노드 20여 개
-  (Impact Pack, KJNodes, SeedVR2, RMBG, controlnet_aux, GGUF, MiniMax‑H3 캐시/터보/스펙트럼,
+  (Impact Pack, KJNodes, SeedVR2, RMBG, controlnet_aux, GGUF, MiniMax‑H3 터보/스펙트럼/FirstBlockCache,
   RTX Nodes, VideoHelperSuite, Crystools, `ComfyUI-TJ_NODE` 등)를 clone하고 각 `requirements.txt`를
   설치합니다. **이미 있는 항목은 `git pull`만 하고 건너뜁니다.**
-  <br><sub>Clones `ComfyUI-TJ_NODE_STUDIO_ONE` + ~20 dependency node packs into
+  <br><sub>Clones `ComfyUI-TJ_NODE_STUDIO_ONE` + ~24 dependency node packs into
   `<ComfyUI>\custom_nodes\` and pip-installs each `requirements.txt`. Already-present ones are
   just `git pull`ed and skipped.</sub>
 - 설치 전후로 `numpy` 버전을 비교해, 의존성이 옮겨 놨으면 원래 버전으로 되돌립니다.

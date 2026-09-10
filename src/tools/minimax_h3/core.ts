@@ -39,6 +39,14 @@ export interface LoraEntry {
   enabled: boolean;
 }
 
+// LTX Upscale mode's LoRAs are their own list (they patch the LTX 2.5 unet, a different
+// model from H3) — no trigger word, node parity.
+export interface LtxLoraEntry {
+  name: string;
+  strength: number;
+  enabled: boolean;
+}
+
 export interface MinimaxState {
   unetFirstLast: string;
   unetReference: string;
@@ -80,8 +88,7 @@ export interface MinimaxState {
   ltxDenoise: number;
   ltxSampler: string;
   ltxScheduler: string;
-  ltxSeed: number;
-  ltxSeedMode: string;
+  ltxLoras: LtxLoraEntry[];  // own list — never the H3 `loras` (different model)
   // configured once in ⚙ Settings → LTX 2.5 Upscale (round-trip through the config route)
   ltxUnet: string;           // .gguf → UnetLoaderGGUF; .safetensors → UNETLoader
   ltxLatentUpscaler: string; // models/latent_upscale_models/
@@ -89,6 +96,7 @@ export interface MinimaxState {
   ltxVaeVideo: string;
   ltxVaeAudio: string;
   ltxTinyVae: string;        // preview TAE — falls back to the H3 preview tiny_vae if unset
+  ltxLlmPrompt: string;      // ✨ vision instruction (native path); OpenRouter path reuses H3 vision cfg
 
   accelMode: string;
   upscaleMode: string;
@@ -1170,14 +1178,20 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ltxDenoise: saved.ltxDenoise ?? 0.15,
     ltxSampler: saved.ltxSampler || "euler_ancestral",
     ltxScheduler: saved.ltxScheduler || "simple",
-    ltxSeed: saved.ltxSeed ?? 0,
-    ltxSeedMode: saved.ltxSeedMode || "randomize",
+    ltxLoras: Array.isArray(saved.ltxLoras)
+      ? saved.ltxLoras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, enabled: l.enabled !== false }))
+      : [],
     ltxUnet: saved.ltxUnet || "",
     ltxLatentUpscaler: saved.ltxLatentUpscaler || "",
     ltxClip: saved.ltxClip || "",
     ltxVaeVideo: saved.ltxVaeVideo || "",
     ltxVaeAudio: saved.ltxVaeAudio || "",
     ltxTinyVae: saved.ltxTinyVae || "",
+    ltxLlmPrompt: saved.ltxLlmPrompt ||
+      "Describe this single video frame as one flowing text-to-image prompt for an LTX video " +
+      "upscale/refine pass. Match what is shown exactly — subjects, their attributes and " +
+      "positions, setting, lighting, colour, camera framing and motion feel, overall style " +
+      "and medium. Do not invent anything not visible. One paragraph, no lists, no preamble.",
 
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",

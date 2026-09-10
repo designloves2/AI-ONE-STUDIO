@@ -647,6 +647,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
 // MiniMaxH3-LTX-2-5-Upscale.json. LTX 2.5 nodes are ComfyUI core — no new pack.
 const L = {
   load: "LX:load", unet: "LX:unet", clip: "LX:clip", vaeV: "LX:vae_v", vaeA: "LX:vae_a",
+  lora: (i: number) => `LX:lora${i}`,
   upmodel: "LX:up_model", ckAttn: "LX:ck_attn", sol: "LX:sol", preview: "LX:preview",
   txtPos: "LX:txt_pos", txtNeg: "LX:txt_neg", cond: "LX:cond", freePos: "LX:free_pos",
   freeNeg: "LX:free_neg", guider: "LX:guider", enc: "LX:vae_encode", upsamp: "LX:upsampler",
@@ -701,6 +702,15 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
 
   g[L.upmodel] = { class_type: "LatentUpscaleModelLoader", inputs: { model_name: state.ltxLatentUpscaler } };
 
+  // ── LTX LoRA chain (own list — a different model from H3, so never state.loras) ──
+  (state.ltxLoras || []).forEach((lora, i) => {
+    if (!lora?.name || lora.name === "none" || lora.enabled === false) return;
+    const s = parseFloat(String(lora.strength ?? 1.0));
+    if (!(s > 0)) return;
+    g[L.lora(i)] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: lora.name, strength_model: s } };
+    model = [L.lora(i), 0];
+  });
+
   // ── model patches (verified combo: comfy-kitchen attention → Sol-Attn → preview) ──
   if (has(avail, "ModelAttentionBackend")) {
     g[L.ckAttn] = { class_type: "ModelAttentionBackend", inputs: { model, attention: "comfy kitchen attention" } };
@@ -749,7 +759,9 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   g[L.concat] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [L.i2v, 0], audio_latent: [L.audEnc, 0] } };
 
   // ── refine sample ─────────────────────────────────────────────────────────
-  const seed = state.ltxSeedMode === "randomize" ? Math.floor(Math.random() * 1e15) : (state.ltxSeed ?? 0);
+  // Seed comes from the node's fixed bottom Seed / Mode row (state.seed), not a mode-local
+  // field — one seed control for every mode.
+  const seed = state.seedMode === "randomize" ? Math.floor(Math.random() * 1e15) : (state.seed ?? 0);
   const steps = Math.max(1, Math.round(state.ltxSteps ?? 3));
   g[L.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed } };
   g[L.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: state.ltxSampler || "euler_ancestral" } };
@@ -793,12 +805,16 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
     video: [L.video, 0], filename_prefix: `${folder}/${stem}_LTXUP`, format: "auto", codec: "auto",
   } };
 
+  const usedLoras = (state.ltxLoras || [])
+    .filter((l) => l?.name && l.name !== "none" && l.enabled !== false)
+    .map((l) => ({ name: l.name, strength: l.strength ?? 1.0 }));
+
   return {
     graph: g,
     meta: {
       ltxUpscale: true, steps, denoise: state.ltxDenoise ?? 0.15,
       sampler: state.ltxSampler || "euler_ancestral", scheduler: state.ltxScheduler || "simple",
-      seed, source: sourceFile, fps, deblur: deblurUsed, upscale: upscaleUsed,
+      seed, source: sourceFile, fps, loras: usedLoras, deblur: deblurUsed, upscale: upscaleUsed,
       videoNode: L.save, lastFrameNode: null,
     },
   };

@@ -116,6 +116,7 @@ export interface MmhConfig {
   ltx_vae_video?: string;
   ltx_vae_audio?: string;
   ltx_tiny_vae?: string;
+  ltx_llm_prompt?: string;
   filename_prefix?: string;
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;
@@ -193,6 +194,9 @@ export const MMH3_OPTIONAL_NODES = [
   "TextGenerate",
   "TJStudioOneTextOutput",
   "TJ_FreeTextEncoderVRAM",
+  // LTX 2.5 Upscale mode — GGUF text-encoder path (node a7d5c69). The LTXV* / core loaders it
+  // uses otherwise are ComfyUI core.
+  "TJ_LTX25ClipLoaderGGUF",
   // PDD Acc turbo mode is core-native since ComfyUI v0.35.0 (#15908) — no "MiniMaxH3PDDAccApply"
   // node, the Acc file loads through LoraLoaderModelOnly. SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md.
   // RTX Deblur — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15.

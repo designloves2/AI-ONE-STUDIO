@@ -243,33 +243,38 @@ set REPOS[14]=https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 set REPOS[15]=https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3
 set REPOS[16]=https://github.com/crystian/ComfyUI-Crystools
 set REPOS[17]=https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache
-set REPOS[18]=https://github.com/designloves2/ComfyUI-TJ_NODE
-set REPOS[19]=https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes
+rem Saganaki22/ComfyUI-sol-attn - MiniMaxH3ScheduledSolAttentionPatch, the "SolAttn
+rem (Saganaki22, scheduled)" H3 attention-forward option. Distinct from kijai's
+rem ComfyUI-SolAttn_triton above (that one backs "SolAttn (kijai)" / SolAttnPatch,
+rem also used by the LTX 2.5 Upscale graph) - both packs are needed, not either/or.
+set REPOS[18]=https://github.com/Saganaki22/ComfyUI-sol-attn
+set REPOS[19]=https://github.com/designloves2/ComfyUI-TJ_NODE
+set REPOS[20]=https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes
 rem RIFEInterpolation - the gallery's "Interpolate a finished clip" post-process.
 rem (Use GACLove/ComfyUI-VFI; the older ModelTC/ComfyUI-VFI repo 404s.)
-set REPOS[20]=https://github.com/GACLove/ComfyUI-VFI
+set REPOS[21]=https://github.com/GACLove/ComfyUI-VFI
 rem H3-Optimizations (Zironic) - backend-preserving VRAM optimizer + H3 Sparse Attention
 rem (the "H3 optimizer" control in the Attention accordion). No pip deps.
-set REPOS[21]=https://github.com/Zironic/H3-Optimizations
+set REPOS[22]=https://github.com/Zironic/H3-Optimizations
 rem OpenRouter LLM node - the cloud LLM backend for MusicMaker lyrics / style prompts and
 rem the image tools' Enhance / Image-to-Prompt and MiniMax H3's Image-to-Brief. The API key
 rem is stored server-side in the node pack's .env (shared by all three), never in the browser.
-set REPOS[22]=https://github.com/gabe-init/ComfyUI-Openrouter_node
+set REPOS[23]=https://github.com/gabe-init/ComfyUI-Openrouter_node
 rem JK-AceStep-Nodes - registers the JKASS "jkass_quality" sampler_name that MusicMaker's
 rem Ace-Step 1.5 engine defaults to. SOFT dependency: without it only that one sampler fails
 rem - pick a core sampler (euler / dpmpp_2m / heun) in MusicMaker Settings instead. The
 rem Ace-Step 1.5 / MiniMax Music 3 encode + latent + sampler-select nodes are ComfyUI core.
-set REPOS[23]=https://github.com/jeankassio/JK-AceStep-Nodes
+set REPOS[24]=https://github.com/jeankassio/JK-AceStep-Nodes
 
-set COUNT=24
+set COUNT=25
 
 rem ComfyUI Manager names some packs' folders after their pyproject "name", not
 rem the repo. Clone under that name so a later Manager install/update doesn't drop
 rem a second copy and collide the node class. Only set where the two names differ;
 rem the rest clone under their repo basename.
-set "ALT[20]=rife_comfyui_wrapper"
-set "ALT[21]=h3-optimizations"
-set "ALT[23]=comfyui-ace-step-ksampler"
+set "ALT[21]=rife_comfyui_wrapper"
+set "ALT[22]=h3-optimizations"
+set "ALT[24]=comfyui-ace-step-ksampler"
 
 echo [NOTE] pip may print "dependency resolver" conflict warnings below
 echo        (e.g. protobuf version clashes between RMBG and audio tools) -
@@ -282,7 +287,7 @@ echo.
 
 rem The whole loop body lives in a called subroutine instead of a nested
 rem parenthesized for/if block, so "do" only ever runs a single command.
-for /L %%i in (0,1,23) do call :InstallRepo %%i
+for /L %%i in (0,1,24) do call :InstallRepo %%i
 goto AFTER_REPOS
 
 :InstallRepo
@@ -292,7 +297,7 @@ for %%F in (!URL!) do set "FOLDER=%%~nxF"
 if defined ALT[%IDX%] set "FOLDER=!ALT[%IDX%]!"
 
 echo ------------------------------------------------------------------------
-echo [%IDX%/23] !FOLDER!
+echo [%IDX%/24] !FOLDER!
 echo         !URL!
 
 if exist "!FOLDER!" goto REPO_SKIP

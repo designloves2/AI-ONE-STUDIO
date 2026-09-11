@@ -458,5 +458,10 @@ if "%NPM_DONE%"=="0" (
     echo  **    2. In "%WEBKIT_DIR%", run:  npm install                **
     echo  ****************************************************************
     echo.
+    rem A console warning is easy to miss (window closed, scrolled past, not
+    rem even watching). Pop the Node.js download page open in the browser too
+    rem - can't be missed the way text output can, and it's the exact next
+    rem step (download, run the installer, come back and run npm install).
+    start "" "https://nodejs.org/en/download"
 )
 pause

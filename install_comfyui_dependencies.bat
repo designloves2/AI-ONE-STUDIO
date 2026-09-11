@@ -404,13 +404,25 @@ echo ========================================================================
 echo  AI ONE STUDIO web app
 echo ========================================================================
 set "NPM_DONE=0"
+
+:CHECK_NODE
 where node >nul 2>&1
-if errorlevel 1 (
-    echo [WARN] Node.js not found on PATH - the web app itself needs it ^(the
-    echo        ComfyUI packs above don't^).
-    echo        Suggested: winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
-    goto SKIP_NPM_INSTALL
-)
+if not errorlevel 1 goto NODE_FOUND
+echo [WARN] Node.js not found on PATH - the web app itself needs it (the
+echo        ComfyUI packs above don't). Opening the download page...
+echo        (winget alternative: winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements)
+start "" "https://nodejs.org/en/download"
+echo.
+choice /c YN /n /m "Press Y once the Node.js installer has finished to retry npm install, or N to skip for now: "
+if errorlevel 2 goto SKIP_NPM_INSTALL
+rem A just-finished Node.js installer updates PATH for *new* processes, not this
+rem already-running cmd.exe - re-reading PATH from the registry here picks it up
+rem without having to close and reopen this window.
+for /f "tokens=2*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "PATH=%%B"
+for /f "tokens=2*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "PATH=%PATH%;%%B"
+goto CHECK_NODE
+
+:NODE_FOUND
 for /f "delims=" %%v in ('node --version') do set "NODE_VER=%%v"
 echo [OK] Node.js %NODE_VER% found.
 echo [INSTALL] npm install  ^(in "%WEBKIT_DIR%"^)...

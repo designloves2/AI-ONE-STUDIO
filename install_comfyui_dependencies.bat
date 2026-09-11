@@ -403,11 +403,11 @@ rem would just shadow the pinned local version `npm run dev`/`build` use).
 echo ========================================================================
 echo  AI ONE STUDIO web app
 echo ========================================================================
+set "NPM_DONE=0"
 where node >nul 2>&1
 if errorlevel 1 (
     echo [WARN] Node.js not found on PATH - the web app itself needs it ^(the
-    echo        ComfyUI packs above don't^). Install it, then come back and
-    echo        run:  npm install
+    echo        ComfyUI packs above don't^).
     echo        Suggested: winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
     goto SKIP_NPM_INSTALL
 )
@@ -417,9 +417,10 @@ echo [INSTALL] npm install  ^(in "%WEBKIT_DIR%"^)...
 pushd "%WEBKIT_DIR%"
 call npm install
 if errorlevel 1 (
-    echo [WARN] npm install failed - re-run it yourself from "%WEBKIT_DIR%".
+    echo [WARN] npm install failed - see the error above.
 ) else (
     echo [OK] Web app dependencies installed.
+    set "NPM_DONE=1"
 )
 popd
 :SKIP_NPM_INSTALL
@@ -446,4 +447,16 @@ echo  [install_requirements.bat instructions for the full list.]
 echo  [The top bar's Restart button needs ComfyUI-Manager installed - most]
 echo  [installs already have it, and this script does not install it.]
 echo ========================================================================
+if "%NPM_DONE%"=="0" (
+    echo.
+    echo  ****************************************************************
+    echo  **  WARNING: the web app is NOT set up yet.                  **
+    echo  **  Node.js was missing, or npm install failed - see above.  **
+    echo  **  The site will NOT start until you:                       **
+    echo  **    1. Install Node.js                                     **
+    echo  **         winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
+    echo  **    2. In "%WEBKIT_DIR%", run:  npm install                **
+    echo  ****************************************************************
+    echo.
+)
 pause

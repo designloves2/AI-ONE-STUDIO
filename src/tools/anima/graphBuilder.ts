@@ -25,8 +25,14 @@ function baseGraph(state: AnimaState, promptText: string, unetName?: string) {
   if (!vaeName) throw new Error("No VAE selected. Please set one in ⚙ Settings.");
 
   const g: Record<string, any> = {};
-  g["AN:unet"] = { class_type: "UNETLoader", inputs: { unet_name: modelName, weight_dtype: "default" } };
-  g["AN:clip"] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "stable_diffusion", device: "default" } };
+  // GGUF unet/clip — the one image tool of the six with no branch at all (node 47d8423).
+  g["AN:unet"] = modelName.toLowerCase().endsWith(".gguf")
+    ? { class_type: "UnetLoaderGGUF", inputs: { unet_name: modelName } }
+    : { class_type: "UNETLoader", inputs: { unet_name: modelName, weight_dtype: "default" } };
+  g["AN:clip"] = clipName.toLowerCase().endsWith(".gguf")
+    // city96 CLIPLoaderGGUF's real signature has no `device` input, unlike core CLIPLoader.
+    ? { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipName, type: "stable_diffusion" } }
+    : { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "stable_diffusion", device: "default" } };
   g["AN:vae"] = { class_type: "VAELoader", inputs: { vae_name: vaeName } };
 
   let modelOut: [string, number] = ["AN:unet", 0];

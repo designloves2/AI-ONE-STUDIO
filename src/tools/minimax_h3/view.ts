@@ -1743,6 +1743,11 @@ export function renderMinimaxH3(container: HTMLElement) {
       html: `Models: <code>${(state.ltxUnet || "?").split(/[\\/]/).pop()}</code> · clip <code>${(state.ltxClip || "?").split(/[\\/]/).pop()}</code> — change in ⚙ Settings.`,
       style: { fontSize: "9px", color: C.muted, lineHeight: "1.6", marginTop: "2px", wordBreak: "break-all" },
     }));
+
+    // The H3 branch below re-appends this on every render too — it lives outside leftPanel
+    // (leftPanel.innerHTML = "" would otherwise wipe it), so missing this line just meant
+    // it was never attached at all on a first render that lands in LTX mode.
+    leftOuter.appendChild(seedGenWrap);
   }
 
   function renderLeft() {

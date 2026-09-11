@@ -2528,7 +2528,15 @@ export function renderMinimaxH3(container: HTMLElement) {
 
         const reattachId = inFlightId || undefined;
         inFlightId = null;
-        const r = await queuePrompt(built.graph, {
+        // Without this the external-queue banner never clears (it hides once samplingActive
+        // flips true) and the live-preview WS handler drops every frame (it early-returns
+        // while !samplingActive) — both looked like the run was stuck even though ComfyUI
+        // was actually rendering. Same flag H3's own runGenerate sets before its queuePrompt.
+        samplingActive = true;
+        applyPreviewOffState();
+        let r;
+        try {
+        r = await queuePrompt(built.graph, {
           // LTX segments don't fit H3's curClip/totClip-driven setStepProgress() — drive the
           // bar directly off this segment's own step/max, offset by how many segments are
           // already done.
@@ -2545,6 +2553,9 @@ export function renderMinimaxH3(container: HTMLElement) {
           existingPromptId: reattachId,
           onQueued: (pid) => { if (state._ltxRelay) { state._ltxRelay.curPromptId = pid; persist(); } },
         });
+        } finally {
+          samplingActive = false;
+        }
         const out = firstOutput(r.byNode, "LX:save");
         if (!out) throw new Error(`LTX Upscale segment ${i + 1} produced no output.`);
         parts.push(out);

@@ -1672,6 +1672,12 @@ export function renderMinimaxH3(container: HTMLElement) {
     ]));
 
     // ── LTX LoRA (own list — different model from H3) ────────────────────
+    // availableLoras is otherwise only lazy-loaded by H3's own mountLoraPanel() — reaching
+    // LTX Upscale without ever opening that accordion in another mode left this list empty
+    // (dropdown with nothing in it, search with nothing to search).
+    if (!availableLoras.length) {
+      getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
+    }
     const loraOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
     const ltxL: LtxLoraEntry[] = state.ltxLoras ||= [];
     const ltxLoraWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });

@@ -204,12 +204,12 @@ script. When backend node packs are missing, MiniMax H3 shows a banner and
 4. **ComfyUI 경로 입력** / **Enter the ComfyUI folder path** when asked.
 5. **포트 번호 입력** (기본 8188 — Enter로 넘기면 8188) → `public/comfy_port.txt`에 기록됨
    <br><sub>**Enter the port** (Enter = 8188) → written to `public/comfy_port.txt`.</sub>
-6. **설치 완료 대기** (노드 clone + pip install + numpy 복원)
-   <br><sub>**Let the install finish** (node clone + pip install + numpy restore).</sub>
+6. **설치 완료 대기** (노드 clone + pip install + numpy 복원 + Node.js 있으면 `npm install`까지 자동)
+   <br><sub>**Let the install finish** (node clone + pip install + numpy restore + `npm install` too, automatically, if Node.js is present).</sub>
 7. **ComfyUI 서버 실행** — `--enable-cors-header` 플래그 필요
    <br><sub>**Start the ComfyUI server** — needs the `--enable-cors-header` flag.</sub>
-8. **웹 서버 실행** — `npm install` 후 `npm run dev` (또는 `ai-one-studio-run.bat` 더블클릭)
-   <br><sub>**Start the web server** — `npm install` then `npm run dev` (or double-click `ai-one-studio-run.bat`).</sub>
+8. **웹 서버 실행** — `npm run dev` (또는 `ai-one-studio-run.bat` 더블클릭). Node.js가 없어서 위 6번에서 `npm install`이 건너뛰어졌다면 먼저 설치하고 `npm install`을 직접 실행
+   <br><sub>**Start the web server** — `npm run dev` (or double-click `ai-one-studio-run.bat`). If step 6 skipped `npm install` because Node.js wasn't found, install it and run `npm install` yourself first.</sub>
 9. **모델 파일 다운로드 후 직접 배치** — `models\` 아래로. 목록은 `ComfyUI-TJ_NODE_STUDIO_ONE`의 README 참고
    <br><sub>**Download the model files and drop them in** under `models\` — list is in `ComfyUI-TJ_NODE_STUDIO_ONE`'s README.</sub>
 10. **`http://127.0.0.1:8774` 접속해서 사용**

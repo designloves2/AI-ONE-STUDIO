@@ -24,6 +24,7 @@ echo   JK-AceStep-Nodes (MusicMaker's Ace-Step "jkass_quality" sampler).
 echo   The Ace-Step 1.5 / MiniMax Music 3 encode + sampler-select nodes
 echo   are ComfyUI-core - those just need the model files.
 echo   Already-installed nodes are skipped.
+echo   Also runs `npm install` for this web app itself if Node.js is found.
 echo ========================================================================
 echo.
 
@@ -390,6 +391,40 @@ if errorlevel 1 (
 :SKIP_NUMPY_RESTORE
 echo.
 
+rem -- web app (this script's own folder) -----------------------------------
+rem A fresh machine has no reason to already have Node/npm, and "run npm
+rem install yourself" in the closing banner was easy to miss on a first
+rem install (only surfaces once you already know to look for it) - so this
+rem script also bootstraps the web app it ships alongside, not just the
+rem ComfyUI-side packs above. vite itself is a devDependency (package.json),
+rem installed by `npm install` like everything else - it is never installed
+rem globally, and `npm install -g vite` is neither needed nor correct (it
+rem would just shadow the pinned local version `npm run dev`/`build` use).
+echo ========================================================================
+echo  AI ONE STUDIO web app
+echo ========================================================================
+where node >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Node.js not found on PATH - the web app itself needs it ^(the
+    echo        ComfyUI packs above don't^). Install it, then come back and
+    echo        run:  npm install
+    echo        Suggested: winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
+    goto SKIP_NPM_INSTALL
+)
+for /f "delims=" %%v in ('node --version') do set "NODE_VER=%%v"
+echo [OK] Node.js %NODE_VER% found.
+echo [INSTALL] npm install  ^(in "%WEBKIT_DIR%"^)...
+pushd "%WEBKIT_DIR%"
+call npm install
+if errorlevel 1 (
+    echo [WARN] npm install failed - re-run it yourself from "%WEBKIT_DIR%".
+) else (
+    echo [OK] Web app dependencies installed.
+)
+popd
+:SKIP_NPM_INSTALL
+echo.
+
 echo ========================================================================
 echo  Done!
 echo ========================================================================
@@ -397,8 +432,9 @@ echo.
 echo  Next:
 echo   1. Restart ComfyUI to load the new nodes
 echo      (run it with --enable-cors-header; port %COMFY_PORT%).
-echo   2. Start the web app:  npm install  then  npm run dev
+echo   2. Start the web app:  npm run dev
 echo      (or double-click ai-one-studio-run.bat), open http://127.0.0.1:8774
+echo      ^(if the npm install above was skipped/failed, run it first^)
 echo.
 echo  ComfyUI port %COMFY_PORT% was saved to public\comfy_port.txt. If you ever
 echo  move ComfyUI to a different port, edit that file (just the number) and

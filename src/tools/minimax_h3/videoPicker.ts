@@ -8,6 +8,7 @@
 import { el } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { copyOutputToInput, getClipLastFrame, listVideos } from "./api";
+import { attachSensitiveToggle, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
 
 export interface PickerClip {
   filename: string;
@@ -71,13 +72,20 @@ export function openVideoGalleryPicker(
       const url = `/view?filename=${encodeURIComponent(it.filename)}&subfolder=${encodeURIComponent(it.subfolder || "")}&type=output`;
       const cell = el("div", { class: "flex flex-col overflow-hidden cursor-pointer", style: { border: `1px solid ${C.border}`, borderRadius: "8px", background: "#000", height: "134px" } });
       const vid = el("video", { muted: "", playsinline: "", preload: "metadata", class: "block shrink-0", style: { width: "100%", height: "108px", objectFit: "cover", background: "#000" } }) as HTMLVideoElement;
-      vid.src = url;
+      // 눈가리기 — this picker had no blur handling: a hidden clip both thumbnail-played on
+      // hover and copied straight through on click. A blurred clip never gets a real src at
+      // all (this is a one-click picker with no confirm step, so a CSS blur a viewer could
+      // strip isn't enough); attachSensitiveToggle still lets the user reveal + pick it here.
+      const k = mediaKey(it.filename, it.subfolder || "");
+      if (!isBlurred(k)) vid.src = url;
       vid.muted = true;
-      cell.addEventListener("mouseenter", () => { vid.currentTime = 0; vid.play().catch(() => {}); cell.style.borderColor = BRAND; });
+      attachSensitiveToggle(cell, vid, k, "tl", () => { if (!isBlurred(k) && !vid.src) vid.src = url; });
+      cell.addEventListener("mouseenter", () => { if (isBlurred(k)) return; vid.currentTime = 0; vid.play().catch(() => {}); cell.style.borderColor = BRAND; });
       cell.addEventListener("mouseleave", () => { vid.pause(); vid.currentTime = 0; cell.style.borderColor = C.border; });
       cell.append(vid, el("div", { text: it.filename, title: it.filename, class: "overflow-hidden text-ellipsis whitespace-nowrap", style: { fontSize: "9.5px", color: C.muted, padding: "4px 5px" } }));
 
       cell.addEventListener("click", async () => {
+        if (isBlurred(k)) return;
         status.textContent = frameMode ? "reading last frame…" : "copying to input…";
         try {
           const name = frameMode

@@ -5,6 +5,7 @@
 import { C, BRAND } from "../identity";
 import { el, clear } from "./ui";
 import { getComfyBase } from "./comfyBase";
+import { attachSensitiveToggle, mediaKey, isBlurred } from "./sensitiveMedia";
 
 const BASE = getComfyBase();
 
@@ -161,8 +162,15 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
       const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
       const im = el("img", { src: viewUrl(img, tool), style: { width: "100%", height: "auto", display: "block" } });
       cell.appendChild(im);
+      // 눈가리기 — this picker had no blur handling at all (unlike every tool's own gallery
+      // grid), so a hidden reference image was fully visible + pickable here. Blur the tile
+      // like the grid does, and refuse the pick outright while it's still hidden — picking
+      // is a one-click action with no "are you sure", so a blurred item must not reach onPick.
+      const k = mediaKey(img.filename, img.subfolder || "");
+      attachSensitiveToggle(cell, im, k, "tl");
       cell.addEventListener("click", async () => {
         if (picking) return;
+        if (isBlurred(k)) return;
         picking = true;
         const prevOpacity = cell.style.opacity;
         cell.style.opacity = "0.5";

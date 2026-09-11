@@ -546,6 +546,10 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       // brief model: new key, fall back to the pre-split h3_or_model (node migrates it too)
       if (cfg.h3_or_model_brief || cfg.h3_or_model) state.h3OrModelBrief = (cfg.h3_or_model_brief || cfg.h3_or_model)!;
       if (cfg.h3_or_model_vision) state.h3OrModelVision = cfg.h3_or_model_vision;
+      // save_subfolder round-trips through the config route but had no load-side read at
+      // all — the field only ever showed what pathIn.value already held client-side, so a
+      // saved folder silently reset to the default on the next session/device.
+      if (cfg.save_subfolder && !state.saveSubfolder) state.saveSubfolder = cfg.save_subfolder;
       if (cfg.filename_prefix) state.filenamePrefix = cfg.filename_prefix;
       if (cfg.stitch_at_end != null) state.stitchAtEnd = cfg.stitch_at_end;
       if (cfg.trim_last_clip != null) state.trimLastClip = cfg.trim_last_clip;

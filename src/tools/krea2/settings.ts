@@ -167,7 +167,7 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
       if (cfg.depth_ckpt) state.depthCkpt = safeDepthCkpt(cfg.depth_ckpt);
       if (cfg.identity_lora && cfg.identity_lora !== "none") state.identityLora = cfg.identity_lora;
       if (cfg.identity_lora_strength != null) { state.identityLoraStrength = cfg.identity_lora_strength; idStrIn.value = String(state.identityLoraStrength); }
-      if (cfg.save_subfolder && !state.saveSubfolder) pathIn.placeholder = cfg.save_subfolder;
+      if (cfg.save_subfolder && !state.saveSubfolder) { state.saveSubfolder = cfg.save_subfolder; pathIn.value = cfg.save_subfolder; }
       visChk.checked = cfg.output_mode_visible !== false;
       ctx.appConfig.output_mode_visible = visChk.checked;
       ctx.onOutputVisibilityChanged?.();

@@ -124,7 +124,7 @@ export function createSettingsOverlay(state: AnimaState, ctx: SettingsCtx) {
       if (cfg.selected_vae) state.vae = cfg.selected_vae;
       if (cfg.selected_turbo_lora) state.turboLora = cfg.selected_turbo_lora;
       if (cfg.negative_prompt && !state.negativePrompt) { state.negativePrompt = cfg.negative_prompt; negTA.value = cfg.negative_prompt; }
-      if (cfg.save_subfolder && !state.saveSubfolder) pathIn.placeholder = cfg.save_subfolder;
+      if (cfg.save_subfolder && !state.saveSubfolder) { state.saveSubfolder = cfg.save_subfolder; pathIn.value = cfg.save_subfolder; }
       visChk.checked = cfg.output_mode_visible !== false;
       ctx.appConfig.output_mode_visible = visChk.checked;
       ctx.onOutputVisibilityChanged?.();

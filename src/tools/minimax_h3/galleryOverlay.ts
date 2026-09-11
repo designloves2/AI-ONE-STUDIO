@@ -29,7 +29,7 @@ import {
 import { queuePrompt, type QueueResult } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
-import { makeSensitiveControl, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
+import { makeSensitiveControl, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
 
 // A single-shot post-process (upscale/deblur/interpolate) queues its ComfyUI job, then does the
 // meta write + cleanup client-side. If the tab is reloaded or iOS-discarded in between, the job
@@ -877,14 +877,67 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const pClose = el("button", { type: "button", text: "✕", title: "Close (Esc)", style: { cursor: "pointer", background: "rgba(255,255,255,0.1)", color: "#fff", border: "none", borderRadius: "6px", width: "30px", height: "30px", fontSize: "14px" } });
   pTop.append(pTitle, pPos, pClose);
 
+  // Wrapped so the blur shade + reveal toggle sit over the video only, not the whole player
+  // (title bar / footer stay clickable underneath).
+  const pVideoWrap = el("div", { class: "relative flex-1 min-h-0 flex" });
   const pVideo = el("video", { controls: "", playsinline: "", class: "flex-1 min-h-0 w-full", style: { objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
+  // 눈가리기 sync — a blurred clip never gets a real `src` (not just a CSS blur a viewer
+  // could strip), so opening it fullscreen or stepping [ / ] to it can't expose a frame;
+  // the same 👁 toggle used on the grid tile is transplanted onto the player itself (1706a1d).
+  const pShade = el("div", { text: "🔒 Hidden — click the 👁 to reveal", style: {
+    position: "absolute", inset: "0", zIndex: "2", display: "none",
+    background: "rgba(10,10,14,0.92)", flexDirection: "column", alignItems: "center",
+    justifyContent: "center", gap: "10px", textAlign: "center", color: "#cfcfcf",
+    fontSize: "13px", cursor: "pointer",
+  } });
+  const pEye = el("button", { type: "button", style: {
+    position: "absolute", top: "10px", right: "10px", zIndex: "3",
+    width: "34px", height: "34px", borderRadius: "8px", cursor: "pointer",
+    background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: "16px",
+  } });
+  let curSensKey: string | null = null;
+  function renderPlayerBlur() {
+    if (!curSensKey) return;
+    const marked = isSensitive(curSensKey);
+    pShade.style.display = isBlurred(curSensKey) ? "flex" : "none";
+    pEye.textContent = marked ? "⊘" : "👁︎";
+    pEye.title = marked ? "Reveal this clip" : "Hide this clip";
+  }
+  const revealAndPlay = () => {
+    if (!curSensKey) return;
+    setSensitive(curSensKey, false);
+    loadPlayerVideo(shown()[playIndex]);
+  };
+  pShade.addEventListener("click", revealAndPlay);
+  pEye.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!curSensKey) return;
+    if (isSensitive(curSensKey)) revealAndPlay();
+    else { setSensitive(curSensKey, true); loadPlayerVideo(shown()[playIndex]); }
+  });
+  pVideoWrap.append(pVideo, pShade, pEye);
   const pFoot = el("div", { class: "shrink-0 text-[11px] text-center", style: { padding: "8px 14px 14px", color: "#7a7a7a" } });
   pFoot.innerHTML = "<b>space</b> play/pause · <b>← →</b> ±5s · <b>Shift+← →</b> ±1s · <b>[ ]</b> previous / next clip · <b>f</b> browser fullscreen · <b>Esc</b> close";
-  player.append(pTop, pVideo, pFoot);
+  player.append(pTop, pVideoWrap, pFoot);
 
   let playIndex = -1;
   function shown() {
     return filterFull ? videos.filter((v) => (v as any).is_full) : videos;
+  }
+
+  // A blurred clip never gets a real `src` — no frame ever reaches the <video>, so
+  // pausing/scrubbing/devtools can't recover it either. Revealing it (the shade or the 👁)
+  // calls this again to actually load and play.
+  function loadPlayerVideo(v: any) {
+    if (!v) return;
+    if (isBlurred(curSensKey!)) {
+      try { pVideo.pause(); } catch {}
+      pVideo.removeAttribute("src"); pVideo.load?.();
+    } else {
+      pVideo.src = clipViewUrl(v.filename, v.subfolder);
+      pVideo.play?.().catch(() => {});
+    }
+    renderPlayerBlur();
   }
 
   function openPlayer(i: number) {
@@ -893,12 +946,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     stopGridVideos();
     playIndex = Math.max(0, Math.min(i, list.length - 1));
     const v = list[playIndex];
-    pVideo.src = clipViewUrl(v.filename, v.subfolder);
+    curSensKey = mediaKey(v.filename, v.subfolder || "");
     pTitle.textContent = v.filename;
     pPos.textContent = `${playIndex + 1} / ${list.length}`;
     player.classList.remove("hidden");
     player.style.display = "flex";
-    pVideo.play?.().catch(() => {});
+    loadPlayerVideo(v);
     setTimeout(() => pVideo.focus(), 30);
   }
   function closePlayer() {

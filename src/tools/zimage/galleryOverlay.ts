@@ -3,7 +3,7 @@
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
 import { confirmDialog } from "../../shared/ui";
 import { sendImagesToMinimax } from "../../shared/minimaxSend";
-import { attachSensitiveToggle } from "../../shared/sensitiveMedia";
+import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
 
@@ -115,7 +115,38 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     prevBtn.onclick = (e) => { e.stopPropagation(); nav(-1); };
     nextBtn.onclick = (e) => { e.stopPropagation(); nav(1); };
 
-    const big = el("img", { src: url, style: { maxWidth: "90vw", maxHeight: "64vh", borderRadius: "8px", objectFit: "contain" } });
+    // 눈가리기 — thumbnails blur via CSS filter but still load the real src; fullscreen must
+    // not, since ←/→ navigation just calls openViewer() again for the next image (9a5817e).
+    const sensKey = mediaKey(img.filename, img.subfolder || "");
+    const bigBox = el("div", { style: {
+      position: "relative", maxWidth: "90vw", maxHeight: "64vh",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    } });
+    function renderBig() {
+      clear(bigBox);
+      if (isBlurred(sensKey)) {
+        const shade = el("div", { text: "🔒 Hidden — click to reveal", onclick: () => { setSensitive(sensKey, false); renderBig(); }, style: {
+          width: "360px", height: "360px", maxWidth: "80vw", maxHeight: "60vh", borderRadius: "8px",
+          background: "rgba(20,20,24,0.92)", display: "flex", alignItems: "center", justifyContent: "center",
+          color: "#cfcfcf", fontSize: "13px", fontFamily: "inherit", cursor: "pointer", textAlign: "center", padding: "20px",
+        } });
+        bigBox.appendChild(shade);
+      } else {
+        bigBox.appendChild(el("img", { src: url, style: { maxWidth: "90vw", maxHeight: "64vh", borderRadius: "8px", objectFit: "contain" } }));
+      }
+    }
+    renderBig();
+    const eyeBtn = el("button", { type: "button", text: isSensitive(sensKey) ? "⊘" : "👁︎", title: "Hide / reveal this image", style: {
+      position: "absolute", top: "-2px", right: "-2px", zIndex: "3", width: "32px", height: "32px",
+      borderRadius: "8px", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: "15px", cursor: "pointer",
+    } });
+    eyeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setSensitive(sensKey, !isSensitive(sensKey));
+      eyeBtn.textContent = isSensitive(sensKey) ? "⊘" : "👁︎";
+      renderBig();
+    });
+    bigBox.appendChild(eyeBtn);
     const counter = el("div", { text: `${imgIdx + 1} / ${loadedImages.length}`, style: { color: C.muted, fontSize: "11px" } });
     const promptTxt = el("div", { text: img.prompt ? img.prompt.slice(0, 240) : "", style: { color: C.muted, fontSize: "11px", maxWidth: "70vw", textAlign: "center", whiteSpace: "pre-wrap" } });
 
@@ -148,7 +179,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
       sendRow.appendChild(b);
     });
 
-    ov2.append(prevBtn, nextBtn, big, counter, promptTxt, actionRow, sendRow);
+    ov2.append(prevBtn, nextBtn, bigBox, counter, promptTxt, actionRow, sendRow);
     document.body.appendChild(ov2);
     viewerEl = ov2;
     keyHandler = (e) => { if (e.key === "ArrowLeft") nav(-1); if (e.key === "ArrowRight") nav(1); if (e.key === "Escape") closeViewer(); };

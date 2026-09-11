@@ -1,5 +1,7 @@
 # PORT LEDGER — node ↔ web twin
 
+<!-- 2026-09-11 addendum: GGUF diffusion-model support — see row appended near the end of the file for full detail (node e0dff96 + 47d8423). Short version: (1) backend /*_get_models scans (5 tools) were missing .gguf in the extension filter, fixed nodes.py-side, web needs no code change since it calls the same routes. (2) Anima's graph_builder_anima.js had NO gguf branch at all (unique among the 6 image tools) — added; src/tools/anima/graphBuilder.ts needs the same port (relayed to web session directly, message id ea0aff39). -->
+
 One row per portable change between `ComfyUI-TJ_NODE_STUDIO_ONE` (the node) and
 `AI_One_Studio` (the web twin). Both sessions write to this file. It exists so
 node/web drift stops depending on one session's memory of what it already relayed

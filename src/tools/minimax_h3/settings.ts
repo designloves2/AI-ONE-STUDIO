@@ -157,6 +157,28 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       ])
     );
 
+    // ── LTX 2.5 Upscale mode — its own model set (generationMode "ltxupscale") ──
+    const lup = ["none", ...(modelData.latent_upscale_models || []).filter((x) => x !== "none")];
+    const lte = ["none", ...(modelData.text_encoders_all || modelData.text_encoders || []).filter((x) => x !== "none")];
+    const lxU = searchableSelect(diff, state.ltxUnet || "none", (v) => { state.ltxUnet = v === "none" ? "" : v; ctx.persist(); ctx.refreshModes?.(); });
+    const lxLU = searchableSelect(lup, state.ltxLatentUpscaler || "none", (v) => { state.ltxLatentUpscaler = v === "none" ? "" : v; ctx.persist(); ctx.refreshModes?.(); });
+    const lxC = searchableSelect(lte, state.ltxClip || "none", (v) => { state.ltxClip = v === "none" ? "" : v; ctx.persist(); ctx.refreshModes?.(); });
+    const lxVV = searchableSelect(vae, state.ltxVaeVideo || "none", (v) => { state.ltxVaeVideo = v === "none" ? "" : v; ctx.persist(); ctx.refreshModes?.(); });
+    const lxVA = searchableSelect(vae, state.ltxVaeAudio || "none", (v) => { state.ltxVaeAudio = v === "none" ? "" : v; ctx.persist(); ctx.refreshModes?.(); });
+    wrap.appendChild(
+      panel([
+        label("LTX 2.5 Upscale — models for the LTX Upscale generation mode"),
+        row([col([label("LTX unet (.gguf or .safetensors)"), lxU.el]), col([label("Latent spatial upscaler (x2)"), lxLU.el])]),
+        col([label("Text encoder (.gguf → TJ_LTX25ClipLoaderGGUF; else CLIPLoader type ltxv)"), lxC.el]),
+        row([col([label("LTX video VAE"), lxVV.el]), col([label("LTX audio VAE"), lxVA.el])]),
+        el("div", { html: "Files: LTX unet → <code>models/diffusion_models/</code> · latent upscaler → <code>models/latent_upscale_models/</code> · "
+          + "text encoder → <code>models/text_encoders/</code> · VAEs → <code>models/vae/</code>. The gemma4 GGUF text encoder needs the "
+          + "<code>ComfyUI-TJ_NODE</code> pack (<code>TJ_LTX25ClipLoaderGGUF</code>); the int8 safetensors works with core <code>CLIPLoader</code>. "
+          + "LTX LoRA(s), the ✨ vision model, and Live Preview are set elsewhere (left panel LoRA list · LLM Setting tab · Preview tab).",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.6" } }),
+      ])
+    );
+
     return wrap;
   }
 
@@ -221,6 +243,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       backendGet: () => string, backendSet: (v: string) => void,
       clipGet: () => string, clipSet: (v: string) => void,
       orGet: () => string, orSet: (v: string) => void,
+      extraRows?: HTMLElement[],
     ) => {
       const beSel = el("select", { style: selStyle }) as HTMLSelectElement;
       [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"]].forEach(([v, t]) => {
@@ -235,7 +258,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         : (missing.length
             ? el("div", { text: `⚠ Native needs: ${missing.join(", ")}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })
             : searchableSelect(clipList, clipGet() || "none", (v) => { clipSet(v === "none" ? "" : v); ctx.persist(); }).el);
-      return col([label(roleLabel), beSel, modelCtl]);
+      return col([label(roleLabel), beSel, modelCtl, ...(extraRows || [])]);
     };
 
     wrap2.append(
@@ -249,7 +272,26 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         () => state.h3OrModelVision, (v) => { state.h3OrModelVision = v; pushLlmConfig({ or_model_vision: v }); }),
     );
 
-    if (state.h3BriefBackend === "openrouter" || state.h3VisionBackend === "openrouter") {
+    // ── LTX Upscale ✨ — its own vision model (reads the source clip's first frame), never
+    // inherits an H3 Brief/Vision value. Node 6fe621e.
+    wrap2.appendChild(el("div", { style: { borderTop: `1px solid ${C.border}`, margin: "4px 0 2px" } }));
+    const ltxInstr = el("textarea", {
+      value: state.ltxLlmPrompt || "",
+      style: { width: "100%", minHeight: "90px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "11px", fontFamily: "inherit", outline: "none", resize: "vertical" },
+    }) as HTMLTextAreaElement;
+    ltxInstr.addEventListener("input", () => { state.ltxLlmPrompt = ltxInstr.value; ctx.persist(); });
+    wrap2.appendChild(
+      roleRow("LTX Upscale ✨ — reads the source clip's first frame",
+        () => state.ltxVisionBackend, (v) => { state.ltxVisionBackend = v; pushLlmConfig({ ltx_vision_backend: v }); },
+        () => state.ltxVisionClip, (v) => (state.ltxVisionClip = v),
+        () => state.ltxVisionOrModel, (v) => { state.ltxVisionOrModel = v; pushLlmConfig({ ltx_vision_or_model: v }); },
+        [
+          col([label("✨ instruction (system prompt)"), ltxInstr]),
+          el("div", { text: "The ✨ button in the LTX Upscale prompt area feeds this + the source clip's first frame to the model above. Saved with Save All.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.55" } }),
+        ])
+    );
+
+    if (state.h3BriefBackend === "openrouter" || state.h3VisionBackend === "openrouter" || state.ltxVisionBackend === "openrouter") {
       const keyIn = el("input", { type: "password", placeholder: "sk-or-… (stored in .env, shared)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit" } }) as HTMLInputElement;
       keyIn.addEventListener("blur", () => {
         const v = keyIn.value.trim();
@@ -451,6 +493,12 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       turbo_lora_strength: state.turboLoraStrength ?? 1.0,
       pdd_file: state.pddFile || "",
       pdd_file_reference: state.pddFileReference || "",
+      // LTX 2.5 Upscale mode
+      ltx_unet: state.ltxUnet || "",
+      ltx_latent_upscaler: state.ltxLatentUpscaler || "",
+      ltx_clip: state.ltxClip || "",
+      ltx_vae_video: state.ltxVaeVideo || "",
+      ltx_vae_audio: state.ltxVaeAudio || "",
       upscale_model: state.upscaleModel || "",
       save_subfolder: state.saveSubfolder || "",
       prompt_suffix: state.promptSuffix || "",
@@ -462,6 +510,11 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       preview_max_res: state.previewMaxRes ?? 512,
       preview_quality: state.previewQuality ?? 85,
       ltx_tiny_vae: state.ltxTinyVae || "",
+      ltx_llm_prompt: state.ltxLlmPrompt || "",
+      ltx_convert_prompt: state.ltxConvertPrompt || "",
+      ltx_vision_backend: state.ltxVisionBackend || "native",
+      ltx_vision_clip: state.ltxVisionClip || "",
+      ltx_vision_or_model: state.ltxVisionOrModel || "",
       ltx_preview_enabled: state.ltxPreviewEnabled ?? true,
       ltx_preview_frames: state.ltxPreviewFrames ?? 8,
       ltx_preview_fps: state.ltxPreviewFps ?? 12,
@@ -535,8 +588,18 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       take("turboLora", cfg.turbo_lora);
       take("pddFile", cfg.pdd_file);
       take("pddFileReference", cfg.pdd_file_reference);
+      take("ltxUnet", cfg.ltx_unet);
+      take("ltxLatentUpscaler", cfg.ltx_latent_upscaler);
+      take("ltxClip", cfg.ltx_clip);
+      take("ltxVaeVideo", cfg.ltx_vae_video);
+      take("ltxVaeAudio", cfg.ltx_vae_audio);
       take("upscaleModel", cfg.upscale_model);
       take("previewTinyVae", cfg.preview_tiny_vae);
+      if (cfg.ltx_llm_prompt && !String(state.ltxLlmPrompt || "").trim()) state.ltxLlmPrompt = cfg.ltx_llm_prompt;
+      if (cfg.ltx_convert_prompt && !String(state.ltxConvertPrompt || "").trim()) state.ltxConvertPrompt = cfg.ltx_convert_prompt;
+      if (cfg.ltx_vision_backend) state.ltxVisionBackend = cfg.ltx_vision_backend;
+      take("ltxVisionClip", cfg.ltx_vision_clip);
+      if (cfg.ltx_vision_or_model && !String(state.ltxVisionOrModel || "").trim()) state.ltxVisionOrModel = cfg.ltx_vision_or_model;
       if (cfg.turbo_lora_strength != null) state.turboLoraStrength = cfg.turbo_lora_strength;
       if (cfg.prompt_suffix && !state.promptSuffix) state.promptSuffix = cfg.prompt_suffix;
       if (cfg.avg_minutes_per_clip != null) state.avgMinutesPerClip = cfg.avg_minutes_per_clip;

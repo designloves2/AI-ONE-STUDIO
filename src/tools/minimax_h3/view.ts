@@ -376,9 +376,23 @@ export function renderMinimaxH3(container: HTMLElement) {
   // 갤러리는 하단에 고정 크기(shrink-0)로 두고, 이 mainRow가 flex-1로 남는 세로 공간을
   // 전부 차지한다 — 화면이 커질수록 프리뷰/컨트롤이 비례해서 커지고, 갤러리 크기는 안정적으로 유지.
   const mainRow = el("div", { class: "flex flex-col lg:flex-row gap-4 p-4 flex-1 min-h-0" });
-  const leftOuter = el("div", { class: "flex flex-col w-full lg:w-[450px] shrink-0 gap-2 lg:h-full min-h-0" });
+  const leftOuter = el("div", { class: "flex flex-col w-full lg:w-[450px] shrink-0 gap-2 lg:h-full min-h-0", style: { position: "relative" } });
+  // LTX Upscale has no per-field disable wiring (unlike H3's own controls) — a single
+  // blocking overlay over the whole left column is simpler and covers all of it (source
+  // pick/upload, refine params, segment planner, LoRA list, post finish) while a run is in
+  // progress. Toggled on/off in runLtxUpscale(); never shown for the other generation modes.
+  const leftLockOverlay = el("div", {
+    class: "absolute inset-0 z-[20] hidden items-center justify-center text-center text-[11px]",
+    style: { background: "rgba(10,10,14,0.55)", cursor: "not-allowed", color: "#cfcfcf", borderRadius: "8px" },
+  });
+  leftLockOverlay.innerHTML = "⏳ LTX Upscale running…<br><span style='font-size:9px'>settings locked until it finishes</span>";
+  function setLeftLocked(on: boolean) {
+    leftLockOverlay.classList.toggle("hidden", !on);
+    leftLockOverlay.classList.toggle("flex", on);
+  }
   const leftPanel = el("div", { class: "flex flex-col gap-1.5 overflow-y-auto pr-1 flex-1 min-h-0" });
   leftOuter.appendChild(leftPanel);
+  leftOuter.appendChild(leftLockOverlay);
 
   const rightPanel = el("div", { class: "flex flex-col gap-4 flex-1 min-w-0 min-h-0" });
 
@@ -751,6 +765,11 @@ export function renderMinimaxH3(container: HTMLElement) {
   function renderLtxPrompt() {
     promptList.innerHTML = "";
     promptCount.textContent = state.ltxSource ? "" : "(no source clip)";
+    // Locked while the LLM is writing (_ltxBusy) OR the actual upscale run is in progress —
+    // editing the prompt mid-render wouldn't affect the graph that's already queued, so it
+    // reads as broken rather than just inert. The left panel gets the same treatment via
+    // leftLockOverlay.
+    const locked = _ltxBusy || running;
     const ta = el("textarea", {
       placeholder: "Prompt for the refine pass — should match the source clip closely. Gallery picks auto-fill from the clip's saved prompt; ✨ writes one from an upload.",
       style: { flex: "1", width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "none", minHeight: "0" },
@@ -759,19 +778,22 @@ export function renderMinimaxH3(container: HTMLElement) {
     ta.addEventListener("input", () => { state.ltxPrompt = ta.value; persist(); });
     ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
     ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
-    if (_ltxBusy) { ta.disabled = true; ta.style.opacity = "0.6"; ta.value = "✨ LLM is writing the prompt from the source clip — please wait…"; }
+    if (locked) {
+      ta.disabled = true; ta.style.opacity = "0.6";
+      ta.value = _ltxBusy ? "✨ LLM is writing the prompt from the source clip — please wait…" : "⏳ LTX Upscale running — please wait…";
+    }
 
     const enh = el("button", {
       type: "button", text: _ltxBusy ? "✨ …" : "✨ Write from frame",
-      style: { cursor: _ltxBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "600", opacity: (_ltxBusy || !state.ltxSource) ? "0.55" : "1" },
+      style: { cursor: locked ? "wait" : "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "600", opacity: (locked || !state.ltxSource) ? "0.55" : "1" },
     }) as HTMLButtonElement;
-    enh.disabled = _ltxBusy || !state.ltxSource;
+    enh.disabled = locked || !state.ltxSource;
     enh.addEventListener("click", ltxWritePrompt);
     const conv = el("button", {
       type: "button", text: "H3 → LTX 2.5", title: "Rewrite the current prompt (a MiniMax H3 brief) as an LTX 2.5 prompt",
-      style: { cursor: _ltxBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg3, color: C.text, border: `1px solid ${C.border}`, opacity: (_ltxBusy || !String(state.ltxPrompt || "").trim()) ? "0.55" : "1" },
+      style: { cursor: locked ? "wait" : "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg3, color: C.text, border: `1px solid ${C.border}`, opacity: (locked || !String(state.ltxPrompt || "").trim()) ? "0.55" : "1" },
     }) as HTMLButtonElement;
-    conv.disabled = _ltxBusy || !String(state.ltxPrompt || "").trim();
+    conv.disabled = locked || !String(state.ltxPrompt || "").trim();
     conv.addEventListener("click", ltxConvertToLtx);
 
     const neg = el("input", {
@@ -779,7 +801,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
     }) as HTMLInputElement;
     neg.addEventListener("input", () => { state.ltxNegPrompt = neg.value; persist(); });
-    if (_ltxBusy) neg.disabled = true;
+    if (locked) neg.disabled = true;
 
     const btnRow = el("div", { style: { display: "flex", gap: "6px", alignItems: "center", flexShrink: "0", flexWrap: "wrap" } });
     btnRow.append(enh, conv, el("div", { style: { flex: "1", minWidth: "0" } }),
@@ -788,6 +810,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     promptList.style.gap = "6px";
     promptList.append(ta, neg, btnRow);
     if (_ltxBusy) promptList.append(el("div", { text: "⏳ Running the LLM — the prompt box is locked until it returns.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
+    else if (running) promptList.append(el("div", { text: "⏳ LTX Upscale is rendering — the prompt is locked until it finishes.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
   }
 
   // "Prompt Edit" in LTX mode → a modal: source video on top, prompt below. ✓ Apply keeps
@@ -1497,6 +1520,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   }
 
   function renderLtxUpscaleLeft() {
+    setLeftLocked(running);
     leftPanel.innerHTML = "";
 
     if (!ltxUpscaleReady(state)) {
@@ -1717,6 +1741,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   function renderLeft() {
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
+    setLeftLocked(false); // the lock overlay is LTX Upscale-only
     const contModes = continuityModesFor(state.generationMode, state);
     const cur = contModes.find((m) => m.key === state.continuityMode);
     if (!cur || cur.disabled) {
@@ -2471,7 +2496,14 @@ export function renderMinimaxH3(container: HTMLElement) {
     running = true; stopRequested = false;
     genBtn.disabled = true; genBtn.textContent = "⏳ LTX Upscale…";
     nextGenBtn.style.display = "none";
-    if (!resume) { resetPreview(); barInner.style.width = "0%"; }
+    setLeftLocked(true);
+    renderPrompts();
+    if (!resume) resetPreview();
+    // A blank/disconnected preview during an active run reads as "stuck", not "working" — the
+    // idle placeholder ("▶ Generate to render…") is misleading here, so swap its text while
+    // this run owns the screen. Restored in the finally below regardless of how it ends.
+    placeholder.innerHTML = "🔄 LTX Upscale in progress…<br><span style='font-size:10px'>reconnecting to the live preview — this is not stuck</span>";
+    if (!resume) barInner.style.width = "0%";
     startClock();
     keepTabAlive(true);
     try {
@@ -2605,6 +2637,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       try { await freeMemory(); } catch {}
       running = false; stopRequested = false;
       genBtn.disabled = false; genBtn.textContent = "▶ Generate";
+      placeholder.innerHTML = "▶ Generate to render the first clip<br><span style='font-size:10px'>live sampling frames appear here</span>";
+      setLeftLocked(false);
+      renderPrompts();
       stopClock();
       keepTabAlive(false);
     }

@@ -736,7 +736,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       const instr = (state.ltxLlmPrompt || "").trim() || "Describe this video frame as one text-to-image prompt matching exactly what is shown.";
       const text = backend === "openrouter"
         ? await analyzeImagesOpenRouter([frame], instr, state.ltxVisionOrModel)
-        : await analyzeImagesNative(state.ltxVisionClip, [frame], instr);
+        : await analyzeImagesNative(state.ltxVisionClip, [frame], instr, "ltxv");
       if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Prompt written from the source clip's first frame.", false); }
       else showPopup("The vision model returned nothing — try again or write the prompt by hand.", true);
     } catch (e: any) { showPopup(e.message, true); }
@@ -756,7 +756,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       const sys = (state.ltxConvertPrompt || "").trim() || "Rewrite this MiniMax-H3 brief as one LTX-2.5 prompt paragraph.";
       const text = backend === "openrouter"
         ? await writeBriefOpenRouter(sys, src, state.ltxVisionOrModel)
-        : await writeBriefNative(state.ltxVisionClip, sys, src);
+        : await writeBriefNative(state.ltxVisionClip, sys, src, "ltxv");
       if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Converted the H3 brief to an LTX 2.5 prompt.", false); }
       else showPopup("The model returned nothing — try again.", true);
     } catch (e: any) { showPopup(e.message, true); }

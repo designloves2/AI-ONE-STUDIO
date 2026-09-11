@@ -637,10 +637,20 @@ async function submitGraph(promptGraph: Record<string, any>, timeoutMs = 1_200_0
   throw new Error("timed out waiting for ComfyUI");
 }
 
-/** Native Image → Brief analysis — batches images through one CLIP call, no Ollama. */
-export async function analyzeImagesNative(clipName: string, images: string[], promptText: string): Promise<string> {
+/** Native Image → Brief analysis — batches images through one CLIP call, no Ollama.
+ * clipType picks the text-encoder architecture the CLIPLoader decodes with — H3's own vision
+ * CLIP needs "minimax" (the default, every existing H3 call site relies on it); LTX Upscale's
+ * vision CLIP needs "ltxv" (same type graphBuilder.ts's own LTX text encoder loads with) —
+ * loading an LTX checkpoint as "minimax" (or vice versa) doesn't error cleanly, it just
+ * produces garbage/empty output. */
+export async function analyzeImagesNative(clipName: string, images: string[], promptText: string, clipType: string = "minimax"): Promise<string> {
+  // LTX's GGUF text encoders load through TJ_LTX25ClipLoaderGGUF, not core CLIPLoader — same
+  // branch graphBuilder.ts's buildLtxUpscaleGraph uses for the render path.
+  const isGgufLtx = clipType === "ltxv" && clipName.toLowerCase().endsWith(".gguf");
   const g = {
-    clip: { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "minimax", device: "default" } },
+    clip: isGgufLtx
+      ? { class_type: "TJ_LTX25ClipLoaderGGUF", inputs: { clip_name: clipName } }
+      : { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: clipType, device: "default" } },
     batch: {
       class_type: "TJ_MultiImageLoader",
       inputs: {
@@ -683,10 +693,13 @@ export async function analyzeImagesNative(clipName: string, images: string[], pr
   return text;
 }
 
-/** Native brief writing — text-only counterpart to analyzeImagesNative(). */
-export async function writeBriefNative(clipName: string, systemPrompt: string, userPrompt: string): Promise<string> {
+/** Native brief writing — text-only counterpart to analyzeImagesNative(). clipType: see there. */
+export async function writeBriefNative(clipName: string, systemPrompt: string, userPrompt: string, clipType: string = "minimax"): Promise<string> {
+  const isGgufLtx = clipType === "ltxv" && clipName.toLowerCase().endsWith(".gguf");
   const g = {
-    clip: { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "minimax", device: "default" } },
+    clip: isGgufLtx
+      ? { class_type: "TJ_LTX25ClipLoaderGGUF", inputs: { clip_name: clipName } }
+      : { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: clipType, device: "default" } },
     gen: {
       class_type: "TextGenerate",
       inputs: {

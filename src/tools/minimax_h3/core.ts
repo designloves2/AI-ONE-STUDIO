@@ -96,6 +96,13 @@ export interface MinimaxState {
   ltxVaeVideo: string;
   ltxVaeAudio: string;
   ltxTinyVae: string;        // preview TAE — falls back to the H3 preview tiny_vae if unset
+  // LTX Upscale's own live-preview switch + values (Settings → Preview → "LTX 2.5 Upscale"),
+  // separate from the H3 preview above — it runs its own model, at its own resolution.
+  ltxPreviewEnabled: boolean;
+  ltxPreviewFrames: number;
+  ltxPreviewFps: number;
+  ltxPreviewMaxRes: number;
+  ltxPreviewQuality: number;
   // The ✨ vision LLM for LTX Upscale — its own backend + model, never inherits an H3 value
   // (⚙ Settings → LLM Setting → "LTX Upscale ✨", a 3rd role next to H3 Brief/Vision).
   ltxVisionBackend: string;  // "native" | "openrouter"
@@ -1250,6 +1257,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ltxVaeVideo: saved.ltxVaeVideo || "",
     ltxVaeAudio: saved.ltxVaeAudio || "",
     ltxTinyVae: saved.ltxTinyVae || "",
+    ltxPreviewEnabled: saved.ltxPreviewEnabled ?? true,
+    ltxPreviewFrames: saved.ltxPreviewFrames ?? 8,
+    ltxPreviewFps: saved.ltxPreviewFps ?? 12,
+    ltxPreviewMaxRes: saved.ltxPreviewMaxRes ?? 512,
+    ltxPreviewQuality: saved.ltxPreviewQuality ?? 85,
     ltxVisionBackend: saved.ltxVisionBackend || "native",
     ltxVisionClip: saved.ltxVisionClip || "",
     ltxVisionOrModel: saved.ltxVisionOrModel || "",

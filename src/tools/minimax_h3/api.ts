@@ -116,6 +116,11 @@ export interface MmhConfig {
   ltx_vae_video?: string;
   ltx_vae_audio?: string;
   ltx_tiny_vae?: string;
+  ltx_preview_enabled?: boolean;
+  ltx_preview_frames?: number;
+  ltx_preview_fps?: number;
+  ltx_preview_max_res?: number;
+  ltx_preview_quality?: number;
   ltx_llm_prompt?: string;
   ltx_convert_prompt?: string;
   ltx_vision_backend?: string;

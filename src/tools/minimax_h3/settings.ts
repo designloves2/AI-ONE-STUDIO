@@ -304,6 +304,36 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         note,
       ])
     );
+
+    // LTX 2.5 Upscale runs its own model at its own resolution, so it gets its own switch +
+    // values here rather than inheriting H3's — the two are rarely a good fit for each other.
+    // The graph-side bug where this never actually reached the preview box (a colon in the
+    // KJ node's id truncated in ComfyUI's hidden.unique_id) is fixed in graphBuilder.ts; this
+    // panel is what turns it on and tunes it.
+    const ltxTinyVaeSel = searchableSelect(["none", state.ltxTinyVae].filter((v, i, a) => v && a.indexOf(v) === i), state.ltxTinyVae || "none", (v) => {
+      state.ltxTinyVae = v;
+      ctx.persist();
+    });
+    getPreviewTinyVaeOptions(modelData).then((opts) => {
+      ltxTinyVaeSel.setOptions(opts);
+      ltxTinyVaeSel.setValue(opts.includes(state.ltxTinyVae) ? state.ltxTinyVae : "none");
+    });
+    wrap.appendChild(
+      panel([
+        label("LTX 2.5 Upscale — Live Preview"),
+        checkboxRow("Show live frames while sampling", state.ltxPreviewEnabled ?? true, (v) => { state.ltxPreviewEnabled = v; ctx.persist(); }),
+        row([
+          col([label("Preview frames"), el("input", { type: "number", step: "1", value: String(state.ltxPreviewFrames ?? 8), style: numInputStyle(), oninput: (e: any) => { state.ltxPreviewFrames = Math.max(1, Math.round(parseFloat(e.target.value) || 1)); ctx.persist(); } })]),
+          col([label("Preview fps"), el("input", { type: "number", step: "1", value: String(state.ltxPreviewFps ?? 12), style: numInputStyle(), oninput: (e: any) => { state.ltxPreviewFps = Math.max(1, Math.round(parseFloat(e.target.value) || 1)); ctx.persist(); } })]),
+        ]),
+        row([
+          col([label("Max resolution"), el("input", { type: "number", step: "64", value: String(state.ltxPreviewMaxRes ?? 512), style: numInputStyle(), oninput: (e: any) => { state.ltxPreviewMaxRes = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
+          col([label("JPEG quality"), el("input", { type: "number", step: "1", value: String(state.ltxPreviewQuality ?? 85), style: numInputStyle(), oninput: (e: any) => { state.ltxPreviewQuality = Math.round(parseFloat(e.target.value) || 0); ctx.persist(); } })]),
+        ]),
+        col([label("Preview TAE (taeltx2*, optional — models/vae_approx/)"), ltxTinyVaeSel.el]),
+        el("div", { text: "Separate from the H3 preview above — LTX Upscale runs its own model at its own resolution.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ])
+    );
     return wrap;
   }
 
@@ -431,6 +461,12 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       preview_fps: state.previewFps ?? 12,
       preview_max_res: state.previewMaxRes ?? 512,
       preview_quality: state.previewQuality ?? 85,
+      ltx_tiny_vae: state.ltxTinyVae || "",
+      ltx_preview_enabled: state.ltxPreviewEnabled ?? true,
+      ltx_preview_frames: state.ltxPreviewFrames ?? 8,
+      ltx_preview_fps: state.ltxPreviewFps ?? 12,
+      ltx_preview_max_res: state.ltxPreviewMaxRes ?? 512,
+      ltx_preview_quality: state.ltxPreviewQuality ?? 85,
       turbo_lora_low_vram: state.turboLoraLowVram ?? false,
       sampler: state.sampler || "res_multistep",
       scheduler: state.scheduler || "simple",
@@ -512,6 +548,12 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.preview_fps != null) state.previewFps = cfg.preview_fps;
       if (cfg.preview_max_res != null) state.previewMaxRes = cfg.preview_max_res;
       if (cfg.preview_quality != null) state.previewQuality = cfg.preview_quality;
+      if (cfg.ltx_tiny_vae) state.ltxTinyVae = cfg.ltx_tiny_vae;
+      if (cfg.ltx_preview_enabled != null) state.ltxPreviewEnabled = cfg.ltx_preview_enabled;
+      if (cfg.ltx_preview_frames != null) state.ltxPreviewFrames = cfg.ltx_preview_frames;
+      if (cfg.ltx_preview_fps != null) state.ltxPreviewFps = cfg.ltx_preview_fps;
+      if (cfg.ltx_preview_max_res != null) state.ltxPreviewMaxRes = cfg.ltx_preview_max_res;
+      if (cfg.ltx_preview_quality != null) state.ltxPreviewQuality = cfg.ltx_preview_quality;
       if (cfg.turbo_lora_low_vram != null) state.turboLoraLowVram = cfg.turbo_lora_low_vram;
       if (cfg.sampler) state.sampler = cfg.sampler;
       if (cfg.scheduler) state.scheduler = cfg.scheduler;

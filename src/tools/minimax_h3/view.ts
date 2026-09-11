@@ -75,6 +75,7 @@ import {
   freeMemory,
   getLoraTriggers,
   getMediaFiles,
+  getMediaInfo,
   getModels,
   getNodeAvailability,
   getQueueStatus,
@@ -87,9 +88,15 @@ import {
   stitchClips,
   uploadMedia,
   viewUrl,
+  deleteVideo,
+  analyzeImagesOpenRouter,
+  analyzeImagesNative,
+  writeBriefOpenRouter,
+  writeBriefNative,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
-import { buildClipGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 
 export function renderMinimaxH3(container: HTMLElement) {
   const state: MinimaxState = defaultState(loadState());
@@ -344,6 +351,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         persist();
         renderPills();
         renderLeft();
+        renderPrompts();
       })
     );
 
@@ -675,7 +683,207 @@ export function renderMinimaxH3(container: HTMLElement) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // ── LTX Upscale — bottom prompt area (replaces the H3 shot list in this mode) ──
+  // One prompt + one negative, and a ✨ that reads the source clip's first frame and writes
+  // a matching prompt. The refine follows the prompt closely at low denoise, so "matches the
+  // original" is the whole job. Mirrors renderLtxPrompt/ltxWritePrompt/ltxConvertToLtx (node
+  // 8427b5b + review rounds).
+  let _ltxBusy = false;
+  async function grabFirstFrameFile(): Promise<string> {
+    if (!state.ltxSource) throw new Error("No source clip.");
+    const v = document.createElement("video");
+    v.src = `${comfyApi.base}/view?filename=${encodeURIComponent(state.ltxSource)}&type=input`;
+    v.muted = true; v.crossOrigin = "anonymous";
+    await new Promise<void>((res, rej) => {
+      v.addEventListener("loadeddata", () => res(), { once: true });
+      v.addEventListener("error", () => rej(new Error("Could not read the source video.")), { once: true });
+      setTimeout(() => rej(new Error("Source video load timed out.")), 15000);
+    });
+    try { v.currentTime = 0.05; await new Promise((r) => v.addEventListener("seeked", r, { once: true })); } catch {}
+    const cv = document.createElement("canvas");
+    cv.width = v.videoWidth || 1024; cv.height = v.videoHeight || 576;
+    cv.getContext("2d")!.drawImage(v, 0, 0, cv.width, cv.height);
+    const blob: Blob = await new Promise((r) => cv.toBlob((b) => r(b!), "image/png"));
+    return uploadMedia(new File([blob], `ltx_srcframe_${Date.now()}.png`, { type: "image/png" }));
+  }
+  function ltxVisionLabel() {
+    if ((state.ltxVisionBackend || "native") === "openrouter") return `OpenRouter · ${(state.ltxVisionOrModel || "(model not set)").split("/").pop()}`;
+    return `native CLIP · ${(state.ltxVisionClip || "(clip not set)").split(/[\\/]/).pop()}`;
+  }
+  async function ltxWritePrompt() {
+    if (_ltxBusy) return;
+    if (!state.ltxSource) { showPopup("Pick a source clip first.", true); return; }
+    const backend = state.ltxVisionBackend || "native";
+    if (backend === "openrouter" && !(state.ltxVisionOrModel || "").trim()) { showPopup("Set the OpenRouter vision model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend !== "openrouter" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native vision CLIP in ⚙ Settings → LLM Setting → LTX Upscale (or switch that backend to OpenRouter).", true); return; }
+    _ltxBusy = true; renderPrompts();
+    try {
+      const frame = await grabFirstFrameFile();
+      const instr = (state.ltxLlmPrompt || "").trim() || "Describe this video frame as one text-to-image prompt matching exactly what is shown.";
+      const text = backend === "openrouter"
+        ? await analyzeImagesOpenRouter([frame], instr, state.ltxVisionOrModel)
+        : await analyzeImagesNative(state.ltxVisionClip, [frame], instr);
+      if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Prompt written from the source clip's first frame.", false); }
+      else showPopup("The vision model returned nothing — try again or write the prompt by hand.", true);
+    } catch (e: any) { showPopup(e.message, true); }
+    _ltxBusy = false; renderPrompts();
+  }
+  // "H3 → LTX 2.5" — a gallery clip's saved prompt is a MiniMax-H3 structured brief; rewrite
+  // it into a plain LTX-2.5 prompt. Text-only (no frame needed). Uses the same LTX Upscale LLM.
+  async function ltxConvertToLtx() {
+    if (_ltxBusy) return;
+    const src = String(state.ltxPrompt || "").trim();
+    if (!src) { showPopup("Nothing to convert — the prompt box is empty. Load a gallery clip or use ✨.", true); return; }
+    const backend = state.ltxVisionBackend || "native";
+    if (backend === "openrouter" && !(state.ltxVisionOrModel || "").trim()) { showPopup("Set the OpenRouter model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend !== "openrouter" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native LLM CLIP in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    _ltxBusy = true; renderPrompts();
+    try {
+      const sys = (state.ltxConvertPrompt || "").trim() || "Rewrite this MiniMax-H3 brief as one LTX-2.5 prompt paragraph.";
+      const text = backend === "openrouter"
+        ? await writeBriefOpenRouter(sys, src, state.ltxVisionOrModel)
+        : await writeBriefNative(state.ltxVisionClip, sys, src);
+      if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Converted the H3 brief to an LTX 2.5 prompt.", false); }
+      else showPopup("The model returned nothing — try again.", true);
+    } catch (e: any) { showPopup(e.message, true); }
+    _ltxBusy = false; renderPrompts();
+  }
+  function renderLtxPrompt() {
+    promptList.innerHTML = "";
+    promptCount.textContent = state.ltxSource ? "" : "(no source clip)";
+    const ta = el("textarea", {
+      placeholder: "Prompt for the refine pass — should match the source clip closely. Gallery picks auto-fill from the clip's saved prompt; ✨ writes one from an upload.",
+      style: { flex: "1", width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "none", minHeight: "0" },
+    }) as HTMLTextAreaElement;
+    ta.value = state.ltxPrompt || "";
+    ta.addEventListener("input", () => { state.ltxPrompt = ta.value; persist(); });
+    ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
+    ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
+    if (_ltxBusy) { ta.disabled = true; ta.style.opacity = "0.6"; ta.value = "✨ LLM is writing the prompt from the source clip — please wait…"; }
+
+    const enh = el("button", {
+      type: "button", text: _ltxBusy ? "✨ …" : "✨ Write from frame",
+      style: { cursor: _ltxBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "600", opacity: (_ltxBusy || !state.ltxSource) ? "0.55" : "1" },
+    }) as HTMLButtonElement;
+    enh.disabled = _ltxBusy || !state.ltxSource;
+    enh.addEventListener("click", ltxWritePrompt);
+    const conv = el("button", {
+      type: "button", text: "H3 → LTX 2.5", title: "Rewrite the current prompt (a MiniMax H3 brief) as an LTX 2.5 prompt",
+      style: { cursor: _ltxBusy ? "wait" : "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg3, color: C.text, border: `1px solid ${C.border}`, opacity: (_ltxBusy || !String(state.ltxPrompt || "").trim()) ? "0.55" : "1" },
+    }) as HTMLButtonElement;
+    conv.disabled = _ltxBusy || !String(state.ltxPrompt || "").trim();
+    conv.addEventListener("click", ltxConvertToLtx);
+
+    const neg = el("input", {
+      type: "text", value: state.ltxNegPrompt || "", placeholder: "Negative (optional)",
+      style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
+    }) as HTMLInputElement;
+    neg.addEventListener("input", () => { state.ltxNegPrompt = neg.value; persist(); });
+    if (_ltxBusy) neg.disabled = true;
+
+    const btnRow = el("div", { style: { display: "flex", gap: "6px", alignItems: "center", flexShrink: "0", flexWrap: "wrap" } });
+    btnRow.append(enh, conv, el("div", { style: { flex: "1", minWidth: "0" } }),
+      el("div", { text: `LLM: ${ltxVisionLabel()}`, title: "Configured in ⚙ Settings → LLM Setting → LTX Upscale", style: { fontSize: "10px", color: C.muted } }));
+
+    promptList.style.gap = "6px";
+    promptList.append(ta, neg, btnRow);
+    if (_ltxBusy) promptList.append(el("div", { text: "⏳ Running the LLM — the prompt box is locked until it returns.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
+  }
+
+  // "Prompt Edit" in LTX mode → a modal: source video on top, prompt below. ✓ Apply keeps
+  // the edits (already bound live to state); ✕ Cancel reverts to the on-open snapshot.
+  function openLtxPromptEdit() {
+    const snap = { p: state.ltxPrompt || "", n: state.ltxNegPrompt || "" };
+    const box = el("div", { style: { background: "#0e0e0e", border: `1px solid ${C.border}`, borderRadius: "10px", width: "760px", maxWidth: "94%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 16px 50px rgba(0,0,0,0.65)" } });
+    const head = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", borderBottom: `1px solid ${C.border}`, flexShrink: "0" } },
+      [el("div", { text: "📝 Upscale prompt", style: { color: "#fff", fontSize: "13px", fontWeight: "700", flex: "1" } })]);
+    const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "100050", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.72)" } }, [box]);
+    const finish = (apply: boolean) => {
+      if (!apply) { state.ltxPrompt = snap.p; state.ltxNegPrompt = snap.n; }
+      persist(); ov.remove();
+      try { renderPrompts(); } catch (e) { console.warn("[MMH3] LTX prompt sync:", e); }
+    };
+    ov.addEventListener("mousedown", (e) => { if (e.target === ov) finish(true); });
+    head.appendChild(el("button", { type: "button", text: "✕ Cancel", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "4px 10px", borderRadius: "6px", background: "transparent", color: C.err, border: `1px solid ${C.border}` }, onclick: () => finish(false) }));
+
+    const body = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px", padding: "12px", overflow: "auto" } });
+    if (state.ltxSource) {
+      const pv = el("video", { src: `${comfyApi.base}/view?filename=${encodeURIComponent(state.ltxSource)}&type=input`, controls: true, muted: true, loop: true, preload: "metadata", style: { width: "100%", maxHeight: "300px", objectFit: "contain", borderRadius: "6px", background: "#000" } });
+      body.append(pv);
+      if (_ltxSrcInfo) body.append(el("div", { text: `${_ltxSrcInfo.width}×${_ltxSrcInfo.height} · ${(_ltxSrcInfo.duration || 0).toFixed(2)}s · ${(_ltxSrcInfo.fps || 0).toFixed(2)} fps · ${_ltxSrcInfo.has_audio ? "audio" : "no audio"}`, style: { fontSize: "10px", color: C.muted } }));
+    } else {
+      body.append(el("div", { text: "No source clip — pick one in the left panel.", style: { fontSize: "11px", color: C.warn } }));
+    }
+
+    const llmWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+    const llmLabel = el("div", { text: `LLM: ${ltxVisionLabel()}`, style: { fontSize: "10px", color: C.muted, alignSelf: "center" } });
+    const syncLlmCfg = () => comfyApi.fetchApi("/minimax_h3_one/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ltx_vision_backend: state.ltxVisionBackend || "native", ltx_vision_clip: state.ltxVisionClip || "", ltx_vision_or_model: state.ltxVisionOrModel || "" }),
+    }).catch(() => {});
+    function renderLlmPicker() {
+      clear(llmWrap);
+      const backend = state.ltxVisionBackend || "native";
+      const bSel = select([{ value: "native", label: "Native CLIP (local)" }, { value: "openrouter", label: "OpenRouter (cloud)" }], backend, (v) => {
+        state.ltxVisionBackend = v; persist(); syncLlmCfg(); renderLlmPicker(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`;
+      });
+      let mSel: HTMLElement;
+      if (backend === "openrouter") {
+        const s = el("select", { style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLSelectElement;
+        s.appendChild(el("option", { value: state.ltxVisionOrModel || "", text: state.ltxVisionOrModel || "loading models…" }));
+        s.addEventListener("change", () => { state.ltxVisionOrModel = s.value; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; });
+        comfyApi.fetchApi("/music_one/openrouter_models").then((r) => r.json()).then((d) => {
+          const ms: string[] = d.models || []; clear(s);
+          if (!ms.length) s.appendChild(el("option", { value: "", text: "(no models — set the OpenRouter key in Settings)" }));
+          ms.forEach((m) => { const o = el("option", { value: m, text: m }) as HTMLOptionElement; if (m === state.ltxVisionOrModel) o.selected = true; s.appendChild(o); });
+          if (!state.ltxVisionOrModel && ms[0]) { state.ltxVisionOrModel = ms[0]; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; }
+        }).catch(() => {});
+        mSel = s;
+      } else {
+        const te = ["none", ...((ctx.availableModels?.text_encoders_all || ctx.availableModels?.text_encoders || []).filter((x: string) => x !== "none"))];
+        mSel = select(te.map((x: string) => ({ value: x, label: x })), state.ltxVisionClip || "none", (v) => { state.ltxVisionClip = v === "none" ? "" : v; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; });
+      }
+      llmWrap.append(row([col([label("LLM backend"), bSel]), col([label(backend === "openrouter" ? "OpenRouter model" : "Vision CLIP"), mSel])]));
+    }
+
+    const bigTA = el("textarea", { style: { width: "100%", minHeight: "200px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "10px", fontSize: "13px", fontFamily: "inherit", outline: "none", resize: "vertical" } }) as HTMLTextAreaElement;
+    bigTA.value = state.ltxPrompt || "";
+    bigTA.addEventListener("input", () => { state.ltxPrompt = bigTA.value; persist(); });
+    const bigNeg = el("input", { type: "text", value: state.ltxNegPrompt || "", placeholder: "Negative (optional)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+    bigNeg.addEventListener("input", () => { state.ltxNegPrompt = bigNeg.value; persist(); });
+    const lockBig = (on: boolean, msg?: string) => {
+      bigTA.disabled = on; bigNeg.disabled = on; enh2.disabled = on || !state.ltxSource; conv2.disabled = on || !String(state.ltxPrompt || "").trim();
+      bigTA.style.opacity = on ? "0.6" : "1";
+      if (on) bigTA.value = msg || "✨ LLM is writing — please wait…";
+    };
+    const enh2 = button("✨ Write from frame", async () => {
+      lockBig(true, "✨ LLM is writing the prompt from the source clip's first frame…");
+      try { await ltxWritePrompt(); } finally { lockBig(false); bigTA.value = state.ltxPrompt || ""; renderLlmPicker(); }
+    }, "primary") as HTMLButtonElement;
+    enh2.disabled = _ltxBusy || !state.ltxSource;
+    const conv2 = button("H3 → LTX 2.5", async () => {
+      lockBig(true, "🔄 Converting the H3 brief to an LTX 2.5 prompt…");
+      try { await ltxConvertToLtx(); } finally { lockBig(false); bigTA.value = state.ltxPrompt || ""; renderLlmPicker(); }
+    }, "default") as HTMLButtonElement;
+    conv2.disabled = _ltxBusy || !String(state.ltxPrompt || "").trim();
+    renderLlmPicker();
+    body.append(label("LLM"), llmWrap, label("Prompt"), bigTA, label("Negative"), bigNeg, row([enh2, conv2, el("div", { style: { flex: "1" } }), llmLabel]));
+
+    const foot = el("div", { style: { display: "flex", gap: "8px", padding: "10px 12px", borderTop: `1px solid ${C.border}`, flexShrink: "0", justifyContent: "flex-end" } });
+    foot.append(button("✕ Cancel", () => finish(false)), button("✓ Apply", () => finish(true), "primary"));
+
+    box.append(head, body, foot);
+    document.body.appendChild(ov);
+    bigTA.focus();
+  }
+
   function renderPrompts() {
+    const isLtx = state.generationMode === "ltxupscale";
+    commonBtn.style.display = isLtx ? "none" : "";
+    splitBtn.style.display = isLtx ? "none" : "";
+    addBtn.style.display = isLtx ? "none" : "";
+    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : "PROMPTS";
+    if (isLtx) { renderLtxPrompt(); return; }
     promptList.innerHTML = "";
     const plan = currentPlan();
     const onCount = state.prompts.filter((p) => promptEnabled(p)).length;
@@ -1243,7 +1451,272 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (h3OptimizerBlockedReason(state, state.h3Optimizer)) state.h3Optimizer = "memory";
   }
 
+  // ══ LTX 2.5 Upscale mode — left panel ═══════════════════════════════════
+  // A standalone 2x latent-upscale + light refine pass on the LTX 2.5 model — nothing to do
+  // with the H3 conditioning/sampler chain. Its prompt + LLM live in the bottom prompt area
+  // (renderPrompts), its seed on the fixed bottom row. Only the source, the refine params,
+  // its own LoRA list and the RTX finisher are here. Mirrors one_node_minimax_h3.js
+  // renderLtxUpscaleLeft (node 8427b5b + review rounds through 941217f).
+  const LTX_SAMPLERS = ["euler_ancestral", "euler", "dpmpp_2m", "dpmpp_sde", "res_multistep", "lcm"];
+  const LTX_SCHEDULERS = ["simple", "normal", "sgm_uniform", "beta", "linear_quadratic", "karras"];
+  let _ltxSrcInfo: { width?: number; height?: number; duration?: number; fps?: number; has_audio?: boolean } | null = null;
+
+  async function loadLtxSrcInfo() {
+    _ltxSrcInfo = null;
+    if (!state.ltxSource) { renderLeft(); return; }
+    try {
+      const d = await getMediaInfo(state.ltxSource);
+      if (d && d.ok) _ltxSrcInfo = d;
+    } catch {}
+    renderLeft();
+  }
+  function setLtxSource(inputFilename: string, kind: string, item?: any) {
+    state.ltxSource = inputFilename; state.ltxSourceKind = kind;
+    // A gallery pick means "refine THIS clip" — load its saved prompt/negative (from the
+    // sidecar meta) straight into the boxes, replacing whatever was there. An upload carries
+    // no prompt, so leave the boxes for ✨ / manual entry.
+    let m = (item && item.meta) || {};
+    if (typeof m === "string") { try { m = JSON.parse(m); } catch { m = {}; } }
+    const p = (item && item.prompt) || m.prompt || (Array.isArray(m.prompts) && m.prompts[0]) || "";
+    const n = m.negativePrompt || m.negative || "";
+    if (kind === "gallery") {
+      if (String(p).trim()) { state.ltxPrompt = String(p); showPopup("Prompt loaded from the clip's saved metadata.", false); }
+      else showPopup("That clip has no prompt saved in its metadata — write one or use ✨.", true);
+      if (String(n).trim()) state.ltxNegPrompt = String(n);
+    } else {
+      if (String(p).trim() && !String(state.ltxPrompt || "").trim()) state.ltxPrompt = String(p);
+      if (String(n).trim() && !String(state.ltxNegPrompt || "").trim()) state.ltxNegPrompt = String(n);
+    }
+    const durM = m.durationSeconds || m.seconds || (m.frames && m.fps ? m.frames / m.fps : 0) || 0;
+    state.ltxSourceMeta = (m.w || m.h || m.fps || m.frames || durM)
+      ? { w: m.w || 0, h: m.h || 0, fps: m.fps || 0, frames: m.frames || 0, duration: durM }
+      : null;
+    _ltxSrcInfo = null;
+    persist(); renderLeft(); renderPrompts();
+    loadLtxSrcInfo();
+  }
+
+  function renderLtxUpscaleLeft() {
+    leftPanel.innerHTML = "";
+
+    if (!ltxUpscaleReady(state)) {
+      leftPanel.appendChild(panel([
+        el("div", { html: "⚙ <b>LTX 2.5 Upscale</b> needs its models set first.<br>Open <b>⚙ Settings → LTX 2.5 Upscale</b> and pick:" }),
+        el("div", { text: "missing: " + ltxUpscaleMissing(state).join(", "), style: { fontSize: "11px", color: C.err, marginTop: "4px" } }),
+      ]));
+      return;
+    }
+
+    // ── source clip — square card, controls BELOW the video, clean frame ──
+    const srcKids: (Node | null)[] = [label("Source clip")];
+    const hasSrc = !!state.ltxSource;
+    const card = el("div", { style: {
+      position: "relative", width: "100%", aspectRatio: "1 / 1", background: "#000",
+      borderRadius: "8px", overflow: "hidden", border: `1px solid ${hasSrc ? BRAND : C.border}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    } });
+
+    if (hasSrc) {
+      const vid = el("video", {
+        src: `${comfyApi.base}/view?filename=${encodeURIComponent(state.ltxSource)}&type=input`,
+        muted: true, loop: true, playsinline: true, preload: "metadata",
+        style: { width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "block", cursor: "pointer" },
+      }) as HTMLVideoElement;
+      vid.addEventListener("click", () => { vid.paused ? vid.play() : vid.pause(); });
+      card.appendChild(vid);
+      card.appendChild(el("button", {
+        type: "button", text: "✕", title: "Clear source", style: {
+          position: "absolute", top: "6px", right: "6px", zIndex: "3", width: "24px", height: "24px",
+          border: "none", borderRadius: "6px", background: "rgba(0,0,0,0.7)", color: "#fff", cursor: "pointer", fontSize: "12px",
+        },
+        onclick: () => { state.ltxSource = ""; state.ltxSourceKind = "gallery"; state.ltxSourceMeta = null; _ltxSrcInfo = null; persist(); renderLeft(); renderPrompts(); },
+      }));
+      srcKids.push(card);
+
+      const fmtT = (s: number) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); const ss = Math.floor(s % 60); return `${m}:${String(ss).padStart(2, "0")}`; };
+      const btnStyle = { width: "30px", height: "26px", flexShrink: "0", border: `1px solid ${C.border}`, borderRadius: "5px", background: C.bg2, color: C.text, cursor: "pointer", fontSize: "11px" };
+      const playBtn = el("button", { type: "button", text: "▶", style: btnStyle });
+      const muteBtn = el("button", { type: "button", text: "🔇", title: "Unmute", style: btnStyle });
+      const seek = el("input", { type: "range", min: "0", max: "1000", value: "0", style: { flex: "1", accentColor: BRAND, cursor: "pointer" } }) as HTMLInputElement;
+      playBtn.addEventListener("click", () => { vid.paused ? vid.play() : vid.pause(); });
+      vid.addEventListener("play", () => (playBtn.textContent = "⏸"));
+      vid.addEventListener("pause", () => (playBtn.textContent = "▶"));
+      muteBtn.addEventListener("click", () => { vid.muted = !vid.muted; muteBtn.textContent = vid.muted ? "🔇" : "🔊"; muteBtn.title = vid.muted ? "Unmute" : "Mute"; });
+      let seeking = false;
+      seek.addEventListener("input", () => { seeking = true; if (vid.duration) vid.currentTime = (parseFloat(seek.value) / 1000) * vid.duration; });
+      seek.addEventListener("change", () => { seeking = false; });
+      vid.addEventListener("timeupdate", () => { if (!seeking && vid.duration) seek.value = String(Math.round((vid.currentTime / vid.duration) * 1000)); });
+      srcKids.push(el("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 2px" } }, [playBtn, seek, muteBtn]));
+
+      const durLabel = el("span", { text: "0:00 / 0:00" });
+      const fpsSpan = el("span", { text: "—", style: { color: C.muted } });
+      const sizeSpan = el("span", { text: "—", style: { color: C.muted } });
+      const refreshInfo = () => {
+        const info = _ltxSrcInfo, sm = state.ltxSourceMeta || ({} as any);
+        const dur = vid.duration || info?.duration || sm.duration || 0;
+        const w = vid.videoWidth || info?.width || sm.w || 0;
+        const h = vid.videoHeight || info?.height || sm.h || 0;
+        let fps = info?.fps || sm.fps || 0;
+        if (!fps && sm.frames && dur) fps = sm.frames / dur;
+        durLabel.textContent = `${fmtT(vid.currentTime)} / ${fmtT(dur)}`;
+        if (fps) { fpsSpan.textContent = `${Math.round(fps)}fps`; fpsSpan.style.color = C.text; }
+        if (w && h) { sizeSpan.textContent = `${w}x${h}`; sizeSpan.style.color = C.text; }
+      };
+      vid.addEventListener("loadedmetadata", refreshInfo);
+      vid.addEventListener("timeupdate", refreshInfo);
+      refreshInfo();
+      srcKids.push(el("div", { style: { display: "flex", alignItems: "center", gap: "16px", padding: "0 2px", fontSize: "11px", color: C.text } }, [durLabel, fpsSpan, sizeSpan]));
+      if (_ltxSrcInfo && _ltxSrcInfo.has_audio === false) srcKids.push(el("div", {
+        text: "⚠ No audio track — the LTX audio branch needs one. Add audio to the clip first.",
+        style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" },
+      }));
+    } else {
+      card.appendChild(el("div", { text: "no source clip", style: { color: C.muted, fontSize: "12px" } }));
+      srcKids.push(card);
+    }
+
+    const fileInp = el("input", { type: "file", accept: "video/*", style: { display: "none" } }) as HTMLInputElement;
+    fileInp.addEventListener("change", async () => {
+      const f = fileInp.files?.[0]; fileInp.value = "";
+      if (!f) return;
+      try { showPopup("Uploading…", false); const name = await uploadMedia(f); setLtxSource(name, "upload"); }
+      catch (e: any) { showPopup(e.message, true); }
+    });
+    // From gallery | Upload — equal width. The real clip gallery (badges, 눈가리기 blur,
+    // info, everything) opens in pick mode instead of a separate, stripped-down grid.
+    const galBtn = button("🖼 From gallery", () => galleryOv.showPicker((inputFilename, item) => setLtxSource(inputFilename, "gallery", item)));
+    const upBtn = button("⬆ Upload", () => fileInp.click());
+    galBtn.style.flex = "1"; upBtn.style.flex = "1";
+    srcKids.push(el("div", { style: { display: "flex", gap: "8px" } }, [galBtn, upBtn]));
+    srcKids.push(fileInp);
+    srcKids.push(el("div", { text: "The whole clip is upscaled 2× and its audio is carried through. Gallery picks auto-fill the prompt from the clip's saved meta.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+    leftPanel.appendChild(panel(srcKids));
+
+    // ── refine sampling ──────────────────────────────────────────────────
+    leftPanel.appendChild(panel([
+      label("Refine"),
+      row([
+        col([label("Steps"), numberField(state.ltxSteps ?? 3, (v) => { state.ltxSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
+        col([label("Denoise"), numberField(state.ltxDenoise ?? 0.15, (v) => { state.ltxDenoise = Math.min(1, Math.max(0.01, v)); persist(); }, 0.01)]),
+      ]),
+      row([
+        col([label("Sampler"), select(LTX_SAMPLERS.map((s) => ({ value: s, label: s })), state.ltxSampler || "euler_ancestral", (v) => { state.ltxSampler = v; persist(); })]),
+        col([label("Scheduler"), select(LTX_SCHEDULERS.map((s) => ({ value: s, label: s })), state.ltxScheduler || "simple", (v) => { state.ltxScheduler = v; persist(); })]),
+      ]),
+      (() => {
+        // "seconds" derives the piece count from a target size; "count" takes it directly.
+        const durNow = () => _ltxSrcInfo?.duration || state.ltxSourceMeta?.duration || 0;
+        const segWrap = el("div", {});
+        const renderSegWrap = () => {
+          clear(segWrap);
+          const mode = state.ltxSegmentMode === "count" ? "count" : "seconds";
+          const segHint = el("div", { style: { fontSize: "13px", fontWeight: "700", color: BRAND, whiteSpace: "nowrap" } });
+          const updateSegHint = () => {
+            const d = durNow();
+            if (mode === "count") {
+              const n = Math.max(1, Math.round(Number(state.ltxSegmentCount) || 1));
+              if (n <= 1) segHint.textContent = "1 = whole clip, one pass";
+              else if (!d) segHint.textContent = `${n} piece(s) — pick a source to see the length`;
+              else segHint.textContent = `${n} piece(s) → ~${(d / n).toFixed(1)}s each      Total : ${d.toFixed(1)}s clip`;
+            } else {
+              const s = Math.max(0, Number(state.ltxSegmentSeconds) || 0);
+              if (!s) segHint.textContent = "0 = whole clip, one pass";
+              else if (!d) segHint.textContent = `${s}s per piece — pick a source to see the piece count`;
+              else segHint.textContent = `${s}s per piece → ${Math.max(1, Math.round(d / s))} piece(s)      Total : ${d.toFixed(1)}s clip`;
+            }
+          };
+          updateSegHint();
+          const modeSel = select([{ value: "seconds", label: "By seconds" }, { value: "count", label: "By count" }], mode, (v) => { state.ltxSegmentMode = v; persist(); renderSegWrap(); });
+          const valueField = mode === "count"
+            ? numberField(state.ltxSegmentCount ?? 2, (v) => { state.ltxSegmentCount = Math.max(1, Math.round(v)); persist(); updateSegHint(); }, 1)
+            : numberField(state.ltxSegmentSeconds ?? 5, (v) => { state.ltxSegmentSeconds = Math.max(0, Math.round(v)); persist(); updateSegHint(); }, 1);
+          const captionLabel = label(mode === "count" ? "Piece count (1 = whole clip)" : "Seconds per piece (0 = whole clip)");
+          segWrap.append(el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } }, [
+            el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } }, [
+              label("Split mode"),
+              el("span", { text: "❔", title: "Splitting a long/large clip into fixed-length pieces upscales each on its own queue turn (VRAM freed between turns) then ffmpeg-concats — each piece is first-frame-anchored + low-denoise so the joins are seamless.", style: { cursor: "help", fontSize: "11px" } }),
+            ]),
+            row([col([modeSel]), col([valueField])]),
+            captionLabel,
+            segHint,
+          ]));
+        };
+        renderSegWrap();
+        return segWrap;
+      })(),
+      el("div", { text: "2x latent upscale + a light refine. Verified defaults: 3 steps / 0.15 denoise / euler_ancestral / simple. ~0.8MP / 8s per piece on 16GB (~6 min each).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+    ]));
+
+    // ── LTX LoRA (own list — different model from H3) ────────────────────
+    const loraOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
+    const ltxL: LtxLoraEntry[] = state.ltxLoras ||= [];
+    const ltxLoraWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+    const renderLtxLoras = () => {
+      clear(ltxLoraWrap);
+      ltxL.forEach((l, i) => {
+        const off = l.enabled === false;
+        const lcard = el("div", { style: { border: `1px solid ${off ? C.dim : C.border}`, borderRadius: "6px", padding: "6px", display: "flex", flexDirection: "column", gap: "5px", opacity: off ? "0.55" : "1" } });
+        const head = el("div", { style: { display: "flex", alignItems: "center", gap: "5px" } });
+        const tog = el("button", {
+          type: "button", text: off ? "OFF" : "ON",
+          style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "10px", border: "none", fontWeight: "700", background: off ? "#444" : BRAND, color: "#fff" },
+          onclick: () => { l.enabled = off; persist(); renderLtxLoras(); },
+        });
+        const strWrap = el("div", { style: { flexShrink: "0", width: "62px" } });
+        strWrap.appendChild(numberField(l.strength ?? 1.0, (v) => { l.strength = v; persist(); }, 0.05));
+        const del = el("button", {
+          type: "button", text: "✕", title: "Remove",
+          style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.err, border: "none", fontSize: "11px", padding: "2px 4px" },
+          onclick: () => { ltxL.splice(i, 1); persist(); renderLtxLoras(); },
+        });
+        head.append(tog, el("div", { style: { flex: "1" } }), strWrap, del);
+        const sel = searchableSelect(loraOpts, l.name || "none", (v) => { l.name = v; persist(); });
+        lcard.append(head, sel.el);
+        ltxLoraWrap.appendChild(lcard);
+      });
+      const add = el("button", {
+        type: "button", text: "+ Add LoRA",
+        style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+        onclick: () => { ltxL.push({ name: "none", strength: 1.0, enabled: true }); persist(); renderLtxLoras(); },
+      });
+      ltxLoraWrap.appendChild(add);
+      ltxLoraWrap.appendChild(el("div", { text: "Loads on the LTX 2.5 unet (before the attention patch). Separate from the H3 LoRA list.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+    };
+    renderLtxLoras();
+    const ltxLoraOn = ltxL.filter((l) => l?.name && l.name !== "none" && l.enabled !== false).length;
+    leftPanel.appendChild(accordion("ltxlora", "LTX LoRA", ltxLoraOn ? `${ltxLoraOn} on` : "OFF", () => [ltxLoraWrap]));
+
+    // ── post finish — Deblur + RTX VSR, both a quality dropdown (none = off) ──
+    const QUAL = ["none", "LOW", "MEDIUM", "HIGH", "ULTRA"].map((v) => ({ value: v, label: v === "none" ? "None" : v }));
+    const deblurNow = state.deblurStrength || "none";
+    const rtxQualNow = state.upscaleMode === "rtx" ? (state.rtxQuality || "ULTRA") : "none";
+    const rtxOn = rtxQualNow !== "none";
+    leftPanel.appendChild(accordion("upscale", "Post finish",
+      [deblurNow !== "none" && `Deblur ${deblurNow}`, rtxOn && `RTX VSR ${state.rtxScale ?? 2}×`].filter(Boolean).join(" → ") || "OFF",
+      () => [
+        col([label("Deblur"), select(QUAL, deblurNow, (v) => { state.deblurStrength = v; persist(); renderLeft(); })]),
+        col([label("RTX Video Super Resolution"), select(QUAL, rtxQualNow, (v) => {
+          if (v === "none") state.upscaleMode = "none";
+          else { state.upscaleMode = "rtx"; state.rtxQuality = v; if (!(state.rtxScale > 0)) state.rtxScale = 2; }
+          persist(); renderLeft();
+        })]),
+        col([label("Scale (×)"), (() => {
+          const f = numberField(state.rtxScale ?? 2, (v) => { state.rtxScale = Math.max(1, v); persist(); }, 0.5);
+          if (!rtxOn) { (f as HTMLInputElement).disabled = true; f.style.opacity = "0.4"; }
+          return f;
+        })()]),
+        !ctx.availability?.RTXVideoSuperResolution ? el("div", { html: "⚠ <code>RTXVideoSuperResolution</code> not installed — RTX VSR is skipped.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }) : null,
+        el("div", { text: "Runs on the LTX-upscaled frames after decode. Deblur sharpens at the same size; RTX VSR scales it further (e.g. 2× → 4K).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ]));
+
+    leftPanel.appendChild(el("div", {
+      html: `Models: <code>${(state.ltxUnet || "?").split(/[\\/]/).pop()}</code> · clip <code>${(state.ltxClip || "?").split(/[\\/]/).pop()}</code> — change in ⚙ Settings.`,
+      style: { fontSize: "9px", color: C.muted, lineHeight: "1.6", marginTop: "2px", wordBreak: "break-all" },
+    }));
+  }
+
   function renderLeft() {
+    if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
     const contModes = continuityModesFor(state.generationMode, state);
     const cur = contModes.find((m) => m.key === state.continuityMode);
     if (!cur || cur.disabled) {
@@ -1965,7 +2438,171 @@ export function renderMinimaxH3(container: HTMLElement) {
     return out?.images || out?.gifs || [];
   }
 
-  genBtn.addEventListener("click", () => runGenerate());
+  // ── LTX 2.5 Upscale run — segmented, survives a page reload ─────────────
+  // Each segment is queued as its own /prompt; state._ltxRelay persists the plan + finished
+  // parts + the in-flight prompt_id after every step. queuePrompt()'s own existingPromptId
+  // reattach (it checks /history first) does the "reconnect after a reload" work — no
+  // separate polling helper needed the way the node's port required. Mirrors
+  // runLtxUpscale (node 006f9a5 segmenting, 9763749 reload-survival, 830f426 8n+1 align).
+  async function runLtxUpscale(resume = false) {
+    if (running) return;
+
+    let rs: MinimaxState, passes: { window: { skip: number; cap: number } | null; suffix: string }[], parts: any[], segSec: number, sourceFile: string, folder: string;
+    if (resume) {
+      const R = state._ltxRelay;
+      if (!R || !Array.isArray(R.passes) || !Array.isArray(R.parts) || !R.rs) { delete state._ltxRelay; persist(); return; }
+      rs = R.rs; passes = R.passes; parts = R.parts.slice(); segSec = R.segSec || 0;
+    } else {
+      if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
+      else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
+      else if (state.seedMode === "decrement") { state.seed = Math.max(0, (state.seed || 0) - 1); seedInput.value = String(state.seed); }
+      persist();
+      rs = JSON.parse(JSON.stringify(state));
+      if (!ltxUpscaleReady(rs)) { showPopup("Set the LTX 2.5 models in ⚙ Settings first — missing: " + ltxUpscaleMissing(rs).join(", "), true); return; }
+      if (!rs.ltxSource) { showPopup("Pick a source clip (gallery) or upload a video.", true); return; }
+      rs.seedMode = "fixed"; // every segment shares one seed so the low-denoise refine stays coherent across joins
+      sourceFile = rs.ltxSource;
+      folder = (rs.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+      segSec = 0; passes = []; parts = [];
+    }
+    sourceFile = rs.ltxSource;
+    folder = (rs.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+
+    running = true; stopRequested = false;
+    genBtn.disabled = true; genBtn.textContent = "⏳ LTX Upscale…";
+    nextGenBtn.style.display = "none";
+    if (!resume) { resetPreview(); barInner.style.width = "0%"; }
+    startClock();
+    keepTabAlive(true);
+    try {
+      if (!ctx.availability || !Object.keys(ctx.availability).length) {
+        const av = await getNodeAvailability();
+        ctx.availability = av.available || {}; ctx.availabilityInfo = av;
+      }
+
+      // ── plan the passes (fresh run only) ────────────────────────────────
+      if (!resume) {
+        const segMode = rs.ltxSegmentMode === "count" ? "count" : "seconds";
+        const s = Math.max(0, Number(rs.ltxSegmentSeconds) || 0);
+        const segCount = Math.max(1, Math.round(Number(rs.ltxSegmentCount) || 1));
+        segSec = s;
+        passes = [{ window: null, suffix: "" }];
+        if ((segMode === "count" && segCount > 1) || (segMode === "seconds" && s > 0)) {
+          let srcInfo: any = null;
+          try { srcInfo = await getVideoInfo(sourceFile, "", "input"); } catch {}
+          const sFps = srcInfo?.fps || state.ltxSourceMeta?.fps || FPS;
+          const total = srcInfo?.frames || Math.round((state.ltxSourceMeta?.duration || 0) * sFps) || 0;
+          // LTX 2.5's video VAE only takes 8n+1 pixel frames cleanly — not the same 17k+5
+          // rule H3's own transformer uses (unrelated model, this pass never touches it).
+          const snap8n1 = (n: number) => 8 * Math.max(0, Math.round((n - 1) / 8)) + 1;
+          let nPieces: number;
+          if (segMode === "count") nPieces = Math.min(segCount, Math.max(1, Math.floor(total / 9)));
+          else { const targetSeg = Math.max(9, snap8n1(s * sFps)); nPieces = Math.max(1, Math.round(total / targetSeg)); }
+          if (nPieces > 1 && total > 9) {
+            const pieceLen = Math.max(9, snap8n1(Math.round(total / nPieces)));
+            passes = [];
+            let skip = 0;
+            for (let k = 0; k < nPieces; k++) {
+              const isLast = k === nPieces - 1;
+              const cap = isLast ? total - skip : pieceLen;
+              if (cap <= 0) break;
+              passes.push({ window: { skip, cap }, suffix: `_seg${String(k).padStart(2, "0")}` });
+              skip += cap;
+            }
+          }
+        }
+        parts = [];
+        state._ltxRelay = { rs, passes, parts, segSec, curPromptId: null }; persist();
+      }
+
+      let meta: any = null;
+      let inFlightId: string | null = resume ? (state._ltxRelay?.curPromptId || null) : null;
+      for (let i = parts.length; i < passes.length; i++) {
+        if (stopRequested) throw new Error("Stopped.");
+        const p = passes[i];
+        setStatus(passes.length > 1
+          ? `LTX Upscale · segment ${i + 1}/${passes.length}${p.window ? ` (frames ${p.window.skip}–${p.window.skip + p.window.cap})` : ""}`
+          : "LTX Upscale · queued (≈6 min sampling on 16GB)");
+        const built = buildLtxUpscaleGraph(rs, ctx.availability, { nodeId: instanceId, sourceFile, window: p.window, saveSuffix: p.suffix });
+        meta = built.meta;
+
+        const reattachId = inFlightId || undefined;
+        inFlightId = null;
+        const r = await queuePrompt(built.graph, {
+          // LTX segments don't fit H3's curClip/totClip-driven setStepProgress() — drive the
+          // bar directly off this segment's own step/max, offset by how many segments are
+          // already done.
+          onProgress: (v, m) => {
+            const segFrac = m ? v / m : 0;
+            const overall = (i + segFrac) / passes.length;
+            barInner.style.width = `${Math.max(0, Math.min(100, overall * 100)).toFixed(1)}%`;
+            const label = passes.length > 1 ? `seg ${i + 1}/${passes.length} · step ${v}/${m}` : `step ${v}/${m}`;
+            badge.classList.remove("hidden");
+            badge.textContent = `● LIVE  ${label}`;
+            setStatus(`LTX Upscale · ${label}`);
+          },
+          samplerNode: "LX:sampler",
+          existingPromptId: reattachId,
+          onQueued: (pid) => { if (state._ltxRelay) { state._ltxRelay.curPromptId = pid; persist(); } },
+        });
+        const out = firstOutput(r.byNode, "LX:save");
+        if (!out) throw new Error(`LTX Upscale segment ${i + 1} produced no output.`);
+        parts.push(out);
+        if (state._ltxRelay) { state._ltxRelay.parts = parts; state._ltxRelay.curPromptId = null; persist(); }
+        try { await freeMemory(); } catch {}
+      }
+
+      // ── assemble ─────────────────────────────────────────────────────────
+      let vid: any;
+      if (parts.length === 1) {
+        vid = parts[0];
+      } else {
+        setStatus(`Assembling ${parts.length} segments with ffmpeg…`);
+        const st = await stitchClips(parts.map((p) => ({ filename: p.filename, subfolder: p.subfolder || "" })), `${folder}/${rs.filenamePrefix || "MMH3"}_LTXUP_full`, null, null, null);
+        vid = { filename: st.filename, subfolder: st.subfolder || "", type: "output" };
+        for (const p of parts) { try { await deleteVideo(p.filename, p.subfolder || ""); } catch {} }
+      }
+      if (!vid) throw new Error("LTX Upscale finished but produced no video output.");
+      delete state._ltxRelay; persist();
+      meta = meta || {};
+      const clipMeta = {
+        v: 1, prompt: String(rs.ltxPrompt || ""), mode: "ltxupscale",
+        source: rs.ltxSource, sourceKind: rs.ltxSourceKind,
+        ltx: { unet: rs.ltxUnet, clip: rs.ltxClip, latentUpscaler: rs.ltxLatentUpscaler, vaeVideo: rs.ltxVaeVideo, vaeAudio: rs.ltxVaeAudio },
+        steps: meta.steps, denoise: meta.denoise, sampler: meta.sampler, scheduler: meta.scheduler, seed: meta.seed, fps: meta.fps,
+        deblur: meta.deblur || null, upscale: meta.upscale || null, loras: meta.loras || [],
+        negativePrompt: String(rs.ltxNegPrompt || ""), segments: passes.length,
+        ...(passes.length > 1 ? { stitched: true, segmentSeconds: segSec } : {}),
+      };
+      saveMeta(vid.filename, vid.subfolder || "", clipMeta);
+      showResultVideo(outputViewUrl(vid.filename, vid.subfolder || "", vid.type || "output"));
+      badge.classList.remove("hidden");
+      badge.textContent = "LTX UPSCALED";
+      setStatus(`Done — ${vid.filename}`);
+      barInner.style.width = "100%";
+      try { refreshGallery(); } catch {}
+    } catch (e: any) {
+      if (e.message === "Stopped." || e.message === "cancelled") {
+        setStatus("Stopped.");
+      } else {
+        delete state._ltxRelay; persist();
+        const why = explainGenerationError(e.message);
+        setStatus(why ? `Error: ${why}` : `Error: ${e.message}`);
+        showPopup(why || e.message, true);
+      }
+    } finally {
+      try { await freeMemory(); } catch {}
+      running = false; stopRequested = false;
+      genBtn.disabled = false; genBtn.textContent = "▶ Generate";
+      stopClock();
+      keepTabAlive(false);
+    }
+  }
+
+  genBtn.addEventListener("click", () => {
+    if (state.generationMode === "ltxupscale") { runLtxUpscale(); return; }
+    runGenerate();
+  });
 
   async function runGenerate(resume?: RunProgress) {
     if (running) return;
@@ -2504,7 +3141,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     // which the left panel's mode buttons and Images accordion need to see, not just the plan line.
     () => { refreshPlan(); renderLeft(); }
   );
-  editBtn.addEventListener("click", () => promptEditOv.show());
+  editBtn.addEventListener("click", () => {
+    if (state.generationMode === "ltxupscale") { openLtxPromptEdit(); return; }
+    promptEditOv.show();
+  });
 
   const commonPromptOv = createCommonPromptOverlay(state, { persist }, () => {
     refreshPlan();
@@ -2544,5 +3184,8 @@ export function renderMinimaxH3(container: HTMLElement) {
   if (pending) {
     setStatus(`Reconnecting to previous run… (clip ${pending.pos + 1}/${pending.totClip})`);
     runGenerate(pending);
+  } else if (state._ltxRelay) {
+    setStatus(`Reconnecting to previous LTX Upscale run… (segment ${state._ltxRelay.parts.length + 1}/${state._ltxRelay.passes.length})`);
+    runLtxUpscale(true);
   }
 }

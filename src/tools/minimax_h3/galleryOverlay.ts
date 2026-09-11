@@ -135,6 +135,9 @@ export interface GalleryOverlayHandle {
   el: HTMLElement;
   playerEl: HTMLElement;
   show(): void;
+  /** Open the gallery in pick mode — a click copies the clip to input/ and calls back with
+   *  the new filename (+ the picked gallery item, for its saved meta/prompt). */
+  showPicker(onPick: (filename: string, item: any) => void): void;
   hide(): void;
   isOpen(): boolean;
   isPlaying(): boolean;
@@ -266,6 +269,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   let postPick: string | null = null;
   let postRunning = false;
   const vKey = (v: GalleryVideo) => `${v.subfolder || ""}|${v.filename}`;
+  // Gallery-as-picker (node 1b03213/c338831/a2ac1cd, 6c17e3d) — every "pick a clip"
+  // surface (LTX Upscale "From gallery", H3 reference-video slots, "continue from last
+  // frame") opens the real gallery instead of a separate badge-less/blur-less grid, so
+  // picking gets the same 눈가리기 guard and info everything else has. Checked first in
+  // the per-card click dispatch below, ahead of stitch/upscale/rife mode.
+  let pickCallback: ((filename: string, item: GalleryVideo) => void) | null = null;
 
   const stitchBtn = toolBtn("🔗 Stitch", "Pick clips in order, then combine into one file");
   const upscaleBtn = toolBtn("⬆ Upscale", "Upscale a single clip");
@@ -1117,7 +1126,19 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         thumbWrap.addEventListener("mouseleave", stopGridVideos);
       }
 
-      if (mode === "stitch") {
+      if (pickCallback) {
+        card.addEventListener("click", async () => {
+          const k = mediaKey(v.filename, v.subfolder);
+          if (isBlurred(k)) return; // reveal via the 👁 on the tile first — never hand a hidden clip to the caller
+          const cb = pickCallback;
+          try {
+            const name = await copyOutputToInput(v.filename, v.subfolder || "", "output");
+            pickCallback = null;
+            hide();
+            cb?.(name, v);
+          } catch (e: any) { ctx.showPopup(e?.message || String(e), true); }
+        });
+      } else if (mode === "stitch") {
         card.addEventListener("click", () => {
           if (postRunning) return;
           const key = vKey(v);
@@ -1302,6 +1323,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   function hide() {
     closePlayer();
     stopGridVideos();
+    pickCallback = null;
     ov.style.display = "none";
     clear(grid);
     // render:false — the grid was just emptied above to stop the hover videos, and
@@ -1319,6 +1341,15 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       ov.style.display = "flex";
       refresh();
       resumePostJob();
+    },
+    // Open the gallery in "pick" mode — a click copies that clip to input/ and calls back
+    // with the new filename, instead of opening the fullscreen player. Any tool wanting a
+    // "choose a rendered clip" surface should use this rather than building its own grid.
+    showPicker(onPick) {
+      pickCallback = onPick;
+      mode = null; stitchOrder = []; postPick = null;
+      ov.style.display = "flex";
+      refresh();
     },
     hide,
     isOpen: () => ov.style.display !== "none",

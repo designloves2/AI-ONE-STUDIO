@@ -82,12 +82,23 @@ export interface MinimaxState {
   // not touch the H3 conditioning/sampler chain (see buildLtxUpscaleGraph).
   ltxSource: string;        // source video filename (gallery pick or upload)
   ltxSourceKind: string;    // "gallery" | "upload"
+  ltxSourceMeta: { w: number; h: number; fps: number; frames: number; duration: number } | null;
   ltxPrompt: string;
   ltxNegPrompt: string;
   ltxSteps: number;
   ltxDenoise: number;
   ltxSampler: string;
   ltxScheduler: string;
+  // Splitting a long/large clip into fixed-length pieces upscales each on its own queue
+  // turn (VRAM freed between turns) then ffmpeg-concats. "seconds" derives the piece count
+  // from a target length; "count" takes the piece count directly. 1 piece / 0 seconds =
+  // whole clip, one pass.
+  ltxSegmentMode: string;    // "seconds" | "count"
+  ltxSegmentSeconds: number;
+  ltxSegmentCount: number;
+  // Reload-survival: set while a segmented run is in flight, cleared on finish/error/stop.
+  // Not typed strictly — see runLtxUpscale's resume path.
+  _ltxRelay?: { rs: MinimaxState; passes: any[]; parts: any[]; segSec: number; curPromptId: string | null } | null;
   ltxLoras: LtxLoraEntry[];  // own list — never the H3 `loras` (different model)
   // configured once in ⚙ Settings → LTX 2.5 Upscale (round-trip through the config route)
   ltxUnet: string;           // .gguf → UnetLoaderGGUF; .safetensors → UNETLoader
@@ -1242,12 +1253,17 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     // ── LTX 2.5 Upscale mode ────────────────────────────────────────────────
     ltxSource: saved.ltxSource || "",
     ltxSourceKind: saved.ltxSourceKind || "gallery",
+    ltxSourceMeta: saved.ltxSourceMeta || null,
     ltxPrompt: saved.ltxPrompt || "",
     ltxNegPrompt: saved.ltxNegPrompt || "bad anatomy, inconsistent look, low resolution,",
     ltxSteps: saved.ltxSteps ?? 3,
     ltxDenoise: saved.ltxDenoise ?? 0.15,
     ltxSampler: saved.ltxSampler || "euler_ancestral",
     ltxScheduler: saved.ltxScheduler || "simple",
+    ltxSegmentMode: saved.ltxSegmentMode === "count" ? "count" : "seconds",
+    ltxSegmentSeconds: saved.ltxSegmentSeconds ?? 5,
+    ltxSegmentCount: saved.ltxSegmentCount ?? 2,
+    _ltxRelay: saved._ltxRelay || null,
     ltxLoras: Array.isArray(saved.ltxLoras)
       ? saved.ltxLoras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, enabled: l.enabled !== false }))
       : [],

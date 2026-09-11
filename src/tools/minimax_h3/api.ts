@@ -372,6 +372,8 @@ export interface MediaInfo {
   duration?: number;
   fps?: number;
   has_audio?: boolean;
+  width?: number;
+  height?: number;
 }
 
 /** Duration / audio-track presence for an input file. */

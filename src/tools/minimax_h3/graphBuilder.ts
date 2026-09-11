@@ -661,10 +661,12 @@ export interface LtxUpscaleOpts {
   nodeId?: string | number | null;
   sourceFile: string; // filename in ComfyUI's input/
   fps?: number;
+  window?: { skip: number; cap: number } | null; // one segment of the source when split for VRAM
+  saveSuffix?: string; // per-segment SaveVideo filename suffix, e.g. "_seg00"
 }
 
 export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefined, opts: LtxUpscaleOpts) {
-  const { nodeId = null, sourceFile, fps = FPS } = opts;
+  const { nodeId = null, sourceFile, fps = FPS, window = null, saveSuffix = "" } = opts;
   if (!sourceFile) throw new Error("LTX Upscale: pick a source clip (gallery or upload).");
   const need: Record<string, string> = {
     ltxUnet: "LTX unet", ltxLatentUpscaler: "latent upscaler", ltxClip: "text encoder",
@@ -681,7 +683,9 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   // ── source ────────────────────────────────────────────────────────────────
   g[L.load] = { class_type: "VHS_LoadVideo", inputs: {
     video: sourceFile, force_rate: 0, custom_width: 0, custom_height: 0,
-    frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1, format: "AnimateDiff",
+    frame_load_cap: window ? Math.max(1, window.cap | 0) : 0,
+    skip_first_frames: window ? Math.max(0, window.skip | 0) : 0,
+    select_every_nth: 1, format: "AnimateDiff",
   } };
   // IMAGE = [L.load, 0], frame_count = [L.load, 1], audio = [L.load, 2]
 
@@ -806,7 +810,7 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   // ── output ────────────────────────────────────────────────────────────────
   g[L.video] = { class_type: "CreateVideo", inputs: { images, fps, audio: [L.decA, 0] } };
   g[L.save] = { class_type: "SaveVideo", inputs: {
-    video: [L.video, 0], filename_prefix: `${folder}/${stem}_LTXUP`, format: "auto", codec: "auto",
+    video: [L.video, 0], filename_prefix: `${folder}/${stem}_LTXUP${saveSuffix}`, format: "auto", codec: "auto",
   } };
 
   const usedLoras = (state.ltxLoras || [])

@@ -8,8 +8,19 @@ type Graph = Record<string, any>;
 type Link = [string, number];
 
 function unetNode(name: string) {
-  if ((name || "").toLowerCase().endsWith(".gguf")) return { class_type: "UnetLoaderGGUF", inputs: { unet_name: name } };
+  // Krea 2 GGUF: city96 UnetLoaderGGUF gates on general.architecture and doesn't know
+  // "krea2" — TJ_NODE_Krea2UnetLoaderGGUF wraps it and patches the allowlist at load time
+  // (pure additive gate fix, same MODEL output). Node e24b412 / ComfyUI-TJ_NODE c7bcde5.
+  if ((name || "").toLowerCase().endsWith(".gguf")) return { class_type: "TJ_NODE_Krea2UnetLoaderGGUF", inputs: { unet_name: name } };
   return { class_type: "UNETLoader", inputs: { unet_name: name, weight_dtype: "default" } };
+}
+
+function clipNode(clipName: string) {
+  // Same story on the text-encoder side: TJ_NODE_Krea2ClipLoaderGGUF reads the file's
+  // actual general.architecture and adds it to TXT_ARCH_LIST if missing, then delegates to
+  // city96 CLIPLoaderGGUF with type="krea2" (CLIPType.KREA2).
+  if ((clipName || "").toLowerCase().endsWith(".gguf")) return { class_type: "TJ_NODE_Krea2ClipLoaderGGUF", inputs: { clip_name: clipName } };
+  return { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "krea2", device: "default" } };
 }
 
 function withLoraChain(modelLink: Link, loras: LoraEntry[]): { graph: Graph; modelOut: Link } {
@@ -43,11 +54,7 @@ function baseGraph(state: Krea2State, promptText: string): { g: Graph; modelOut:
   const g: Graph = {};
   g["K2:unet"] = unetNode(modelName);
 
-  if ((clipName || "").toLowerCase().endsWith(".gguf")) {
-    g["K2:clip"] = { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipName, type: "krea2" } };
-  } else {
-    g["K2:clip"] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "krea2", device: "default" } };
-  }
+  g["K2:clip"] = clipNode(clipName);
 
   g["K2:vae"] = { class_type: "VAELoader", inputs: { vae_name: vaeName } };
 
@@ -193,8 +200,7 @@ export function buildIdentityGraph(state: Krea2State): Graph {
 
   const g: Graph = {};
   g["K2:unet"] = unetNode(modelName);
-  if ((clipName || "").toLowerCase().endsWith(".gguf")) g["K2:clip"] = { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipName, type: "krea2" } };
-  else g["K2:clip"] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "krea2", device: "default" } };
+  g["K2:clip"] = clipNode(clipName);
   g["K2:vae"] = { class_type: "VAELoader", inputs: { vae_name: vaeName } };
 
   g["ID:lora"] = { class_type: "LoraLoaderModelOnly", inputs: { model: ["K2:unet", 0], lora_name: idLora, strength_model: state.identityLoraStrength ?? 1.0 } };

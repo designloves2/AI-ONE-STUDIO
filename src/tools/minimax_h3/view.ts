@@ -96,6 +96,7 @@ import {
   scanFaceRefine,
   listPromptSets,
   getPromptSet,
+  getClipLastFrame,
   type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
@@ -3732,7 +3733,17 @@ export function renderMinimaxH3(container: HTMLElement) {
         setStatus(passes.length > 1
           ? `LTX Upscale · segment ${i + 1}/${passes.length}${p.window ? ` (frames ${p.window.skip}–${p.window.skip + p.window.cap})` : ""}`
           : "LTX Upscale · queued (≈6 min sampling on 16GB)");
-        const built = buildLtxUpscaleGraph(rs, ctx.availability, { nodeId: instanceId, sourceFile, window: p.window, saveSuffix: p.suffix });
+        // Segment 2+ must anchor LTXVImgToVideoInplace on the PREVIOUS segment's own finished
+        // output, not on the original source clip at that same time boundary — sourceFile never
+        // changes across segments, only the skip/cap window does, so anchoring on the original
+        // there loses continuity with what the prior segment actually produced (a real seam bug,
+        // worse with more segments). Mirrors node `ca8a194`.
+        let anchorImage: string | null = null;
+        if (i > 0 && parts[i - 1]) {
+          try { anchorImage = await getClipLastFrame(parts[i - 1].filename, parts[i - 1].subfolder || ""); }
+          catch (e: any) { console.warn("[MMH3] LTX Upscale anchor frame fallback to original source:", e?.message || e); }
+        }
+        const built = buildLtxUpscaleGraph(rs, ctx.availability, { nodeId: instanceId, sourceFile, window: p.window, saveSuffix: p.suffix, anchorImage });
         meta = built.meta;
 
         const reattachId = inFlightId || undefined;

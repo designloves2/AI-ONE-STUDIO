@@ -663,10 +663,18 @@ export interface LtxUpscaleOpts {
   fps?: number;
   window?: { skip: number; cap: number } | null; // one segment of the source when split for VRAM
   saveSuffix?: string; // per-segment SaveVideo filename suffix, e.g. "_seg00"
+  // Segment 2+ of a split run must anchor LTXVImgToVideoInplace on the PREVIOUS segment's own
+  // finished output, not on the original source clip at that same time boundary (sourceFile
+  // never changes across segments, only the skip/cap window does — anchoring on the original
+  // there is a real seam bug: the refine loses continuity with what the prior segment actually
+  // produced). A filename already in input/ (the caller reads it via getClipLastFrame on the
+  // previous segment's output) — omitted/null for segment 1, which still anchors on the clip's
+  // own true first frame. Mirrors node `ca8a194`.
+  anchorImage?: string | null;
 }
 
 export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefined, opts: LtxUpscaleOpts) {
-  const { nodeId = null, sourceFile, fps = FPS, window = null, saveSuffix = "" } = opts;
+  const { nodeId = null, sourceFile, fps = FPS, window = null, saveSuffix = "", anchorImage = null } = opts;
   if (!sourceFile) throw new Error("LTX Upscale: pick a source clip (gallery or upload).");
   const need: Record<string, string> = {
     ltxUnet: "LTX unet", ltxLatentUpscaler: "latent upscaler", ltxClip: "text encoder",
@@ -761,8 +769,15 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   // ── latent: encode → 2x latent upscale → first-frame anchor → concat with audio ──
   g[L.enc] = { class_type: "VAEEncode", inputs: { pixels: [L.load, 0], vae: vaeV } };
   g[L.upsamp] = { class_type: "LTXVLatentUpsampler", inputs: { samples: [L.enc, 0], upscale_model: [L.upmodel, 0], vae: vaeV } };
-  g[L.firstF] = { class_type: "ImageFromBatch", inputs: { image: [L.load, 0], batch_index: 0, length: 1 } };
-  g[L.i2v] = { class_type: "LTXVImgToVideoInplace", inputs: { strength: 1, bypass: false, vae: vaeV, image: [L.firstF, 0], latent: [L.upsamp, 0] } };
+  let anchorLink: any;
+  if (anchorImage) {
+    g[L.firstF] = { class_type: "LoadImage", inputs: { image: anchorImage } };
+    anchorLink = [L.firstF, 0];
+  } else {
+    g[L.firstF] = { class_type: "ImageFromBatch", inputs: { image: [L.load, 0], batch_index: 0, length: 1 } };
+    anchorLink = [L.firstF, 0];
+  }
+  g[L.i2v] = { class_type: "LTXVImgToVideoInplace", inputs: { strength: 1, bypass: false, vae: vaeV, image: anchorLink, latent: [L.upsamp, 0] } };
   g[L.audEnc] = { class_type: "LTXVAudioVAEEncode", inputs: { audio: [L.load, 2], audio_vae: vaeA } };
   g[L.concat] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [L.i2v, 0], audio_latent: [L.audEnc, 0] } };
 

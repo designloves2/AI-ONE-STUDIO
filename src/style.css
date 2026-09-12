@@ -60,31 +60,9 @@ body {
   display: none;
 }
 @media (max-width: 767px) {
-  /* The tool's own root wrapper is `h-full` (a FIXED height = <main>'s own viewport-sized
-     box) on desktop, which is correct there (leftPanel/rightPanel each need a bounded
-     height to scroll internally). On mobile everything stacks into one long column
-     instead, and a fixed-height box whose CONTENT overflows it does not grow — sticky
-     descendants (subBar, previewBox) are bounded by THEIR OWN containing block's box,
-     not by however far the content visually spills past it, so they stopped sticking
-     the moment <main> scrolled past this element's nominal (short, viewport-sized)
-     height, even though the actual page kept going for much longer. Letting it grow to
-     its real content height on mobile is what lets sticky remain sticky for the whole
-     scroll, with <main> (already overflow-y:auto, see main.ts) as the one real scroller. */
-  .aos-wrap {
-    height: auto !important;
-  }
   .aos-body {
     flex-direction: column !important;
-    /* overflow-y:auto was removed (2026-09-12) — it made .aos-body its own scroll
-       container, nested inside the app shell's real scroller (<main> in main.ts). A
-       sticky-positioned descendant (previewBox) resolves "sticky" against its NEAREST
-       scrolling ancestor, which was THIS element, not <main> — so previewBox stuck in
-       place relative to .aos-body's own (never-moving) scrollTop while .aos-body itself
-       scrolled away inside <main>, undoing the sticky effect entirely. Letting overflow
-       fall through to <main> (the single real scroll container) is what makes "always
-       stay at the top" actually possible. previewBox's own min-height ([220px] class +
-       aos-preview-box below) already covers the reason this was added in the first
-       place (flex:1 collapsing without a bounded ancestor). */
+    overflow-y: auto !important;
   }
   .aos-left-panel {
     width: 100% !important;
@@ -103,18 +81,6 @@ body {
   }
   .aos-collapse-content.aos-collapsed {
     display: none !important;
-  }
-  /* Same "containing block shorter than its real content" bug as .aos-wrap above, one
-     level deeper: a collapsible section's content box (leftScroll, or rightContent —
-     the Prompt/Result wrapper around previewBox/statusWrap/promptWrap) is flex:1 with a
-     bounded parent height in mind, so on mobile's single long column it clips itself
-     short and any sticky descendant (previewBox) runs out of room to stick within.
-     Letting it size to its real content lets the whole chain up to <main> grow to the
-     true page height, so sticky can hold all the way down. */
-  .aos-collapse-content {
-    flex: none !important;
-    min-height: 0 !important;
-    overflow-y: visible !important;
   }
 
   /* 모드 pill(T2I/I2I/…)과 오른쪽 아이콘 툴바(⚙/🖼/? 등)가 한 줄에 같이 눌려 있으면

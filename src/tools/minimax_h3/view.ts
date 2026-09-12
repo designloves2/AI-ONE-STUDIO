@@ -141,7 +141,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   let samplingActive = false;
 
   let popTimer: number | undefined;
-  const wrap = el("div", { class: "aos-wrap flex flex-col h-full", style: { color: C.text, fontFamily: "inherit" } });
+  const wrap = el("div", { class: "flex flex-col h-full", style: { color: C.text, fontFamily: "inherit" } });
 
   // Persistent "backend node packs missing" strip — mirrors the node pack's
   // banner. Guidance only, no in-app installer (depBanner.ts). Re-rendered on
@@ -301,12 +301,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   };
 
   // ── 도구 서브바(모드 필/아이콘 버튼) ─────────────────────────────────
-  // position:sticky — 사용자 지시: 상단 메뉴(이 서브바)와 실시간 그래프(previewBox+진행률,
-  // 아래 previewStickyWrap)는 스크롤이 어느 쪽에서 일어나든(모바일 세로 스택, 콘텐츠가
-  // 길어져 바깥 <main>이 스크롤되는 경우 등) 항상 화면 상단에 붙어 있어야 한다. sticky는
-  // 실제로 스크롤되는 조상 요소가 어느 것이든 그 기준으로 맞춰 고정되므로, 레이아웃이
-  // 정상 동작할 때는 아무 영향 없고(이미 안 스크롤되니까), 스크롤이 새는 경우에만 방어적으로 동작한다.
-  const subBar = el("div", { class: "aos-sub-bar flex items-center gap-2 px-4 h-12 border-b border-border shrink-0", style: { position: "sticky", top: "0", zIndex: "40", background: C.bg0 } });
+  const subBar = el("div", { class: "aos-sub-bar flex items-center gap-2 px-4 h-12 border-b border-border shrink-0" });
   const pillsWrap = el("div", { class: "aos-mode-bar-wrap flex-1" });
   const warnTag = el("div", {
     class: "hidden items-center gap-1.5 cursor-pointer text-xs rounded-md px-2.5 py-1 max-w-md truncate",
@@ -410,13 +405,9 @@ export function renderMinimaxH3(container: HTMLElement) {
   // 고정 vh 상한 대신 남는 공간을 채우는 flex-1 — 위 mainRow가 커지면 이것도 같이 커진다.
   // 내용물(이미지/비디오)은 object-fit:contain이라 박스 자체가 정확히 16:9가 아니어도
   // 레터박스로 비율이 유지된다.
-  // sticky top — 사용자 지시: "실시간 그래프"(이 프리뷰 박스 + 아래 진행률 statusWrap)는
-  // 어떤 스크롤 상황에서도 항상 화면 상단 쪽에 붙어 있어야 한다(서브바와 같은 이유 —
-  // subBar 참고). flex 크기 지정과 sticky 위치 지정은 서로 다른 속성이라 같이 둬도 충돌
-  // 없음 — 평소엔 스크롤이 안 일어나므로 시각적으로 그대로, 스크롤이 새는 경우에만 방어.
   const previewBox = el("div", {
-    class: "aos-preview-box relative w-full min-h-[220px] flex items-center justify-center overflow-hidden rounded-lg bg-black border border-border mx-auto",
-    style: { maxWidth: "100%", flex: "6.60 1 0%", position: "sticky", top: "48px", zIndex: "30" },
+    class: "relative w-full min-h-[220px] flex items-center justify-center overflow-hidden rounded-lg bg-black border border-border mx-auto",
+    style: { maxWidth: "100%", flex: "6.60 1 0%" },
   });
   const placeholder = el("div", { class: "text-muted text-xs text-center leading-relaxed" });
   placeholder.innerHTML = "▶ Generate to render the first clip<br><span style='font-size:10px'>live sampling frames appear here</span>";
@@ -4400,21 +4391,6 @@ export function renderMinimaxH3(container: HTMLElement) {
   renderPills();
   renderLeft();
   applyMobileCollapsibleLayout(mainRow, leftOuter, leftPanel, rightPanel);
-
-  // 모바일 폭에서는 "실시간 그래프"(previewBox+statusWrap)를 rightPanel의 접이식
-  // "Prompt / Result" 섹션 밖으로 꺼내 mainRow의 직계 자식(맨 위, order:0 기본값이라
-  // leftOuter order:2 / rightPanel order:1보다 항상 먼저 보임)으로 옮긴다.
-  // position:sticky는 자기 containing block(그 작은 접이식 섹션 자신의 실제 높이)
-  // 밖으로는 못 붙어있어서, 그 섹션보다 아래(예: leftPanel의 긴 설정 아코디언 목록)까지
-  // 스크롤하면 라이브 프리뷰가 사라져버렸다 — mainRow(=leftPanel+rightPanel을 합친
-  // 전체 세로 스택, 페이지 전체 높이) 자체를 containing block으로 만들어야 스크롤
-  // 내내 붙어있을 수 있다. 데스크톱은 원래 2단 레이아웃 그대로 rightPanel 안에 둔다.
-  // 마운트 시점 1회 판정 — applyMobileCollapsibleLayout 자체도 라이브 리사이즈에는
-  // 반응하지 않는 기존 패턴과 동일하다.
-  if (window.matchMedia("(max-width: 767px)").matches) {
-    mainRow.insertBefore(statusWrap, leftOuter);
-    mainRow.insertBefore(previewBox, statusWrap);
-  }
 
   // 백그라운드로 모델/가용성/갤러리 초기 로드 — 도착하는 대로 관련 UI를 다시 그린다.
   getModels()

@@ -532,15 +532,17 @@ export function renderMinimaxH3(container: HTMLElement) {
   previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
+  // Captured at the moment the result is shown (showResultVideo), NOT re-derived from live
+  // state at click time — switching the mode pill after a render doesn't reset the preview,
+  // so reading state.generationMode/frSource/ltxSource inside the click handler could pair
+  // the still-visible result with whatever clip the NEW mode happens to have selected.
+  let lastCompareSource: string | null = null;
   fsBtn.addEventListener("click", () => {
     if (lastResultURL) window.open(lastResultURL, "_blank");
   });
   compareBtn.addEventListener("click", () => {
-    if (!lastResultURL) return;
-    const origFile = state.generationMode === "facerefine" ? state.frSource
-                    : state.generationMode === "ltxupscale" ? state.ltxSource : null;
-    if (!origFile) return;
-    openCompareViewer(`${comfyApi.base}/view?filename=${encodeURIComponent(origFile)}&type=input`, lastResultURL);
+    if (!lastResultURL || !lastCompareSource) return;
+    openCompareViewer(`${comfyApi.base}/view?filename=${encodeURIComponent(lastCompareSource)}&type=input`, lastResultURL);
   });
 
   // Original / Restored / Compare (wipe) / Side-by-side viewer for a finished Face Refine
@@ -907,8 +909,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       resultVid.pause();
       resultVid.currentTime = 0;
     } catch {}
-    const hasOriginal = (state.generationMode === "facerefine" && !!state.frSource)
-      || (state.generationMode === "ltxupscale" && !!state.ltxSource);
+    lastCompareSource = state.generationMode === "facerefine" ? (state.frSource || null)
+      : state.generationMode === "ltxupscale" ? (state.ltxSource || null) : null;
+    const hasOriginal = !!lastCompareSource;
     // The compare viewer already covers fullscreen viewing (its own overlay, zoom/pan) for
     // these two modes, so a separate fullscreen button is redundant there.
     fsBtn.classList.toggle("hidden", hasOriginal);
@@ -919,6 +922,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     previewOffMsg.classList.add("hidden");
     previewImg.style.display = "none";
     previewVid.style.display = "none";
+    lastCompareSource = null;
     try {
       previewVid.pause();
       previewVid.removeAttribute("src");

@@ -959,8 +959,15 @@ export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefin
       || (userPresets || []).find((p) => p.turbo && p.turbo !== "none")
       || PIPELINE_PRESETS.find((p) => p.turbo && p.turbo !== "none")
       || null;
-    if (preset) applyPreset(refState, preset);
-    else refState.turboMode = "none";
+    if (preset) {
+      applyPreset(refState, preset);
+      // applyPreset writes unetReference when the matched preset pins one (RECIPE_KEYS) —
+      // re-assert Face Refine's own model choice (unetFile: frUnet under frUseCustomModel,
+      // else state.unetReference) so a preset's pinned model can never silently override it.
+      refState.unetReference = unetFile;
+    } else {
+      refState.turboMode = "none";
+    }
   } else {
     refState.turboMode = "none";
   }

@@ -26,6 +26,11 @@ export interface ModelLists {
   // LTX 2.5 Upscale mode (node 8427b5b):
   latent_upscale_models?: string[];
   text_encoders_all?: string[]; // safetensors + gguf — the LTX text encoder can be either
+  // H3 Face Refine model tab (SPEC_MINIMAX_H3_FACE_REFINE.md §15):
+  face_detectors?: string[];
+  face_fallback_detectors?: string[];
+  sam_models?: string[];
+  clip_vision?: string[];
   [key: string]: string[] | undefined;
 }
 
@@ -126,6 +131,14 @@ export interface MmhConfig {
   ltx_vision_backend?: string;
   ltx_vision_clip?: string;
   ltx_vision_or_model?: string;
+  // H3 Face Refine mode
+  face_detector?: string;
+  face_fallback_detector?: string;
+  face_sam_model?: string;
+  face_identity_clip_vision?: string;
+  face_use_custom_model?: boolean;
+  face_unet?: string;
+  face_clip?: string;
   filename_prefix?: string;
   stitch_at_end?: boolean;
   trim_last_clip?: boolean;

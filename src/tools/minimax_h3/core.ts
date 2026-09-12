@@ -1342,7 +1342,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ltxSourceMeta: saved.ltxSourceMeta || null,
     ltxPrompt: saved.ltxPrompt || "",
     ltxNegPrompt: saved.ltxNegPrompt || "bad anatomy, inconsistent look, low resolution,",
-    ltxSteps: saved.ltxSteps ?? 3,
+    ltxSteps: saved.ltxSteps ?? 4,
     ltxDenoise: saved.ltxDenoise ?? 0.15,
     ltxSampler: saved.ltxSampler || "euler_ancestral",
     ltxScheduler: saved.ltxScheduler || "simple",

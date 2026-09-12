@@ -420,11 +420,11 @@ export const SAMPLERS = ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_
 export const SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "beta", "ddim_uniform"];
 
 export const GENERATION_MODES = [
-  { key: "t2v", label: "Text only", hint: "prompt only (T2VA)" },
-  { key: "firstlast", label: "First/Last Frame", hint: "start + end keyframe (FL2VA)" },
-  { key: "reference", label: "Reference", hint: "up to 9 reference images (REF2VA)" },
-  { key: "ltxupscale", label: "LTX Upscale", hint: "2x refine an existing clip (LTX 2.5)" },
-  { key: "facerefine", label: "Face Refine", hint: "re-render a small/distant face per frame (H3)" },
+  { key: "t2v", label: "Text To Video", hint: "prompt only (T2VA)" },
+  { key: "firstlast", label: "Image to Video (F/L)", hint: "start + end keyframe (FL2VA)" },
+  { key: "reference", label: "Reference to Video", hint: "up to 9 reference images (REF2VA)" },
+  { key: "facerefine", label: "Face Refine MMH3", hint: "re-render a small/distant face per frame (H3)" },
+  { key: "ltxupscale", label: "Upscale by LTX 2.5", hint: "2x refine an existing clip (LTX 2.5)" },
 ];
 
 // The ✨ button's default system prompt — a ready-to-use LTX-2.5 prompt author written to

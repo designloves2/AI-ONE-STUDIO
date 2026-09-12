@@ -424,6 +424,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     class: "absolute top-1.5 right-1.5 z-[6] hidden",
     style: { background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" },
   });
+  // Face Refine / LTX Upscale results have a source clip to compare against — those two
+  // modes get this button instead of fsBtn (openCompareViewer already covers fullscreen
+  // viewing via its own overlay). The 3 core generation modes (t2v/firstlast/reference)
+  // keep fsBtn untouched.
+  const compareBtn = el("button", {
+    type: "button", text: "◐", title: "Compare with original",
+    class: "absolute top-1.5 right-1.5 z-[6] hidden",
+    style: { background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0" },
+  });
   // 라이브 프리뷰가 off일 때 샘플링 중에는 이 검은 화면 + 문구만 보여준다(마지막 프레임이
   // 화면에 그대로 남아있지 않게). 다시 on으로 바꾸면 다음 프레임이 도착할 때 자연스럽게
   // showPreviewFrame이 이 화면을 걷어낸다.
@@ -508,12 +517,351 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(720, savedH))}px`;
   } catch {}
 
-  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, badge, fsBtn, previewToggleBtn, resizeHandle);
+  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
   fsBtn.addEventListener("click", () => {
     if (lastResultURL) window.open(lastResultURL, "_blank");
   });
+  compareBtn.addEventListener("click", () => {
+    if (!lastResultURL) return;
+    const origFile = state.generationMode === "facerefine" ? state.frSource
+                    : state.generationMode === "ltxupscale" ? state.ltxSource : null;
+    if (!origFile) return;
+    openCompareViewer(`${comfyApi.base}/view?filename=${encodeURIComponent(origFile)}&type=input`, lastResultURL);
+  });
+
+  // Original / Restored / Compare (wipe) / Side-by-side viewer for a finished Face Refine
+  // or LTX Upscale result against the clip it started from. Ported from
+  // one_node_minimax_h3.js openCompareViewer(). Wheel to zoom, drag to pan, double-click to
+  // reset — same gestures on Original/Restored/Compare; Side-by-side keeps both clips at
+  // 1:1 so a direct pixel comparison isn't distorted by an unsynced zoom on only one side.
+  function openCompareViewer(originalUrl: string, restoredUrl: string) {
+    let mode: "original" | "restored" | "compare" | "side" = "compare";
+    let wipe = 50; // percent, compare mode only
+    let zoom = 1, panX = 0, panY = 0;
+    const CFPS = 24; // this app's clips are constant-framerate 24fps throughout
+    let kh: ((e: KeyboardEvent) => void) | null = null;
+
+    const ov = el("div", { style: {
+      position: "fixed", inset: "0", background: "rgba(10,10,14,0.97)", zIndex: "100060",
+      display: "flex", flexDirection: "column",
+    }});
+
+    const tabsWrap = el("div", { style: {
+      display: "flex", alignItems: "center", gap: "6px", padding: "10px 14px",
+      borderBottom: `1px solid ${C.border}`, background: "#14141a", flexShrink: "0",
+    }});
+    const closeBtn = el("button", { type: "button", text: "✕ Close", style: {
+      marginLeft: "auto", cursor: "pointer", fontFamily: "inherit", fontSize: "12px",
+      padding: "6px 12px", borderRadius: "6px", background: "transparent", color: C.err,
+      border: `1px solid ${C.border}`,
+    }});
+    function tabBtn(labelText: string, key: typeof mode) {
+      const on = mode === key;
+      const b = el("button", { type: "button", text: labelText, style: {
+        cursor: "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: "600",
+        padding: "6px 12px", borderRadius: "6px",
+        border: `1px solid ${on ? BRAND : C.border}`, background: on ? BRAND : "transparent",
+        color: on ? "#fff" : C.text,
+      }});
+      b.addEventListener("click", () => { mode = key; zoom = 1; panX = 0; panY = 0; renderTabs(); renderStage(); });
+      return b;
+    }
+    function renderTabs() {
+      clear(tabsWrap);
+      tabsWrap.append(
+        tabBtn("Original", "original"), tabBtn("Restored", "restored"),
+        tabBtn("◐ Compare", "compare"), tabBtn("▦ Side by side", "side"), closeBtn,
+      );
+    }
+
+    const stage = el("div", { style: {
+      flex: "1", position: "relative", overflow: "hidden", background: "#000",
+      display: "flex", alignItems: "center", justifyContent: "center", cursor: "grab",
+    }});
+    const stageInner = el("div", { style: {
+      position: "relative", width: "100%", height: "100%",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }});
+    stage.appendChild(stageInner);
+
+    // Geometry (left/top/width/height) is set explicitly by layoutVideos() below, from
+    // origVid's own aspect ratio only — NOT objectFit:"contain" on each video
+    // independently. LTX Upscale's restored clip has a different native resolution than
+    // the original (2x upscale); letting each <video> auto-fit against its OWN native size
+    // independently visibly mismatched the two pictures (upscaled side showed noticeably
+    // larger/closer subjects than the original side). objectFit:"fill" here is deliberate:
+    // it forces restVid's pixels to exactly match origVid's on-screen rectangle rather than
+    // trusting the file's own reported aspect ratio. Face Refine has no such mismatch (same
+    // canvas in/out) but this shared rect is harmless for it too.
+    const origVid = el("video", { src: originalUrl, loop: "", muted: "", playsinline: "",
+      style: { position: "absolute", objectFit: "fill" } }) as HTMLVideoElement;
+    const restVid = el("video", { src: restoredUrl, loop: "", muted: "", playsinline: "",
+      style: { position: "absolute", objectFit: "fill" } }) as HTMLVideoElement;
+    origVid.muted = true; restVid.muted = true;
+
+    const makeLabel = (text: string, side: "left" | "right") => el("div", { text, style: {
+      position: "absolute", top: "10px", [side]: "10px", zIndex: "2",
+      color: "#fff", fontSize: "12px", fontWeight: "700", textShadow: "0 1px 4px rgba(0,0,0,0.8)",
+    } as any });
+    const origLabel = makeLabel("Original", "left");
+    const restLabel = makeLabel("Restored", "right");
+    // Divider lives directly on `stage`, NOT inside a transformed container — it must stay
+    // pinned at a fixed screen position while zoom/pan moves the footage underneath it, or
+    // comparing while zoomed in is pointless. Same reasoning for restMask below.
+    const divider = el("div", { style: {
+      position: "absolute", top: "0", bottom: "0", width: "2px", background: "#fff",
+      left: "50%", zIndex: "3", cursor: "ew-resize", touchAction: "none", display: "none",
+    }});
+    const divHandle = el("div", { text: "↔", style: {
+      position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+      width: "34px", height: "34px", borderRadius: "50%", background: "#fff", color: "#111",
+      display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.5)", cursor: "ew-resize", touchAction: "none",
+    }});
+    divider.appendChild(divHandle);
+
+    // restVid's own wrapper: `restMask` is screen-fixed (same as `stage`, never
+    // transformed) and does the wipe clipping in real screen pixels; `restInner` inside it
+    // gets the exact same pan/zoom transform as `stageInner` so the restored footage still
+    // zooms/pans in lock-step with the original — only the CUT LINE stays put.
+    const restMask = el("div", { style: { position: "absolute", inset: "0", overflow: "hidden" } });
+    const restInner = el("div", { style: {
+      position: "relative", width: "100%", height: "100%",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    }});
+    restMask.appendChild(restInner);
+
+    // Side-by-side pane (built once, plain 1:1 — no zoom/pan, so left vs right stays a true
+    // pixel comparison rather than two independently-panned crops).
+    const sideWrap = el("div", { style: {
+      position: "absolute", inset: "0", display: "none", gap: "2px",
+    }});
+    // flex:1 belongs on the WRAPPER (the actual flex child of sideWrap) — putting it on the
+    // <video> itself does nothing (its parent isn't a flex container), and leaves width:0 as
+    // the only surviving rule, collapsing both videos to zero width.
+    const sideOrig = el("video", { src: originalUrl, loop: "", muted: "", playsinline: "",
+      style: { width: "100%", height: "100%", objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
+    const sideRest = el("video", { src: restoredUrl, loop: "", muted: "", playsinline: "",
+      style: { width: "100%", height: "100%", objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
+    sideOrig.muted = true; sideRest.muted = true;
+    const sideOrigWrap = el("div", { style: { position: "relative", flex: "1", height: "100%" } }, [sideOrig, makeLabel("Original", "left")]);
+    const sideRestWrap = el("div", { style: { position: "relative", flex: "1", height: "100%" } }, [sideRest, makeLabel("Restored", "left")]);
+    sideWrap.append(sideOrigWrap, sideRestWrap);
+
+    stageInner.append(origVid);
+    restInner.append(restVid);
+    // Labels are fixed UI chrome, same reasoning as the divider — not appended inside
+    // stageInner/restInner, or they'd zoom/pan along with the footage too.
+    stage.append(restMask, divider, origLabel, restLabel, sideWrap);
+
+    function applyTransform() {
+      const t = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+      stageInner.style.transform = t;
+      restInner.style.transform = t;
+    }
+    // A "contain" fit inside `stage` can letterbox/pillarbox when the video's aspect ratio
+    // doesn't match the stage's — a wipe % of the whole STAGE width then lands somewhere
+    // other than that same % across the actual picture. Computed from origVid's aspect
+    // ratio ONLY, and BOTH videos are explicitly sized/positioned to this exact rect
+    // (objectFit:"fill" on both, see their creation above) — an upscale changes resolution,
+    // not framing, but letting restVid auto-fit against its own (higher) native resolution
+    // independently still visibly mismatched the two pictures' apparent scale. Forcing one
+    // shared rect guarantees they always register at identical scale/position.
+    function contentRect() {
+      const cw = stage.clientWidth || 1, ch = stage.clientHeight || 1;
+      const vw = origVid.videoWidth || cw, vh = origVid.videoHeight || ch;
+      const fit = Math.min(cw / vw, ch / vh);
+      const dispW = vw * fit, dispH = vh * fit;
+      return { left: (cw - dispW) / 2, top: (ch - dispH) / 2, width: dispW, height: dispH };
+    }
+    function layoutVideos() {
+      const r = contentRect();
+      for (const v of [origVid, restVid]) {
+        v.style.left = `${r.left}px`; v.style.top = `${r.top}px`;
+        v.style.width = `${r.width}px`; v.style.height = `${r.height}px`;
+      }
+      return r;
+    }
+    function wipePx() {
+      const r = layoutVideos();
+      return r.left + (wipe / 100) * r.width;
+    }
+    function renderStage() {
+      const isSide = mode === "side";
+      stageInner.style.display = isSide ? "none" : "flex";
+      restMask.style.display = isSide ? "none" : "block";
+      sideWrap.style.display = isSide ? "flex" : "none";
+      origVid.style.display = mode === "original" || mode === "compare" ? "block" : "none";
+      restVid.style.display = mode === "restored" || mode === "compare" ? "block" : "none";
+      origLabel.style.display = mode === "compare" ? "block" : "none";
+      restLabel.style.display = mode === "compare" ? "block" : "none";
+      divider.style.display = mode === "compare" ? "block" : "none";
+      if (!isSide) layoutVideos();
+      if (mode === "compare") {
+        const px = wipePx();
+        divider.style.left = `${px}px`;
+        restMask.style.clipPath = `inset(0 0 0 ${px}px)`;
+      } else {
+        restMask.style.clipPath = "none";
+      }
+      wipeRow.style.display = mode === "compare" ? "flex" : "none";
+      applyTransform();
+    }
+    // videoWidth/videoHeight are 0 until metadata loads, and the modal's own size can change
+    // (window resize) — recompute the content rect whenever either happens.
+    origVid.addEventListener("loadedmetadata", () => renderStage());
+    const onWinResize = () => renderStage();
+    window.addEventListener("resize", onWinResize);
+
+    // ── wheel-zoom (cursor-anchored) + drag-to-pan + double-click reset ──
+    stage.addEventListener("wheel", (e) => {
+      if (mode === "side") return;
+      e.preventDefault();
+      const rect = stage.getBoundingClientRect();
+      const mx = e.clientX - rect.left - rect.width / 2;
+      const my = e.clientY - rect.top - rect.height / 2;
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      const nextZoom = Math.min(6, Math.max(1, zoom * factor));
+      panX = mx - (mx - panX) * (nextZoom / zoom);
+      panY = my - (my - panY) * (nextZoom / zoom);
+      zoom = nextZoom;
+      if (zoom === 1) { panX = 0; panY = 0; }
+      applyTransform();
+    }, { passive: false });
+    stage.addEventListener("pointerdown", (e) => {
+      if (mode === "side" || e.target === divider || e.target === divHandle) return;
+      stage.setPointerCapture(e.pointerId);
+      stage.style.cursor = "grabbing";
+      const startX = e.clientX, startY = e.clientY, baseX = panX, baseY = panY;
+      const onMove = (ev: PointerEvent) => { panX = baseX + (ev.clientX - startX); panY = baseY + (ev.clientY - startY); applyTransform(); };
+      const onUp = (ev: PointerEvent) => {
+        stage.releasePointerCapture(ev.pointerId);
+        stage.style.cursor = "grab";
+        stage.removeEventListener("pointermove", onMove);
+        stage.removeEventListener("pointerup", onUp);
+        stage.removeEventListener("pointercancel", onUp);
+      };
+      stage.addEventListener("pointermove", onMove);
+      stage.addEventListener("pointerup", onUp);
+      stage.addEventListener("pointercancel", onUp);
+    });
+    stage.addEventListener("dblclick", () => { zoom = 1; panX = 0; panY = 0; applyTransform(); });
+
+    // ── compare divider drag ──
+    const onDividerDown = (e: PointerEvent) => {
+      e.stopPropagation();
+      divider.setPointerCapture(e.pointerId);
+      const onMove = (ev: PointerEvent) => {
+        const rect = stage.getBoundingClientRect();
+        const r = contentRect();
+        const px = ev.clientX - rect.left;
+        wipe = Math.min(100, Math.max(0, ((px - r.left) / r.width) * 100));
+        const clampedPx = wipePx();
+        divider.style.left = `${clampedPx}px`;
+        restMask.style.clipPath = `inset(0 0 0 ${clampedPx}px)`;
+        wipeSlider.value = String(Math.round(wipe));
+        wipeLabel.textContent = `${Math.round(wipe)}%`;
+      };
+      const onUp = (ev: PointerEvent) => {
+        divider.releasePointerCapture(ev.pointerId);
+        divider.removeEventListener("pointermove", onMove);
+        divider.removeEventListener("pointerup", onUp);
+      };
+      divider.addEventListener("pointermove", onMove);
+      divider.addEventListener("pointerup", onUp);
+    };
+    divider.addEventListener("pointerdown", onDividerDown);
+    divHandle.addEventListener("pointerdown", onDividerDown);
+
+    // ── footer: sync play/pause + scrub across whichever videos are active ──
+    const footer = el("div", { style: {
+      display: "flex", flexDirection: "column", gap: "8px", padding: "10px 14px",
+      borderTop: `1px solid ${C.border}`, background: "#14141a", flexShrink: "0",
+    }});
+    const scrub = el("input", { type: "range", min: "0", max: "1000", value: "0", style: { width: "100%" } }) as HTMLInputElement;
+    const timeRow = el("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "11px", color: C.muted } });
+    const timeText = el("div", { text: "00:00.000 / 00:00.000" });
+    timeRow.append(timeText);
+    const ctrlRow = el("div", { style: { display: "flex", alignItems: "center", gap: "10px" } });
+    const playBtn = el("button", { type: "button", text: "▶", style: {
+      cursor: "pointer", fontFamily: "inherit", fontSize: "13px", width: "34px", height: "28px",
+      borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
+    }});
+    const prevBtn = el("button", { type: "button", text: "◀|", style: {
+      cursor: "pointer", fontFamily: "inherit", fontSize: "11px", width: "34px", height: "28px",
+      borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
+    }});
+    const nextBtn = el("button", { type: "button", text: "|▶", style: {
+      cursor: "pointer", fontFamily: "inherit", fontSize: "11px", width: "34px", height: "28px",
+      borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
+    }});
+    const frameText = el("div", { text: "Frame 0 / 0", style: { fontSize: "11px", color: C.muted } });
+    const wipeRow = el("div", { style: { display: "none", alignItems: "center", gap: "8px", marginLeft: "auto" } });
+    const wipeSlider = el("input", { type: "range", min: "0", max: "100", value: "50", style: { width: "140px" } }) as HTMLInputElement;
+    const wipeLabel = el("div", { text: "50%", style: { fontSize: "11px", color: C.muted, minWidth: "32px" } });
+    wipeRow.append(el("div", { text: "Wipe", style: { fontSize: "11px", color: C.muted } }), wipeSlider, wipeLabel);
+    ctrlRow.append(playBtn, prevBtn, nextBtn, frameText, wipeRow);
+    footer.append(scrub, timeRow, ctrlRow);
+
+    wipeSlider.addEventListener("input", () => {
+      wipe = parseFloat(wipeSlider.value);
+      const px = wipePx();
+      divider.style.left = `${px}px`;
+      restMask.style.clipPath = `inset(0 0 0 ${px}px)`;
+      wipeLabel.textContent = `${Math.round(wipe)}%`;
+    });
+
+    function fmtT(s: number) {
+      s = Math.max(0, s || 0);
+      const m = Math.floor(s / 60), sec = s - m * 60;
+      return `${String(m).padStart(2, "0")}:${sec.toFixed(3).padStart(6, "0")}`;
+    }
+    // The "master" clock is always origVid — restVid (and the two side clips) are kept in
+    // lock-step with it, since a Face Refine / LTX Upscale output has the same frame count
+    // as the clip it started from.
+    function allVids() { return [origVid, restVid, sideOrig, sideRest]; }
+    function syncTo(t: number) {
+      for (const v of allVids()) { if (Math.abs(v.currentTime - t) > 0.03) { try { v.currentTime = t; } catch {} } }
+    }
+    let playing = false;
+    function setPlaying(p: boolean) {
+      playing = p;
+      playBtn.textContent = playing ? "⏸" : "▶";
+      for (const v of allVids()) { try { playing ? v.play().catch(() => {}) : v.pause(); } catch {} }
+    }
+    playBtn.addEventListener("click", () => setPlaying(!playing));
+    prevBtn.addEventListener("click", () => { setPlaying(false); syncTo(Math.max(0, origVid.currentTime - 1 / CFPS)); });
+    nextBtn.addEventListener("click", () => { setPlaying(false); syncTo(Math.min(origVid.duration || 0, origVid.currentTime + 1 / CFPS)); });
+    scrub.addEventListener("input", () => {
+      setPlaying(false);
+      const dur = origVid.duration || 0;
+      syncTo((parseFloat(scrub.value) / 1000) * dur);
+    });
+    origVid.addEventListener("timeupdate", () => {
+      const dur = origVid.duration || 0;
+      if (dur > 0) scrub.value = String(Math.round((origVid.currentTime / dur) * 1000));
+      timeText.textContent = `${fmtT(origVid.currentTime)} / ${fmtT(dur)}`;
+      frameText.textContent = `Frame ${Math.round(origVid.currentTime * CFPS)} / ${Math.round(dur * CFPS)}`;
+    });
+
+    function close() {
+      if (kh) document.removeEventListener("keydown", kh);
+      window.removeEventListener("resize", onWinResize);
+      for (const v of allVids()) { try { v.pause(); v.removeAttribute("src"); v.load(); } catch {} }
+      document.body.removeChild(ov);
+    }
+    kh = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", kh);
+    closeBtn.addEventListener("click", close);
+
+    ov.append(tabsWrap, stage, footer);
+    document.body.appendChild(ov);
+    // Must attach to the document first — renderStage()/layoutVideos() read
+    // stage.clientWidth/Height, which are 0 on a detached element.
+    renderTabs(); renderStage();
+  }
 
   function showPreviewFrame(dataURL: string, mime?: string) {
     placeholder.style.display = "none";
@@ -547,7 +895,12 @@ export function renderMinimaxH3(container: HTMLElement) {
       resultVid.pause();
       resultVid.currentTime = 0;
     } catch {}
-    fsBtn.classList.remove("hidden");
+    const hasOriginal = (state.generationMode === "facerefine" && !!state.frSource)
+      || (state.generationMode === "ltxupscale" && !!state.ltxSource);
+    // The compare viewer already covers fullscreen viewing (its own overlay, zoom/pan) for
+    // these two modes, so a separate fullscreen button is redundant there.
+    fsBtn.classList.toggle("hidden", hasOriginal);
+    compareBtn.classList.toggle("hidden", !hasOriginal);
   }
   function resetPreview() {
     placeholder.style.display = "block";
@@ -563,6 +916,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     resultVid.style.display = "none";
     badge.classList.add("hidden");
     fsBtn.classList.add("hidden");
+    compareBtn.classList.add("hidden");
   }
 
   const onKJPreview = (d: any) => {

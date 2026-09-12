@@ -1072,6 +1072,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
         if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
         if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);
+        // Mode badges — which generation mode produced this clip (SPEC_MINIMAX_H3_FACE_REFINE.md
+        // web-mirror pass). Ⓛ = LTX Upscale, Ⓕ = Face Refine. Same bottom-left cluster/styling as
+        // the post-process marks above so a card can show both (e.g. an LTX Upscale clip that was
+        // later deblurred).
+        if (m.mode === "ltxupscale") marks.push(["Ⓛ", "LTX 2.5 Upscale"]);
+        if (m.mode === "facerefine") marks.push(["Ⓕ", "H3 Face Refine"]);
         // bottom-left cluster: the 👁 hide-toggle first, then the post-process marks.
         const bar = el("div", { class: "absolute z-[3] flex", style: { bottom: "4px", left: "4px", gap: "3px" } });
         const mk = mediaKey(v.filename, v.subfolder);

@@ -58,6 +58,11 @@ const comfyPaths = [
   "/shared", "/tj_shared", "/tj_studio_one",
   "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/sdxl_one",
   "/flux_klein", "/z_image_turbo", "/anima_one", "/music_one",
+  // ComfyUI-H3-FaceRefine's own picker route - unprefixed (not under /minimax_h3_one/),
+  // registered by the third-party pack itself. Same class of miss as /music_one before it:
+  // without this, a dev-server request to /h3_facerefine/scan falls through to the SPA
+  // fallback instead of reaching ComfyUI.
+  "/h3_facerefine",
 ];
 
 export default defineConfig({

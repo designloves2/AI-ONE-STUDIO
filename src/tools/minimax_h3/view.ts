@@ -97,6 +97,7 @@ import {
 import { comfyApi, queuePrompt } from "./comfyClient";
 import { buildClipGraph, buildLtxUpscaleGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
+import { faceRefineReady, faceRefineMissing } from "./core";
 
 export function renderMinimaxH3(container: HTMLElement) {
   const state: MinimaxState = defaultState(loadState());
@@ -1750,8 +1751,245 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftOuter.appendChild(seedGenWrap);
   }
 
+  // ══ H3 Face Refine mode — left panel ═════════════════════════════════════
+  // Tracks the face per frame, crops it to fill a canvas, re-renders it through H3, then
+  // stitches it back onto the original frames. Mirrors one_node_minimax_h3.js
+  // renderFaceRefineLeft (node 2235-2449) — same field names (fr*), same section order:
+  // source clip -> face selection -> Face LoRA -> crop/canvas -> denoise -> stitch. Its own
+  // Turbo switch is independent of the main H3 generation modes' turbo axis. Prompt lives in
+  // the bottom prompt strip (renderFaceRefinePrompt in the JS source — not part of this pass);
+  // the Pick Faces modal (openFacePickModal) is a later section, stubbed here.
+  const FR_SELECT_MODES = [
+    "largest_face", "smallest_face", "left_most", "right_most", "top_most",
+    "bottom_most", "centre_most", "closest_to_xy", "manual",
+  ];
+
+  function setFrSource(inputFilename: string, kind: string, _item?: any) {
+    state.frSource = inputFilename;
+    state.frSourceKind = kind;
+    state.frSourceMeta = null;
+    persist();
+    renderLeft();
+    renderPrompts();
+  }
+
+  function renderFaceRefineLeft() {
+    setLeftLocked(running);
+    leftPanel.innerHTML = "";
+
+    if (!faceRefineReady(state)) {
+      leftPanel.appendChild(panel([
+        el("div", { html: "⚙ <b>H3 Face Refine</b> needs a face detector set first.<br>Open <b>⚙ Settings → Models → H3 Face Refine</b> and pick one.", style: { fontSize: "12px", lineHeight: "1.6" } }),
+        el("div", { text: "missing: " + faceRefineMissing(state).join(", "), style: { fontSize: "11px", color: C.warn, marginTop: "4px" } }),
+      ]));
+      leftOuter.appendChild(seedGenWrap);
+      return;
+    }
+
+    // ── source clip ────────────────────────────────────────────────────────
+    const hasSrc = !!state.frSource;
+    const srcKids: (Node | null)[] = [label("Source clip")];
+    const card = el("div", { style: {
+      position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000",
+      borderRadius: "8px", overflow: "hidden", border: `1px solid ${hasSrc ? BRAND : C.border}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    } });
+    if (hasSrc) {
+      const vid = el("video", {
+        src: `${comfyApi.base}/view?filename=${encodeURIComponent(state.frSource)}&type=input`,
+        controls: true, muted: true, preload: "metadata",
+        style: { width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "block" },
+      });
+      card.appendChild(vid);
+      card.appendChild(el("button", {
+        type: "button", text: "✕", title: "Clear source", style: {
+          position: "absolute", top: "6px", right: "6px", zIndex: "3", width: "24px", height: "24px",
+          border: "none", borderRadius: "6px", background: "rgba(0,0,0,0.7)", color: "#fff", cursor: "pointer", fontSize: "12px",
+        },
+        onclick: () => { state.frSource = ""; state.frSourceKind = "gallery"; state.frSourceMeta = null; persist(); renderLeft(); renderPrompts(); },
+      }));
+    } else {
+      card.appendChild(el("div", { text: "no source clip", style: { color: C.muted, fontSize: "12px" } }));
+    }
+    srcKids.push(card);
+
+    const fileInp = el("input", { type: "file", accept: "video/*", style: { display: "none" } }) as HTMLInputElement;
+    fileInp.addEventListener("change", async () => {
+      const f = fileInp.files?.[0]; fileInp.value = "";
+      if (!f) return;
+      try { showPopup("Uploading…", false); const name = await uploadMedia(f); setFrSource(name, "upload"); }
+      catch (e: any) { showPopup(e.message, true); }
+    });
+    const galBtn = button("🖼 From gallery", () => galleryOv.showPicker((inputFilename, item) => setFrSource(inputFilename, "gallery", item)));
+    const upBtn = button("⬆ Upload", () => fileInp.click());
+    galBtn.style.flex = "1"; upBtn.style.flex = "1";
+    srcKids.push(el("div", { style: { display: "flex", gap: "8px" } }, [galBtn, upBtn]));
+    srcKids.push(fileInp);
+    srcKids.push(el("div", {
+      text: "Tracks the face per frame, crops it to fill a canvas, re-renders it through H3, then stitches it back onto the original frames.",
+      style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+    }));
+    leftPanel.appendChild(panel(srcKids));
+
+    // ── face selection ────────────────────────────────────────────────────
+    const isManualSelect = state.frSelect === "manual";
+    leftPanel.appendChild(accordion("frface", "Face selection", isManualSelect ? "Manual" : (state.frSelect || "largest_face"), () => {
+      const kids: (Node | null)[] = [
+        row([
+          col([label("Select"), select(FR_SELECT_MODES.map((s) => ({ value: s, label: s })), state.frSelect || "largest_face", (v) => { state.frSelect = v; persist(); renderLeft(); })]),
+          col([label("Confidence"), numberField(state.frConfidence ?? 0.35, (v) => { state.frConfidence = Math.min(0.95, Math.max(0.05, v)); persist(); }, 0.05)]),
+        ]),
+        row([
+          col([checkboxRow("Identity reference", state.frIdentityTrack !== false, (v) => { state.frIdentityTrack = v; persist(); })]),
+          col([checkboxRow("Cut detection", !!state.frCutDetection, (v) => { state.frCutDetection = v; persist(); })]),
+        ]),
+      ];
+      if (isManualSelect) {
+        const pickBtn = button("🎯 Pick Faces", () => openFacePickModal());
+        pickBtn.style.width = "100%";
+        kids.push(pickBtn);
+      }
+      kids.push(el("div", {
+        text: isManualSelect
+          ? "Manual: you choose the subject per shot in Pick Faces."
+          : "Which face is the subject, chosen once per shot (or per clip if Cut detection is off). "
+            + "Identity reference holds one person through a crowd once a face is locked on.",
+        style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+      }));
+      return kids;
+    }));
+
+    // ── crop / canvas ─────────────────────────────────────────────────────
+    leftPanel.appendChild(accordion("frcrop", "Crop / Canvas", state.frCanvasMode === "manual" ? `Manual ${state.frCanvasWidth ?? 768}x${state.frCanvasHeight ?? 768}` : (state.frCanvasMode || "auto_capped_768"), () => [
+      row([
+        col([label("Crop factor"), numberField(state.frCropFactor ?? 2.5, (v) => { state.frCropFactor = Math.min(8, Math.max(1.2, v)); persist(); }, 0.1)]),
+        col([label("Canvas mode"), select([
+          { value: "auto_capped_768", label: "Auto (capped 768)" },
+          { value: "auto_no_downscale", label: "Auto (no downscale)" },
+          { value: "manual", label: "Manual" },
+        ], state.frCanvasMode || "auto_capped_768", (v) => { state.frCanvasMode = v; persist(); renderLeft(); })]),
+      ]),
+      state.frCanvasMode === "manual" ? row([
+        col([label("Canvas width"), numberField(state.frCanvasWidth ?? 768, (v) => { state.frCanvasWidth = Math.round(v); persist(); }, 32)]),
+        col([label("Canvas height"), numberField(state.frCanvasHeight ?? 768, (v) => { state.frCanvasHeight = Math.round(v); persist(); }, 32)]),
+      ]) : null,
+      row([
+        col([label("Smooth window"), numberField(state.frSmoothWindow ?? 21, (v) => { state.frSmoothWindow = Math.max(1, Math.round(v)); persist(); }, 2)]),
+      ]),
+    ]));
+
+    // ── denoise ────────────────────────────────────────────────────────────
+    // Face Refine's own Turbo switch — independent of whatever the main H3 generation modes
+    // are set to. OFF: Steps/Sampler below are free-editable. ON: a saved turbo preset's full
+    // accel recipe applies and Steps/Sampler are hidden — a turbo LoRA's step count is not a
+    // preference to override.
+    const frTurboPresets: { id: string; label: string }[] = [
+      ...userPresets.filter((p) => p.turbo && p.turbo !== "none").map((p) => ({ id: `u:${p.name}`, label: `★ ${p.name}` })),
+      ...PIPELINE_PRESETS.filter((p) => p.turbo && p.turbo !== "none").map((p) => ({ id: `s:${p.id}`, label: p.label })),
+    ];
+    leftPanel.appendChild(accordion("frdenoise", "Denoise", state.frTurboOn ? "Turbo" : `${state.frSteps ?? 8} steps`, () => {
+      const kids: (Node | null)[] = [
+        row([col([checkboxRow("Turbo", !!state.frTurboOn, (v) => { state.frTurboOn = v; persist(); renderLeft(); })])]),
+      ];
+      if (state.frTurboOn) {
+        if (frTurboPresets.length) {
+          const curId = state.frTurboPreset || frTurboPresets[0].id;
+          if (!state.frTurboPreset) { state.frTurboPreset = curId; persist(); }
+          kids.push(row([col([label("Turbo preset"), select(frTurboPresets.map((p) => ({ value: p.id, label: p.label })), curId, (v) => { state.frTurboPreset = v; persist(); })])]));
+        } else {
+          kids.push(el("div", { text: "No turbo preset found — save one (with a turbo LoRA set) from the main panel's Preset menu first.", style: { fontSize: "10px", color: C.warn } }));
+        }
+      } else {
+        kids.push(row([
+          col([label("Steps"), numberField(state.frSteps ?? 8, (v) => { state.frSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
+          col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.frSampler || "euler", (v) => { state.frSampler = v; persist(); })]),
+        ]));
+      }
+      kids.push(row([
+        col([label("Base denoise"), numberField(state.frDenoise ?? 0.40, (v) => { state.frDenoise = Math.min(1, Math.max(0.01, v)); persist(); }, 0.01)]),
+      ]));
+      kids.push(row([
+        col([label("Small-face ×"), numberField(state.frDenoiseMulSmall ?? 1.0, (v) => { state.frDenoiseMulSmall = Math.min(1, Math.max(0, v)); persist(); }, 0.05)]),
+        col([label("Large-face ×"), numberField(state.frDenoiseMulLarge ?? 0.35, (v) => { state.frDenoiseMulLarge = Math.min(1, Math.max(0, v)); persist(); }, 0.05)]),
+      ]));
+      kids.push(row([
+        col([label("Small face px"), numberField(state.frFacePxSmall ?? 30.0, (v) => { state.frFacePxSmall = Math.max(1, v); persist(); }, 1)]),
+        col([label("Large face px"), numberField(state.frFacePxLarge ?? 120.0, (v) => { state.frFacePxLarge = Math.max(1, v); persist(); }, 1)]),
+      ]));
+      kids.push(el("div", {
+        text: "Base denoise and the two multipliers are tuned as a set — the default 0.40 base is gentled down per frame by these (small face = full strength, large face = ×0.35). Change one, expect to retune the others.",
+        style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+      }));
+      return kids;
+    }));
+
+    // ── Face LoRA (own list — e.g. a face-detail LoRA, never state.loras) ─────
+    const loraOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
+    const frL: LtxLoraEntry[] = state.frLoras ||= [];
+    const frLoraWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+    const renderFrLoras = () => {
+      clear(frLoraWrap);
+      frL.forEach((l, i) => {
+        const off = l.enabled === false;
+        const lcard = el("div", { style: { border: `1px solid ${off ? C.dim : C.border}`, borderRadius: "6px", padding: "6px", display: "flex", flexDirection: "column", gap: "5px", opacity: off ? "0.55" : "1" } });
+        const head = el("div", { style: { display: "flex", alignItems: "center", gap: "5px" } });
+        const tog = el("button", {
+          type: "button", text: off ? "OFF" : "ON",
+          style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "10px", border: "none", fontWeight: "700", background: off ? "#444" : BRAND, color: "#fff" },
+          onclick: () => { l.enabled = off; persist(); renderFrLoras(); },
+        });
+        const strWrap = el("div", { style: { flexShrink: "0", width: "62px" } });
+        strWrap.appendChild(numberField(l.strength ?? 1.0, (v) => { l.strength = v; persist(); }, 0.05));
+        const del = el("button", {
+          type: "button", text: "✕", title: "Remove",
+          style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.err, border: "none", fontSize: "11px", padding: "2px 4px" },
+          onclick: () => { frL.splice(i, 1); persist(); renderFrLoras(); },
+        });
+        head.append(tog, el("div", { style: { flex: "1" } }), strWrap, del);
+        const sel = searchableSelect(loraOpts, l.name || "none", (v) => { l.name = v; persist(); });
+        lcard.append(head, sel.el);
+        frLoraWrap.appendChild(lcard);
+      });
+      const add = el("button", {
+        type: "button", text: "+ Add LoRA",
+        style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+        onclick: () => { frL.push({ name: "none", strength: 1.0, enabled: true }); persist(); renderFrLoras(); },
+      });
+      frLoraWrap.appendChild(add);
+      frLoraWrap.appendChild(el("div", { text: "Applied on top of the model this run uses — e.g. a face-detail LoRA. Separate from the main H3 LoRA list.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+    };
+    renderFrLoras();
+    const frLoraOn = frL.filter((l) => l?.name && l.name !== "none" && l.enabled !== false).length;
+    leftPanel.appendChild(accordion("frlora", "Face LoRA", frLoraOn ? `${frLoraOn} on` : "OFF", () => [frLoraWrap]));
+
+    // ── stitch ─────────────────────────────────────────────────────────────
+    leftPanel.appendChild(accordion("frstitch", "Stitch", state.frPasteRegion || "face_only", () => [
+      row([
+        col([label("Paste region"), select([
+          { value: "face_only", label: "Face only" },
+          { value: "face_ellipse", label: "Face (ellipse)" },
+          { value: "full_crop", label: "Full crop" },
+        ], state.frPasteRegion || "face_only", (v) => { state.frPasteRegion = v; persist(); })]),
+        col([label("Feather"), numberField(state.frFeather ?? 6, (v) => { state.frFeather = Math.max(0, Math.round(v)); persist(); }, 2)]),
+      ]),
+      row([
+        col([label("Colour match"), numberField(state.frColourMatch ?? 1.0, (v) => { state.frColourMatch = Math.min(1, Math.max(0, v)); persist(); }, 0.05)]),
+        col([label("Blend"), numberField(state.frBlend ?? 1.0, (v) => { state.frBlend = Math.min(1, Math.max(0, v)); persist(); }, 0.05)]),
+      ]),
+    ]));
+
+    leftOuter.appendChild(seedGenWrap);
+  }
+
+  // Stub — the Pick Faces modal itself is a later pass. For now this just tells the user
+  // the picker isn't wired up yet, so a click never silently does nothing.
+  function openFacePickModal() {
+    showPopup("Pick Faces isn't wired up yet — coming in a later pass.", true);
+  }
+
   function renderLeft() {
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
+    if (state.generationMode === "facerefine") { renderFaceRefineLeft(); return; }
     setLeftLocked(false); // the lock overlay is LTX Upscale-only
     const contModes = continuityModesFor(state.generationMode, state);
     const cur = contModes.find((m) => m.key === state.continuityMode);

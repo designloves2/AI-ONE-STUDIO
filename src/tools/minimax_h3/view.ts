@@ -496,21 +496,30 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   resizeHandle.addEventListener("mouseenter", () => { resizeHandle.style.background = "rgba(255,255,255,0.08)"; });
   resizeHandle.addEventListener("mouseleave", () => { resizeHandle.style.background = "transparent"; });
-  resizeHandle.addEventListener("mousedown", (e: MouseEvent) => {
+  // Pointer Events + setPointerCapture instead of window mousemove/mouseup (node-side fix
+  // 64fdd02): a drag that crosses the native <video> control's toolbar can let the control
+  // swallow the mouseup before it reaches a window listener, leaving the handle stuck
+  // "grabbed". Capturing the pointer on the handle itself guarantees it keeps getting
+  // pointermove/pointerup regardless of what's under the cursor.
+  resizeHandle.addEventListener("pointerdown", (e: PointerEvent) => {
     e.preventDefault();
+    resizeHandle.setPointerCapture(e.pointerId);
     const startY = e.clientY;
     const startH = previewBox.getBoundingClientRect().height;
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (ev: PointerEvent) => {
       const h = Math.max(220, Math.min(720, Math.round(startH + (ev.clientY - startY))));
       previewBox.style.flex = `0 0 ${h}px`;
     };
-    const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+    const onUp = (ev: PointerEvent) => {
+      resizeHandle.removeEventListener("pointermove", onMove);
+      resizeHandle.removeEventListener("pointerup", onUp);
+      resizeHandle.removeEventListener("pointercancel", onUp);
+      try { resizeHandle.releasePointerCapture(ev.pointerId); } catch {}
       try { localStorage.setItem(PREVIEW_H_KEY, String(parseInt(previewBox.style.flex.split(" ")[2] || "0", 10))); } catch {}
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    resizeHandle.addEventListener("pointermove", onMove);
+    resizeHandle.addEventListener("pointerup", onUp);
+    resizeHandle.addEventListener("pointercancel", onUp);
   });
   try {
     const savedH = parseInt(localStorage.getItem(PREVIEW_H_KEY) || "", 10);

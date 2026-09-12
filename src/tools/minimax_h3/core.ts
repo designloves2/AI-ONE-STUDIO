@@ -122,6 +122,64 @@ export interface MinimaxState {
   ltxLlmPrompt: string;      // ✨ "Write from source frame" instruction (vision)
   ltxConvertPrompt: string;  // "H3 → LTX 2.5" instruction (text-only, rewrites an H3 brief)
 
+  // ── H3 Face Refine mode (generationMode "facerefine") ─────────────────────────────────
+  // Also a post-process pass over a finished/uploaded clip — see
+  // SPEC_MINIMAX_H3_FACE_REFINE.md. Runs H3's own unet/clip/vae (Settings → H3 Model, same
+  // as Reference mode) unless frUseCustomModel is on.
+  frSource: string;          // source video filename (gallery pick or upload)
+  frSourceKind: string;      // "gallery" | "upload"
+  frSourceMeta: { w: number; h: number; fps: number; frames: number; duration: number } | null;
+  frPrompt: string;          // conditioning prompt (MiniMaxH3ReferenceToVideo)
+  // H3FaceTrackCrop / H3FaceSelect params
+  frSelect: string;          // 9 ranking modes, or "manual"
+  frSelectIndex: number;
+  frConfidence: number;      // face detector score floor
+  frConfirmedPick: string;   // "0,1,1" — one face index per shot, from Pick Faces
+  // Multi-person chain (§12): an ORDERED list of face indices to refine one at a time, each
+  // pass over the previous pass's own output. Empty/1-length = the normal single-subject
+  // path (frConfirmedPick as-is).
+  frChainPicks: number[];
+  frCutDetection: boolean;   // maps to "auto (pyscenedetect)" | "none"
+  frCutThreshold: number;
+  frIdentityTrack: boolean;
+  frIdentityThreshold: number;
+  frIdentityModel: string;   // insightface | clip_vision | ccip
+  // H3FaceTrackCrop crop/canvas params
+  frCropFactor: number;
+  frCanvasMode: string;      // manual | auto_no_downscale | auto_capped_768
+  frCanvasWidth: number;
+  frCanvasHeight: number;
+  frSmoothWindow: number;
+  // H3PerFrameDenoise params
+  frDenoise: number;
+  frDenoiseMulSmall: number;
+  frDenoiseMulLarge: number;
+  frFacePxSmall: number;
+  frFacePxLarge: number;
+  frSteps: number;
+  frSampler: string;
+  frScheduler: string;
+  // H3FaceStitch params
+  frPasteRegion: string;     // face_only | face_ellipse | full_crop
+  frFeather: number;
+  frColourMatch: number;
+  frBlend: number;
+  frUndetected: string;      // fade_out | skip | composite_anyway
+  // configured once in ⚙ Settings → FaceRefine Model
+  faceDetector: string;              // required — models/ultralytics/bbox/*.pt
+  faceFallbackDetector: string;      // optional — models/ultralytics/segm/*.pt
+  faceSamModel: string;              // optional — Impact Pack SAMLoader
+  faceIdentityClipVision: string;    // optional — identity_model=clip_vision
+  // Face Refine's OWN model set — off by default (shares H3's Reference unet/clip/vae).
+  frUseCustomModel: boolean;
+  frUnet: string;            // .gguf → UnetLoaderGGUF; else UNETLoader
+  frClip: string;            // .gguf → CLIPLoaderGGUF; else CLIPLoader (both type=minimax)
+  // Face Refine's OWN LoRA list — never state.loras.
+  frLoras: LtxLoraEntry[];
+  // Face Refine's OWN turbo switch — independent of the main render's turboMode (§18).
+  frTurboOn: boolean;
+  frTurboPreset: string;     // a preset id from allPresets(), e.g. "u:PDD-8step"
+
   accelMode: string;
   upscaleMode: string;
   // RTX Deblur (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15) — a pre-pass before upscale, not one
@@ -366,6 +424,7 @@ export const GENERATION_MODES = [
   { key: "firstlast", label: "First/Last Frame", hint: "start + end keyframe (FL2VA)" },
   { key: "reference", label: "Reference", hint: "up to 9 reference images (REF2VA)" },
   { key: "ltxupscale", label: "LTX Upscale", hint: "2x refine an existing clip (LTX 2.5)" },
+  { key: "facerefine", label: "Face Refine", hint: "re-render a small/distant face per frame (H3)" },
 ];
 
 // The ✨ button's default system prompt — a ready-to-use LTX-2.5 prompt author written to
@@ -438,6 +497,25 @@ export function ltxUpscaleMissing(state: MinimaxState): string[] {
     ltxVaeVideo: "video VAE", ltxVaeAudio: "audio VAE",
   };
   return Object.keys(map).filter((k) => !(state as any)[k] || (state as any)[k] === "none").map((k) => map[k]);
+}
+
+// H3 Face Refine mode defaults to H3's OWN unet/clip/vae (already required for every other
+// mode) — but it can also run its own SEPARATE model set (frUseCustomModel), e.g. a
+// lighter/faster GGUF quant just for the refine pass. Either way it needs a face detector.
+export function faceRefineReady(state: MinimaxState): boolean {
+  const hasDetector = !!(state.faceDetector && state.faceDetector !== "none");
+  if (!hasDetector) return false;
+  if (!state.frUseCustomModel) return true;
+  return !!(state.frUnet && state.frUnet !== "none" && state.frClip && state.frClip !== "none");
+}
+export function faceRefineMissing(state: MinimaxState): string[] {
+  const missing: string[] = [];
+  if (!state.faceDetector || state.faceDetector === "none") missing.push("face detector");
+  if (state.frUseCustomModel) {
+    if (!state.frUnet || state.frUnet === "none") missing.push("Face Refine unet");
+    if (!state.frClip || state.frClip === "none") missing.push("Face Refine text encoder");
+  }
+  return missing;
 }
 
 export const ACCEL_MODES = [
@@ -872,6 +950,14 @@ export function generationModesFor(state: MinimaxState) {
       const ok = ltxUpscaleReady(state);
       return { ...m, enabled: ok, reason: ok ? "" : `Set the LTX 2.5 models in ⚙ Settings (missing: ${ltxUpscaleMissing(state).join(", ")})` };
     }
+    if (m.key === "facerefine") {
+      // Uses MiniMaxH3ReferenceToVideo's conditioning shape either way; the Reference UNET
+      // is only required when NOT running Face Refine's own separate model set.
+      const needsMainRef = !state.frUseCustomModel;
+      const ok = (needsMainRef ? a.ref : true) && faceRefineReady(state);
+      const missing = [...(needsMainRef && !a.ref ? ["the Reference UNET"] : []), ...faceRefineMissing(state)];
+      return { ...m, enabled: ok, reason: ok ? "" : `Set these in ⚙ Settings — FaceRefine Model (missing: ${missing.join(", ")})` };
+    }
     const ok = m.key === "reference" ? a.ref : a.fl;
     return { ...m, enabled: ok, reason: ok ? "" : `Set the ${m.key === "reference" ? "Reference" : "First/Last"} UNET in ⚙ Settings → Models` };
   });
@@ -1283,6 +1369,54 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ltxVisionOrModel: saved.ltxVisionOrModel || "",
     ltxLlmPrompt: saved.ltxLlmPrompt || LTX_UPSCALE_LLM_PROMPT,
     ltxConvertPrompt: saved.ltxConvertPrompt || LTX_CONVERT_LLM_PROMPT,
+
+    // ── H3 Face Refine mode ─────────────────────────────────────────────────
+    frSource: saved.frSource || "",
+    frSourceKind: saved.frSourceKind || "gallery",
+    frSourceMeta: saved.frSourceMeta || null,
+    frPrompt: saved.frPrompt || "",
+    frSelect: saved.frSelect || "largest_face",
+    frSelectIndex: saved.frSelectIndex ?? 0,
+    frConfidence: saved.frConfidence ?? 0.35,
+    frConfirmedPick: saved.frConfirmedPick || "",
+    frChainPicks: Array.isArray(saved.frChainPicks) ? saved.frChainPicks.slice() : [],
+    frCutDetection: saved.frCutDetection ?? false,
+    frCutThreshold: saved.frCutThreshold ?? 3.0,
+    frIdentityTrack: saved.frIdentityTrack ?? true,
+    // Force-migrate the old stock default (0.28, too low to ever reject a false identity
+    // match — SPEC_MINIMAX_H3_FACE_REFINE.md §19/§20) forward to 0.45.
+    frIdentityThreshold: saved.frIdentityThreshold === 0.28 ? 0.45 : (saved.frIdentityThreshold ?? 0.45),
+    frIdentityModel: saved.frIdentityModel || "insightface",
+    frCropFactor: saved.frCropFactor ?? 2.5,
+    frCanvasMode: saved.frCanvasMode || "auto_capped_768",
+    frCanvasWidth: saved.frCanvasWidth ?? 768,
+    frCanvasHeight: saved.frCanvasHeight ?? 768,
+    frSmoothWindow: saved.frSmoothWindow ?? 21,
+    frDenoise: saved.frDenoise ?? 0.40,
+    frDenoiseMulSmall: saved.frDenoiseMulSmall ?? 1.0,
+    frDenoiseMulLarge: saved.frDenoiseMulLarge ?? 0.35,
+    frFacePxSmall: saved.frFacePxSmall ?? 30.0,
+    frFacePxLarge: saved.frFacePxLarge ?? 120.0,
+    frSteps: saved.frSteps ?? 8,
+    frSampler: saved.frSampler || "euler",
+    frScheduler: saved.frScheduler || "simple",
+    frPasteRegion: saved.frPasteRegion || "face_only",
+    frFeather: saved.frFeather ?? 6,
+    frColourMatch: saved.frColourMatch ?? 1.0,
+    frBlend: saved.frBlend ?? 1.0,
+    frUndetected: saved.frUndetected || "fade_out",
+    faceDetector: saved.faceDetector || "",
+    faceFallbackDetector: saved.faceFallbackDetector || "none",
+    faceSamModel: saved.faceSamModel || "none",
+    faceIdentityClipVision: saved.faceIdentityClipVision || "none",
+    frUseCustomModel: saved.frUseCustomModel ?? false,
+    frUnet: saved.frUnet || "",
+    frClip: saved.frClip || "",
+    frLoras: Array.isArray(saved.frLoras)
+      ? saved.frLoras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, enabled: l.enabled !== false }))
+      : [],
+    frTurboOn: saved.frTurboOn ?? false,
+    frTurboPreset: saved.frTurboPreset || "",
 
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",

@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
-import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, PDD_NFE_CHOICES, pddFileForMode } from "./core";
+import type { MinimaxState, LoraEntry, PipelinePreset, UserPipelinePreset } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, PDD_NFE_CHOICES, pddFileForMode, PIPELINE_PRESETS, applyPreset } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -824,6 +824,257 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
       sampler: state.ltxSampler || "euler_ancestral", scheduler: state.ltxScheduler || "simple",
       seed, source: sourceFile, fps, loras: usedLoras, deblur: deblurUsed, upscale: upscaleUsed,
       videoNode: L.save, lastFrameNode: null,
+    },
+  };
+}
+
+// ── H3 Face Refine — SPEC_MINIMAX_H3_FACE_REFINE.md ─────────────────────────────────────
+// Post-process an existing clip: detect/track a face, crop it to fill a canvas, re-render
+// just that crop through H3 as img2img (H3InjectVideoLatent — H3 has no stock img2img path),
+// then stitch the refined crop back over the original frames. Same "source clip → own graph
+// → single queue → gallery save" shape as buildLtxUpscaleGraph above.
+const FR = {
+  load: "FR:load",
+  select: "FR:select", // H3FaceSelect — Manual Select only
+  track: "FR:track",
+  inject: "FR:inject",
+  denoise: "FR:denoise",
+  stitch: "FR:stitch",
+  video: "FR:video",
+  save: "FR:save",
+  lora: (i: number) => `FR:lora${i}`, // Face Refine's own LoRA chain — §17, never state.loras
+};
+
+/** Resolve a saved preset id ("s:<numeric id>" for a PIPELINE_PRESETS built-in, "u:<name>" for
+ * a user preset) the same way view.ts's own preset dropdown names them (§18's frTurboPreset). */
+function findPresetById(id: string, userPresets: UserPipelinePreset[] | undefined): PipelinePreset | UserPipelinePreset | null {
+  if (!id) return null;
+  if (id.startsWith("u:")) {
+    const name = id.slice(2);
+    return (userPresets || []).find((p) => p.name === name) || null;
+  }
+  if (id.startsWith("s:")) {
+    const num = Number(id.slice(2));
+    return PIPELINE_PRESETS.find((p) => p.id === num) || null;
+  }
+  return null;
+}
+
+export interface FaceRefineOpts {
+  nodeId?: string | number | null;
+  sourceFile: string; // filename in ComfyUI's input/
+  promptText: string;
+  seed?: number;
+  refImages?: string[] | null;
+  // Multi-person chain (§12): each chain step calls this with its own single pick instead
+  // of reading state.frConfirmedPick, so the step never touches the shared state.
+  confirmedPickOverride?: string;
+  // Needed only when state.frTurboOn is set — the caller's own loaded user-preset list, so
+  // this stays a pure function instead of reading from a global/module cache.
+  userPresets?: UserPipelinePreset[];
+}
+
+export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefined, opts: FaceRefineOpts) {
+  const { nodeId = null, sourceFile, promptText, seed, refImages, confirmedPickOverride, userPresets } = opts;
+  if (!sourceFile) throw new Error("Face Refine: pick a source clip (gallery or upload).");
+  if (!state.faceDetector || state.faceDetector === "none")
+    throw new Error("Face Refine: set a face detector in ⚙ Settings — FaceRefine Model.");
+  const isManual = state.frSelect === "manual";
+  const confirmedPick = confirmedPickOverride ?? state.frConfirmedPick;
+  if (isManual && !String(confirmedPick || "").trim())
+    throw new Error("Face Refine: pick a face for every shot first (Pick Faces button) — Select is set to Manual.");
+
+  const g: Record<string, any> = {};
+  const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+  const stem = state.filenamePrefix || "MMH3";
+  const cutMode = state.frCutDetection ? "auto (pyscenedetect)" : "none";
+
+  // ── source + (optional) manual face pick ──────────────────────────────────
+  // H3FaceSelect replaces the plain video loader when Manual Select is on: it detects once,
+  // up front, and hands its boxes to the tracker via face_pick so the tracker skips its own
+  // detection pass. Ranking-rule modes (largest_face etc.) skip this node entirely.
+  let imagesLink: any, audioLink: any, facePickLink: any = null;
+  if (isManual && has(avail, "H3FaceSelect")) {
+    g[FR.select] = { class_type: "H3FaceSelect", inputs: {
+      video: sourceFile, detector: state.faceDetector, confidence: state.frConfidence ?? 0.35,
+      select: "manual", select_index: 0, confirmed_pick: confirmedPick || "",
+      cut_detection: cutMode, cut_threshold: state.frCutThreshold ?? 3.0,
+      skip_first_frames: 0, frame_load_cap: 0, select_every_nth: 1,
+    } };
+    imagesLink = [FR.select, 0]; audioLink = [FR.select, 1]; facePickLink = [FR.select, 2];
+  } else {
+    g[FR.load] = { class_type: "VHS_LoadVideo", inputs: {
+      video: sourceFile, force_rate: 0, custom_width: 0, custom_height: 0,
+      frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1, format: "AnimateDiff",
+    } };
+    imagesLink = [FR.load, 0]; audioLink = [FR.load, 2];
+  }
+
+  // ── track + crop ───────────────────────────────────────────────────────────
+  const trackInputs: Record<string, any> = {
+    images: imagesLink, detector: state.faceDetector, confidence: state.frConfidence ?? 0.35,
+    crop_factor: state.frCropFactor ?? 2.5,
+    canvas_width: state.frCanvasWidth ?? 768, canvas_height: state.frCanvasHeight ?? 768,
+    canvas_mode: state.frCanvasMode || "auto_capped_768",
+    smooth_window: state.frSmoothWindow ?? 21, size_smooth_window: 51,
+    smooth_method: "gaussian", size_mode: "per_frame",
+    identity_track: state.frIdentityTrack !== false,
+    // 0.45 (not the pack's own stock 0.28) — SPEC_MINIMAX_H3_FACE_REFINE.md §19/§20:
+    // 0.28 let continuity tracking drift onto the wrong person uncorrected.
+    identity_threshold: state.frIdentityThreshold ?? 0.45,
+    fallback_detector: state.faceFallbackDetector || "none",
+  };
+  if (facePickLink) {
+    trackInputs.face_pick = facePickLink; // detection already done by H3FaceSelect
+  } else {
+    trackInputs.select = state.frSelect || "largest_face";
+    trackInputs.cut_detection = cutMode;
+    trackInputs.cut_threshold = state.frCutThreshold ?? 3.0;
+  }
+  if (state.frIdentityModel) trackInputs.identity_model = state.frIdentityModel;
+  g[FR.track] = { class_type: "H3FaceTrackCrop", inputs: trackInputs };
+  // RETURN_NAMES = (crops, transform, preview, report, canvas_w, canvas_h, frame_count)
+  const canvasW: any = [FR.track, 4], canvasH: any = [FR.track, 5], frameCount: any = [FR.track, 6];
+  const cropsLink: any = [FR.track, 0], transformLink: any = [FR.track, 1];
+
+  // ── loaders + model chain ─────────────────────────────────────────────────
+  // Face Refine always conditions like Reference mode (refs + prompt, no first/last
+  // keyframes) — generationMode is coerced to "reference" for this call only, on a shallow
+  // copy, so the real state/main render is never touched. frUseCustomModel (§15) swaps in
+  // Face Refine's OWN unet/clip file (GGUF-aware) instead of H3's Reference model.
+  const useCustomModel = !!state.frUseCustomModel;
+  const unetFile = useCustomModel ? state.frUnet : state.unetReference;
+  const clipFile = useCustomModel ? state.frClip : state.clipName;
+  if (useCustomModel && (!unetFile || unetFile === "none"))
+    throw new Error("Face Refine: set its own UNET in ⚙ Settings → FaceRefine Model (or turn off 'use a separate model').");
+  if (useCustomModel && (!clipFile || clipFile === "none"))
+    throw new Error("Face Refine: set its own text encoder in ⚙ Settings → FaceRefine Model (or turn off 'use a separate model').");
+  const refState: MinimaxState = { ...state, generationMode: "reference", unetReference: unetFile };
+  // Face Refine's OWN turbo switch (§18) — independent of the main render's turboMode.
+  // OFF: force "none" regardless of what the main render has set, so no turbo LoRA leaks in
+  // by accident. ON: apply the chosen saved preset's full accel recipe onto refState (a
+  // shallow copy — the real `state`/main render is untouched).
+  if (state.frTurboOn) {
+    const preset = findPresetById(state.frTurboPreset, userPresets)
+      || (userPresets || []).find((p) => p.turbo && p.turbo !== "none")
+      || PIPELINE_PRESETS.find((p) => p.turbo && p.turbo !== "none")
+      || null;
+    if (preset) applyPreset(refState, preset);
+    else refState.turboMode = "none";
+  } else {
+    refState.turboMode = "none";
+  }
+  const modelLink0 = buildModelChain(g, refState, avail);
+  g[N.clip] = String(clipFile || "").toLowerCase().endsWith(".gguf")
+    ? { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipFile, type: "minimax" } }
+    : { class_type: "CLIPLoader", inputs: { clip_name: clipFile, type: "minimax", device: "default" } };
+  g[N.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
+  g[N.vaeA] = { class_type: "VAELoader", inputs: { vae_name: state.vaeAudio } };
+
+  // ── Face Refine's OWN LoRA chain (e.g. a face-detail LoRA) — never state.loras, which
+  // buildModelChain already applied above for the main render's own LoRA list. Same pattern
+  // as LTX Upscale's ltxLoras: its own list, applied closest to the sampler. ──
+  let modelLoraLink = modelLink0;
+  (state.frLoras || []).forEach((lora, i) => {
+    if (!lora?.name || lora.name === "none" || lora.enabled === false) return;
+    const s = parseFloat(String(lora.strength ?? 1.0));
+    if (!(s > 0)) return;
+    g[FR.lora(i)] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelLoraLink, lora_name: lora.name, strength_model: s } };
+    modelLoraLink = [FR.lora(i), 0];
+  });
+
+  // Live sampling preview — same ModelPreviewOverrideKJ + previewNodeKey(nodeId) wiring
+  // buildClipGraph uses, so Face Refine streams into the same preview box every other mode
+  // already shows.
+  const modelLink1 = applyPreview(g, refState, avail, modelLoraLink, nodeId);
+  const modelLink = applySla(g, refState, avail, modelLink1);
+
+  // ── conditioning — width/height/length come from the TRACKER's outputs (links, not
+  // literals): canvas_mode "auto_*" only knows the real size once the crop is built. ──
+  buildConditioning(g, refState, String(promptText || "").trim(), canvasW, canvasH, frameCount,
+    { refImages: refImages ?? state.refImages }, avail);
+
+  // ── img2img: encode the tracked crops into the video stream (H3 has no stock path) ──
+  g[FR.inject] = { class_type: "H3InjectVideoLatent", inputs: {
+    av_latent: [N.cond, 1], images: cropsLink, vae: [N.vaeV, 0],
+  } };
+
+  // ── audio lock — our own node (TJ_H3_AudioLock), never a third-party AudioLock pack ──
+  g[N.audioLock] = { class_type: "TJ_H3_AudioLock", inputs: {
+    av_latent: [FR.inject, 0], audio: audioLink, audio_vae: [N.vaeA, 0],
+    mode: "lock", strength: 0.5, fit: "pad_silence",
+    get_name_av_latent: "(none)", get_name_audio: "(none)", get_name_audio_vae: "(none)",
+    auto_set: false,
+  } };
+
+  // ── per-frame denoise: small face = strong pass, large face = gentle ─────────
+  g[FR.denoise] = { class_type: "H3PerFrameDenoise", inputs: {
+    model: modelLink, av_latent: [N.audioLock, 0], transform: transformLink,
+    denoise_multiplier_small_face: state.frDenoiseMulSmall ?? 1.0,
+    denoise_multiplier_large_face: state.frDenoiseMulLarge ?? 0.35,
+    scale_mode: "absolute_px",
+    face_px_small: state.frFacePxSmall ?? 30.0, face_px_large: state.frFacePxLarge ?? 120.0,
+    gamma: 1.0, smooth_frames: 9,
+  } };
+  // RETURN_NAMES = (av_latent, report, model) — this model MUST reach the sampler, not
+  // modelLink: the two things it patches are the MODEL, not the latent.
+  const denoisedModel: any = [FR.denoise, 2];
+
+  // ── sample ─────────────────────────────────────────────────────────────────
+  // A turbo accelerator needs its OWN step count / sampler to mean anything (PDD's head
+  // bank is trained for its exact NFE grid, larryvrh needs its dedicated sampler node) — same
+  // coordination buildClipGraph does. frSteps/frSampler only apply with no turbo active;
+  // frDenoise still trims the resulting schedule either way.
+  const turboMode = turboEffective(refState, avail);
+  const useTurboSampler = turboMode === "larryvrh" && has(avail, "MiniMaxH3TurboSampler");
+  const steps = turboMode === "none" ? Math.max(1, Math.round(state.frSteps ?? 8)) : effectiveSteps(refState, avail);
+
+  const useSeed = state.seedMode === "randomize" ? Math.floor(Math.random() * 1e15) : (seed ?? state.seed ?? 0);
+  g[N.noise] = { class_type: "RandomNoise", inputs: { noise_seed: useSeed } };
+  if (useTurboSampler) {
+    g[N.sampSel] = { class_type: "MiniMaxH3TurboSampler", inputs: {} };
+  } else if (turboMode === "pdd") {
+    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+  } else {
+    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: state.frSampler || "euler" } };
+  }
+  g[N.sched] = { class_type: "BasicScheduler", inputs: {
+    model: denoisedModel, scheduler: state.frScheduler || "simple", steps, denoise: state.frDenoise ?? 0.40,
+  } };
+  let condLink: any = [N.cond, 0];
+  if (has(avail, "TJ_FreeTextEncoderVRAM")) {
+    g[N.freeClipVram] = { class_type: "TJ_FreeTextEncoderVRAM", inputs: { clip: [N.clip, 0], trigger: condLink } };
+    condLink = [N.freeClipVram, 0];
+  }
+  g[N.guider] = { class_type: "BasicGuider", inputs: { model: denoisedModel, conditioning: condLink } };
+  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: {
+    noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: [N.sched, 0],
+    latent_image: [FR.denoise, 0],
+  } };
+  g[N.decode] = { class_type: "VAEDecode", inputs: { samples: [N.sampler, 0], vae: [N.vaeV, 0] } };
+
+  // ── stitch the refined crop back onto the original frames, then save ─────────
+  g[FR.stitch] = { class_type: "H3FaceStitch", inputs: {
+    base_images: imagesLink, refined_crops: [N.decode, 0], transform: transformLink,
+    paste_region: state.frPasteRegion || "face_only",
+    mask_dilation: 16, feather: state.frFeather ?? 6,
+    colour_match: state.frColourMatch ?? 1.0, blend: state.frBlend ?? 1.0,
+    undetected_frames: state.frUndetected || "fade_out",
+  } };
+
+  g[FR.video] = { class_type: "CreateVideo", inputs: { images: [FR.stitch, 0], fps: FPS, audio: [N.audioLock, 1] } };
+  g[FR.save] = { class_type: "SaveVideo", inputs: {
+    video: [FR.video, 0], filename_prefix: `${folder}/${stem}_FACEREFINE`, format: "auto", codec: "auto",
+  } };
+
+  const usedLoras = (state.frLoras || []).filter((l) => l?.name && l.name !== "none" && l.enabled !== false)
+    .map((l) => ({ name: l.name, strength: l.strength ?? 1.0 }));
+  return {
+    graph: g,
+    meta: {
+      faceRefine: true, source: sourceFile, select: state.frSelect,
+      denoise: state.frDenoise ?? 0.40, steps, turboMode, loras: usedLoras,
+      seed: useSeed, videoNode: FR.save, lastFrameNode: null,
     },
   };
 }

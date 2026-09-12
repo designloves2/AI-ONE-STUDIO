@@ -1282,13 +1282,74 @@ export function renderMinimaxH3(container: HTMLElement) {
     bigTA.focus();
   }
 
+  // ── Face Refine — bottom prompt area (own frPrompt, independent of the H3 shot list) ──
+  // Face Refine conditions like Reference mode (refs + one prompt, no keyframes) — it must
+  // never read/write state.prompts, which belongs to the 3 core generation modes and would
+  // otherwise leak a stale shot-list prompt into a refine pass that has nothing to do with it.
+  function renderFaceRefinePrompt() {
+    promptList.innerHTML = "";
+    promptCount.textContent = state.frSource ? "" : "(no source clip)";
+    const locked = running;
+    const ta = el("textarea", {
+      placeholder: "Prompt for the refine pass — describe the subject/scene. Gallery picks auto-fill from the clip's saved prompt.",
+      style: { flex: "1", width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "none", minHeight: "0" },
+    }) as HTMLTextAreaElement;
+    ta.value = state.frPrompt || "";
+    ta.addEventListener("input", () => { state.frPrompt = ta.value; persist(); });
+    ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
+    ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
+    if (locked) { ta.disabled = true; ta.style.opacity = "0.6"; ta.value = "⏳ Face Refine running — please wait…"; }
+    promptList.style.gap = "6px";
+    promptList.append(ta);
+    if (running) promptList.append(el("div", { text: "⏳ Face Refine is rendering — the prompt is locked until it finishes.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
+  }
+
+  // "Prompt Edit" in Face Refine mode → a small modal: source video on top, one prompt box
+  // below. No LLM writer here (unlike LTX Upscale) — Face Refine's prompt just needs to
+  // describe the subject for the img2img pass, not match a full LTX-style scene brief.
+  function openFrPromptEdit() {
+    const snap = { p: state.frPrompt || "" };
+    const box = el("div", { style: { background: "#0e0e0e", border: `1px solid ${C.border}`, borderRadius: "10px", width: "640px", maxWidth: "94%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 16px 50px rgba(0,0,0,0.65)" } });
+    const head = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", borderBottom: `1px solid ${C.border}`, flexShrink: "0" } },
+      [el("div", { text: "📝 Face Refine prompt", style: { color: "#fff", fontSize: "13px", fontWeight: "700", flex: "1" } })]);
+    const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "100050", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.72)" } }, [box]);
+    const finish = (apply: boolean) => {
+      if (!apply) state.frPrompt = snap.p;
+      persist(); ov.remove();
+      try { renderPrompts(); } catch (e) { console.warn("[MMH3] Face Refine prompt sync:", e); }
+    };
+    ov.addEventListener("mousedown", (e) => { if (e.target === ov) finish(true); });
+    head.appendChild(el("button", { type: "button", text: "✕ Cancel", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "4px 10px", borderRadius: "6px", background: "transparent", color: C.err, border: `1px solid ${C.border}` }, onclick: () => finish(false) }));
+
+    const body = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px", padding: "12px", overflow: "auto" } });
+    if (state.frSource) {
+      body.append(el("video", { src: `${comfyApi.base}/view?filename=${encodeURIComponent(state.frSource)}&type=input`, controls: true, muted: true, loop: true, preload: "metadata", style: { width: "100%", maxHeight: "300px", objectFit: "contain", borderRadius: "6px", background: "#000" } }));
+    } else {
+      body.append(el("div", { text: "No source clip — pick one in the left panel.", style: { fontSize: "11px", color: C.warn } }));
+    }
+    const bigTA = el("textarea", { style: { width: "100%", minHeight: "200px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "10px", fontSize: "13px", fontFamily: "inherit", outline: "none", resize: "vertical" } }) as HTMLTextAreaElement;
+    bigTA.value = state.frPrompt || "";
+    bigTA.addEventListener("input", () => { state.frPrompt = bigTA.value; persist(); });
+    body.append(label("Prompt"), bigTA);
+
+    const foot = el("div", { style: { display: "flex", gap: "8px", padding: "10px 12px", borderTop: `1px solid ${C.border}`, flexShrink: "0", justifyContent: "flex-end" } });
+    foot.append(button("✕ Cancel", () => finish(false)), button("✓ Apply", () => finish(true), "primary"));
+
+    box.append(head, body, foot);
+    document.body.appendChild(ov);
+    bigTA.focus();
+  }
+
   function renderPrompts() {
     const isLtx = state.generationMode === "ltxupscale";
-    commonBtn.style.display = isLtx ? "none" : "";
-    splitBtn.style.display = isLtx ? "none" : "";
-    addBtn.style.display = isLtx ? "none" : "";
-    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : "PROMPTS";
+    const isFaceRefine = state.generationMode === "facerefine";
+    const hidesShotList = isLtx || isFaceRefine;
+    commonBtn.style.display = hidesShotList ? "none" : "";
+    splitBtn.style.display = hidesShotList ? "none" : "";
+    addBtn.style.display = hidesShotList ? "none" : "";
+    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
+    if (isFaceRefine) { renderFaceRefinePrompt(); return; }
     promptList.innerHTML = "";
     const plan = currentPlan();
     const onCount = state.prompts.filter((p) => promptEnabled(p)).length;
@@ -2152,11 +2213,23 @@ export function renderMinimaxH3(container: HTMLElement) {
     state.frConfirmedPick = "";
     state.frChainPicks = [];
   }
-  function setFrSource(inputFilename: string, kind: string, _item?: any) {
+  function setFrSource(inputFilename: string, kind: string, item?: any) {
     state.frSource = inputFilename;
     state.frSourceKind = kind;
     state.frSourceMeta = null;
     invalidateFacePicks();
+    // A gallery pick means "refine THIS clip" — load its saved prompt from the sidecar meta,
+    // same as LTX Upscale's setLtxSource. An upload carries no prompt, so leave the box alone
+    // (don't clobber a prompt the user already typed for a different clip).
+    let m = (item && item.meta) || {};
+    if (typeof m === "string") { try { m = JSON.parse(m); } catch { m = {}; } }
+    const p = (item && item.prompt) || m.prompt || (Array.isArray(m.prompts) && m.prompts[0]) || "";
+    if (kind === "gallery") {
+      if (String(p).trim()) { state.frPrompt = String(p); showPopup("Prompt loaded from the clip's saved metadata.", false); }
+      else showPopup("That clip has no prompt saved in its metadata — write one by hand.", true);
+    } else if (String(p).trim() && !String(state.frPrompt || "").trim()) {
+      state.frPrompt = String(p);
+    }
     persist();
     renderLeft();
     renderPrompts();
@@ -4201,6 +4274,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   );
   editBtn.addEventListener("click", () => {
     if (state.generationMode === "ltxupscale") { openLtxPromptEdit(); return; }
+    if (state.generationMode === "facerefine") { openFrPromptEdit(); return; }
     promptEditOv.show();
   });
 

@@ -396,9 +396,13 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftLockOverlay.classList.toggle("hidden", !on);
     leftLockOverlay.classList.toggle("flex", on);
   }
-  const leftPanel = el("div", { class: "flex flex-col gap-1.5 overflow-y-auto pr-1 flex-1 min-h-0" });
+  const leftPanel = el("div", { class: "flex flex-col gap-1.5 overflow-y-auto pr-1 flex-1 min-h-0", style: { position: "relative" } });
   leftOuter.appendChild(leftPanel);
-  leftOuter.appendChild(leftLockOverlay);
+  // Appended to leftPanel (not leftOuter) so its absolute inset-0 covers only the scrollable
+  // settings list — leftOuter also holds seedGenWrap (Generate/Stop/seed row) below leftPanel,
+  // and inset-0 on leftOuter was covering + blocking clicks on THAT too, so Stop was
+  // unreachable while an LTX Upscale run had it locked (user report — Stop must stay live).
+  leftPanel.appendChild(leftLockOverlay);
 
   const rightPanel = el("div", { class: "flex flex-col gap-4 flex-1 min-w-0 min-h-0" });
 

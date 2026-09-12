@@ -2161,7 +2161,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
     // ── refine sampling ──────────────────────────────────────────────────
     leftPanel.appendChild(panel([
-      label("Refine"),
+      label("UPSCALE SETTING"),
       row([
         col([label("Steps"), numberField(state.ltxSteps ?? 3, (v) => { state.ltxSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
         col([label("Denoise"), numberField(state.ltxDenoise ?? 0.15, (v) => { state.ltxDenoise = Math.min(1, Math.max(0.01, v)); persist(); }, 0.01)]),

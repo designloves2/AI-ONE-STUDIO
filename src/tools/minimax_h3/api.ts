@@ -480,6 +480,50 @@ export function discardInputCopy(filename: string) {
   }).catch(() => {});
 }
 
+export interface FaceScanShot {
+  frame: number;
+  faces: number;
+  jpg?: string;
+  boxes?: [number, number, number, number][];
+}
+export interface FaceScanResult {
+  ok?: boolean;
+  error?: string;
+  busy?: boolean;
+  cached?: boolean;
+  shots: FaceScanShot[];
+}
+
+/** H3 Face Refine's own pre-scan route (SPEC_MINIMAX_H3_FACE_REFINE.md §6-A) — NOT under the
+ * `/minimax_h3_one` prefix (a separate route registered by the pack's own backend), so this
+ * calls fetchApi with the bare path rather than `${API}/...`. Decodes the WHOLE clip into
+ * memory up front (CPU/RAM, not GPU/VRAM) — callers must cap `frame_load_cap` on a long clip
+ * (see the byte-budget formula next to CHUNK_BUDGET_BYTES in galleryOverlay.ts) or a long/large
+ * source can exhaust system RAM and hang the whole ComfyUI process (hit for real, 2026-09-12 —
+ * SPEC §13). Only ever call this when nothing else is queued/running — the node's own lesson
+ * (SPEC §21) is that scanning during another render can wedge the ComfyUI process. */
+export async function scanFaceRefine(body: {
+  video: string; detector: string; confidence: number; cut_detection: string; cut_threshold: number;
+  skip_first_frames?: number; frame_load_cap?: number; select_every_nth?: number; select?: string;
+}): Promise<FaceScanResult> {
+  const r = await fetchApi("/h3_facerefine/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      skip_first_frames: 0, select_every_nth: 1,
+      // Numbering MUST match H3FaceSelect's own manual-mode numbering ("left_most") or a pick
+      // made here refines a different face at render time — picker_api.py defaults `select`
+      // to "largest_face" when omitted, which disagrees with H3FaceSelect's manual ranking
+      // (real bug: picked box 1, box 2 got refined instead — SPEC §20). Always send "manual".
+      select: "manual",
+      ...body,
+    }),
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error + (d.busy ? " (retry once the queue is clear)" : ""));
+  return d;
+}
+
 export async function setLastResult(nodeId: string | number, opts: { image?: any; videoPath?: string } = {}) {
   const body: Record<string, any> = { unique_id: String(nodeId) };
   if (opts.image !== undefined) body.image = opts.image;

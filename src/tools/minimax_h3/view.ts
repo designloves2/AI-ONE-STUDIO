@@ -93,9 +93,10 @@ import {
   analyzeImagesNative,
   writeBriefOpenRouter,
   writeBriefNative,
+  scanFaceRefine,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
-import { buildClipGraph, buildLtxUpscaleGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -428,6 +429,17 @@ export function renderMinimaxH3(container: HTMLElement) {
   // showPreviewFrame이 이 화면을 걷어낸다.
   const previewOffMsg = el("div", { class: "text-muted text-xs text-center leading-relaxed hidden" });
   previewOffMsg.innerHTML = "⏸ Live preview off<br><span style='font-size:10px'>Generating…</span>";
+  // Face Refine's own pre-sampling banner — tracking/detection runs before sampling and
+  // streams nothing of its own, so the screen would otherwise look stuck for that whole
+  // stretch. Mirrors the node's frDetectBanner (one_node_minimax_h3.js runFaceRefine). Cleared
+  // from BOTH paths that mean "real content is now arriving": a live preview frame
+  // (showPreviewFrame) and a numeric step-progress callback (setStepProgress / onKJPreview) —
+  // whichever happens to arrive first for a given run.
+  const frDetectBanner = el("div", {
+    class: "absolute inset-0 z-[5] flex items-center justify-center text-center hidden",
+    style: { background: "rgba(0,0,0,0.55)" },
+  });
+  frDetectBanner.innerHTML = "<div style='font-size:18px;font-weight:700;color:#b57bff;text-shadow:0 0 12px rgba(181,123,255,0.5);padding:24px 16px;'>🔍 Detecting &amp; tracking faces…</div>";
   // 라이브 프리뷰 온/오프 — off일 때는 새 스텝이 와도 화면을 갱신하지 않는다(진행률 텍스트는 계속 반영).
   // Settings의 previewEnabled와 같은 값을 공유해 여기서 끄면 Settings에도 반영된다.
   const previewToggleBtn = el("button", {
@@ -496,7 +508,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(720, savedH))}px`;
   } catch {}
 
-  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, badge, fsBtn, previewToggleBtn, resizeHandle);
+  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, badge, fsBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
   fsBtn.addEventListener("click", () => {
@@ -505,6 +517,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   function showPreviewFrame(dataURL: string, mime?: string) {
     placeholder.style.display = "none";
+    frDetectBanner.style.display = "none";
     previewOffMsg.classList.add("hidden");
     try { resultVid.pause(); } catch {}
     resultVid.style.display = "none";
@@ -643,6 +656,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
   }
   function setStepProgress(step: number, total: number) {
+    // Numeric progress is the OTHER sign that sampling has really started (the live preview
+    // image might never arrive if previewEnabled is off, or an image is slow) — clear the
+    // pre-sampling banner here too so it never lingers over the "no preview" case.
+    frDetectBanner.style.display = "none";
+    placeholder.style.display = "none";
     const clipFrac = total ? step / total : 0;
     const overall = totClip ? (curClip - 1 + clipFrac) / totClip : clipFrac;
     barInner.style.width = `${Math.max(0, Math.min(100, overall * 100)).toFixed(1)}%`;
@@ -1764,10 +1782,18 @@ export function renderMinimaxH3(container: HTMLElement) {
     "bottom_most", "centre_most", "closest_to_xy", "manual",
   ];
 
+  // Clears a previously confirmed manual pick whenever anything that could change what the
+  // Pick Faces scan/numbering means gets edited — a stale pick would silently refine the wrong
+  // face (same bug class as the picker/render numbering mismatch — SPEC §20).
+  function invalidateFacePicks() {
+    state.frConfirmedPick = "";
+    state.frChainPicks = [];
+  }
   function setFrSource(inputFilename: string, kind: string, _item?: any) {
     state.frSource = inputFilename;
     state.frSourceKind = kind;
     state.frSourceMeta = null;
+    invalidateFacePicks();
     persist();
     renderLeft();
     renderPrompts();
@@ -1836,18 +1862,28 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftPanel.appendChild(accordion("frface", "Face selection", isManualSelect ? "Manual" : (state.frSelect || "largest_face"), () => {
       const kids: (Node | null)[] = [
         row([
-          col([label("Select"), select(FR_SELECT_MODES.map((s) => ({ value: s, label: s })), state.frSelect || "largest_face", (v) => { state.frSelect = v; persist(); renderLeft(); })]),
-          col([label("Confidence"), numberField(state.frConfidence ?? 0.35, (v) => { state.frConfidence = Math.min(0.95, Math.max(0.05, v)); persist(); }, 0.05)]),
+          col([label("Select"), select(FR_SELECT_MODES.map((s) => ({ value: s, label: s })), state.frSelect || "largest_face", (v) => { state.frSelect = v; invalidateFacePicks(); persist(); renderLeft(); })]),
+          col([label("Confidence"), numberField(state.frConfidence ?? 0.35, (v) => { state.frConfidence = Math.min(0.95, Math.max(0.05, v)); invalidateFacePicks(); persist(); }, 0.05)]),
         ]),
         row([
           col([checkboxRow("Identity reference", state.frIdentityTrack !== false, (v) => { state.frIdentityTrack = v; persist(); })]),
-          col([checkboxRow("Cut detection", !!state.frCutDetection, (v) => { state.frCutDetection = v; persist(); })]),
+          col([checkboxRow("Cut detection", !!state.frCutDetection, (v) => { state.frCutDetection = v; invalidateFacePicks(); persist(); })]),
         ]),
       ];
       if (isManualSelect) {
         const pickBtn = button("🎯 Pick Faces", () => openFacePickModal());
         pickBtn.style.width = "100%";
+        // The scan endpoint decodes the whole clip up front — never call it while anything
+        // else is queued/running on this screen (SPEC_MINIMAX_H3_FACE_REFINE.md §21: scanning
+        // during another render can wedge the ComfyUI process). Same `running` flag every
+        // other run-gated control on this screen already checks.
+        if (running) {
+          pickBtn.disabled = true;
+          pickBtn.style.opacity = "0.5";
+          pickBtn.title = "A render is already running — wait for it to finish first.";
+        }
         kids.push(pickBtn);
+        if (running) kids.push(el("div", { text: "⏳ A render is running — Pick Faces is disabled until it finishes.", style: { fontSize: "10px", color: C.warn } }));
       }
       kids.push(el("div", {
         text: isManualSelect
@@ -1981,10 +2017,366 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftOuter.appendChild(seedGenWrap);
   }
 
-  // Stub — the Pick Faces modal itself is a later pass. For now this just tells the user
-  // the picker isn't wired up yet, so a click never silently does nothing.
-  function openFacePickModal() {
-    showPopup("Pick Faces isn't wired up yet — coming in a later pass.", true);
+  // Pick Faces modal — mirrors one_node_minimax_h3.js openFacePickModal (node 1978-2234).
+  // Scans the source clip once via /h3_facerefine/scan, then lets the user pick the subject
+  // face(s): a single-shot clip gets an ORDERED multi-click chain (each click chains another
+  // H3 Face Refine pass over the previous pass's own output — runFaceRefine below); a
+  // multi-shot (cut-detected) clip gets one face pick per shot instead.
+  async function openFacePickModal() {
+    if (!state.frSource) { showPopup("Pick a source clip first.", true); return; }
+    if (running) { showPopup("A render is already running — wait for it to finish before scanning for faces.", true); return; }
+
+    const overlay = el("div", { style: {
+      position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100060",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
+    } });
+    const modal = el("div", { style: {
+      background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px",
+      width: "min(900px, 100%)", maxHeight: "90vh", overflowY: "auto", padding: "16px",
+      display: "flex", flexDirection: "column", gap: "12px", boxSizing: "border-box",
+    } });
+    const title = el("div", { text: "Pick Faces", style: { fontSize: "14px", fontWeight: "700", color: C.text } });
+    // The scan is one blocking request with nothing to show yet — same big-centered-purple
+    // treatment as the main render's own pre-sampling banner, then drops back to small/muted
+    // once real content (shot cards, or an error) has something to show.
+    const status = el("div", { text: "🔍 Scanning the clip for faces and cuts…", style: {
+      fontSize: "18px", fontWeight: "700", color: "#b57bff", textAlign: "center",
+      padding: "24px 16px", textShadow: "0 0 12px rgba(181,123,255,0.5)",
+    } });
+    const scanningStyle = () => {
+      status.style.fontSize = "12px"; status.style.fontWeight = "400";
+      status.style.color = C.muted; status.style.textAlign = "left";
+      status.style.padding = "0"; status.style.textShadow = "none";
+    };
+    const capWarn = el("div", { style: { fontSize: "11px", color: C.warn, display: "none" } });
+    const cardsWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "12px" } });
+    const closeBtn = button("✕ Cancel", () => overlay.remove(), "default");
+    const useBtn = button("✓ Use these", () => {}, "primary");
+    useBtn.disabled = true; useBtn.style.opacity = "0.5";
+    const footer = el("div", { style: { display: "flex", gap: "8px", justifyContent: "flex-end" } }, [closeBtn, useBtn]);
+    modal.append(title, status, capWarn, cardsWrap, footer);
+    overlay.appendChild(modal);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+
+    let shots: any[] = [];
+    const picks: (number | null)[] = [];   // per-shot single chosen face index (multi-shot path); -1 = "not in this shot"; null = unanswered
+    const order: number[] = [];            // single-shot path: ORDERED list of face indices to chain through — §12
+
+    // /h3_facerefine/scan decodes the WHOLE clip into memory up front (same class of issue
+    // the gallery's chunked post-process already works around) — CPU+RAM, not GPU/VRAM, so a
+    // long/large clip can exhaust system RAM and hang the whole ComfyUI process rather than
+    // erroring cleanly. Cap frame_load_cap with the same byte-budget formula used for gallery
+    // post-process chunking (1.25 GB / (w*h*16), clamped 8..240) so a long clip only scans its
+    // opening window instead of loading everything.
+    let scanFrameCap = 0;
+    try {
+      const info = await getVideoInfo(state.frSource, "", "input");
+      const totalFrames = info.frames || 0;
+      const perFrameBytes = Math.max(1, (info.width || 0) * (info.height || 0) * 16);
+      const budgetFrames = Math.max(8, Math.min(240, Math.floor((1.25 * 1024 ** 3) / perFrameBytes)));
+      if (totalFrames > budgetFrames) scanFrameCap = budgetFrames;
+    } catch { /* video_info unavailable — scan uncapped, same as before */ }
+
+    try {
+      const d = await scanFaceRefine({
+        video: state.frSource, detector: state.faceDetector, confidence: state.frConfidence ?? 0.35,
+        cut_detection: state.frCutDetection ? "auto (pyscenedetect)" : "none",
+        cut_threshold: state.frCutThreshold ?? 3.0,
+        frame_load_cap: scanFrameCap,
+      });
+      scanningStyle();
+      if (scanFrameCap) {
+        capWarn.textContent = `⚠ Large clip — scan capped to the first ${scanFrameCap} frames to avoid exhausting RAM. Cuts after that point won't show up here.`;
+        capWarn.style.display = "";
+      }
+      shots = d.shots || [];
+      if (!shots.length) throw new Error("No shots found.");
+
+      if (shots.length === 1) {
+        // ── single-shot clip: pick MULTIPLE faces, in the order to chain them ──
+        // Each pick becomes its own H3 Face Refine pass over the PREVIOUS pass's own output
+        // (runFaceRefine's chain loop) — "5 faces found, only 3/5/7 in this order" is exactly
+        // clicking them in that order here.
+        const shot = shots[0];
+        status.textContent = `${shot.faces} face(s) found — click them in the order to refine (skip anyone you don't want).`;
+        const imgWrap = el("div", { style: { position: "relative", width: "100%", background: "#000", borderRadius: "6px", overflow: "hidden" } });
+        const chipsWrap = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });
+        const orderLine = el("div", { style: { fontSize: "11px", color: C.muted } });
+
+        function renderChips() {
+          clear(chipsWrap);
+          for (let fi = 0; fi < shot.faces; fi++) {
+            const pos = order.indexOf(fi);
+            const on = pos >= 0;
+            const chip = el("button", { type: "button", text: on ? `${fi} (${pos + 1})` : String(fi), style: {
+              minWidth: "34px", height: "26px", borderRadius: "13px", cursor: "pointer", fontSize: "11px",
+              padding: "0 8px", border: `1px solid ${on ? BRAND : C.border}`, background: on ? BRAND : C.bg2,
+              color: on ? "#fff" : C.text,
+            } });
+            chip.addEventListener("click", () => {
+              const p = order.indexOf(fi);
+              if (p >= 0) order.splice(p, 1); else order.push(fi);
+              renderChips(); renderBoxes();
+            });
+            chipsWrap.appendChild(chip);
+          }
+          orderLine.textContent = order.length
+            ? `Order: ${order.join(" → ")} (${order.length} pass${order.length > 1 ? "es" : ""})` : "Nothing picked yet.";
+          useBtn.disabled = order.length === 0;
+          useBtn.style.opacity = useBtn.disabled ? "0.5" : "1";
+        }
+        function renderBoxes() {
+          clear(imgWrap);
+          if (!shot.jpg) {
+            imgWrap.appendChild(el("div", { text: "no face found", style: { color: C.muted, fontSize: "11px", padding: "24px", textAlign: "center" } }));
+            return;
+          }
+          imgWrap.appendChild(el("img", { src: `data:image/jpeg;base64,${shot.jpg}`, style: { width: "100%", display: "block" } }));
+          (shot.boxes || []).forEach((b: number[], fi: number) => {
+            const [x0, y0, x1, y1] = b;
+            const pos = order.indexOf(fi);
+            const on = pos >= 0;
+            const box = el("div", { title: `Face ${fi}`, style: {
+              position: "absolute", left: `${x0 * 100}%`, top: `${y0 * 100}%`,
+              width: `${(x1 - x0) * 100}%`, height: `${(y1 - y0) * 100}%`,
+              border: `2px solid ${on ? BRAND : "rgba(255,255,255,0.7)"}`, borderRadius: "3px",
+              cursor: "pointer", boxSizing: "border-box",
+            } });
+            if (on) box.appendChild(el("div", { text: String(pos + 1), style: {
+              position: "absolute", top: "-9px", left: "-9px", width: "18px", height: "18px",
+              borderRadius: "9px", background: BRAND, color: "#fff", fontSize: "10px",
+              display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700",
+            } }));
+            box.addEventListener("click", () => {
+              const p = order.indexOf(fi);
+              if (p >= 0) order.splice(p, 1); else order.push(fi);
+              renderChips(); renderBoxes();
+            });
+            imgWrap.appendChild(box);
+          });
+        }
+        renderBoxes(); renderChips();
+        cardsWrap.appendChild(el("div", { style: { border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", display: "flex", flexDirection: "column", gap: "6px" } }, [imgWrap, chipsWrap, orderLine]));
+      } else {
+        // ── multiple shots (cuts): one subject per shot, no cross-person chain ──
+        status.textContent = `${shots.length} shot(s) found${d.cached ? " (cached scan)" : ""} — click a face per shot.`;
+        const prior = String(state.frConfirmedPick || "").split(",").map((s) => parseInt(s.trim(), 10));
+        const priorValid = prior.length === shots.length && prior.every((n) => !Number.isNaN(n));
+
+        shots.forEach((shot, i) => {
+          picks[i] = priorValid ? prior[i] : null;
+          const card = el("div", { style: { border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px", display: "flex", flexDirection: "column", gap: "6px" } });
+          const imgWrap = el("div", { style: { position: "relative", width: "100%", background: "#000", borderRadius: "6px", overflow: "hidden" } });
+          const chipsWrap = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });
+
+          function renderChips() {
+            clear(chipsWrap);
+            for (let fi = 0; fi < shot.faces; fi++) {
+              const on = picks[i] === fi;
+              const chip = el("button", { type: "button", text: String(fi), style: {
+                width: "26px", height: "26px", borderRadius: "13px", cursor: "pointer", fontSize: "11px",
+                border: `1px solid ${on ? BRAND : C.border}`, background: on ? BRAND : C.bg2,
+                color: on ? "#fff" : C.text,
+              } });
+              chip.addEventListener("click", () => { picks[i] = fi; renderChips(); renderBoxes(); });
+              chipsWrap.appendChild(chip);
+            }
+            const noneOn = picks[i] === -1;
+            const noneChip = el("button", { type: "button", text: "not in this shot", style: {
+              padding: "4px 8px", borderRadius: "6px", cursor: "pointer", fontSize: "11px",
+              border: `1px solid ${noneOn ? BRAND : C.border}`, background: noneOn ? BRAND : C.bg2,
+              color: noneOn ? "#fff" : C.text,
+            } });
+            noneChip.addEventListener("click", () => { picks[i] = -1; renderChips(); renderBoxes(); });
+            chipsWrap.appendChild(noneChip);
+            useBtn.disabled = picks.some((p) => p == null);
+            useBtn.style.opacity = useBtn.disabled ? "0.5" : "1";
+          }
+
+          function renderBoxes() {
+            clear(imgWrap);
+            if (!shot.jpg) {
+              imgWrap.appendChild(el("div", { text: "no face found in this shot", style: { color: C.muted, fontSize: "11px", padding: "24px", textAlign: "center" } }));
+              return;
+            }
+            imgWrap.appendChild(el("img", { src: `data:image/jpeg;base64,${shot.jpg}`, style: { width: "100%", display: "block" } }));
+            (shot.boxes || []).forEach((b: number[], fi: number) => {
+              const [x0, y0, x1, y1] = b;
+              const on = picks[i] === fi;
+              const box = el("div", { title: `Face ${fi}`, style: {
+                position: "absolute", left: `${x0 * 100}%`, top: `${y0 * 100}%`,
+                width: `${(x1 - x0) * 100}%`, height: `${(y1 - y0) * 100}%`,
+                border: `2px solid ${on ? BRAND : "rgba(255,255,255,0.7)"}`, borderRadius: "3px",
+                cursor: "pointer", boxSizing: "border-box",
+              } });
+              box.addEventListener("click", () => { picks[i] = fi; renderChips(); renderBoxes(); });
+              imgWrap.appendChild(box);
+            });
+          }
+
+          renderBoxes(); renderChips();
+          card.append(
+            el("div", { text: `Shot ${i + 1} — frame ${shot.frame} — ${shot.faces} face(s) detected`, style: { fontSize: "11px", color: C.muted } }),
+            imgWrap, chipsWrap,
+          );
+          cardsWrap.appendChild(card);
+        });
+        useBtn.disabled = picks.some((p) => p == null);
+        useBtn.style.opacity = useBtn.disabled ? "0.5" : "1";
+      }
+    } catch (e: any) {
+      scanningStyle();
+      status.textContent = `Error: ${e.message}`;
+      status.style.color = C.warn;
+    }
+
+    useBtn.addEventListener("click", () => {
+      if (shots.length === 1) {
+        if (!order.length) return;
+        state.frChainPicks = order.slice();
+        state.frConfirmedPick = String(order[0]);
+        persist();
+        overlay.remove();
+        showPopup(`Face picks saved — ${order.length} pass${order.length > 1 ? "es" : ""} queued.`, false);
+      } else {
+        if (picks.some((p) => p == null)) return;
+        state.frChainPicks = [];
+        state.frConfirmedPick = picks.join(",");
+        persist();
+        overlay.remove();
+        showPopup(`Face picks saved — ${shots.length} shot(s).`, false);
+      }
+      renderLeft();
+    });
+  }
+
+  // Face Refine run — mirrors one_node_minimax_h3.js runFaceRefine (node 3885-4000). Single
+  // queue, no pre-planned segmentation (unlike LTX Upscale — the frame count here is unknown
+  // until the tracker actually runs, so there's nothing to segment-plan up front). A manual
+  // multi-face pick (frChainPicks.length > 1) chains that many H3 Face Refine passes, each one
+  // over the PREVIOUS pass's own queued output; only the last pass's output is saved to the
+  // gallery, with the full pick order recorded in its meta.
+  async function runFaceRefine() {
+    if (running) return;
+    if (!faceRefineReady(state)) { showPopup("Set a face detector in ⚙ Settings → Models first — missing: " + faceRefineMissing(state).join(", "), true); return; }
+    if (!state.frSource) { showPopup("Pick a source clip (gallery) or upload a video.", true); return; }
+    if (state.frSelect === "manual" && !String(state.frConfirmedPick || "").trim() && !(state.frChainPicks || []).length) {
+      showPopup("Select is Manual but no face has been picked yet.", true); return;
+    }
+
+    if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
+    else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
+    else if (state.seedMode === "decrement") { state.seed = Math.max(0, (state.seed || 0) - 1); seedInput.value = String(state.seed); }
+    persist();
+    const rs: MinimaxState = JSON.parse(JSON.stringify(state));
+    const chain = rs.frSelect === "manual" && Array.isArray(rs.frChainPicks) && rs.frChainPicks.length > 1
+      ? rs.frChainPicks : null;
+
+    running = true; stopRequested = false;
+    genBtn.disabled = true; genBtn.textContent = "⏳ Face Refine…";
+    nextGenBtn.style.display = "none";
+    setLeftLocked(true);
+    resetPreview(); barInner.style.width = "0%";
+    startClock();
+    keepTabAlive(true);
+    let out: any = null;
+    try {
+      if (!ctx.availability || !Object.keys(ctx.availability).length) {
+        const av = await getNodeAvailability();
+        ctx.availability = av.available || {}; ctx.availabilityInfo = av;
+      }
+
+      let sourceFile = rs.frSource;
+      let lastMeta: any = null;
+      const steps = chain || [null as number | null]; // null = single-subject run, uses rs.frConfirmedPick as-is
+
+      for (let i = 0; i < steps.length; i++) {
+        if (stopRequested) throw new Error("Stopped.");
+        const passLabel = chain ? ` — pass ${i + 1}/${chain.length} (face ${chain[i]})` : "";
+        setStatus(`Face Refine${passLabel} · queued (tracking + per-frame img2img)`);
+        // Detection/tracking runs before sampling and streams nothing of its own — show the
+        // big centered banner for that silent stretch, cleared by either a live preview frame
+        // or the first numeric step callback (both wired above).
+        placeholder.style.display = "none";
+        frDetectBanner.style.display = "flex";
+        samplingActive = true;
+        applyPreviewOffState();
+
+        const built = buildFaceRefineGraph(rs, ctx.availability, {
+          nodeId: instanceId, sourceFile, promptText: rs.frPrompt, seed: rs.seed,
+          refImages: rs.refImages, userPresets,
+          confirmedPickOverride: chain ? String(chain[i]) : undefined,
+        });
+        lastMeta = built.meta;
+        let r;
+        try {
+          r = await queuePrompt(built.graph, {
+            onProgress: (v, m) => {
+              setStepProgress(chain ? (i + (v || 0) / (m || 1)) : v, chain ? chain.length : m);
+              setStatus(`Face Refine${passLabel} · step ${v}/${m}`);
+            },
+            samplerNode: "MM:sampler",
+          });
+        } finally {
+          samplingActive = false;
+          frDetectBanner.style.display = "none";
+        }
+        out = firstOutput(r.byNode, "FR:save");
+        if (!out) throw new Error(`Face Refine${passLabel} produced no output.`);
+
+        // Not the last pass: this pass's own output becomes the next pass's source — copy to
+        // input/ so the next VHS_LoadVideo/H3FaceSelect can read it.
+        if (i < steps.length - 1) {
+          sourceFile = await copyOutputToInput(out.filename, out.subfolder || "", "output");
+          try { await freeMemory(); } catch {}
+        }
+      }
+      if (!out) throw new Error("Face Refine produced no output.");
+
+      const clipMeta: any = {
+        v: 1, prompt: String(rs.frPrompt || ""), mode: "facerefine",
+        source: rs.frSource, sourceKind: rs.frSourceKind,
+        faceRefine: {
+          select: rs.frSelect, detector: rs.faceDetector, cropFactor: rs.frCropFactor,
+          canvasMode: rs.frCanvasMode, denoise: rs.frDenoise,
+          turboMode: lastMeta?.turboMode, loras: lastMeta?.loras || [],
+          // Records the full chain order (not just the last pass's own single pick) so a
+          // later Reuse/inspection can see every subject this clip's passes ran through.
+          ...(chain ? { chainPicks: chain } : {}),
+        },
+        steps: lastMeta?.steps, seed: lastMeta?.seed,
+        elapsedSec: (Date.now() - runStart) / 1000,
+      };
+      await reconcileGeometry(clipMeta, out);
+      saveMeta(out.filename, out.subfolder || "", clipMeta);
+
+      const url = outputViewUrl(out.filename, out.subfolder || "", out.type || "output");
+      showResultVideo(url);
+      badge.classList.remove("hidden");
+      badge.textContent = "FACE REFINED";
+      setStatus(`Done — ${out.filename}`);
+      barInner.style.width = "100%";
+      try { refreshGallery(); } catch {}
+    } catch (e: any) {
+      if (e.message === "Stopped.") {
+        setStatus("Stopped.");
+      } else {
+        const why = explainGenerationError(e.message);
+        setStatus(why ? `Error: ${why}` : `Error: ${e.message}`);
+        showPopup(why || e.message, true);
+      }
+    } finally {
+      frDetectBanner.style.display = "none";
+      samplingActive = false;
+      try { await freeMemory(); } catch {}
+      running = false; stopRequested = false;
+      genBtn.disabled = false; genBtn.textContent = "▶ Generate";
+      placeholder.innerHTML = "▶ Generate to render the first clip<br><span style='font-size:10px'>live sampling frames appear here</span>";
+      setLeftLocked(false);
+      stopClock();
+      keepTabAlive(false);
+    }
   }
 
   function renderLeft() {
@@ -2822,6 +3214,13 @@ export function renderMinimaxH3(container: HTMLElement) {
           // bar directly off this segment's own step/max, offset by how many segments are
           // already done.
           onProgress: (v, m) => {
+            // This numeric callback is the OTHER clear path for the "reconnecting to the live
+            // preview" placeholder text set above — previously only a live preview frame
+            // (showPreviewFrame) ever cleared it, so a run with previewEnabled off (or one
+            // whose first image frame is slow) could sit on that text long after sampling had
+            // actually started. Clear it here too, same as setStepProgress does for the main
+            // H3 path and Face Refine's own detect banner.
+            placeholder.style.display = "none";
             const segFrac = m ? v / m : 0;
             const overall = (i + segFrac) / passes.length;
             barInner.style.width = `${Math.max(0, Math.min(100, overall * 100)).toFixed(1)}%`;
@@ -2896,6 +3295,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   genBtn.addEventListener("click", () => {
     if (state.generationMode === "ltxupscale") { runLtxUpscale(); return; }
+    if (state.generationMode === "facerefine") { runFaceRefine(); return; }
     runGenerate();
   });
 

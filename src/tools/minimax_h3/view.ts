@@ -96,6 +96,7 @@ import {
   scanFaceRefine,
   listPromptSets,
   getPromptSet,
+  type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
@@ -1197,19 +1198,61 @@ export function renderMinimaxH3(container: HTMLElement) {
     else if (running) promptList.append(el("div", { text: "⏳ LTX Upscale is rendering — the prompt is locked until it finishes.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
   }
 
+  // A saved set's own promptHeader (common) + one shot's text + promptFooter (the sound/
+  // music tail) — the same three-part structure the main shot-list editor composes per clip
+  // (core.ts composeClipPrompt), but built directly from the LOADED set's own header/footer
+  // rather than the live state's — these two modes have no LoRA-trigger/suffix concept of
+  // their own, so only the three parts asked for. Mirrors node `c88dfc1`.
+  function composeSetPrompt(setData: PromptSetData, shotText: string) {
+    return [setData.promptHeader, shotText, setData.promptFooter]
+      .map((s) => (s || "").trim()).filter(Boolean).join("\n\n");
+  }
+  // Multiple shots in one set → let the user pick which one becomes the single prompt,
+  // rather than silently always taking the first.
+  function pickShotFromSet(setData: PromptSetData & { name: string }): Promise<string | null> {
+    return new Promise((resolve) => {
+      const shots = setData.prompts.map((p: any) => (typeof p === "string" ? p : (p?.text || "")));
+      const overlay = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100055", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" } });
+      const modal = el("div", { style: { background: "#0e0e0e", border: `1px solid ${C.border}`, borderRadius: "10px", width: "min(560px, 100%)", maxHeight: "80vh", overflowY: "auto", padding: "14px", display: "flex", flexDirection: "column", gap: "8px", boxSizing: "border-box" } });
+      modal.append(el("div", { text: `"${setData.name || ""}" has ${shots.length} shots — pick one`, style: { fontSize: "13px", fontWeight: "700", color: C.text } }));
+      let settled = false;
+      const finish = (v: string | null) => { if (settled) return; settled = true; overlay.remove(); resolve(v); };
+      shots.forEach((t: string, i: number) => {
+        const item = el("button", {
+          type: "button",
+          style: { textAlign: "left", cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "8px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+        }) as HTMLButtonElement;
+        item.append(
+          el("div", { text: `Shot ${i + 1}`, style: { fontSize: "10px", color: C.muted, marginBottom: "3px" } }),
+          el("div", { text: t.trim() || "(empty)", style: { whiteSpace: "pre-wrap" } }),
+        );
+        item.addEventListener("click", () => finish(t));
+        modal.appendChild(item);
+      });
+      modal.appendChild(el("button", {
+        type: "button", text: "✕ Cancel",
+        style: { alignSelf: "flex-end", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: "transparent", color: C.err, border: `1px solid ${C.border}` },
+        onclick: () => finish(null),
+      }));
+      overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) finish(null); });
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+    });
+  }
   // Shared "load a saved prompt preset" row for the LTX Upscale / Face Refine prompt-edit
   // modals — a select of the same server-side prompt sets the main shot-list editor
   // saves/loads (Prompt Sets), but these two modes have one flat prompt, not a per-clip
-  // list, so loading here only takes the FIRST prompt entry's TEXT and drops everything else
-  // that set carries (images, header/footer, ref video/audio, clip length) — per the user's
-  // explicit ask: "불러오는 데이터는 프롬포트 항목만 불어오는 걸로." (mirrors node `1dd704b`).
+  // list. Loading composes header+shot+footer into a single prompt (composeSetPrompt) and
+  // drops everything else the set carries (images, ref video/audio) — per the user's
+  // explicit ask. A set with more than one shot pops pickShotFromSet() to choose which shot
+  // goes into that single prompt.
   function promptPresetLoadRow(onLoad: (text: string, name: string) => void) {
     const wrap = el("div", { style: { display: "flex", gap: "6px", alignItems: "center" } });
     const sel = el("select", {
       style: { flex: "1", minWidth: "0", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
     }) as HTMLSelectElement;
     const loadBtn = el("button", {
-      type: "button", text: "📂 Load preset", title: "Load a saved prompt preset — text only, no images/refs",
+      type: "button", text: "📂 Load preset", title: "Load a saved prompt preset — composed as header + shot + sound/music, no images/refs",
       style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, flexShrink: "0" },
     }) as HTMLButtonElement;
     listPromptSets().then((sets) => {
@@ -1222,9 +1265,16 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (!name) return;
       try {
         const s = await getPromptSet(name);
-        const first = Array.isArray(s.prompts) && s.prompts.length ? s.prompts[0] : null;
-        const text = first ? (typeof first === "string" ? first : ((first as any).text || "")) : "";
-        onLoad(text, name);
+        const shots = Array.isArray(s.prompts) ? s.prompts : [];
+        let shotText = "";
+        if (shots.length > 1) {
+          const picked = await pickShotFromSet({ ...s, name });
+          if (picked == null) return; // cancelled
+          shotText = picked;
+        } else if (shots.length === 1) {
+          shotText = typeof shots[0] === "string" ? shots[0] : ((shots[0] as any)?.text || "");
+        }
+        onLoad(composeSetPrompt(s, shotText), name);
       } catch (e: any) {
         showPopup(`Load failed: ${e.message || e}`, true);
       }

@@ -1181,3 +1181,33 @@ export function buildInterpolateGraph(inputFilename: string, folder: string, ste
   g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
   return { graph: g, saveNode: "save" };
 }
+
+// Gallery Resize post-process — mainly for downscaling / adjusting a finished clip's frame
+// size. width/height/crop are computed client-side by the caller (galleryOverlay.ts's
+// computeResizeTarget) from the source clip's own resolution + the chosen mode
+// (Long/Short/Ratio/MegaPixel/WxH) — this function just runs whatever exact numbers it's
+// given through ComfyUI core's own ImageScale, which already does everything needed:
+// `crop:"disabled"` scales both dimensions to the given width/height exactly (used for Long/
+// Short/WxH-stretch, where the caller already computed an aspect-preserving or intentionally
+// distorted target); `crop:"center"` scales to COVER the target box then centre-crops the
+// excess (used for Ratio and WxH-crop) — since the caller sizes the crop target to touch one
+// full source dimension, the cover-scale factor comes out to exactly 1.0 and this is a pure
+// crop, not a lossy scale+crop.
+export interface ResizeGraphOpts {
+  width: number;
+  height: number;
+  crop: "disabled" | "center";
+  skipFirstFrames?: number;
+  frameLoadCap?: number;
+  saveSuffix?: string;
+}
+
+export function buildResizeGraph(inputFilename: string, folder: string, stem: string, opts: ResizeGraphOpts) {
+  const g: Record<string, any> = {};
+  g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: opts.frameLoadCap ?? 0, skip_first_frames: opts.skipFirstFrames ?? 0, select_every_nth: 1 } };
+  g.resize = { class_type: "ImageScale", inputs: { image: ["load", 0], upscale_method: "lanczos", width: opts.width, height: opts.height, crop: opts.crop } };
+  const suffix = opts.saveSuffix !== undefined ? opts.saveSuffix : `_${opts.width}x${opts.height}`;
+  g.video = { class_type: "CreateVideo", inputs: { images: ["resize", 0], fps: FPS, audio: ["load", 2] } };
+  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
+  return { graph: g, saveNode: "save" };
+}

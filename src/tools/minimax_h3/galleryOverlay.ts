@@ -27,7 +27,7 @@ import {
   type GalleryVideo,
 } from "./api";
 import { queuePrompt, type QueueResult } from "./comfyClient";
-import { buildInterpolateGraph, buildUpscaleGraph } from "./graphBuilder";
+import { buildInterpolateGraph, buildUpscaleGraph, buildResizeGraph } from "./graphBuilder";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { makeSensitiveControl, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
 
@@ -44,6 +44,7 @@ interface PostInfo {
   deblur?: string;
   upscale?: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | null;
   interpolate?: { targetFps: number };
+  resize?: { mode: string; w: number; h: number };
 }
 interface PostJob {
   promptId: string;
@@ -63,6 +64,7 @@ function postLabel(fallback: string, info: PostInfo = {}): string {
   if (info.deblur && info.deblur !== "none") parts.push("deblur");
   if (info.upscale) parts.push(info.upscale.method === "rtx" ? "rtx upscale" : "upscale");
   if (info.interpolate) parts.push("interpolation");
+  if (info.resize) parts.push(`resize (${info.resize.w}×${info.resize.h})`);
   return parts.length ? parts.join(" + ") : String(fallback).toLowerCase();
 }
 function savePostJob(j: PostJob) { try { localStorage.setItem(POST_JOB_KEY, JSON.stringify(j)); } catch {} }
@@ -99,6 +101,7 @@ function metaInfoLines(meta: any): string[] {
     meta.deblur && meta.deblur !== "none" ? "deblur" : null,
     meta.upscale ? (meta.upscale.method === "rtx" ? "rtx upscale" : "upscale") : null,
     meta.interpolate ? "interpolation" : null,
+    meta.resize ? `resize (${meta.resize.w}×${meta.resize.h})` : null,
   ].filter(Boolean).join(" + ");
   if (ppLabel) {
     const from = meta.sourceW && meta.sourceH ? ` (from ${meta.sourceW}×${meta.sourceH})` : "";
@@ -264,7 +267,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     if (!r.ok) ctx.showPopup(`Could not open the folder: ${r.error || "unknown"}`, true);
   });
 
-  let mode: null | "stitch" | "upscale" | "rife" = null;
+  let mode: null | "stitch" | "upscale" | "rife" | "resize" = null;
   let stitchOrder: string[] = [];
   let postPick: string | null = null;
   let postRunning = false;
@@ -279,6 +282,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const stitchBtn = toolBtn("🔗 Stitch", "Pick clips in order, then combine into one file");
   const upscaleBtn = toolBtn("⬆ Upscale", "Upscale a single clip");
   const interpBtn = toolBtn("🎞 Interpolate", "Smooth a single clip with frame interpolation");
+  const resizeBtn = toolBtn("↔ Resize", "Resize a single clip — mainly for downscaling / adjusting video size");
 
   // The three modes take over what a click on a grid card means, so only one can be armed at
   // a time. render:false is used by hide() — the grid was just emptied to stop hover videos,
@@ -300,12 +304,17 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     interpBtn.style.background = mode === "rife" ? BRAND : C.bg2;
     interpBtn.style.borderColor = mode === "rife" ? BRAND : C.border;
     interpBar.style.display = mode === "rife" ? "flex" : "none";
+    resizeBtn.style.background = mode === "resize" ? BRAND : C.bg2;
+    resizeBtn.style.borderColor = mode === "resize" ? BRAND : C.border;
+    resizeBar.style.display = mode === "resize" ? "flex" : "none";
+    if (mode === "resize") refreshResizeBar();
     if (doRender) renderGrid();
   }
   stitchBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "stitch" ? null : "stitch"); });
   upscaleBtn.addEventListener("click", () => { if (!postRunning) { rebuildUpscaleModels(); setMode(mode === "upscale" ? null : "upscale"); } });
   interpBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "rife" ? null : "rife"); });
-  hdr.append(deleteSelBtn, fullBtn, stitchBtn, upscaleBtn, interpBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  resizeBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "resize" ? null : "resize"); });
+  hdr.append(deleteSelBtn, fullBtn, stitchBtn, upscaleBtn, interpBtn, resizeBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const stitchBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg", style: { background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
   const stitchInfo = el("div", { class: "flex-1 text-[10.5px]", style: { color: C.text } });
@@ -630,6 +639,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     if (postInfo.deblur && postInfo.deblur !== "none") base.deblur = postInfo.deblur;
     if (postInfo.upscale) base.upscale = postInfo.upscale;
     if (postInfo.interpolate) base.interpolate = postInfo.interpolate;
+    if (postInfo.resize) base.resize = postInfo.resize;
     try {
       const oi = await getVideoInfo(outFile.filename, outFile.subfolder || "", "output");
       if (oi.width || oi.height) {
@@ -867,16 +877,164 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     interpRunBtn.title = missing ? "Missing node: RIFEInterpolation" : "";
   }
 
+  // ── Resize bar ─────────────────────────────────────────────────────────────
+  // Mainly for downscaling / adjusting a finished clip's frame size (user, 2026-09-12). All
+  // five modes go through the one ImageScale-based buildResizeGraph — this bar's whole job is
+  // computing the exact target width/height/crop from the picked clip's own resolution
+  // (meta.w/meta.h, already saved on every clip) before handing off to runPost.
+  type ResizeMode = "long" | "short" | "ratio" | "mp" | "wxh";
+  let resizeMode: ResizeMode = "long";
+  let resizeLongPx = 1280;
+  let resizeShortPx = 720;
+  let resizeMp = 1.0;
+  let resizeW = 1280;
+  let resizeH = 720;
+  let resizeWxhMethod: "crop" | "stretch" = "crop";
+  const LANDSCAPE_RATIOS = [
+    { key: "16:9", w: 16, h: 9 }, { key: "4:3", w: 4, h: 3 }, { key: "3:2", w: 3, h: 2 }, { key: "1:1", w: 1, h: 1 },
+  ];
+  const PORTRAIT_RATIOS = [
+    { key: "9:16", w: 9, h: 16 }, { key: "3:4", w: 3, h: 4 }, { key: "2:3", w: 2, h: 3 }, { key: "1:1", w: 1, h: 1 },
+  ];
+  let resizeRatio = "16:9";
+
+  function evenize(n: number) { return Math.max(2, Math.round(n / 2) * 2); }
+
+  // Long/Short: scale to a target px on whichever side the mode names, aspect preserved
+  // exactly (crop:"disabled"). Ratio: crop (no scale) to the target aspect at the source's own
+  // resolution — sized to touch one full source dimension, so ImageScale's cover-scale is
+  // exactly 1.0 and no interpolation happens, just a centre crop. MegaPixel: uniform scale to
+  // the target pixel-area, aspect preserved. WxH: exact target size, either "crop" (cover +
+  // centre-crop, no distortion) or "stretch" (independent width/height, crop:"disabled").
+  function computeResizeTarget(srcW: number, srcH: number): { width: number; height: number; crop: "disabled" | "center" } {
+    const landscape = srcW >= srcH;
+    if (resizeMode === "long") {
+      const px = Math.max(2, Math.round(resizeLongPx));
+      return landscape
+        ? { width: evenize(px), height: evenize((px * srcH) / srcW), crop: "disabled" }
+        : { width: evenize((px * srcW) / srcH), height: evenize(px), crop: "disabled" };
+    }
+    if (resizeMode === "short") {
+      const px = Math.max(2, Math.round(resizeShortPx));
+      return landscape
+        ? { width: evenize((px * srcW) / srcH), height: evenize(px), crop: "disabled" }
+        : { width: evenize(px), height: evenize((px * srcH) / srcW), crop: "disabled" };
+    }
+    if (resizeMode === "ratio") {
+      const r = [...LANDSCAPE_RATIOS, ...PORTRAIT_RATIOS].find((x) => x.key === resizeRatio) || LANDSCAPE_RATIOS[0];
+      let w = srcW, h = Math.round((srcW * r.h) / r.w);
+      if (h > srcH) { h = srcH; w = Math.round((srcH * r.w) / r.h); }
+      return { width: evenize(Math.min(w, srcW)), height: evenize(Math.min(h, srcH)), crop: "center" };
+    }
+    if (resizeMode === "mp") {
+      const targetPx = Math.max(0.01, resizeMp) * 1e6;
+      const scale = Math.sqrt(targetPx / Math.max(1, srcW * srcH));
+      return { width: evenize(srcW * scale), height: evenize(srcH * scale), crop: "disabled" };
+    }
+    // wxh
+    return {
+      width: evenize(Math.max(2, Math.round(resizeW))), height: evenize(Math.max(2, Math.round(resizeH))),
+      crop: resizeWxhMethod === "crop" ? "center" : "disabled",
+    };
+  }
+
+  const resizeModeSel = select(
+    [
+      { value: "long", label: "Long side" }, { value: "short", label: "Short side" },
+      { value: "ratio", label: "Ratio (centre crop)" }, { value: "mp", label: "Mega Pixel" },
+      { value: "wxh", label: "W × H" },
+    ],
+    resizeMode, (v) => { resizeMode = v as ResizeMode; refreshResizeBar(); },
+  );
+  (resizeModeSel as HTMLElement).style.fontSize = "10.5px";
+  const resizeLongField = numberField(resizeLongPx, (v) => { resizeLongPx = Math.max(2, Math.round(v)); }, 10);
+  (resizeLongField as HTMLElement).style.width = "70px";
+  const resizeShortField = numberField(resizeShortPx, (v) => { resizeShortPx = Math.max(2, Math.round(v)); }, 10);
+  (resizeShortField as HTMLElement).style.width = "70px";
+  const resizeMpField = numberField(resizeMp, (v) => { resizeMp = Math.max(0.01, v); }, 0.1);
+  (resizeMpField as HTMLElement).style.width = "60px";
+  const resizeWField = numberField(resizeW, (v) => { resizeW = Math.max(2, Math.round(v)); }, 10);
+  (resizeWField as HTMLElement).style.width = "70px";
+  const resizeHField = numberField(resizeH, (v) => { resizeH = Math.max(2, Math.round(v)); }, 10);
+  (resizeHField as HTMLElement).style.width = "70px";
+  const resizeWxhMethodSel = select(
+    [{ value: "crop", label: "Crop (fill, no distortion)" }, { value: "stretch", label: "Stretch (exact size)" }],
+    resizeWxhMethod, (v) => { resizeWxhMethod = v as "crop" | "stretch"; },
+  );
+  (resizeWxhMethodSel as HTMLElement).style.fontSize = "10.5px";
+  const resizeRatioSel = select(LANDSCAPE_RATIOS.map((r) => ({ value: r.key, label: r.key })), resizeRatio, (v) => { resizeRatio = v; });
+  (resizeRatioSel as HTMLElement).style.fontSize = "10.5px";
+
+  const resizeFieldsWrap = el("div", { class: "flex items-center gap-2 flex-wrap" });
+  const resizeReadout = makeProgressReadout();
+  const resizeRunBtn = button("↔ Run", () => {
+    const v = findPost();
+    if (!v) return;
+    const srcW = (v as any).meta?.w, srcH = (v as any).meta?.h;
+    if (!srcW || !srcH) { ctx.showPopup("This clip has no saved width/height — can't compute a resize target.", true); return; }
+    const target = computeResizeTarget(srcW, srcH);
+    runPost(
+      v,
+      (f, stem, chunkOpts) => buildResizeGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
+        width: target.width, height: target.height, crop: target.crop,
+        skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
+        saveSuffix: chunkOpts.saveSuffix,
+      }),
+      resizeReadout, resizeRunBtn, "Resize", `_${target.width}x${target.height}`,
+      undefined, // no chunkPlan → resize keeps the RAM byte-budget sizing
+      { resize: { mode: resizeMode, w: target.width, h: target.height } },
+    );
+  }, "primary") as HTMLButtonElement;
+  const resizeBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg flex-wrap", style: { display: "none", background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
+  resizeBar.append(
+    el("div", { text: "Resize:", class: "text-[10.5px] font-bold", style: { color: C.text } }),
+    resizeModeSel, resizeFieldsWrap, resizeReadout.wrap, resizeRunBtn,
+  );
+
+  // Repopulates the ratio dropdown to match the picked clip's own orientation ("가로는 가로
+  // 비율만, 세로는 세로 비율만" — a landscape source only offers landscape ratios and vice
+  // versa, so a pick can't accidentally crop away almost the whole frame) and rebuilds the
+  // mode-specific field row. Called on mode change and whenever the picked clip changes.
+  function refreshResizeBar() {
+    clear(resizeFieldsWrap);
+    if (resizeMode === "long") resizeFieldsWrap.append(resizeLongField, el("span", { text: "px", class: "text-[10.5px]", style: { color: C.muted } }));
+    else if (resizeMode === "short") resizeFieldsWrap.append(resizeShortField, el("span", { text: "px", class: "text-[10.5px]", style: { color: C.muted } }));
+    else if (resizeMode === "ratio") {
+      const v = findPost();
+      const srcW = (v as any)?.meta?.w, srcH = (v as any)?.meta?.h;
+      const list = srcW && srcH && srcW < srcH ? PORTRAIT_RATIOS : LANDSCAPE_RATIOS;
+      clear(resizeRatioSel as any);
+      list.forEach((r) => (resizeRatioSel as HTMLSelectElement).appendChild(el("option", { value: r.key, text: r.key }) as HTMLOptionElement));
+      if (!list.some((r) => r.key === resizeRatio)) resizeRatio = list[0].key;
+      (resizeRatioSel as HTMLSelectElement).value = resizeRatio;
+      resizeFieldsWrap.append(resizeRatioSel);
+    } else if (resizeMode === "mp") {
+      resizeFieldsWrap.append(resizeMpField, el("span", { text: "MP", class: "text-[10.5px]", style: { color: C.muted } }));
+    } else {
+      resizeFieldsWrap.append(
+        resizeWField, el("span", { text: "×", class: "text-[10.5px]", style: { color: C.muted } }), resizeHField, resizeWxhMethodSel,
+      );
+    }
+    refreshResizeAvailability();
+  }
+  function refreshResizeAvailability() {
+    // ImageScale/ImageScaleToTotalPixels are ComfyUI core nodes — no pack dependency to gate on.
+    resizeRunBtn.disabled = !postPick || postRunning;
+    resizeRunBtn.style.opacity = resizeRunBtn.disabled ? "0.5" : "1";
+  }
+  refreshResizeBar();
+
   function refreshPostBar() {
     if (mode === "upscale") refreshUpscaleAvailability();
     else if (mode === "rife") refreshInterpAvailability();
+    else if (mode === "resize") refreshResizeBar();
   }
 
   const grid = el("div", { class: "flex-1 min-h-0 overflow-y-auto grid gap-2", style: { gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", gridAutoRows: "min-content", alignContent: "start", paddingRight: "4px" } });
   const hint = el("div", { class: "shrink-0 text-[10px] text-center", style: { color: C.muted } });
   hint.innerHTML = "double-click a clip to play it full screen · <b>space</b> play/pause · <b>← →</b> seek · <b>[ ]</b> previous / next · <b>Esc</b> close";
 
-  ov.append(hdr, stitchBar, audioOverrideBar, upscaleBar, interpBar, grid, hint);
+  ov.append(hdr, stitchBar, audioOverrideBar, upscaleBar, interpBar, resizeBar, grid, hint);
 
   // ── fullscreen player ───────────────────────────────────────────────────
   const player = el("div", { class: "hidden fixed inset-0 z-[100000] flex-col", style: { display: "none", background: "rgba(0,0,0,0.97)" } });
@@ -1020,7 +1178,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     }
     list.forEach((v, i) => {
       const pickIdx = mode === "stitch" ? stitchOrder.indexOf(vKey(v)) : -1;
-      const postPicked = (mode === "upscale" || mode === "rife") && postPick === vKey(v);
+      const postPicked = (mode === "upscale" || mode === "rife" || mode === "resize") && postPick === vKey(v);
       const picked = pickIdx !== -1 || postPicked;
       const isFull = !!(v as any).is_full;
       const card = el("div", {
@@ -1072,6 +1230,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
         if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
         if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);
+        if (m.resize) marks.push(["Ⓢ", `Resized — ${m.resize.w}×${m.resize.h} (${m.resize.mode})`]);
         // Mode badges — which generation mode produced this clip (SPEC_MINIMAX_H3_FACE_REFINE.md
         // web-mirror pass). Ⓛ = LTX Upscale, Ⓕ = Face Refine. Same bottom-left cluster/styling as
         // the post-process marks above so a card can show both (e.g. an LTX Upscale clip that was
@@ -1157,11 +1316,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         if (picked) {
           card.appendChild(el("div", { text: String(pickIdx + 1), class: "absolute top-1 left-1 z-[2] rounded-full flex items-center justify-center font-bold text-[11px]", style: { width: "20px", height: "20px", background: BRAND, color: "#fff" } }));
         }
-      } else if (mode === "upscale" || mode === "rife") {
+      } else if (mode === "upscale" || mode === "rife" || mode === "resize") {
         card.addEventListener("click", () => {
           if (postRunning) return;
           const key = vKey(v);
           postPick = postPick === key ? null : key;
+          if (mode === "resize") refreshResizeBar();
           renderGrid();
         });
         if (postPicked) {
@@ -1212,7 +1372,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       grid.appendChild(card);
     });
     if (mode === "stitch") refreshStitchBar();
-    else if (mode === "upscale" || mode === "rife") refreshPostBar();
+    else if (mode === "upscale" || mode === "rife" || mode === "resize") refreshPostBar();
   }
 
   async function refresh() {

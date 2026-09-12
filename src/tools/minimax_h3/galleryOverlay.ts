@@ -148,10 +148,23 @@ export interface GalleryOverlayHandle {
 }
 
 export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx): GalleryOverlayHandle {
+  // 사용자 지시: 갤러리를 열어도 앱 전역 상단 메뉴(툴 탭/콘솔/모니터)는 항상 보여야 한다.
+  // 예전엔 fixed inset-0(뷰포트 전체)라 그 위에 겹쳐 topbar를 완전히 가렸다 — top을
+  // topbar의 실제 렌더 높이만큼 띄운다(고정 px 대신 실측 — 데스크톱/모바일 줄바꿈 등
+  // topbar 높이가 달라져도 항상 정확히 그 아래에서 시작한다). 첫 시도로 topbar의
+  // z-index만 올리는 방법도 해봤지만, 그러면 갤러리 자체의 헤더 줄(Close/Stitch/...)이
+  // 같은 자리에서 topbar 밑에 깔려 보이지도, 눌리지도 않게 돼서 되돌리고 이 방식으로 확정.
   const ov = el("div", {
-    class: "fixed inset-0 z-[9998] flex-col p-3 gap-2 box-border",
-    style: { display: "none", background: "rgba(11,11,11,0.985)" },
+    class: "fixed left-0 right-0 bottom-0 z-[9998] flex-col p-3 gap-2 box-border",
+    style: { display: "none", top: "0", background: "rgba(11,11,11,0.985)", overscrollBehavior: "contain" },
   });
+  function fitBelowTopbar() {
+    const tb = document.querySelector<HTMLElement>(".aos-topbar");
+    ov.style.top = tb ? `${tb.getBoundingClientRect().height}px` : "0";
+  }
+  // Topbar height changes when it wraps to 2 rows (window resize / mobile) — keep the
+  // gallery's top edge accurate while it's actually open.
+  window.addEventListener("resize", () => { if (ov.style.display !== "none") fitBelowTopbar(); });
 
   let videos: GalleryVideo[] = [];
   let filterFull = false;
@@ -1030,7 +1043,11 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     else if (mode === "resize") refreshResizeBar();
   }
 
-  const grid = el("div", { class: "flex-1 min-h-0 overflow-y-auto grid gap-2", style: { gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", gridAutoRows: "min-content", alignContent: "start", paddingRight: "4px" } });
+  // overscrollBehavior:"contain" — once this grid hits its own top/bottom scroll limit, the
+  // wheel/touch gesture must NOT chain through to whatever page is behind the (now shorter,
+  // topbar-avoiding) overlay; without it a fast scroll at either end can leak into the H3 tool
+  // page underneath instead of just stopping.
+  const grid = el("div", { class: "flex-1 min-h-0 overflow-y-auto grid gap-2", style: { gridTemplateColumns: "repeat(auto-fill, minmax(252px, 1fr))", gridAutoRows: "min-content", alignContent: "start", paddingRight: "4px", overscrollBehavior: "contain" } });
   const hint = el("div", { class: "shrink-0 text-[10px] text-center", style: { color: C.muted } });
   hint.innerHTML = "double-click a clip to play it full screen · <b>space</b> play/pause · <b>← →</b> seek · <b>[ ]</b> previous / next · <b>Esc</b> close";
 
@@ -1504,6 +1521,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     el: ov,
     playerEl: player,
     show() {
+      fitBelowTopbar();
       ov.style.display = "flex";
       refresh();
       resumePostJob();
@@ -1512,6 +1530,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     // with the new filename, instead of opening the fullscreen player. Any tool wanting a
     // "choose a rendered clip" surface should use this rather than building its own grid.
     showPicker(onPick) {
+      fitBelowTopbar();
       pickCallback = onPick;
       mode = null; stitchOrder = []; postPick = null;
       ov.style.display = "flex";

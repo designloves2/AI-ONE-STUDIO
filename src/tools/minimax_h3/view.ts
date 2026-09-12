@@ -94,6 +94,8 @@ import {
   writeBriefOpenRouter,
   writeBriefNative,
   scanFaceRefine,
+  listPromptSets,
+  getPromptSet,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
@@ -1195,6 +1197,42 @@ export function renderMinimaxH3(container: HTMLElement) {
     else if (running) promptList.append(el("div", { text: "⏳ LTX Upscale is rendering — the prompt is locked until it finishes.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
   }
 
+  // Shared "load a saved prompt preset" row for the LTX Upscale / Face Refine prompt-edit
+  // modals — a select of the same server-side prompt sets the main shot-list editor
+  // saves/loads (Prompt Sets), but these two modes have one flat prompt, not a per-clip
+  // list, so loading here only takes the FIRST prompt entry's TEXT and drops everything else
+  // that set carries (images, header/footer, ref video/audio, clip length) — per the user's
+  // explicit ask: "불러오는 데이터는 프롬포트 항목만 불어오는 걸로." (mirrors node `1dd704b`).
+  function promptPresetLoadRow(onLoad: (text: string, name: string) => void) {
+    const wrap = el("div", { style: { display: "flex", gap: "6px", alignItems: "center" } });
+    const sel = el("select", {
+      style: { flex: "1", minWidth: "0", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
+    }) as HTMLSelectElement;
+    const loadBtn = el("button", {
+      type: "button", text: "📂 Load preset", title: "Load a saved prompt preset — text only, no images/refs",
+      style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, flexShrink: "0" },
+    }) as HTMLButtonElement;
+    listPromptSets().then((sets) => {
+      clear(sel);
+      if (!sets.length) sel.appendChild(el("option", { text: "(no saved prompt presets)", value: "" }));
+      else sets.forEach((s) => sel.appendChild(el("option", { text: `${s.name} · ${s.count}`, value: s.name })));
+    }).catch(() => { clear(sel); sel.appendChild(el("option", { text: "(failed to load)", value: "" })); });
+    loadBtn.addEventListener("click", async () => {
+      const name = sel.value;
+      if (!name) return;
+      try {
+        const s = await getPromptSet(name);
+        const first = Array.isArray(s.prompts) && s.prompts.length ? s.prompts[0] : null;
+        const text = first ? (typeof first === "string" ? first : ((first as any).text || "")) : "";
+        onLoad(text, name);
+      } catch (e: any) {
+        showPopup(`Load failed: ${e.message || e}`, true);
+      }
+    });
+    wrap.append(sel, loadBtn);
+    return wrap;
+  }
+
   // "Prompt Edit" in LTX mode → a modal: source video on top, prompt below. ✓ Apply keeps
   // the edits (already bound live to state); ✕ Cancel reverts to the on-open snapshot.
   function openLtxPromptEdit() {
@@ -1272,7 +1310,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     }, "default") as HTMLButtonElement;
     conv2.disabled = _ltxBusy || !String(state.ltxPrompt || "").trim();
     renderLlmPicker();
-    body.append(label("LLM"), llmWrap, label("Prompt"), bigTA, label("Negative"), bigNeg, row([enh2, conv2, el("div", { style: { flex: "1" } }), llmLabel]));
+    const ltxPresetRow = promptPresetLoadRow((text, name) => {
+      state.ltxPrompt = text; bigTA.value = text; persist();
+      showPopup(`Loaded prompt from "${name}".`, false);
+    });
+    body.append(label("LLM"), llmWrap, label("Prompt"), ltxPresetRow, bigTA, label("Negative"), bigNeg, row([enh2, conv2, el("div", { style: { flex: "1" } }), llmLabel]));
 
     const foot = el("div", { style: { display: "flex", gap: "8px", padding: "10px 12px", borderTop: `1px solid ${C.border}`, flexShrink: "0", justifyContent: "flex-end" } });
     foot.append(button("✕ Cancel", () => finish(false)), button("✓ Apply", () => finish(true), "primary"));
@@ -1330,7 +1372,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     const bigTA = el("textarea", { style: { width: "100%", minHeight: "200px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "10px", fontSize: "13px", fontFamily: "inherit", outline: "none", resize: "vertical" } }) as HTMLTextAreaElement;
     bigTA.value = state.frPrompt || "";
     bigTA.addEventListener("input", () => { state.frPrompt = bigTA.value; persist(); });
-    body.append(label("Prompt"), bigTA);
+    const frPresetRow = promptPresetLoadRow((text, name) => {
+      state.frPrompt = text; bigTA.value = text; persist();
+      showPopup(`Loaded prompt from "${name}".`, false);
+    });
+    body.append(label("Prompt"), frPresetRow, bigTA);
 
     const foot = el("div", { style: { display: "flex", gap: "8px", padding: "10px 12px", borderTop: `1px solid ${C.border}`, flexShrink: "0", justifyContent: "flex-end" } });
     foot.append(button("✕ Cancel", () => finish(false)), button("✓ Apply", () => finish(true), "primary"));

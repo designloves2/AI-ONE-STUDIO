@@ -250,6 +250,21 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     folderSel.value = activeFolder;
     folderSel.style.display = tree.length ? "" : "none";
   }
+  // The underlying scan is always live server-side, but this dropdown only re-fetched on
+  // tab-switch/folder-pick — a folder created on disk while the picker sat open wouldn't show
+  // up. User: "실시간 갱신도 되야해." Force a fresh fetch (bust the cache, don't just repaint
+  // from what's already cached) right before the dropdown opens, plus a background poll while
+  // the picker is open at all. Mirrors node `8b74eb4`.
+  function refreshFolderSel() {
+    if (activeTool.id === INPUT_TOOL.id) inputFilesCache = null;
+    else if (activeTool.id === OUTPUT_TOOL.id) outputFilesCache = null;
+    else return;
+    renderFolderSel();
+  }
+  folderSel.addEventListener("mousedown", () => refreshFolderSel());
+  const folderPollTimer = window.setInterval(() => {
+    if (activeTool.id === INPUT_TOOL.id || activeTool.id === OUTPUT_TOOL.id) refreshFolderSel();
+  }, 5000);
 
   const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gridAutoRows: "min-content", gap: "6px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
   const statusEl = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
@@ -261,6 +276,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   ov.appendChild(box);
 
   function close() {
+    window.clearInterval(folderPollTimer);
     document.removeEventListener("keydown", onKey);
     document.body.removeChild(ov);
   }

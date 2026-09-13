@@ -6,6 +6,12 @@ import type { MinimaxState } from "./core";
 import { SUBFOLDER, FPS, UPSCALE_MODES, framesToSeconds, composeStitchedPrompt } from "./core";
 import { button, el, clear, confirmDialog, alertDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
+
+// "This is a stitch result" (card border / ★ badge / ★-only filter / Stitch mode button) used
+// to share BRAND purple with "this card is currently picked" (stitch-mode selection, post-
+// process pick) — making the two indistinguishable on a stitched card while picking it. BRAND
+// now means "picked" only; amber means "stitched" only. Mirrors node `8bd31ed`.
+const STITCH_COLOR = "#e0a530";
 import {
   analyzeImagesNative,
   clipViewUrl,
@@ -268,8 +274,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const fullBtn = toolBtn("★ stitched only");
   fullBtn.addEventListener("click", () => {
     filterFull = !filterFull;
-    fullBtn.style.background = filterFull ? BRAND : C.bg2;
-    fullBtn.style.borderColor = filterFull ? BRAND : C.border;
+    fullBtn.style.background = filterFull ? STITCH_COLOR : C.bg2;
+    fullBtn.style.borderColor = filterFull ? STITCH_COLOR : C.border;
     renderGrid();
   });
   const refreshBtn = toolBtn("↻", "Refresh");
@@ -307,8 +313,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     oneTakeUserSet = false;
     selectedKeys.clear();
     refreshDeleteSelBtn();
-    stitchBtn.style.background = mode === "stitch" ? BRAND : C.bg2;
-    stitchBtn.style.borderColor = mode === "stitch" ? BRAND : C.border;
+    stitchBtn.style.background = mode === "stitch" ? STITCH_COLOR : C.bg2;
+    stitchBtn.style.borderColor = mode === "stitch" ? STITCH_COLOR : C.border;
     stitchBar.style.display = mode === "stitch" ? "flex" : "none";
     audioOverrideBar.style.display = mode === "stitch" ? "flex" : "none";
     upscaleBtn.style.background = mode === "upscale" ? BRAND : C.bg2;
@@ -1200,7 +1206,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       const isFull = !!(v as any).is_full;
       const card = el("div", {
         class: "relative flex flex-col rounded-lg cursor-pointer",
-        style: { background: C.bg1, border: `1px solid ${picked ? BRAND : isFull ? BRAND : C.border}`, opacity: mode === "stitch" && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
+        style: { background: C.bg1, border: `1px solid ${picked ? BRAND : isFull ? STITCH_COLOR : C.border}`, opacity: mode === "stitch" && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
       });
 
       const thumbWrap = el("div", { class: "relative w-full overflow-hidden" });
@@ -1355,7 +1361,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         el("div", { text: v.filename, class: "text-[10px] overflow-hidden text-ellipsis whitespace-nowrap", style: { color: C.text } }),
         el("div", { text: `${durationText}${fmtSize((v as any).size)} · ${fmtWhen((v as any).mtime)}`, class: "text-[9px]", style: { color: C.muted } })
       );
-      if (isFull) meta.appendChild(el("div", { text: "★ stitched", class: "text-[9px] font-bold", style: { color: BRAND } }));
+      if (isFull) meta.appendChild(el("div", { text: "★ stitched", class: "text-[9px] font-bold", style: { color: STITCH_COLOR } }));
 
       const promptTextVal = String((v as any).prompt || (v as any).meta?.prompt || "").trim();
       if (promptTextVal) {

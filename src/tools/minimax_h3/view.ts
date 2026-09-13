@@ -2067,6 +2067,22 @@ export function renderMinimaxH3(container: HTMLElement) {
     loadLtxSrcInfo();
   }
 
+  // Shared by LTX Upscale's and Face Refine's source cards (mirrors node `2f88da7`) — the same
+  // clip used to look a different size/shape between the two modes (LTX forced a 1:1 square,
+  // Face Refine a fixed 16:9 box). Once metadata loads: landscape-through-square clips shrink
+  // the card to their own aspect ratio (no letterbox); portrait clips stay capped at 1:1
+  // (pillarboxed — matches LTX's old default). Card defaults to 16:9 before metadata loads or
+  // with no source.
+  function applySourceCardAspect(card: HTMLElement, vid: HTMLVideoElement) {
+    const apply = () => {
+      const w = vid.videoWidth, h = vid.videoHeight;
+      if (!w || !h) return;
+      card.style.aspectRatio = w >= h ? `${w} / ${h}` : "1 / 1";
+    };
+    vid.addEventListener("loadedmetadata", apply);
+    apply();
+  }
+
   function renderLtxUpscaleLeft() {
     setLeftLocked(running);
     leftPanel.innerHTML = "";
@@ -2079,11 +2095,11 @@ export function renderMinimaxH3(container: HTMLElement) {
       return;
     }
 
-    // ── source clip — square card, controls BELOW the video, clean frame ──
+    // ── source clip — card shrinks to the clip's own aspect, controls BELOW, clean frame ──
     const srcKids: (Node | null)[] = [label("Source clip")];
     const hasSrc = !!state.ltxSource;
     const card = el("div", { style: {
-      position: "relative", width: "100%", aspectRatio: "1 / 1", background: "#000",
+      position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000",
       borderRadius: "8px", overflow: "hidden", border: `1px solid ${hasSrc ? BRAND : C.border}`,
       display: "flex", alignItems: "center", justifyContent: "center",
     } });
@@ -2095,6 +2111,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         style: { width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "block", cursor: "pointer" },
       }) as HTMLVideoElement;
       vid.addEventListener("click", () => { vid.paused ? vid.play() : vid.pause(); });
+      applySourceCardAspect(card, vid);
       card.appendChild(vid);
       card.appendChild(el("button", {
         type: "button", text: "✕", title: "Clear source", style: {
@@ -2366,7 +2383,8 @@ export function renderMinimaxH3(container: HTMLElement) {
         src: `${comfyApi.base}/view?filename=${encodeURIComponent(state.frSource)}&type=input`,
         controls: true, muted: true, preload: "metadata",
         style: { width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "block" },
-      });
+      }) as HTMLVideoElement;
+      applySourceCardAspect(card, vid);
       card.appendChild(vid);
       card.appendChild(el("button", {
         type: "button", text: "✕", title: "Clear source", style: {
@@ -2867,9 +2885,13 @@ export function renderMinimaxH3(container: HTMLElement) {
         if (!out) throw new Error(`Face Refine${passLabel} produced no output.`);
 
         // Not the last pass: this pass's own output becomes the next pass's source — copy to
-        // input/ so the next VHS_LoadVideo/H3FaceSelect can read it.
+        // input/ so the next VHS_LoadVideo/H3FaceSelect can read it, then delete this scratch
+        // output (same pattern LTX Upscale's own segment loop uses) — otherwise every
+        // intermediate pass's file sits in output/ forever as its own untagged clip.
         if (i < steps.length - 1) {
+          const prevOut = out;
           sourceFile = await copyOutputToInput(out.filename, out.subfolder || "", "output");
+          try { await deleteVideo(prevOut.filename, prevOut.subfolder || ""); } catch {}
           try { await freeMemory(); } catch {}
         }
       }
@@ -3800,7 +3822,12 @@ export function renderMinimaxH3(container: HTMLElement) {
         vid = parts[0];
       } else {
         setStatus(`Assembling ${parts.length} segments with ffmpeg…`);
-        const st = await stitchClips(parts.map((p) => ({ filename: p.filename, subfolder: p.subfolder || "" })), `${folder}/${rs.filenamePrefix || "MMH3"}_LTXUP_full`, null, null, null);
+        // "_full" (not "_LTXUP_full") — the gallery's is_full/"★ stitched" flag is a plain
+        // `"_full" in name.lower()` substring check server-side, shared with the real
+        // multi-clip relay's own auto-stitch. Segmenting is an implementation detail of ONE
+        // LTX Upscale job (VRAM workaround), not a real multi-clip stitch, so it must not earn
+        // that badge. Mirrors node `9f354e6`.
+        const st = await stitchClips(parts.map((p) => ({ filename: p.filename, subfolder: p.subfolder || "" })), `${folder}/${rs.filenamePrefix || "MMH3"}_LTXUP`, null, null, null);
         vid = { filename: st.filename, subfolder: st.subfolder || "", type: "output" };
         for (const p of parts) { try { await deleteVideo(p.filename, p.subfolder || ""); } catch {} }
       }

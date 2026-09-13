@@ -10,6 +10,7 @@ import {
   ATTN_FORWARDS,
   BLOCK_CACHES,
   H3_OPTIMIZERS,
+  TURBO_MODES,
   CLIP_LENGTHS,
   FPS,
   SAMPLERS,
@@ -45,6 +46,7 @@ import {
   applyPreset,
   presetFromState,
   type UserPipelinePreset,
+  type PipelinePreset,
   composeStitchedPrompt,
   buildAgentJob,
   clipAssets,
@@ -3042,13 +3044,30 @@ export function renderMinimaxH3(container: HTMLElement) {
     {
       const userMatch = matchUserPreset(state, userPresets);
       const sysMatch = userMatch ? null : matchPreset(state);
-      const options: { value: string; label: string; disabled?: boolean }[] = [{ value: "", label: "— Custom (current settings) —" }];
+      // Native <option title> tooltip — hover a preset in the dropdown to see the six axes it
+      // sets, without a paragraph sitting under the panel for every preset at once (859728d).
+      const presetTip = (p: PipelinePreset | UserPipelinePreset) => {
+        const nameOf = <T extends { key: string; label: string }>(list: readonly T[], key: string) => list.find((x) => x.key === key)?.label || key;
+        const attn = p.forward === "none" ? nameOf(ATTN_BACKENDS, p.backend) : `${nameOf(ATTN_BACKENDS, p.backend)} + ${nameOf(ATTN_FORWARDS, p.forward)}`;
+        return [
+          `Turbo:        ${nameOf(TURBO_MODES, p.turbo)}`,
+          `Attention:    ${attn}`,
+          `Block cache:  ${nameOf(BLOCK_CACHES, p.cache)}`,
+          `Spectrum:     ${p.spectrum ? "ON" : "OFF"}`,
+          `Torch + fp16: ${p.torch ? "ON" : "OFF"}`,
+          `Fused Mod:    ${p.fused ? "ON" : "OFF"}`,
+          ...("note" in p && p.note ? ["", p.note] : []),
+        ].join("\n");
+      };
+      const options: { value: string; label: string; disabled?: boolean; title?: string }[] = [
+        { value: "", label: "— Custom (current settings) —", title: "The pipeline sections below, as you have them now." },
+      ];
       if (userPresets.length) {
         options.push({ value: "__sep_user__", label: "────── User Preset ──────", disabled: true });
-        userPresets.forEach((p) => options.push({ value: `u:${p.name}`, label: `★ ${p.name}` }));
+        userPresets.forEach((p) => options.push({ value: `u:${p.name}`, label: `★ ${p.name}`, title: presetTip(p) }));
       }
       options.push({ value: "__sep_sys__", label: "───── System Preset ─────", disabled: true });
-      PIPELINE_PRESETS.forEach((p) => options.push({ value: `s:${p.id}`, label: `${p.category} — ${p.label}` }));
+      PIPELINE_PRESETS.forEach((p) => options.push({ value: `s:${p.id}`, label: `${p.category} — ${p.label}`, title: presetTip(p) }));
 
       const selected = userMatch ? `u:${userMatch.name}` : sysMatch ? `s:${sysMatch.id}` : "";
       const noteText = userMatch ? null : sysMatch?.note || null;

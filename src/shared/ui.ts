@@ -89,6 +89,7 @@ export interface SelectOption {
   value: string;
   label: string;
   disabled?: boolean;
+  title?: string;
 }
 
 export function select(options: (SelectOption | string)[], value: string, onChange: (v: string) => void) {
@@ -102,7 +103,8 @@ export function select(options: (SelectOption | string)[], value: string, onChan
       const v = typeof opt === "string" ? opt : opt.value;
       const txt = typeof opt === "string" ? opt : opt.label;
       const dis = typeof opt === "object" && opt.disabled;
-      return el("option", { value: v, text: txt, ...(dis ? { disabled: "disabled" } : {}), ...(v === value ? { selected: "selected" } : {}) });
+      const tip = typeof opt === "object" ? opt.title : undefined;
+      return el("option", { value: v, text: txt, ...(dis ? { disabled: "disabled" } : {}), ...(v === value ? { selected: "selected" } : {}), ...(tip ? { title: tip } : {}) });
     })
   );
   return s;

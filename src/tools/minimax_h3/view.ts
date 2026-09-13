@@ -1450,21 +1450,39 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   // Shot-list clip prompt textareas: remember the last manually-dragged height and keep every
   // currently-rendered clip's box in sync when the user resizes any one of them.
+  //
+  // Two bugs found while verifying this against a real drag + reload (not just reading the
+  // code): (1) a module-level "syncing" boolean can't guard the cross-clip broadcast —
+  // ResizeObserver callbacks fire asynchronously (after layout, next microtask), so by the
+  // time textarea B's own observer reacts to a height WE set on it (to mirror A), the flag
+  // we flipped true-then-false synchronously around that assignment has already gone back to
+  // false; B's callback runs "unguarded" and re-broadcasts. Fixed with a per-textarea "last
+  // height already accounted for" (WeakMap) — a callback reporting that exact height again is
+  // an echo, not a new resize, and is ignored outright. (2) `ta.clientHeight` undercounts a
+  // textarea's own border-box height by its scrollbar-track allowance (~10-12px in Chrome,
+  // confirmed by comparing it against offsetHeight/the CSS height we'd actually set) — using
+  // it as the value both saved AND reapplied meant every observer firing (including the
+  // harmless ones from bug 1) re-saved and re-set a slightly SMALLER height than what was
+  // visually there, so the box quietly shrank a little on every resize/reload cycle until it
+  // was back near the CSS minHeight floor. This is what actually caused the reported
+  // "resize it, refresh, and it's back to default" — not a genuine reset, a monotonic drift.
+  // Fixed by reading `offsetHeight` (== the border-box CSS height) instead.
   let allPromptTAs: HTMLTextAreaElement[] = [];
   let promptTAObservers: ResizeObserver[] = [];
-  let _syncingPromptTA = false;
+  const promptTALastH = new WeakMap<HTMLTextAreaElement, number>();
 
   function watchPromptTA(ta: HTMLTextAreaElement) {
     const ro = new ResizeObserver(() => {
-      if (_syncingPromptTA) return;
-      const h = ta.clientHeight;
-      if (!h) return;
+      const h = ta.offsetHeight;
+      if (!h || promptTALastH.get(ta) === h) return;
+      promptTALastH.set(ta, h);
       try { localStorage.setItem(PROMPT_TA_H_KEY, String(h)); } catch {}
-      _syncingPromptTA = true;
       allPromptTAs.forEach((t) => {
-        if (t !== ta && parseInt(t.style.height || "0", 10) !== h) t.style.height = `${h}px`;
+        if (t !== ta && parseInt(t.style.height || "0", 10) !== h) {
+          promptTALastH.set(t, h);
+          t.style.height = `${h}px`;
+        }
       });
-      _syncingPromptTA = false;
     });
     ro.observe(ta);
     promptTAObservers.push(ro);
@@ -3119,6 +3137,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             renderLeft();
           }),
           btnRow,
+          el("div", { text: "Hover a preset to see what it turns on.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5", marginTop: "4px" } }),
           noteText ? el("div", { text: noteText, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null,
           !userPresetsLoaded ? el("div", { text: "Loading saved presets…", style: { fontSize: "10px", color: C.muted } }) : null,
         ])

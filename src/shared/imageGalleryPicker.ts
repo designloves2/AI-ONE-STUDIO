@@ -51,12 +51,24 @@ async function fetchOutputFiles(): Promise<string[]> {
   // /gallery?subfolder= returns files from every tool's own subfolder, not just krea2's) — so
   // reuse that already-working, already-paginated route instead, same tool-agnostic assumption
   // GENERIC_COPY_API already makes for copy_to_input.
+  // A single-page fetch silently missed folders whose files only showed up past the page limit
+  // once a real install had enough output images (15 top folders, several sub-levels each) —
+  // page through the whole thing using the route's own `total`, not a guessed cap.
   try {
-    const r = await fetch(`${BASE}${IMAGE_GALLERY_TOOLS[0].api}/gallery?offset=0&limit=5000&subfolder=`, { credentials: "include" });
-    if (!r.ok) throw new Error(String(r.status));
-    const d = await r.json();
-    const imgs: { filename: string; subfolder?: string }[] = d.images || [];
-    outputFilesCache = imgs.map((x) => (x.subfolder ? `${x.subfolder.replace(/\\/g, "/")}/${x.filename}` : x.filename));
+    const PAGE = 500;
+    let offset = 0, total = Infinity;
+    const all: { filename: string; subfolder?: string }[] = [];
+    while (offset < total) {
+      const r = await fetch(`${BASE}${IMAGE_GALLERY_TOOLS[0].api}/gallery?offset=${offset}&limit=${PAGE}&subfolder=`, { credentials: "include" });
+      if (!r.ok) throw new Error(String(r.status));
+      const d = await r.json();
+      const imgs: { filename: string; subfolder?: string }[] = d.images || [];
+      all.push(...imgs);
+      total = d.total ?? all.length;
+      offset += imgs.length;
+      if (!imgs.length) break; // guard against an off-by-one total that never lets offset catch up
+    }
+    outputFilesCache = all.map((x) => (x.subfolder ? `${x.subfolder.replace(/\\/g, "/")}/${x.filename}` : x.filename));
   } catch {
     outputFilesCache = [];
   }

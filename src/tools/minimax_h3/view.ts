@@ -56,7 +56,7 @@ import {
   saveState,
   turboModesFor,
 } from "./core";
-import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
+import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
@@ -1854,20 +1854,13 @@ export function renderMinimaxH3(container: HTMLElement) {
       ];
     }
     if (state.turboMode === "pdd") {
+      const pddHelp = "8 = trained block size 4. 4 regroups two blocks per step (faster, official); 6 uses the non-uniform default partition. Higher counts are off the training envelope and render as noise.\n\nCore-native since ComfyUI v0.35.0 — the Acc file loads as a plain model-only LoRA (no separate pack); euler runs on a normal schedule and core's FinalLayer picks the per-interval head off it. Still forces sampler=euler + SigmaShift 12/3. Use the ComfyUI-converted file (…_pruned_comfy.safetensors) — the raw alibaba-pai one applies 0 patches. The Acc LoRA itself (per generation mode) is set in ⚙ Settings → Models.";
       return [
         col([
-          label("Model evaluations (nfe)"),
+          labelHelp("Model evaluations (nfe)", pddHelp),
           select(PDD_NFE_CHOICES.map((s) => ({ value: s, label: s })), String(state.pddNfe ?? "8"), (v) => { state.pddNfe = v; persist(); }),
         ]),
         col([label("LoRA strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
-        el("div", {
-          text: "8 = trained block size 4. 4 regroups two blocks per step (faster, official); 6 uses the non-uniform default partition. Higher counts are off the training envelope and render as noise.",
-          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
-        }),
-        el("div", {
-          text: "Core-native since ComfyUI v0.35.0 — the Acc file loads as a plain model-only LoRA (no separate pack); euler runs on a normal schedule and core's FinalLayer picks the per-interval head off it. Still forces sampler=euler + SigmaShift 12/3. Use the ComfyUI-converted file (…_pruned_comfy.safetensors) — the raw alibaba-pai one applies 0 patches. The Acc LoRA itself (per generation mode) is set in ⚙ Settings → Models.",
-          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
-        }),
         ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No PDD Acc LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
@@ -3005,7 +2998,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     totalLine = el("div", { style: { textAlign: "center", padding: "6px 0 2px", lineHeight: "1.1", borderBottom: `1px solid ${C.border}`, marginBottom: "5px" } });
     leftPanel.appendChild(
       panel([
-        label("Clip length"),
+        labelHelp("Clip length", "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer. Clips are saved separately — combine them afterward from 🖼 Gallery."),
         select(
           [...CLIP_LENGTHS.map((c) => ({ value: String(c.frames), label: c.label })), { value: "custom", label: "Custom (seconds)…" }],
           state.clipLengthCustom ? "custom" : String(state.clipFrames),
@@ -3033,7 +3026,6 @@ export function renderMinimaxH3(container: HTMLElement) {
           : null,
         totalLine,
         planLine,
-        el("div", { text: "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer. Clips are saved separately — combine them afterward from 🖼 Gallery.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
       ])
     );
     refreshPlan();
@@ -3214,7 +3206,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           // "none", so "Deblur only, no upscale" is a valid, real combination (SPEC_MINIMAX_H3_
           // PER_CLIP_OVERRIDE.md §15). Same resolution either way; this never touches width/height.
           col([
-            label("Deblur (before upscale)"),
+            labelHelp("Deblur (before upscale)", "Sharpens soft or motion-blurred frames at the clip's own resolution — it never changes the size. Runs before whichever upscale is set below, and works with Upscale set to None."),
             select(
               [{ value: "none", label: "None" }, { value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }, { value: "ULTRA", label: "Ultra" }],
               state.deblurStrength || "none",

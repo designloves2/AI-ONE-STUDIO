@@ -45,6 +45,28 @@ export function label(text: string) {
   return el("div", { text, style: { color: C.muted, fontSize: "11px", marginBottom: "3px", textTransform: "uppercase", letterSpacing: "0.04em" } });
 }
 
+// A small circled "?" carrying a long explanation as a native title tooltip — for text that
+// was pushing a panel's height up without being read every time.
+export function helpDot(text: string) {
+  return el("span", {
+    text: "?", title: text,
+    style: {
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      width: "13px", height: "13px", borderRadius: "50%", flexShrink: "0",
+      background: C.border, color: C.muted, fontSize: "9px", fontWeight: "700",
+      cursor: "help", marginLeft: "5px",
+    },
+  });
+}
+
+export function labelHelp(text: string, helpText: string) {
+  const l = label(text);
+  l.style.display = "flex";
+  l.style.alignItems = "center";
+  l.appendChild(helpDot(helpText));
+  return l;
+}
+
 export function button(text: string, onClick: ((e: Event) => void) | null, variant: "default" | "primary" | "danger" = "default") {
   const styles = {
     default: { background: C.bg2, color: C.text, border: `1px solid ${C.border}` },

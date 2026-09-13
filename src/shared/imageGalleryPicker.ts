@@ -31,6 +31,33 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
 export const INPUT_TOOL_ID = "__input__";
 const INPUT_TOOL: GalleryToolDef = { id: INPUT_TOOL_ID, label: "INPUT", api: "", subfolder: "" };
 
+// Same idea as INPUT, but for ComfyUI's global output/ root — a raw file sitting there isn't
+// necessarily one this app's own 5 galleries know about (e.g. dropped in by hand, or made by a
+// workflow outside this app). Listed via LoadImageOutput's own remote route (the "Load Image
+// (from Outputs)" core node ComfyUI added alongside LoadImage) rather than a /gallery route,
+// same reasoning as INPUT: output/ isn't paginated per-subfolder here and has no single
+// tool-owned convention. Picking one still needs a copy_to_input — unlike INPUT, it isn't
+// already there.
+export const OUTPUT_TOOL_ID = "__output__";
+const OUTPUT_TOOL: GalleryToolDef = { id: OUTPUT_TOOL_ID, label: "OUTPUT", api: "", subfolder: "" };
+
+let outputFilesCache: string[] | null = null;
+async function fetchOutputFiles(): Promise<string[]> {
+  if (outputFilesCache) return outputFilesCache;
+  try {
+    const r = await fetch(`${BASE}/internal/files/output`, { credentials: "include" });
+    if (!r.ok) throw new Error(String(r.status));
+    const d = await r.json();
+    // Observed shape (ComfyUI core): a flat array of "sub/folder/name.ext"-style strings, same
+    // convention as LoadImage's own input/ combo — but be defensive, since this route also
+    // shows up in some builds as an array of {name} objects.
+    outputFilesCache = (Array.isArray(d) ? d : []).map((x: any) => (typeof x === "string" ? x : x?.name || x?.filename)).filter((x: any) => typeof x === "string" && x);
+  } catch {
+    outputFilesCache = [];
+  }
+  return outputFilesCache;
+}
+
 interface PickerImage {
   filename: string;
   subfolder: string;
@@ -54,9 +81,23 @@ async function fetchInputFiles(): Promise<string[]> {
   return inputFilesCache;
 }
 
+// copy_to_input is a generic file-copy handler duplicated per tool (same body shape, same
+// behavior — it just moves bytes given filename/subfolder/type) — OUTPUT has no tool of its
+// own to own a route, so it borrows the first real tool's, exactly like the raw-output picker
+// in galleryOverlay.ts already assumes this handler is format/tool-agnostic.
+const GENERIC_COPY_API = IMAGE_GALLERY_TOOLS[0].api;
+
 async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number): Promise<{ images: PickerImage[]; total: number }> {
   if (tool.id === INPUT_TOOL.id) {
     const all = await fetchInputFiles();
+    const page = all.slice(offset, offset + limit).map((combo) => {
+      const slash = combo.lastIndexOf("/");
+      return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
+    });
+    return { images: page, total: all.length };
+  }
+  if (tool.id === OUTPUT_TOOL.id) {
+    const all = await fetchOutputFiles();
     const page = all.slice(offset, offset + limit).map((combo) => {
       const slash = combo.lastIndexOf("/");
       return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
@@ -74,7 +115,8 @@ async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number)
 
 async function copyToInput(tool: GalleryToolDef, img: PickerImage): Promise<string> {
   if (tool.id === INPUT_TOOL.id) return img.subfolder ? `${img.subfolder}/${img.filename}` : img.filename;
-  const r = await fetch(`${BASE}${tool.api}/copy_to_input`, {
+  const api = tool.id === OUTPUT_TOOL.id ? GENERIC_COPY_API : tool.api;
+  const r = await fetch(`${BASE}${api}/copy_to_input`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ filename: img.filename, subfolder: img.subfolder || "", type: "output" }),
@@ -90,10 +132,11 @@ function viewUrl(img: PickerImage, tool: GalleryToolDef) {
   return `${BASE}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || "")}&type=${type}&t=${img.mtime || ""}`;
 }
 
-const ALL_PICKER_TOOLS: GalleryToolDef[] = [...IMAGE_GALLERY_TOOLS, INPUT_TOOL];
+const ALL_PICKER_TOOLS: GalleryToolDef[] = [...IMAGE_GALLERY_TOOLS, INPUT_TOOL, OUTPUT_TOOL];
 
 export function openImageGalleryPicker(onPick: (filename: string) => void, initialToolId?: string) {
   inputFilesCache = null; // re-list input/ fresh each time the picker opens — files may have changed since last time
+  outputFilesCache = null; // same for output/
   let activeTool = ALL_PICKER_TOOLS.find((t) => t.id === initialToolId) || ALL_PICKER_TOOLS[0];
   let offset = 0;
   let total = 0;

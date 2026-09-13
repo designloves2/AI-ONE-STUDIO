@@ -188,17 +188,24 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   }
   // The underlying scan is always live server-side, but this dropdown only re-fetched on
   // tab-switch/folder-pick — a folder created on disk while the picker sat open wouldn't show
-  // up. User: "실시간 갱신도 되야해." Force a fresh fetch (bust the cache, don't just repaint
-  // from what's already cached) right before the dropdown opens, plus a background poll while
-  // the picker is open at all. Mirrors node `8b74eb4`.
+  // up. User: "실시간 갱신도 되야해." A background poll keeps the list current while the
+  // picker is open. Mirrors node `8b74eb4`.
+  //
+  // A `mousedown`-triggered refresh (rebuild the <option> list right as the native dropdown is
+  // about to open) was tried first and reverted — user: "드롭다운에서 폴더를 선택했어. 그리고
+  // 다시 드롭다운을 누르면 최상단으로 가는데 이러면 불편해." The rebuild only resolves after
+  // fetchFolderTree()'s async round trip, landing after the native popup had already started
+  // painting at its default (top) scroll position, so every re-open jumped away from whatever
+  // folder was selected. Mirrors node `33047e2` — removed entirely; the poll (guarded to skip
+  // while the dropdown has focus, so it can't rebuild mid-interaction either) is enough.
   function refreshFolderSel() {
     if (activeTool.id === INPUT_TOOL.id) delete folderTreeCache.input;
     else if (activeTool.id === OUTPUT_TOOL.id) delete folderTreeCache.output;
     else return;
     renderFolderSel(); // cheap now — folder names only, no image scan
   }
-  folderSel.addEventListener("mousedown", () => refreshFolderSel());
   const folderPollTimer = window.setInterval(() => {
+    if (document.activeElement === folderSel) return; // don't rebuild options while it's focused/open
     if (activeTool.id === INPUT_TOOL.id || activeTool.id === OUTPUT_TOOL.id) refreshFolderSel();
   }, 5000);
 

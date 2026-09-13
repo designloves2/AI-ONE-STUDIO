@@ -3114,6 +3114,20 @@ export function renderMinimaxH3(container: HTMLElement) {
       );
     }
 
+    // Images (mode-specific: First/Last keyframes, Reference images/videos/audios)
+    leftPanel.appendChild(
+      accordion("images", "Images", generationModesFor(state).find((m) => m.key === state.generationMode)?.label || "", () => {
+        const imgPanel = mountImagePanel(state, ctx);
+        ctx._rerenderImages = imgPanel.render;
+        return [imgPanel.el];
+      })
+    );
+
+    // LoRA
+    leftPanel.appendChild(
+      accordion("lora", "LoRA", `${(state.loras || []).filter((l) => l.enabled !== false && l.name && l.name !== "none").length} active`, () => [mountLoraPanel()])
+    );
+
     // Pipeline — Acceleration / Upscale / Continuity are separate boxes, not one long
     // panel, so each control group reads as its own thing.
     leftPanel.appendChild(el("div", { text: "Pipeline", style: { color: C.muted, fontSize: "11px", marginTop: "4px", marginBottom: "-2px", textTransform: "uppercase", letterSpacing: "0.04em" } }));
@@ -3283,20 +3297,6 @@ export function renderMinimaxH3(container: HTMLElement) {
     // Audio Lock — H3는 레퍼런스 오디오를 참고만 하고 새로 만들기 때문에, 립싱크나
     // 음악 영상처럼 원본 오디오를 그대로 유지해야 할 때 이 락이 필요하다.
     leftPanel.appendChild(accordion("audioLock", "Audio Lock", state.audioLock ? "ON" : "Off", () => audioLockControls()));
-
-    // Images (mode-specific: First/Last keyframes, Reference images/videos/audios)
-    leftPanel.appendChild(
-      accordion("images", "Images", generationModesFor(state).find((m) => m.key === state.generationMode)?.label || "", () => {
-        const imgPanel = mountImagePanel(state, ctx);
-        ctx._rerenderImages = imgPanel.render;
-        return [imgPanel.el];
-      })
-    );
-
-    // LoRA
-    leftPanel.appendChild(
-      accordion("lora", "LoRA", `${(state.loras || []).filter((l) => l.enabled !== false && l.name && l.name !== "none").length} active`, () => [mountLoraPanel()])
-    );
 
     // Sampling — sampler/scheduler/denoise + sigma shift, moved from Settings so they sit next
     // to Steps/Turbo as per-run controls instead of fixed config.

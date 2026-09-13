@@ -24,79 +24,19 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
   { id: "sdxl", label: "SDXL", api: "/sdxl_one", subfolder: "one_sdxl" },
 ];
 
-// A pseudo tool for ComfyUI's own input/ directory — not one of the 5 galleries above, listed
-// via LoadImage's own combo options (same trick api.ts's getMediaFiles() uses for videos/audios)
-// rather than a /gallery route, since input/ isn't paginated server-side and has no subfolder
-// convention of its own. Picking one of these needs no copy_to_input — it's already in input/.
+// A pseudo tool for ComfyUI's own input/ directory — not one of the 5 galleries above. Backed
+// by the shared /tj_shared/input_gallery + /tj_shared/gallery_folders?root=input routes (the
+// same lightweight, non-recursive, per-folder routes the node side uses — confirmed live on
+// this backend). Picking one of these needs no copy_to_input — it's already in input/.
 export const INPUT_TOOL_ID = "__input__";
 const INPUT_TOOL: GalleryToolDef = { id: INPUT_TOOL_ID, label: "INPUT", api: "", subfolder: "" };
 
 // Same idea as INPUT, but for ComfyUI's global output/ root — a raw file sitting there isn't
 // necessarily one this app's own 5 galleries know about (e.g. dropped in by hand, or made by a
-// workflow outside this app). Listed via LoadImageOutput's own remote route (the "Load Image
-// (from Outputs)" core node ComfyUI added alongside LoadImage) rather than a /gallery route,
-// same reasoning as INPUT: output/ isn't paginated per-subfolder here and has no single
-// tool-owned convention. Picking one still needs a copy_to_input — unlike INPUT, it isn't
-// already there.
+// workflow outside this app). Backed by /tj_shared/output_gallery + gallery_folders?root=output.
+// Picking one still needs a copy_to_input — unlike INPUT, it isn't already there.
 export const OUTPUT_TOOL_ID = "__output__";
 const OUTPUT_TOOL: GalleryToolDef = { id: OUTPUT_TOOL_ID, label: "OUTPUT", api: "", subfolder: "" };
-
-let outputFilesCache: string[] | null = null;
-async function fetchOutputFiles(): Promise<string[]> {
-  if (outputFilesCache) return outputFilesCache;
-  // LoadImageOutput's own remote route (/internal/files/output) turned out to return an empty
-  // list on real servers regardless of directory — not the reliable source it looked like from
-  // its object_info shape. Every one of this app's own 5 tool galleries already recursively
-  // scans the WHOLE output/ tree when given an empty subfolder (confirmed directly: krea2's
-  // /gallery?subfolder= returns files from every tool's own subfolder, not just krea2's) — so
-  // reuse that already-working, already-paginated route instead, same tool-agnostic assumption
-  // GENERIC_COPY_API already makes for copy_to_input.
-  // A single-page fetch silently missed folders whose files only showed up past the page limit
-  // once a real install had enough output images (15 top folders, several sub-levels each) —
-  // page through the whole thing using the route's own `total`, not a guessed cap.
-  try {
-    const PAGE = 500;
-    let offset = 0, total = Infinity;
-    const all: { filename: string; subfolder?: string }[] = [];
-    while (offset < total) {
-      const r = await fetch(`${BASE}${IMAGE_GALLERY_TOOLS[0].api}/gallery?offset=${offset}&limit=${PAGE}&subfolder=`, { credentials: "include" });
-      if (!r.ok) throw new Error(String(r.status));
-      const d = await r.json();
-      const imgs: { filename: string; subfolder?: string }[] = d.images || [];
-      all.push(...imgs);
-      total = d.total ?? all.length;
-      offset += imgs.length;
-      if (!imgs.length) break; // guard against an off-by-one total that never lets offset catch up
-    }
-    outputFilesCache = all.map((x) => (x.subfolder ? `${x.subfolder.replace(/\\/g, "/")}/${x.filename}` : x.filename));
-  } catch {
-    outputFilesCache = [];
-  }
-  return outputFilesCache;
-}
-
-interface PickerImage {
-  filename: string;
-  subfolder: string;
-  mtime?: number;
-}
-
-let inputFilesCache: string[] | null = null;
-async function fetchInputFiles(): Promise<string[]> {
-  if (inputFilesCache) return inputFilesCache;
-  try {
-    const r = await fetch(`${BASE}/object_info/LoadImage`, { credentials: "include" });
-    if (!r.ok) throw new Error(String(r.status));
-    const d = await r.json();
-    const inp = d?.LoadImage?.input;
-    const spec = (inp?.required || {}).image || (inp?.optional || {}).image;
-    const opts = Array.isArray(spec?.[0]) ? spec[0] : spec?.[1]?.options || [];
-    inputFilesCache = Array.isArray(opts) ? opts.filter((x: any) => typeof x === "string") : [];
-  } catch {
-    inputFilesCache = [];
-  }
-  return inputFilesCache;
-}
 
 // copy_to_input is a generic file-copy handler duplicated per tool (same body shape, same
 // behavior — it just moves bytes given filename/subfolder/type) — OUTPUT has no tool of its
@@ -104,61 +44,57 @@ async function fetchInputFiles(): Promise<string[]> {
 // in galleryOverlay.ts already assumes this handler is format/tool-agnostic.
 const GENERIC_COPY_API = IMAGE_GALLERY_TOOLS[0].api;
 
-// input/ and output/ are a flat recursive dump of EVERY image, across every tool's own
-// subfolder plus anything dropped in by hand — once there's more than a couple of tools'
-// worth, that pushes actual thumbnails off screen before you ever see them. User: "INPUT/
-// OUTPUT은 폴더도 네이비게이션 되면 좋겠는데... 드롭다운 방식... 최상위 + 하위 폴더 2단계
-//까지." Node ported the same ask via a new backend route (`6487c40`); web already had the
-// FULL flat file list client-side (the LoadImage/LoadImageOutput combo trick), so the 2-level
-// folder tree is built from that same list instead of adding a route — same UX, no new
-// backend dependency.
-interface FolderNode { path: string; label: string; children: FolderNode[] }
-function buildFolderTree(files: string[]): FolderNode[] {
-  const top = new Map<string, Map<string, true>>();
-  for (const f of files) {
-    const slash = f.lastIndexOf("/");
-    if (slash === -1) continue; // a loose file at the root — not a folder
-    const dir = f.slice(0, slash);
-    const parts = dir.split("/");
-    const t = parts[0];
-    if (!top.has(t)) top.set(t, new Map());
-    if (parts.length > 1) top.get(t)!.set(parts[1], true);
-  }
-  return [...top.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, subs]) => ({
-    path: name, label: name,
-    children: [...subs.keys()].sort((a, b) => a.localeCompare(b)).map((s) => ({ path: `${name}/${s}`, label: s, children: [] })),
-  }));
+interface PickerImage {
+  filename: string;
+  subfolder: string;
+  mtime?: number;
 }
-// EXACT directory match, not a recursive prefix match — user: "그냥 최상위 폴더에 있는
-// 이미지만 보여주는거야" (the root/default pick should show only images sitting DIRECTLY in
-// that folder, not everything nested under it too). folder="" -> only loose root files;
-// folder="one_krea2" -> only files directly in one_krea2, NOT one_krea2/frames; picking that
-// sub-level explicitly (its own dropdown entry) is how you see those.
-function filterByFolder(files: string[], folder: string): string[] {
-  return files.filter((f) => {
-    const slash = f.lastIndexOf("/");
-    const dir = slash === -1 ? "" : f.slice(0, slash);
-    return dir === folder;
-  });
+
+// User: "INPUT/OUTPUT은 폴더도 네이비게이션 되면 좋겠는데... 드롭다운 방식... 최상위 + 하위
+// 폴더 2단계까지." First attempt derived the folder tree by fetching (and, worse, paginating
+// through) EVERY image under input//output/ just to read off their subfolder names — the user
+// caught this directly: "드롭다운으로 폴더 목록만 가져오라고 했는데 왜 폴더에 있는 파일까지
+// 전부 검색하는건데" (I only asked for the FOLDER list, why is it scanning every file too) —
+// and on a real install with thousands of images this made the whole picker hang ("로딩으로
+// 멈춰버려있잖아"). The shared /tj_shared/gallery_folders?root=input|output route (added
+// alongside the node port of this same feature) returns ONLY folder names/paths, 2 levels
+// deep, with zero image scanning — this is the actual lightweight source that should have been
+// used from the start.
+interface FolderNode { path: string; label: string; children: FolderNode[] }
+const folderTreeCache: Partial<Record<"input" | "output", FolderNode[]>> = {};
+async function fetchFolderTree(root: "input" | "output"): Promise<FolderNode[]> {
+  if (folderTreeCache[root]) return folderTreeCache[root]!;
+  try {
+    const r = await fetch(`${BASE}/tj_shared/gallery_folders?root=${root}`, { credentials: "include" });
+    if (!r.ok) throw new Error(String(r.status));
+    const d = await r.json();
+    const conv = (nodes: any[]): FolderNode[] =>
+      (Array.isArray(nodes) ? nodes : []).map((n) => ({ path: n.path, label: n.name, children: conv(n.children || []) }));
+    folderTreeCache[root] = conv(d.folders || []);
+  } catch {
+    folderTreeCache[root] = [];
+  }
+  return folderTreeCache[root]!;
+}
+
+// Actual card images for a picked (non-recursive, exact) folder — /tj_shared/input_gallery /
+// output_gallery, the same per-folder paginated routes gallery_folders is the tree-only
+// counterpart to. folder="" is that root's own loose files only, same convention as every
+// other folder entry.
+async function fetchRootGallery(root: "input" | "output", offset: number, limit: number, folder: string): Promise<{ images: PickerImage[]; total: number }> {
+  try {
+    const r = await fetch(`${BASE}/tj_shared/${root}_gallery?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(folder)}`, { credentials: "include" });
+    if (!r.ok) throw new Error(String(r.status));
+    const d = await r.json();
+    return { images: (d.images || []).map((x: any) => ({ filename: x.filename, subfolder: (x.subfolder || "").replace(/\\/g, "/"), mtime: x.mtime })), total: d.total ?? (d.images || []).length };
+  } catch {
+    return { images: [], total: 0 };
+  }
 }
 
 async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number, folder = ""): Promise<{ images: PickerImage[]; total: number }> {
-  if (tool.id === INPUT_TOOL.id) {
-    const all = filterByFolder(await fetchInputFiles(), folder);
-    const page = all.slice(offset, offset + limit).map((combo) => {
-      const slash = combo.lastIndexOf("/");
-      return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
-    });
-    return { images: page, total: all.length };
-  }
-  if (tool.id === OUTPUT_TOOL.id) {
-    const all = filterByFolder(await fetchOutputFiles(), folder);
-    const page = all.slice(offset, offset + limit).map((combo) => {
-      const slash = combo.lastIndexOf("/");
-      return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
-    });
-    return { images: page, total: all.length };
-  }
+  if (tool.id === INPUT_TOOL.id) return fetchRootGallery("input", offset, limit, folder);
+  if (tool.id === OUTPUT_TOOL.id) return fetchRootGallery("output", offset, limit, folder);
   try {
     const r = await fetch(`${BASE}${tool.api}/gallery?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(tool.subfolder)}`, { credentials: "include" });
     if (!r.ok) throw new Error(String(r.status));
@@ -190,8 +126,8 @@ function viewUrl(img: PickerImage, tool: GalleryToolDef) {
 const ALL_PICKER_TOOLS: GalleryToolDef[] = [...IMAGE_GALLERY_TOOLS, INPUT_TOOL, OUTPUT_TOOL];
 
 export function openImageGalleryPicker(onPick: (filename: string) => void, initialToolId?: string) {
-  inputFilesCache = null; // re-list input/ fresh each time the picker opens — files may have changed since last time
-  outputFilesCache = null; // same for output/
+  delete folderTreeCache.input; // re-list the folder tree fresh each time the picker opens
+  delete folderTreeCache.output;
   let activeTool = ALL_PICKER_TOOLS.find((t) => t.id === initialToolId) || ALL_PICKER_TOOLS[0];
   let offset = 0;
   let total = 0;
@@ -235,9 +171,9 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
       folderSel.style.display = "none";
       return;
     }
-    const files = activeTool.id === INPUT_TOOL.id ? await fetchInputFiles() : await fetchOutputFiles();
+    const root = activeTool.id === INPUT_TOOL.id ? "input" : "output";
+    const tree = await fetchFolderTree(root);
     if (activeTool.id !== INPUT_TOOL.id && activeTool.id !== OUTPUT_TOOL.id) return; // switched away while awaiting
-    const tree = buildFolderTree(files);
     clear(folderSel);
     // Default entry is named after the tab itself (user: "최상위는 OUTPUT 폴더와 INPUT폴더로
     // 이름 만들고") rather than a generic "(All)"/"(Root)" — it shows only images sitting
@@ -256,10 +192,10 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   // from what's already cached) right before the dropdown opens, plus a background poll while
   // the picker is open at all. Mirrors node `8b74eb4`.
   function refreshFolderSel() {
-    if (activeTool.id === INPUT_TOOL.id) inputFilesCache = null;
-    else if (activeTool.id === OUTPUT_TOOL.id) outputFilesCache = null;
+    if (activeTool.id === INPUT_TOOL.id) delete folderTreeCache.input;
+    else if (activeTool.id === OUTPUT_TOOL.id) delete folderTreeCache.output;
     else return;
-    renderFolderSel();
+    renderFolderSel(); // cheap now — folder names only, no image scan
   }
   folderSel.addEventListener("mousedown", () => refreshFolderSel());
   const folderPollTimer = window.setInterval(() => {

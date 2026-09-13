@@ -44,14 +44,19 @@ const OUTPUT_TOOL: GalleryToolDef = { id: OUTPUT_TOOL_ID, label: "OUTPUT", api: 
 let outputFilesCache: string[] | null = null;
 async function fetchOutputFiles(): Promise<string[]> {
   if (outputFilesCache) return outputFilesCache;
+  // LoadImageOutput's own remote route (/internal/files/output) turned out to return an empty
+  // list on real servers regardless of directory — not the reliable source it looked like from
+  // its object_info shape. Every one of this app's own 5 tool galleries already recursively
+  // scans the WHOLE output/ tree when given an empty subfolder (confirmed directly: krea2's
+  // /gallery?subfolder= returns files from every tool's own subfolder, not just krea2's) — so
+  // reuse that already-working, already-paginated route instead, same tool-agnostic assumption
+  // GENERIC_COPY_API already makes for copy_to_input.
   try {
-    const r = await fetch(`${BASE}/internal/files/output`, { credentials: "include" });
+    const r = await fetch(`${BASE}${IMAGE_GALLERY_TOOLS[0].api}/gallery?offset=0&limit=5000&subfolder=`, { credentials: "include" });
     if (!r.ok) throw new Error(String(r.status));
     const d = await r.json();
-    // Observed shape (ComfyUI core): a flat array of "sub/folder/name.ext"-style strings, same
-    // convention as LoadImage's own input/ combo — but be defensive, since this route also
-    // shows up in some builds as an array of {name} objects.
-    outputFilesCache = (Array.isArray(d) ? d : []).map((x: any) => (typeof x === "string" ? x : x?.name || x?.filename)).filter((x: any) => typeof x === "string" && x);
+    const imgs: { filename: string; subfolder?: string }[] = d.images || [];
+    outputFilesCache = imgs.map((x) => (x.subfolder ? `${x.subfolder.replace(/\\/g, "/")}/${x.filename}` : x.filename));
   } catch {
     outputFilesCache = [];
   }

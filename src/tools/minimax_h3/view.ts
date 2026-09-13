@@ -497,6 +497,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // effect here: switching previewBox from its flex-ratio default to a fixed px height leaves
   // promptWrap (flex: 2 1 0%) to absorb whatever space that frees in rightPanel.
   const PREVIEW_H_KEY = "aos_mmh3_preview_h";
+  const PROMPT_TA_H_KEY = "aos_mmh3_prompt_ta_h";
   const resizeHandle = el("div", {
     class: "absolute bottom-0 inset-x-0 z-[6]",
     style: { height: "8px", cursor: "ns-resize" },
@@ -1445,6 +1446,28 @@ export function renderMinimaxH3(container: HTMLElement) {
     bigTA.focus();
   }
 
+  // Shot-list clip prompt textareas: remember the last manually-dragged height and keep every
+  // currently-rendered clip's box in sync when the user resizes any one of them.
+  let allPromptTAs: HTMLTextAreaElement[] = [];
+  let promptTAObservers: ResizeObserver[] = [];
+  let _syncingPromptTA = false;
+
+  function watchPromptTA(ta: HTMLTextAreaElement) {
+    const ro = new ResizeObserver(() => {
+      if (_syncingPromptTA) return;
+      const h = ta.clientHeight;
+      if (!h) return;
+      try { localStorage.setItem(PROMPT_TA_H_KEY, String(h)); } catch {}
+      _syncingPromptTA = true;
+      allPromptTAs.forEach((t) => {
+        if (t !== ta && parseInt(t.style.height || "0", 10) !== h) t.style.height = `${h}px`;
+      });
+      _syncingPromptTA = false;
+    });
+    ro.observe(ta);
+    promptTAObservers.push(ro);
+  }
+
   function renderPrompts() {
     const isLtx = state.generationMode === "ltxupscale";
     const isFaceRefine = state.generationMode === "facerefine";
@@ -1455,6 +1478,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
+    // Each re-render rebuilds every clip's textarea from scratch, so the previous render's
+    // ResizeObservers must be torn down first or they'd keep firing on detached nodes.
+    promptTAObservers.forEach((o) => o.disconnect());
+    promptTAObservers = [];
+    allPromptTAs = [];
     promptList.innerHTML = "";
     const plan = currentPlan();
     const onCount = state.prompts.filter((p) => promptEnabled(p)).length;
@@ -1486,12 +1514,16 @@ export function renderMinimaxH3(container: HTMLElement) {
         style: { flex: "1", minHeight: "90px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "vertical" },
       });
       ta.value = promptText(p);
+      const savedTAH = parseInt(localStorage.getItem(PROMPT_TA_H_KEY) || "", 10);
+      if (savedTAH > 0) ta.style.height = `${savedTAH}px`;
       ta.addEventListener("input", () => {
         state.prompts[i].text = ta.value;
         persist();
       });
       ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
       ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
+      allPromptTAs.push(ta);
+      watchPromptTA(ta);
 
       const del = el("button", { type: "button", text: "✕", title: "Remove", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "11px", padding: "6px 2px" } });
       del.addEventListener("click", () => {

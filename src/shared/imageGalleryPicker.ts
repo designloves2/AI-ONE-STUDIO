@@ -117,10 +117,17 @@ function buildFolderTree(files: string[]): FolderNode[] {
     children: [...subs.keys()].sort((a, b) => a.localeCompare(b)).map((s) => ({ path: `${name}/${s}`, label: s, children: [] })),
   }));
 }
+// EXACT directory match, not a recursive prefix match — user: "그냥 최상위 폴더에 있는
+// 이미지만 보여주는거야" (the root/default pick should show only images sitting DIRECTLY in
+// that folder, not everything nested under it too). folder="" -> only loose root files;
+// folder="one_krea2" -> only files directly in one_krea2, NOT one_krea2/frames; picking that
+// sub-level explicitly (its own dropdown entry) is how you see those.
 function filterByFolder(files: string[], folder: string): string[] {
-  if (!folder) return files;
-  const prefix = `${folder}/`;
-  return files.filter((f) => f === folder || f.startsWith(prefix));
+  return files.filter((f) => {
+    const slash = f.lastIndexOf("/");
+    const dir = slash === -1 ? "" : f.slice(0, slash);
+    return dir === folder;
+  });
 }
 
 async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number, folder = ""): Promise<{ images: PickerImage[]; total: number }> {
@@ -178,7 +185,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   let total = 0;
   let loading = false;
   let picking = false;
-  let activeFolder = ""; // "" = (All) — only meaningful for INPUT/OUTPUT, reset on every tool switch
+  let activeFolder = ""; // "" = the tab's own root (INPUT folder / OUTPUT folder) — loose files only, not a recursive dump; only meaningful for INPUT/OUTPUT, reset on every tool switch
 
   const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(1056px, 96vw)", height: "min(840px, 92vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: "10px" } });
@@ -205,7 +212,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   renderToolBar();
 
   // Only INPUT/OUTPUT get a folder dropdown — the 5 per-tool tabs each have one fixed
-  // subfolder already (nothing to navigate). "(All)" first, then the 2-level tree with
+  // subfolder already (nothing to navigate). "INPUT folder"/"OUTPUT folder" first (loose root files only, named after the tab — user explicitly said no generic "(All)"), then the 2-level tree with
   // space-indentation for the sub-level, mirroring node `6487c40`'s own dropdown shape.
   const folderSel = el("select", {
     style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 8px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, display: "none" },
@@ -220,7 +227,10 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     if (activeTool.id !== INPUT_TOOL.id && activeTool.id !== OUTPUT_TOOL.id) return; // switched away while awaiting
     const tree = buildFolderTree(files);
     clear(folderSel);
-    folderSel.appendChild(el("option", { value: "", text: "(All)" }));
+    // Default entry is named after the tab itself (user: "최상위는 OUTPUT 폴더와 INPUT폴더로
+    // 이름 만들고") rather than a generic "(All)"/"(Root)" — it shows only images sitting
+    // directly in input//output/'s own root, same as any other single-folder pick.
+    folderSel.appendChild(el("option", { value: "", text: activeTool.id === INPUT_TOOL.id ? "INPUT folder" : "OUTPUT folder" }));
     tree.forEach((top) => {
       folderSel.appendChild(el("option", { value: top.path, text: top.label }));
       top.children.forEach((sub) => folderSel.appendChild(el("option", { value: sub.path, text: `  ${sub.label}` })));

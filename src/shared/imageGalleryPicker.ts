@@ -87,9 +87,40 @@ async function fetchInputFiles(): Promise<string[]> {
 // in galleryOverlay.ts already assumes this handler is format/tool-agnostic.
 const GENERIC_COPY_API = IMAGE_GALLERY_TOOLS[0].api;
 
-async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number): Promise<{ images: PickerImage[]; total: number }> {
+// input/ and output/ are a flat recursive dump of EVERY image, across every tool's own
+// subfolder plus anything dropped in by hand — once there's more than a couple of tools'
+// worth, that pushes actual thumbnails off screen before you ever see them. User: "INPUT/
+// OUTPUT은 폴더도 네이비게이션 되면 좋겠는데... 드롭다운 방식... 최상위 + 하위 폴더 2단계
+//까지." Node ported the same ask via a new backend route (`6487c40`); web already had the
+// FULL flat file list client-side (the LoadImage/LoadImageOutput combo trick), so the 2-level
+// folder tree is built from that same list instead of adding a route — same UX, no new
+// backend dependency.
+interface FolderNode { path: string; label: string; children: FolderNode[] }
+function buildFolderTree(files: string[]): FolderNode[] {
+  const top = new Map<string, Map<string, true>>();
+  for (const f of files) {
+    const slash = f.lastIndexOf("/");
+    if (slash === -1) continue; // a loose file at the root — not a folder
+    const dir = f.slice(0, slash);
+    const parts = dir.split("/");
+    const t = parts[0];
+    if (!top.has(t)) top.set(t, new Map());
+    if (parts.length > 1) top.get(t)!.set(parts[1], true);
+  }
+  return [...top.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, subs]) => ({
+    path: name, label: name,
+    children: [...subs.keys()].sort((a, b) => a.localeCompare(b)).map((s) => ({ path: `${name}/${s}`, label: s, children: [] })),
+  }));
+}
+function filterByFolder(files: string[], folder: string): string[] {
+  if (!folder) return files;
+  const prefix = `${folder}/`;
+  return files.filter((f) => f === folder || f.startsWith(prefix));
+}
+
+async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number, folder = ""): Promise<{ images: PickerImage[]; total: number }> {
   if (tool.id === INPUT_TOOL.id) {
-    const all = await fetchInputFiles();
+    const all = filterByFolder(await fetchInputFiles(), folder);
     const page = all.slice(offset, offset + limit).map((combo) => {
       const slash = combo.lastIndexOf("/");
       return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
@@ -97,7 +128,7 @@ async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number)
     return { images: page, total: all.length };
   }
   if (tool.id === OUTPUT_TOOL.id) {
-    const all = await fetchOutputFiles();
+    const all = filterByFolder(await fetchOutputFiles(), folder);
     const page = all.slice(offset, offset + limit).map((combo) => {
       const slash = combo.lastIndexOf("/");
       return slash === -1 ? { filename: combo, subfolder: "" } : { filename: combo.slice(slash + 1), subfolder: combo.slice(0, slash) };
@@ -142,6 +173,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   let total = 0;
   let loading = false;
   let picking = false;
+  let activeFolder = ""; // "" = (All) — only meaningful for INPUT/OUTPUT, reset on every tool switch
 
   const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(1056px, 96vw)", height: "min(840px, 92vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: "10px" } });
@@ -161,11 +193,36 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
         type: "button", text: t.label,
         style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "14px", background: active ? BRAND : C.bg2, color: active ? "#fff" : C.text, border: `1px solid ${active ? BRAND : C.border}`, fontWeight: active ? "700" : "400" },
       });
-      b.addEventListener("click", () => { if (activeTool.id !== t.id) { activeTool = t; reset(); } });
+      b.addEventListener("click", () => { if (activeTool.id !== t.id) { activeTool = t; activeFolder = ""; reset(); } });
       toolBar.appendChild(b);
     });
   }
   renderToolBar();
+
+  // Only INPUT/OUTPUT get a folder dropdown — the 5 per-tool tabs each have one fixed
+  // subfolder already (nothing to navigate). "(All)" first, then the 2-level tree with
+  // space-indentation for the sub-level, mirroring node `6487c40`'s own dropdown shape.
+  const folderSel = el("select", {
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 8px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, display: "none" },
+  }) as HTMLSelectElement;
+  folderSel.addEventListener("change", () => { activeFolder = folderSel.value; reloadGrid(); });
+  async function renderFolderSel() {
+    if (activeTool.id !== INPUT_TOOL.id && activeTool.id !== OUTPUT_TOOL.id) {
+      folderSel.style.display = "none";
+      return;
+    }
+    const files = activeTool.id === INPUT_TOOL.id ? await fetchInputFiles() : await fetchOutputFiles();
+    if (activeTool.id !== INPUT_TOOL.id && activeTool.id !== OUTPUT_TOOL.id) return; // switched away while awaiting
+    const tree = buildFolderTree(files);
+    clear(folderSel);
+    folderSel.appendChild(el("option", { value: "", text: "(All)" }));
+    tree.forEach((top) => {
+      folderSel.appendChild(el("option", { value: top.path, text: top.label }));
+      top.children.forEach((sub) => folderSel.appendChild(el("option", { value: sub.path, text: `  ${sub.label}` })));
+    });
+    folderSel.value = activeFolder;
+    folderSel.style.display = tree.length ? "" : "none";
+  }
 
   const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gridAutoRows: "min-content", gap: "6px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
   const statusEl = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
@@ -173,7 +230,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   moreBtn.style.display = "none";
   moreBtn.addEventListener("click", () => loadMore());
 
-  box.append(topRow, toolBar, grid, statusEl, moreBtn);
+  box.append(topRow, toolBar, folderSel, grid, statusEl, moreBtn);
   ov.appendChild(box);
 
   function close() {
@@ -185,10 +242,15 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
 
   function reset() {
+    renderToolBar();
+    renderFolderSel();
+    reloadGrid();
+  }
+
+  function reloadGrid() {
     offset = 0;
     total = 0;
     clear(grid);
-    renderToolBar();
     statusEl.textContent = "Loading…";
     loadMore();
   }
@@ -197,8 +259,9 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     if (loading) return;
     loading = true;
     const tool = activeTool;
-    const data = await fetchGallery(tool, offset, 60);
-    if (tool.id !== activeTool.id) { loading = false; return; }
+    const folder = activeFolder;
+    const data = await fetchGallery(tool, offset, 60, folder);
+    if (tool.id !== activeTool.id || folder !== activeFolder) { loading = false; return; }
     total = data.total || 0;
     const imgs = data.images || [];
     imgs.forEach((img) => {

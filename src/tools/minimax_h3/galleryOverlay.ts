@@ -199,6 +199,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   let galleryFilter = "all";
   const GALLERY_FILTERS = [
     { value: "all", label: "All" },
+    { value: "original", label: "Original" },
     { value: "stitched", label: "Stitched" },
     { value: "ltxupscale", label: "LTX Upscale" },
     { value: "facerefine", label: "Face Refine" },
@@ -208,6 +209,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   function matchesGalleryFilter(v: GalleryVideo): boolean {
     const m = (v as any).meta || {};
     switch (galleryFilter) {
+      // 사용자 지시: "아무것도 적용안되 원본 영상만" — is_full(stitched)도 아니고, 후처리
+      // 모드(LTX Upscale/Face Refine)도 아니고, deblur/upscale/interpolate 중 하나도 안 걸린
+      // 클립만. 3개 핵심 생성 모드(t2v/firstlast/reference) 그대로거나 mode가 아예 없는
+      // (구버전) 클립이 여기 해당.
+      case "original":
+        return !(v as any).is_full && m.mode !== "ltxupscale" && m.mode !== "facerefine"
+          && !(m.deblur && m.deblur !== "none") && !m.upscale && !m.interpolate;
       case "stitched": return !!(v as any).is_full;
       case "ltxupscale": return m.mode === "ltxupscale";
       case "facerefine": return m.mode === "facerefine";

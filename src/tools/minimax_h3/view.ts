@@ -1111,7 +1111,9 @@ export function renderMinimaxH3(container: HTMLElement) {
   const editBtn = el("button", { type: "button", text: "📝 Prompt Edit", title: "Open the full prompt editor (with Ollama enhance)", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips", style: smallBtnStyle });
   const addBtn = el("button", { type: "button", text: "+ Add", style: smallBtnStyle });
-  promptHdr.append(commonBtn, editBtn, splitBtn, addBtn);
+  const resetTAHBtn = el("button", { type: "button", text: "↺", title: "Reset the prompt boxes' height back to the default", style: smallBtnStyle });
+  resetTAHBtn.addEventListener("click", () => resetPromptTAHeights());
+  promptHdr.append(commonBtn, editBtn, splitBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
   promptWrap.append(promptHdr, promptList);
@@ -1495,29 +1497,43 @@ export function renderMinimaxH3(container: HTMLElement) {
   // Shot-list clip prompt textareas: remember the last manually-dragged height and keep every
   // currently-rendered clip's box in sync when the user resizes any one of them.
   //
-  // Two bugs found while verifying this against a real drag + reload (not just reading the
-  // code): (1) a module-level "syncing" boolean can't guard the cross-clip broadcast —
-  // ResizeObserver callbacks fire asynchronously (after layout, next microtask), so by the
-  // time textarea B's own observer reacts to a height WE set on it (to mirror A), the flag
-  // we flipped true-then-false synchronously around that assignment has already gone back to
-  // false; B's callback runs "unguarded" and re-broadcasts. Fixed with a per-textarea "last
-  // height already accounted for" (WeakMap) — a callback reporting that exact height again is
-  // an echo, not a new resize, and is ignored outright. (2) `ta.clientHeight` undercounts a
-  // textarea's own border-box height by its scrollbar-track allowance (~10-12px in Chrome,
-  // confirmed by comparing it against offsetHeight/the CSS height we'd actually set) — using
-  // it as the value both saved AND reapplied meant every observer firing (including the
-  // harmless ones from bug 1) re-saved and re-set a slightly SMALLER height than what was
-  // visually there, so the box quietly shrank a little on every resize/reload cycle until it
-  // was back near the CSS minHeight floor. This is what actually caused the reported
-  // "resize it, refresh, and it's back to default" — not a genuine reset, a monotonic drift.
-  // Fixed by reading `offsetHeight` (== the border-box CSS height) instead.
+  // Three bugs found while verifying this against real usage (not just reading the code):
+  // (1) a module-level "syncing" boolean can't guard the cross-clip broadcast — ResizeObserver
+  // callbacks fire asynchronously (after layout, next microtask), so by the time textarea B's
+  // own observer reacts to a height WE set on it (to mirror A), the flag we flipped
+  // true-then-false synchronously around that assignment has already gone back to false; B's
+  // callback runs "unguarded" and re-broadcasts. Fixed with a per-textarea "last height
+  // already accounted for" (WeakMap) — a callback reporting that exact height again is an
+  // echo, not a new resize, and is ignored outright.
+  // (2) `ta.clientHeight` undercounts a textarea's own border-box height by its scrollbar-track
+  // allowance (~10-12px in Chrome) — using it as the value both saved AND reapplied meant every
+  // observer firing re-saved and re-set a slightly SMALLER height, so the box quietly shrank a
+  // little on every cycle. Fixed by reading `offsetHeight` (== the border-box CSS height).
+  // (3) (node 255de83) the ResizeObserver trusted ANY size change as a deliberate user resize —
+  // including layout-driven ones (a fractional/DPI-rounded pass, a re-render's first paint
+  // before layout settles) — not just an actual drag on the native resize handle. Every stray
+  // tick got adopted as the new height and pushed onto every clip's textarea, so it could only
+  // ratchet upward, never shrink back. Fixed by gating the observer behind an actual
+  // mousedown-drag on one of the watched textareas (promptTAResizing); a layout-driven change
+  // is still measured but ignored unless mid-drag. Also clamps to 80-600px so a bad reading
+  // can't run away even if this guard is ever bypassed, applied retroactively on load.
   let allPromptTAs: HTMLTextAreaElement[] = [];
   let promptTAObservers: ResizeObserver[] = [];
   const promptTALastH = new WeakMap<HTMLTextAreaElement, number>();
+  const PROMPT_TA_DEFAULT_H = 180; // 1.5x the original 120px default, per user request
+  const PROMPT_TA_MIN_H = 80;
+  const PROMPT_TA_MAX_H = 600;
+  const clampPromptTAH = (h: number) => Math.min(PROMPT_TA_MAX_H, Math.max(PROMPT_TA_MIN_H, h));
+  let promptTAResizing = false;
+  document.addEventListener("mousedown", (e) => {
+    if (e.target && allPromptTAs.includes(e.target as HTMLTextAreaElement)) promptTAResizing = true;
+  }, true);
+  document.addEventListener("mouseup", () => { promptTAResizing = false; }, true);
 
   function watchPromptTA(ta: HTMLTextAreaElement) {
     const ro = new ResizeObserver(() => {
-      const h = ta.offsetHeight;
+      if (!promptTAResizing) return;
+      const h = clampPromptTAH(ta.offsetHeight);
       if (!h || promptTALastH.get(ta) === h) return;
       promptTALastH.set(ta, h);
       try { localStorage.setItem(PROMPT_TA_H_KEY, String(h)); } catch {}
@@ -1531,6 +1547,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     ro.observe(ta);
     promptTAObservers.push(ro);
   }
+  // ↺ Reset — puts every clip's textarea back to the shared default height.
+  function resetPromptTAHeights() {
+    try { localStorage.setItem(PROMPT_TA_H_KEY, String(PROMPT_TA_DEFAULT_H)); } catch {}
+    allPromptTAs.forEach((t) => { promptTALastH.set(t, PROMPT_TA_DEFAULT_H); t.style.height = `${PROMPT_TA_DEFAULT_H}px`; });
+  }
 
   function renderPrompts() {
     const isLtx = state.generationMode === "ltxupscale";
@@ -1539,6 +1560,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     commonBtn.style.display = hidesShotList ? "none" : "";
     splitBtn.style.display = hidesShotList ? "none" : "";
     addBtn.style.display = hidesShotList ? "none" : "";
+    resetTAHBtn.style.display = hidesShotList ? "none" : "";
     promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
@@ -1579,7 +1601,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       });
       ta.value = promptText(p);
       const savedTAH = parseInt(localStorage.getItem(PROMPT_TA_H_KEY) || "", 10);
-      if (savedTAH > 0) ta.style.height = `${savedTAH}px`;
+      ta.style.height = `${clampPromptTAH(savedTAH > 0 ? savedTAH : PROMPT_TA_DEFAULT_H)}px`;
       ta.addEventListener("input", () => {
         state.prompts[i].text = ta.value;
         persist();

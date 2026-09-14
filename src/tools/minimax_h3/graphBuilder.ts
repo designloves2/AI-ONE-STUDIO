@@ -38,6 +38,8 @@ const N = {
   upModel: "MM:upscale_model",
   upApply: "MM:upscale",
   rtx: "MM:rtx",
+  fvsrPipe: "MM:flashvsr_pipe",
+  fvsr: "MM:flashvsr",
   deblurR: "MM:deblur",
   video: "MM:video",
   save: "MM:save_video",
@@ -73,6 +75,71 @@ const has = (avail: Avail | undefined, name: string) => !!(avail && avail[name])
 
 export function previewNodeKey(nodeId: string | number) {
   return `MMH3_preview_${nodeId}`;
+}
+
+export interface FlashVSRParams {
+  model?: string;
+  mode?: string;
+  scale?: number;
+  colorFix?: boolean;
+  tileSize?: number;
+  tileOverlap?: number;
+  seed?: number;
+}
+
+// FlashVSR VSR (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — shared by the inline per-clip upscale
+// (buildClipGraph) and the gallery's standalone post-process (buildUpscaleGraph). Only 8 fields
+// are exposed in the UI (model/mode/scale/color fix/tile size/tile overlap/seed/seed control);
+// everything else below is fixed at the values from the shipped API workflow
+// ([TJ]FlashVSR-Upscale.json) and never surfaced.
+function buildFlashVSR(g: Graph, pipeId: string, nodeId: string, p: FlashVSRParams, images: any) {
+  g[pipeId] = { class_type: "FlashVSRInitPipe", inputs: {
+    model: p.model || "FlashVSR-v1.1",
+    mode: p.mode || "tiny",
+    alt_vae: "none",
+    force_offload: true,
+    precision: "bf16",
+    device: "cuda:0",
+    attention_mode: "sparse_sage_attention",
+  } };
+  g[nodeId] = { class_type: "FlashVSRNodeAdv", inputs: {
+    pipe: [pipeId, 0],
+    frames: images,
+    // FlashVSRNodeAdv's own `scale` is an INT combo, 2-4 only (no 1x, no fractional).
+    scale: Math.min(4, Math.max(2, Math.round(p.scale ?? 2))),
+    color_fix: p.colorFix !== false,
+    tiled_vae: true,
+    tiled_dit: true,
+    tile_size: p.tileSize ?? 384,
+    tile_overlap: p.tileOverlap ?? 32,
+    unload_dit: false,
+    sparse_ratio: 2,
+    kv_ratio: 3,
+    local_range: 11,
+    seed: p.seed ?? 42,
+  } };
+}
+/** Normalizes a flashvsr params object into the shape saved as clip metadata's upscale.* field. */
+export function flashvsrUsed(p: FlashVSRParams) {
+  return {
+    method: "flashvsr" as const,
+    model: p.model || "FlashVSR-v1.1",
+    mode: p.mode || "tiny",
+    scale: p.scale ?? 2,
+    colorFix: p.colorFix !== false,
+    tileSize: p.tileSize ?? 384,
+    tileOverlap: p.tileOverlap ?? 32,
+    seed: p.seed ?? 42,
+  };
+}
+/** state.flashvsr* -> the FlashVSRParams shape buildFlashVSR/flashvsrUsed take, so
+ * buildClipGraph's inline path and the gallery's own opts.flashvsr passthrough share one shape. */
+function flashvsrParamsFromState(state: MinimaxState): FlashVSRParams {
+  return {
+    model: state.flashvsrModel, mode: state.flashvsrMode, scale: state.flashvsrScale,
+    colorFix: state.flashvsrColorFix, tileSize: state.flashvsrTileSize,
+    tileOverlap: state.flashvsrTileOverlap, seed: state.flashvsrSeed,
+  };
 }
 
 /** Resolves turboMode "larryvrh"/"pdd" down to "none" if its file isn't actually set.
@@ -569,7 +636,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // upscaled clip and to show its real dimensions. Set only inside the branch that wires the
   // node, never recomputed from raw state.
   let deblurUsed: string | null = null;
-  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | null = null;
+  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | ReturnType<typeof flashvsrUsed> | null = null;
   // Deblur runs on the decoded frames before any upscale, at their own resolution. It is
   // independent of the upscale setting: Upscale = None still deblurs.
   if (state.deblurStrength && state.deblurStrength !== "none" && has(avail, "TJ_RTXDeblur")) {
@@ -587,6 +654,11 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     g[N.rtx] = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" } };
     images = [N.rtx, 0];
     upscaleUsed = { method: "rtx", scale: state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" };
+  } else if (up === "flashvsr" && has(avail, "FlashVSRNodeAdv")) {
+    const fvsrParams = flashvsrParamsFromState(state);
+    buildFlashVSR(g, N.fvsrPipe, N.fvsr, fvsrParams, images);
+    images = [N.fvsr, 0];
+    upscaleUsed = flashvsrUsed(fvsrParams);
   }
 
   const clipTag = String(clipIndex + 1).padStart(3, "0");
@@ -1108,10 +1180,11 @@ export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefin
 export interface UpscaleGraphOpts {
   // "none" is a real choice, not an absence — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15: with
   // deblur beside it, Upscale = None is what lets this graph run a deblur-only pass.
-  method: "model" | "rtx" | "none";
+  method: "model" | "rtx" | "flashvsr" | "none";
   upscaleModel?: string;
   rtxScale?: number;
   rtxQuality?: string;
+  flashvsr?: FlashVSRParams;
   // RTX Deblur — a pre-pass before upscale, at the input's own resolution, independent of
   // whether an upscale follows. "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA".
   deblur?: string;
@@ -1149,6 +1222,9 @@ export function buildUpscaleGraph(inputFilename: string, folder: string, stem: s
   } else if (opts.method === "rtx") {
     g.rtx = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": opts.rtxScale ?? 2.0, quality: opts.rtxQuality || "ULTRA" } };
     images = ["rtx", 0];
+  } else if (opts.method === "flashvsr") {
+    buildFlashVSR(g, "fvsrPipe", "fvsr", opts.flashvsr || {}, images);
+    images = ["fvsr", 0];
   } else {
     g.upModel = { class_type: "UpscaleModelLoader", inputs: { model_name: opts.upscaleModel } };
     g.upApply = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: ["upModel", 0], image: images } };
@@ -1160,7 +1236,10 @@ export function buildUpscaleGraph(inputFilename: string, folder: string, stem: s
   const suffix = opts.saveSuffix !== undefined ? opts.saveSuffix : opts.method === "none" ? "_deblur" : "_upscaled";
   g.video = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: ["load", 2] } };
   g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
-  return { graph: g, saveNode: "save" };
+  // FlashVSR is a tiled post-process with its own progress ticks on the same submission —
+  // callers that want to distinguish them from the (nonexistent, here) sampler's own progress
+  // watch this node id too (see queuePrompt's samplerNode array support).
+  return { graph: g, saveNode: "save", fvsrNode: opts.method === "flashvsr" ? "fvsr" : null };
 }
 
 export interface InterpolateGraphOpts {

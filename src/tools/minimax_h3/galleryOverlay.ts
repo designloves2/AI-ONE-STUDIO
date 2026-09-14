@@ -3,7 +3,7 @@
 // 썸네일 지연로딩, 호버 미리재생, 더블클릭 풀스크린, 프롬프트 표시/Reuse/Copy, 삭제,
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
-import { SUBFOLDER, FPS, UPSCALE_MODES, framesToSeconds, composeStitchedPrompt } from "./core";
+import { SUBFOLDER, FPS, UPSCALE_MODES, FLASHVSR_MODELS, FLASHVSR_MODES, framesToSeconds, composeStitchedPrompt } from "./core";
 import { button, el, clear, confirmDialog, alertDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 
@@ -48,7 +48,8 @@ const POST_JOB_KEY = "aos_mmh3_post_job";
 // card badges / Reuse / info tooltip read one field set whichever path produced the file.
 interface PostInfo {
   deblur?: string;
-  upscale?: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | null;
+  upscale?: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string }
+    | { method: "flashvsr"; model: string; mode: string; scale: number; colorFix: boolean; tileSize: number; tileOverlap: number; seed: number } | null;
   interpolate?: { targetFps: number };
   resize?: { mode: string; w: number; h: number };
 }
@@ -159,6 +160,12 @@ export interface GalleryOverlayCtx {
   // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §3 — render one continuation clip from a finished
   // clip's last frame and auto-stitch [source, continuation]. Fire-and-forget (it's async).
   runExtend?: (opts: { sourceClip: any; seedFrame: string; prompt: string; sourcePrompt: string }) => void;
+  // Mirrors a gallery post-process job's progress (Upscale/Deblur/Interpolate/Resize) onto a
+  // small pill next to the main panel's own status strip, so closing the gallery — or a
+  // progress popup inside it — never reads as "did the job stop?" `text` overrides the
+  // percent readout with a short label (e.g. "chunk 2/5") when one applies.
+  reportGalleryJob?: (label: string, pct: number | null, text?: string) => void;
+  clearGalleryJob?: () => void;
 }
 
 export interface GalleryOverlayHandle {
@@ -205,6 +212,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     { value: "facerefine", label: "Face Refine" },
     { value: "deblur", label: "RTX Deblur" },
     { value: "rtxvsr", label: "RTX VSR" },
+    { value: "flashvsr", label: "FlashVSR VSR" },
   ];
   function matchesGalleryFilter(v: GalleryVideo): boolean {
     const m = (v as any).meta || {};
@@ -221,6 +229,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       case "facerefine": return m.mode === "facerefine";
       case "deblur": return !!(m.deblur && m.deblur !== "none");
       case "rtxvsr": return !!(m.upscale && m.upscale.method === "rtx");
+      case "flashvsr": return !!(m.upscale && m.upscale.method === "flashvsr");
       default: return true;
     }
   }
@@ -599,6 +608,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     runBtn.disabled = true;
     keepTabAlive(true); // silent-audio loop — stops desktop browsers discarding the tab mid-job
     readout.start(`Preparing ${v.filename}…`);
+    // Mirrors this readout onto the main panel's own status strip (ctx.reportGalleryJob/
+    // clearGalleryJob) so closing the gallery or a progress popup never reads as "did it
+    // stop?" — the job keeps reporting from wherever it's actually running.
+    ctx.reportGalleryJob?.(label, null);
     let copied: string | null = null;
     const chunkFiles: { filename: string; subfolder: string }[] = [];
     try {
@@ -633,7 +646,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         readout.start(`${label}…`);
         const cap = copied;
         const res = await queuePrompt(graph, {
-          onProgress: (val, max) => readout.chunkStep(0, 1, val, max),
+          onProgress: (val, max) => {
+            readout.chunkStep(0, 1, val, max);
+            ctx.reportGalleryJob?.(label, max ? (val / max) * 100 : null);
+          },
           onPoll: () => readout.note(`${label} · still working (connection quiet)…`),
           onQueued: (pid) => savePostJob({ promptId: pid, saveNode, source: v.filename, sourceMeta: (v as any).meta ?? null, label, outFolder, copied: cap, savedAt: Date.now(), postInfo }),
         });
@@ -650,7 +666,11 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           const { graph, saveNode } = buildFn(copied, `${stem}_c${String(i).padStart(3, "0")}`, { folder: chunkSub, skipFirstFrames: skip, frameLoadCap: cap, saveSuffix: "" });
           readout.start(`${label} — preparing chunk ${i + 1}/${chunkCount}…`);
           const res = await queuePrompt(graph, {
-            onProgress: (val, max) => readout.chunkStep(i, chunkCount, val, max),
+            onProgress: (val, max) => {
+              readout.chunkStep(i, chunkCount, val, max);
+              const within = max ? val / max : 0;
+              ctx.reportGalleryJob?.(label, Math.max(0, Math.min(100, ((i + within) / chunkCount) * 100)), `chunk ${i + 1}/${chunkCount}`);
+            },
             onPoll: () => readout.note(`${label} · chunk ${i + 1}/${chunkCount} · still working (connection quiet)…`),
           });
           const out = res.byNode?.[saveNode];
@@ -687,6 +707,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       keepTabAlive(false);
       postRunning = false;
       runBtn.disabled = false;
+      // Whether this popup/gallery is still open or was closed mid-run, the main panel's own
+      // pill (ctx.reportGalleryJob) must stop showing "in progress" once the job settles.
+      ctx.clearGalleryJob?.();
     }
   }
 
@@ -773,6 +796,15 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   let upscaleModelVal = state.upscaleModel || "";
   let upscaleRtxScale = state.rtxScale ?? 2.0;
   let upscaleRtxQuality = state.rtxQuality || "ULTRA";
+  // FlashVSR VSR — same 8 fields as the H3 left panel's own Upscale accordion, seeded from
+  // the same state.flashvsr* so the two surfaces start in sync.
+  let upscaleFvsrModel = state.flashvsrModel || "FlashVSR-v1.1";
+  let upscaleFvsrMode = state.flashvsrMode || "tiny";
+  let upscaleFvsrScale = state.flashvsrScale ?? 2;
+  let upscaleFvsrColorFix = state.flashvsrColorFix !== false;
+  let upscaleFvsrTileSize = state.flashvsrTileSize ?? 384;
+  let upscaleFvsrTileOverlap = state.flashvsrTileOverlap ?? 32;
+  let upscaleFvsrSeed = state.flashvsrSeed ?? 42;
   // Deblur sharpens at the clip's own resolution and is a separate job from upscaling: its own
   // button runs it alone, and the same select also feeds the Upscale button so one pass can
   // deblur then upscale without writing an intermediate file. Pressing one never triggers the
@@ -782,19 +814,26 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const upscaleMethodWrap = el("div", { style: { minWidth: "140px" } });
   const upscaleModelWrap = el("div", { style: { minWidth: "180px" } });
   const upscaleRtxWrap = el("div", { class: "flex items-center gap-2" });
+  const upscaleFvsrWrap = el("div", { class: "flex items-center gap-2 flex-wrap" });
   const deblurWrap = el("div", { style: { minWidth: "100px" } });
   const upscaleReadout = makeProgressReadout();
   const upscaleRunBtn = button("⬆ Run", () => {
     const v = findPost();
     if (!v) return;
+    const fvsrParams = {
+      model: upscaleFvsrModel, mode: upscaleFvsrMode, scale: upscaleFvsrScale, colorFix: upscaleFvsrColorFix,
+      tileSize: upscaleFvsrTileSize, tileOverlap: upscaleFvsrTileOverlap, seed: upscaleFvsrSeed,
+    };
     const upscale: PostInfo["upscale"] =
       upscaleMethod === "none" ? null
       : upscaleMethod === "rtx" ? { method: "rtx", scale: upscaleRtxScale, quality: upscaleRtxQuality }
+      : upscaleMethod === "flashvsr" ? { method: "flashvsr", ...fvsrParams }
       : { method: "model", model: upscaleModelVal };
     runPost(
       v,
       (f, stem, chunkOpts) => buildUpscaleGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
-        method: upscaleMethod as "model" | "rtx" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality, deblur: deblurStrength,
+        method: upscaleMethod as "model" | "rtx" | "flashvsr" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality,
+        flashvsr: fvsrParams, deblur: deblurStrength,
         skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
         saveSuffix: upscaleMethod === "none" && chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
       }, ctx.availability),
@@ -846,6 +885,32 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       el("span", { text: "quality", class: "text-[10.5px]", style: { color: C.muted } }), qualitySel
     );
   }
+  function renderUpscaleFvsr() {
+    clear(upscaleFvsrWrap);
+    const modelSel = select(FLASHVSR_MODELS.map((m) => ({ value: m, label: m })), upscaleFvsrModel, (v) => { upscaleFvsrModel = v; });
+    const modeSel = select(FLASHVSR_MODES.map((m) => ({ value: m, label: m })), upscaleFvsrMode, (v) => { upscaleFvsrMode = v; });
+    const scaleField = numberField(upscaleFvsrScale, (v) => { upscaleFvsrScale = Math.min(4, Math.max(2, Math.round(v))); }, 1);
+    const tileField = numberField(upscaleFvsrTileSize, (v) => { upscaleFvsrTileSize = Math.min(1024, Math.max(32, Math.round(v))); }, 32);
+    const overlapField = numberField(upscaleFvsrTileOverlap, (v) => { upscaleFvsrTileOverlap = Math.min(512, Math.max(8, Math.round(v))); }, 8);
+    const seedField = numberField(upscaleFvsrSeed, (v) => { upscaleFvsrSeed = v; }, 1);
+    [modelSel, modeSel].forEach((s) => ((s as HTMLElement).style.fontSize = "10.5px"));
+    [scaleField, tileField, overlapField, seedField].forEach((f) => ((f as HTMLElement).style.width = "56px"));
+    const colorFixLabel = el("label", { class: "flex items-center gap-1 text-[10.5px] cursor-pointer", style: { color: C.text } });
+    const colorFixCb = el("input", { type: "checkbox" }) as HTMLInputElement;
+    colorFixCb.checked = upscaleFvsrColorFix;
+    colorFixCb.style.cursor = "pointer";
+    colorFixCb.addEventListener("change", () => { upscaleFvsrColorFix = colorFixCb.checked; });
+    colorFixLabel.append(colorFixCb, el("span", { text: "color fix" }));
+    upscaleFvsrWrap.append(
+      el("span", { text: "model", class: "text-[10.5px]", style: { color: C.muted } }), modelSel,
+      el("span", { text: "mode", class: "text-[10.5px]", style: { color: C.muted } }), modeSel,
+      el("span", { text: "scale", class: "text-[10.5px]", style: { color: C.muted } }), scaleField,
+      el("span", { text: "tile", class: "text-[10.5px]", style: { color: C.muted } }), tileField,
+      el("span", { text: "overlap", class: "text-[10.5px]", style: { color: C.muted } }), overlapField,
+      el("span", { text: "seed", class: "text-[10.5px]", style: { color: C.muted } }), seedField,
+      colorFixLabel
+    );
+  }
   function renderDeblur() {
     clear(deblurWrap);
     const sel = select([{ value: "none", label: "off" }, { value: "LOW", label: "Low" }, { value: "MEDIUM", label: "Medium" }, { value: "HIGH", label: "High" }, { value: "ULTRA", label: "Ultra" }], deblurStrength, (v) => { deblurStrength = v; renderUpscaleControls(); });
@@ -857,7 +922,8 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     const deblurOn = deblurStrength !== "none";
     const deblurOk = !avail || !Object.keys(avail).length || !!avail.TJ_RTXDeblur;
     const isNone = upscaleMethod === "none";
-    const nodeName = upscaleMethod === "rtx" ? "RTXVideoSuperResolution" : "ImageUpscaleWithModel";
+    const nodeName = upscaleMethod === "rtx" ? "RTXVideoSuperResolution"
+      : upscaleMethod === "flashvsr" ? "FlashVSRNodeAdv" : "ImageUpscaleWithModel";
     const upscalerOk = !avail || !Object.keys(avail).length || !!avail[nodeName];
     // With Upscale = None, Run needs deblur set rather than a model or the RTX node.
     const upMissing = isNone ? !(deblurOn && deblurOk) : !upscalerOk;
@@ -874,8 +940,10 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     renderUpscaleMethod();
     renderDeblur();
     upscaleRtxWrap.style.display = upscaleMethod === "rtx" ? "flex" : "none";
-    upscaleModelWrap.style.display = upscaleMethod === "rtx" || upscaleMethod === "none" ? "none" : "block";
+    upscaleFvsrWrap.style.display = upscaleMethod === "flashvsr" ? "flex" : "none";
+    upscaleModelWrap.style.display = upscaleMethod === "model" ? "block" : "none";
     if (upscaleMethod === "rtx") renderUpscaleRtx();
+    if (upscaleMethod === "flashvsr") renderUpscaleFvsr();
     refreshUpscaleAvailability();
   }
   function rebuildUpscaleModels() {
@@ -887,7 +955,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   renderUpscaleModel(upscaleModelVal ? [upscaleModelVal] : []);
   upscaleBar.append(
     el("div", { text: "Upscale:", class: "text-[10.5px] font-bold", style: { color: C.text } }),
-    deblurWrap, deblurRunBtn, upscaleMethodWrap, upscaleModelWrap, upscaleRtxWrap, upscaleReadout.wrap, upscaleRunBtn
+    deblurWrap, deblurRunBtn, upscaleMethodWrap, upscaleModelWrap, upscaleRtxWrap, upscaleFvsrWrap, upscaleReadout.wrap, upscaleRunBtn
   );
 
   // ── Interpolate bar ───────────────────────────────────────────────────────
@@ -1294,9 +1362,11 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       {
         const m = (v as any).meta || {};
         const marks: [string, string][] = [];
-        if (m.upscale) marks.push(["⇪", m.upscale.method === "rtx"
-          ? `Upscaled — RTX VSR ×${m.upscale.scale} (${m.upscale.quality})`
-          : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
+        if (m.upscale) marks.push(m.upscale.method === "flashvsr"
+          ? ["◮", `Upscaled — FlashVSR ${m.upscale.model} ×${m.upscale.scale} (${m.upscale.mode})`]
+          : ["⇪", m.upscale.method === "rtx"
+              ? `Upscaled — RTX VSR ×${m.upscale.scale} (${m.upscale.quality})`
+              : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
         if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
         if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);
         if (m.resize) marks.push(["Ⓢ", `Resized — ${m.resize.w}×${m.resize.h} (${m.resize.mode})`]);

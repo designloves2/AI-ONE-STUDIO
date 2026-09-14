@@ -101,15 +101,18 @@ export interface QueueResult {
 export function queuePrompt(
   promptGraph: Record<string, any> | null,
   opts?: {
-    onProgress?: (v: number, m: number) => void;
+    onProgress?: (v: number, m: number, node?: string) => void;
     onQueued?: (promptId: string) => void;
     existingPromptId?: string;
-    /** When set, only `progress` events from this node id drive onProgress. ComfyUI emits a
-     *  progress bar for every node that has one (live-preview override, VAE decode, deblur,
-     *  interpolate…), and without this filter they all land in the same "step N/M" readout —
-     *  so a 30-step sampler run flickers to "38/60" as the preview/decode bars bleed in.
+    /** When set, only `progress` events from this node id (or one of these node ids) drive
+     *  onProgress. ComfyUI emits a progress bar for every node that has one (live-preview
+     *  override, VAE decode, deblur, interpolate…), and without this filter they all land in
+     *  the same "step N/M" readout — so a 30-step sampler run flickers to "38/60" as the
+     *  preview/decode bars bleed in. An array covers a sampler followed by a tiled
+     *  post-process in the same submission (e.g. FlashVSR) — the node id is passed through to
+     *  onProgress's 3rd arg so a caller watching more than one node can tell which just ticked.
      *  Left unset (e.g. a reconnect with no graph, or post-process) → forward everything. */
-    samplerNode?: string;
+    samplerNode?: string | string[];
     /** Fired on each /history poll tick while the job is still running — a heartbeat for when
      *  the WS has gone quiet (mobile background throttling) and the poll is all that's left. */
     onPoll?: () => void;
@@ -120,12 +123,13 @@ export function queuePrompt(
     let promptId: string | null = opts?.existingPromptId || null;
     const outputs: Record<string, any> = {};
 
+    const samplerNodes = opts?.samplerNode == null ? null : Array.isArray(opts.samplerNode) ? opts.samplerNode : [opts.samplerNode];
     const onProgress = (d: any) => {
       if (!opts?.onProgress) return;
       const { value, max, node, prompt_id } = d || {};
       if (prompt_id && promptId && prompt_id !== promptId) return;
-      if (opts.samplerNode != null && node != null && String(node) !== String(opts.samplerNode)) return;
-      if (max) opts.onProgress(value, max);
+      if (samplerNodes && node != null && !samplerNodes.some((n) => String(n) === String(node))) return;
+      if (max) opts.onProgress(value, max, node);
     };
     const onExecuted = (d: any) => {
       if (d?.prompt_id && promptId && d.prompt_id !== promptId) return;

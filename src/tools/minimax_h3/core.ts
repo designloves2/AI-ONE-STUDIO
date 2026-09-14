@@ -271,6 +271,17 @@ export interface MinimaxState {
   rtxScale: number;
   rtxQuality: string;
 
+  // FlashVSR VSR upscale — only these 8 fields are exposed; everything else
+  // FlashVSRInitPipe/FlashVSRNodeAdv takes is fixed at the shipped API workflow's own values.
+  flashvsrModel: string;
+  flashvsrMode: string;
+  flashvsrScale: number;
+  flashvsrColorFix: boolean;
+  flashvsrTileSize: number;
+  flashvsrTileOverlap: number;
+  flashvsrSeed: number;
+  flashvsrSeedMode: string;
+
   // Sigma shift (MiniMaxH3SigmaShift)
   shiftVideo: number;
   shiftAudio: number;
@@ -902,7 +913,12 @@ export const UPSCALE_MODES = [
   { key: "none", label: "None" },
   { key: "model", label: "Upscale Model" },
   { key: "rtx", label: "RTX VSR" },
+  { key: "flashvsr", label: "FlashVSR VSR" },
 ];
+// FlashVSRInitPipe's own combo choices (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — read straight
+// off /object_info/FlashVSRInitPipe, not guessed.
+export const FLASHVSR_MODELS = ["FlashVSR", "FlashVSR-v1.1"];
+export const FLASHVSR_MODES = ["tiny", "tiny-long", "full"];
 
 export const CONTINUITY_MODES = [
   { key: "none", label: "None", hint: "nothing is handed between clips — each one is made from its prompt, on the run's own model; only the common prompt keeps them consistent" },
@@ -1492,6 +1508,15 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     specHistoryStore: saved.specHistoryStore || "system_ram",
     rtxScale: saved.rtxScale ?? 2.0,
     rtxQuality: saved.rtxQuality || "ULTRA",
+    // FlashVSR VSR — defaults match the shipped API workflow (16GB, 2x, 384 tile).
+    flashvsrModel: saved.flashvsrModel || "FlashVSR-v1.1",
+    flashvsrMode: saved.flashvsrMode || "tiny",
+    flashvsrScale: saved.flashvsrScale ?? 2,
+    flashvsrColorFix: saved.flashvsrColorFix !== false,
+    flashvsrTileSize: saved.flashvsrTileSize ?? 384,
+    flashvsrTileOverlap: saved.flashvsrTileOverlap ?? 32,
+    flashvsrSeed: saved.flashvsrSeed ?? 42,
+    flashvsrSeedMode: saved.flashvsrSeedMode || "fixed",
     shiftVideo: saved.shiftVideo ?? 12,
     shiftAudio: saved.shiftAudio ?? 3,
     useSageAttn: saved.useSageAttn ?? true,

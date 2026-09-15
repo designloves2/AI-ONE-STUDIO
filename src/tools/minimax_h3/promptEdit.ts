@@ -4,7 +4,6 @@
 // 기능은 백엔드 연결 단계(§4-2)로 미뤘다 — 지금은 로컬 state(localStorage)까지만.
 import type { MinimaxState, PromptEntry } from "./core";
 import {
-  IMAGE_BRIEF_MODES,
   clipAssets,
   clipFraming,
   evenBreaks,
@@ -17,7 +16,7 @@ import {
   promptOverrides,
   promptText,
 } from "./core";
-import { button, clear, el, confirmDialog, promptDialog } from "../../shared/ui";
+import { button, clear, el, confirmDialog, promptDialog, promptTextareaDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
 import { buildClipMediaSlots, dragReorder } from "./imagesPanel";
@@ -59,11 +58,6 @@ export async function imageToB64(filename: string): Promise<string> {
   return dataUrl.split(",")[1] || "";
 }
 
-const MODES = [
-  { key: "text", label: "✨ Text → Brief", hint: "rewrite the prompt into a shot-by-shot brief" },
-  { key: "image", label: "🖼 Image → Brief", hint: "describe an image, then write the brief from it" },
-];
-
 function normPrompt(p: PromptEntry | string): PromptEntry {
   return typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : p;
 }
@@ -93,6 +87,7 @@ export function createPromptEditOverlay(
     class: "aos-prompt-edit-ov fixed inset-0 z-[9999] flex-col p-3 gap-2 box-border",
     style: { display: "none", background: "rgba(11,11,11,0.985)" },
   });
+  ov.appendChild(el("style", { text: "@keyframes mmh3-spin{to{transform:rotate(360deg)}}" }));
 
   let selected = 0;
   let systemPrompt = "";
@@ -101,8 +96,17 @@ export function createPromptEditOverlay(
   let enhMode: "text" | "image" = "text";
 
   // ── header ──────────────────────────────────────────────────────────────
-  const hdr = el("div", { class: "flex items-center gap-2 shrink-0" });
+  const hdr = el("div", { class: "flex items-center gap-2 shrink-0", style: { position: "relative" } });
   hdr.appendChild(el("div", { text: "📝 Prompt Edit", class: "text-white text-sm font-bold" }));
+  // True center of the whole header, independent of how wide the title/buttons on either
+  // side are — so it reads as one glance: what mode is this popup working with.
+  const hdrModeTag = el("div", {
+    style: {
+      position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
+      fontSize: "11px", fontWeight: "700", color: BRAND, whiteSpace: "nowrap", pointerEvents: "none",
+    },
+  });
+  hdr.appendChild(hdrModeTag);
   const srcTag = el("div", { class: "text-[10px] flex-1", style: { color: C.muted } });
   hdr.appendChild(srcTag);
   const resetBtn = el("button", {
@@ -196,6 +200,7 @@ export function createPromptEditOverlay(
       if (Array.isArray(s.refAudios)) state.refAudios = JSON.parse(JSON.stringify(s.refAudios));
       selected = 0;
       ctx.persist();
+      deriveModes();
       renderAll();
       onApply?.(); // generationMode may have just changed — the main view's mode buttons/Images panel need to see it
       ctx.checkMissingAssets?.(); // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §8 — loaded filenames may no longer exist in input/
@@ -409,7 +414,7 @@ export function createPromptEditOverlay(
   // Clearing restores the enabled states from the snapshot taken when the pick was made.
   const firstFrameRow = el("div", { class: "shrink-0 flex items-center gap-2 flex-wrap text-[10.5px]", style: { color: C.muted } });
   const firstFrameThumb = el("img", { style: { width: "34px", height: "34px", objectFit: "cover", borderRadius: "5px", border: `1px solid ${C.border}`, display: "none" } }) as HTMLImageElement;
-  const firstFrameNote = el("span", { text: "▶ Continue generating the clip.", style: { flex: "1" } });
+  const firstFrameNote = el("span", { text: "▶ Continue generating the clip.", style: { whiteSpace: "nowrap" } });
   const firstFrameGalleryBtn = el("button", { type: "button", text: "Select from the gallery", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
   const firstFrameClearBtn = el("button", { type: "button", text: "✕", title: "Stop continuing — restore all clips", style: { display: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 9px", borderRadius: "6px", background: "transparent", color: C.muted, border: `1px solid ${C.border}` } });
   firstFrameGalleryBtn.addEventListener("click", () => {
@@ -445,7 +450,32 @@ export function createPromptEditOverlay(
     renderList();
     renderImageRow();
   });
-  firstFrameRow.append(firstFrameThumb, firstFrameNote, firstFrameGalleryBtn, firstFrameClearBtn);
+  // Insert-at-cursor tags — <Picture N>, <Subject N>, <Shot N> — into the clip editor. "N"
+  // is inserted literally; the user replaces it with the actual number themselves.
+  function insertTagAtCursor(ta: HTMLTextAreaElement, tag: string) {
+    const s = ta.selectionStart ?? ta.value.length;
+    const e = ta.selectionEnd ?? ta.value.length;
+    const token = `<${tag} N>`;
+    ta.value = ta.value.slice(0, s) + token + ta.value.slice(e);
+    ta.focus();
+    ta.setSelectionRange(s + token.length, s + token.length);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  // Centered between "Select from the gallery" (left) and the Continue note (right) —
+  // wrapped in a flex:1 div so justify-center actually centers it in the row.
+  const tagBtnRow = el("div", { class: "flex-1 flex justify-center gap-1.5" },
+    ["Picture", "Subject", "Shot"].map((tag) => {
+      const b = el("button", {
+        type: "button", text: tag, title: `Insert <${tag} N> at the cursor`,
+        style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+      });
+      // mousedown steals focus from the editor before click fires, collapsing its selection
+      // to the end — preventDefault keeps the editor focused throughout.
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => insertTagAtCursor(editor, tag));
+      return b;
+    }));
+  firstFrameRow.append(firstFrameThumb, firstFrameGalleryBtn, tagBtnRow, firstFrameNote, firstFrameClearBtn);
   const firstFrameHint = el("div", {
     text: "Resuming a multi-clip run: pick the last finished clip, then write the prompts for the "
       + "clips that still need rendering. This clip starts from that clip's final frame (First/Last), "
@@ -467,7 +497,22 @@ export function createPromptEditOverlay(
     }
   }
 
-  editCol.append(editHdr, editor, firstFrameRow, firstFrameHint);
+  // Same "busy, no per-step feedback" banner language as the video preview's own
+  // frDetectBanner/fvsrBanner — dim cover + centered glowing text — over the one field a
+  // Prompt Write/Refine run is actually about to overwrite.
+  const editorWrap = el("div", { class: "flex-1 flex relative", style: { minHeight: "0" } });
+  const editorBusyOv = el("div", {
+    text: "✨ Writing the prompt…",
+    class: "absolute inset-0 flex items-center justify-center text-center hidden",
+    style: { zIndex: "5", background: "rgba(0,0,0,0.75)", padding: "0 16px", borderRadius: "8px", color: "#b57bff", fontSize: "18px", fontWeight: "700", textShadow: "0 0 12px rgba(181,123,255,0.5)" },
+  });
+  editorWrap.append(editor, editorBusyOv);
+  function setEditorBusy(isBusy: boolean, busyLabel?: string) {
+    editorBusyOv.textContent = busyLabel || "✨ Writing the prompt…";
+    editorBusyOv.classList.toggle("hidden", !isBusy);
+    (editor as HTMLTextAreaElement).disabled = isBusy;
+  }
+  editCol.append(editHdr, editorWrap, firstFrameRow, firstFrameHint);
   body.append(listCol, editCol);
 
   function updateCount() {
@@ -568,7 +613,7 @@ export function createPromptEditOverlay(
   const enhWrap = el("div", { class: "shrink-0 rounded-lg p-2.5 flex flex-col gap-2", style: { background: C.bg1, border: `1px solid ${C.border}` } });
   const enhTop = el("div", { class: "flex items-center gap-2 flex-wrap" });
   const enhCollapseBtn = el("button", { type: "button", text: "▾", title: "Collapse", style: { cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "11px", padding: "0 2px" } });
-  const enhTitle = el("div", { text: "LOCAL ENHANCE (native CLIP)", class: "text-[10px] font-bold tracking-wide", style: { color: BRAND } });
+  const enhTitle = el("div", { text: "PROMPT WRITE / REFINE", class: "text-[10px] font-bold tracking-wide", style: { color: BRAND } });
   enhTop.append(enhCollapseBtn, enhTitle);
   function renderEnhCollapse() {
     const collapsed = !!state.enhCollapsed;
@@ -588,24 +633,27 @@ export function createPromptEditOverlay(
   const statusTag = el("div", { text: "", class: "text-[10px] flex-1", style: { color: C.muted } });
   enhTop.appendChild(statusTag);
 
-  const modeWrap = el("div", { class: "flex gap-1" });
-  function renderModes() {
-    clear(modeWrap);
-    MODES.forEach((m) => {
-      const active = m.key === enhMode;
-      const b = el("button", {
-        type: "button", text: m.label, title: m.hint,
-        style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "4px 10px", borderRadius: "5px", fontWeight: active ? "700" : "400", background: active ? BRAND : C.bg2, color: "#fff", border: `1px solid ${active ? BRAND : C.border}` },
-      });
-      b.addEventListener("click", () => {
-        enhMode = m.key as "text" | "image";
-        renderModes();
-        renderImageRow();
-      });
-      modeWrap.appendChild(b);
-    });
+  // The source mode used to be two rows of manual toggle buttons (Text/Image, then
+  // First-Last/Reference) — confusing, since the main screen's own generation mode already
+  // says which images exist and what they mean. Both are now derived from
+  // state.generationMode instead: t2v has no images to show, firstlast means the brief
+  // writer sees the main screen's start/end frame, reference means it sees the main screen's
+  // reference set. Recomputed at the start of every write/refine run so it can never go
+  // stale if the main mode changed while this popup was open.
+  const modeTag = el("div", { class: "text-[10px] font-bold", style: { color: C.muted } });
+  function deriveModes() {
+    const gm = state.generationMode || "t2v";
+    enhMode = gm === "t2v" ? "text" : "image";
+    state.briefImageMode = gm === "firstlast" ? "fl" : "ref";
+    modeTag.textContent = gm === "t2v" ? "✨ Text → Brief"
+      : gm === "firstlast" ? "🖼 Image → Brief (First/Last, from the main screen)"
+      : "🖼 Image → Brief (Reference, from the main screen)";
+    hdrModeTag.textContent = gm === "t2v" ? "Text To Video"
+      : gm === "firstlast" ? "Image to Video (F/L)"
+      : gm === "reference" ? "Reference to Video"
+      : gm;
   }
-  enhTop.appendChild(modeWrap);
+  enhTop.appendChild(modeTag);
 
   const targetSel = el("select", { style: { background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } }, [
     el("option", { value: "one", text: "→ this clip" }),
@@ -613,8 +661,18 @@ export function createPromptEditOverlay(
   ]);
 
   const enhBtn = el("button", { type: "button", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "7px 16px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "700", display: "inline-flex", alignItems: "center", gap: "6px" } });
-  const enhBtnLabel = el("span", { text: "✨ Enhance" });
-  enhBtn.append(enhBtnLabel);
+  const enhSpin = el("span", { text: "⟳", class: "hidden", style: { animation: "mmh3-spin 0.8s linear infinite", fontSize: "13px" } });
+  const enhBtnLabel = el("span", { text: "✨ Prompt Write" });
+  enhBtn.append(enhSpin, enhBtnLabel);
+
+  // Refine — revises an ALREADY-WRITTEN prompt from a typed instruction, instead of writing a
+  // fresh one from scratch. Modeled on ComfyUI-MiniMaxH3-Prompt-Writer's assemble_refinement():
+  // text-only (no re-attached images), current prompt + the instruction go to the same brief
+  // model, and the result goes through the exact same review overlay as Prompt Write.
+  const refineBtn = el("button", { type: "button", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "7px 16px", borderRadius: "6px", background: C.bg2, color: "#fff", border: `1px solid ${BRAND}`, fontWeight: "700", display: "inline-flex", alignItems: "center", gap: "6px" } });
+  const refineSpin = el("span", { text: "⟳", class: "hidden", style: { animation: "mmh3-spin 0.8s linear infinite", fontSize: "13px" } });
+  const refineBtnLabel = el("span", { text: "🔧 Prompt Refine" });
+  refineBtn.append(refineSpin, refineBtnLabel);
 
   // native(ComfyUI 그래프로 도는 로컬 LLM)만 인터럽트가 확실히 먹는다 — Ollama/llama.cpp 같은
   // 외부 서버 경유(non-native) 호출은 ComfyUI 큐 밖이라 /interrupt로 못 멈출 확률이 높아서
@@ -700,21 +758,32 @@ export function createPromptEditOverlay(
     imgRow.style.display = enhMode === "image" ? "flex" : "none";
     renderEnhCollapse();
     if (enhMode !== "image") return;
+
+    // First/Last mode has nothing to attach here — the two frames are the main screen's own
+    // start/end images (or this clip's "Continue generating the clip" override, below), so
+    // this is a read-only preview of what Prompt Write/Refine will actually send, not a
+    // second place to edit them.
+    if (state.briefImageMode === "fl") {
+      const ff = promptFirstFrame(state.prompts[selected]) || state.firstFrameImage || "";
+      const lf = clipAssets(state, selected).lastFrame || state.lastFrameImage || "";
+      const thumb = (src: string, tag: string) => {
+        const box = el("div", {
+          class: "w-[72px] h-[72px] rounded-md flex items-center justify-center overflow-hidden shrink-0",
+          style: { border: `1px solid ${C.border}`, background: "#000" },
+        });
+        if (src) box.appendChild(el("img", { src: viewUrl(src), class: "w-full h-full object-cover" }));
+        else box.appendChild(el("div", { text: "none", class: "text-[10px]", style: { color: C.muted } }));
+        return el("div", { class: "flex flex-col gap-1 items-center" }, [box, el("div", { text: tag, class: "text-[9.5px]", style: { color: C.muted } })]);
+      };
+      imgRow.append(
+        el("div", { text: "First/Last frame — set on the main screen, or via \"Continue generating the clip\" below.", class: "text-[10px] leading-relaxed", style: { color: C.muted } }),
+        el("div", { class: "flex gap-3" }, [thumb(ff, "Start"), thumb(lf, "End")]),
+      );
+      return;
+    }
     renderOverrideRow();
     const assets = clipAssets(state, selected);
     const max = imageBriefMax(state.briefImageMode);
-
-    const modeRow = el("div", { class: "flex gap-1 items-center flex-wrap" });
-    IMAGE_BRIEF_MODES.forEach((m) => {
-      const active = state.briefImageMode === m.key;
-      const b = el("button", { type: "button", text: m.label, title: m.hint, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 8px", borderRadius: "5px", fontWeight: active ? "700" : "400", background: active ? BRAND : C.bg2, color: "#fff", border: `1px solid ${active ? BRAND : C.border}` } });
-      b.addEventListener("click", () => {
-        state.briefImageMode = m.key;
-        ctx.persist();
-        renderImageRow();
-      });
-      modeRow.appendChild(b);
-    });
 
     // Row ③ — three columns: images (always) / reference video / reference audio (the latter
     // two only when this clip has its own set — editing the common ones is the left panel's job).
@@ -819,7 +888,7 @@ export function createPromptEditOverlay(
     for (let i = 0; i < count; i++) grid.appendChild(slot(i));
 
     const note = el("div", { class: "text-[10px] leading-relaxed", style: { color: C.muted } });
-    note.textContent = `${filled}/9 image(s) for this clip. Enhance reads the first ${Math.min(filled, max)}.`;
+    note.textContent = `${filled}/9 image(s) for this clip. Prompt Write reads the first ${Math.min(filled, max)}.`;
     const modelLine = el("div", { class: "text-[10px]", style: { color: C.muted, cursor: "help" } });
     modelLine.title = "Change these in Settings → LLM Setting";
     imgCol.append(grid, note, modelLine);
@@ -846,24 +915,31 @@ export function createPromptEditOverlay(
       cols.appendChild(audCol);
     }
 
-    imgRow.append(overrideRow, modeRow, cols);
+    imgRow.append(overrideRow, cols);
     renderModelLine(modelLine);
     renderEnhCollapse();
   }
 
   const enhBottom = el("div", { class: "flex items-center gap-2 flex-wrap" });
-  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, enhStopBtn);
+  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, refineBtn, enhStopBtn);
   enhWrap.append(enhTop, imgRow, enhBottom);
 
   // Read-only — Settings → Models is where these are actually changed (SPEC_MINIMAX_H3_PER_CLIP_
   // OVERRIDE.md peer note: a picker here just eats two rows of vertical space that come straight
   // out of the clip editor's height, for a setting that's shared by every clip anyway).
   function renderModelLine(target: HTMLElement) {
-    const briefDesc = state.h3BriefBackend === "openrouter"
+    const shortName = (m: string) => String(m || "").split("/").pop()?.split("\\").pop() || m;
+    const briefDesc = state.h3BriefBackend === "llamagguf"
+      ? (state.h3LlamaBriefModel ? `Llama GGUF ${shortName(state.h3LlamaBriefModel)}` : "(none)")
+      : state.h3BriefBackend === "openrouter"
       ? `OpenRouter ${state.h3OrModelBrief || "default"}` : (state.nativeBriefClip || "(none)");
-    const visionDesc = state.h3VisionBackend === "openrouter"
+    const visionDesc = state.h3VisionBackend === "llamagguf"
+      ? (state.h3LlamaVisionModel ? `Llama GGUF ${shortName(state.h3LlamaVisionModel)}+${shortName(state.h3LlamaVisionMmproj || "none")}` : "(none)")
+      : state.h3VisionBackend === "openrouter"
       ? `OpenRouter ${state.h3OrModelVision || "default"}` : (state.nativeVisionClip || "(none)");
-    if ((state.h3BriefBackend !== "openrouter" || state.h3VisionBackend !== "openrouter") && !clipModels.length) {
+    const anyNative = state.h3BriefBackend !== "openrouter" && state.h3BriefBackend !== "llamagguf"
+      || state.h3VisionBackend !== "openrouter" && state.h3VisionBackend !== "llamagguf";
+    if (anyNative && !clipModels.length) {
       target.textContent = "Could not load the CLIP list — check the ComfyUI connection";
       target.style.color = C.warn;
       return;
@@ -894,31 +970,81 @@ export function createPromptEditOverlay(
     }
   }
 
+  // Labeled key:value header block, same shape as ComfyUI-MiniMaxH3-Prompt-Writer's
+  // assemble_request() user_content ("Mode: ...\nDuration: ...\n\nReference manifest...\n\n
+  // Creative brief:\n...") — the label wording is copied closely; what differs is only our
+  // own output shape (shot-separated brief text, not their 6-section MiniMax H3 schema — our
+  // own system prompt already governs that, this is just the same technique for framing
+  // the request).
   function buildUserPrompt(baseText: string, imageSummary: string) {
     const t = targetPlan();
-    const lines = [`Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} shot(s) of ~${t.clipSec.toFixed(2)}s each.`];
+    const modeLabel = state.generationMode === "reference" ? "Reference"
+      : state.briefImageMode === "fl" ? "First/Last frame" : "Text/Image → Brief";
+    const lines = [
+      `Mode: ${modeLabel}`,
+      `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} shot(s) of ~${t.clipSec.toFixed(2)}s each.`,
+    ];
     if (t.shots > 1) lines.push(`Write exactly ${t.shots} shots, separated by a line containing only ---, one shot per clip.`);
+    const refCount = state.generationMode === "reference" ? (state.refImages || []).length : 0;
+    lines.push(
+      "",
+      "Reference manifest:",
+      refCount ? `${refCount} reference image(s) supplied; refer to them as <Picture 1>…<Picture ${refCount}>.` : "None"
+    );
     if (imageSummary) {
-      lines.push("", "The following images were analyzed in order:", "", imageSummary);
+      if (state.briefImageMode === "fl") {
+        lines.push("", "The following images were analyzed in order: image 1 is the STARTING frame, image 2 is the ENDING frame.", "", imageSummary);
+      } else {
+        lines.push("", `The following images were analyzed in order — use <Picture 1>…<Picture ${imageSummary.split("\n").length}> references for this brief.`, "", imageSummary);
+      }
     }
-    lines.push("", "USER REQUEST:", baseText || "(no text supplied — base the brief on the image analysis above)");
+    lines.push("", "Creative brief:", baseText || "(no text supplied — base the brief on the image analysis above)");
     // A last, plain restatement of the rules a long system prompt's earlier instructions are
     // most likely to drift away from, placed as the very last thing the model reads before
     // writing — the same "final contract" technique ComfyUI-MiniMaxH3-Prompt-Writer uses (its
-    // assembly.py appends a mode-specific grounding check to the end of the USER message, not
-    // the system prompt, specifically for this recency effect). The frame-anchored scenario's
-    // own instruction to invent a bridging action between two frames is a documented exception,
+    // assembly.py's _final_contract() appends a mode-specific grounding check to the end of
+    // the USER message, not the system prompt, specifically for this recency effect; wording
+    // below is adapted from that same closing paragraph). The frame-anchored scenario's own
+    // instruction to invent a bridging action between two frames is a documented exception,
     // which is why this says "only the minimum needed" rather than banning invention outright.
     lines.push(
       "",
-      "Final check before you write: stay grounded in what the request and any images/video/audio "
+      "Final grounding check: stay grounded in what the request and any images/video/audio "
       + "actually show — invent only the minimum needed to connect frames or fulfill the request, "
       + "never unrelated actions, props, on-screen text, dialogue, or locations. An explicit user "
-      + "instruction always outranks a default assumption. If a reference was given one specific role "
-      + "(voice, motion, style, etc.), use only that role's content — do not also pull in its other "
-      + "visible traits. Do not invent music or ambient sound beyond what the request asks for or "
-      + "clearly implies. Output only the brief text, nothing else."
+      + "instruction always outranks a default assumption. Treat every explicitly assigned reference "
+      + "role (voice, motion, style, etc.) as exclusive — use only that role's content, do not also "
+      + "pull in its other visible traits. Do not invent music or ambient sound beyond what the "
+      + "request asks for or clearly implies. Never pad solely to reach a length — use only what the "
+      + "target duration above actually needs. Return only the complete brief text, no commentary "
+      + "outside it."
     );
+    return lines.join("\n");
+  }
+
+  // Refine: revise an already-written prompt from a typed instruction. Structure and wording
+  // closely follow ComfyUI-MiniMaxH3-Prompt-Writer's assemble_refinement(): the opening
+  // "rewrite / return only / do not discuss" instruction, current-prompt + revision-instruction
+  // block, a reference-preservation rule (their version is scoped to <Audio N> tags because
+  // that node's Reference mode uses audio/video assets we don't; ours is <Picture N>, the only
+  // reference tag our own brief format uses), and a final grounding check appended last for the
+  // same recency effect — text-only, no images re-attached, exactly like their version ("media
+  // is intentionally not attached"). The OUTPUT stays our own shot-separated brief format
+  // throughout; only the prompt-construction technique is borrowed.
+  function buildRefineUserPrompt(currentPrompt: string, instruction: string) {
+    const lines = [
+      "Rewrite the current H3 brief according to the revision instruction. Return only the complete revised brief. Do not discuss the changes.",
+      "",
+      "Current prompt:",
+      currentPrompt || "(empty)",
+      "",
+      "Revision instruction:",
+      instruction,
+      "",
+      "Reference revision rule: preserve each existing <Picture N> tag that the revision instruction does not ask to change. Only add, remove, or renumber a <Picture N> tag when the instruction's meaning actually calls for it.",
+      "",
+      "Final grounding check: keep everything from the current prompt that the instruction doesn't ask you to change. Apply only what the instruction actually asks for — do not invent unrelated actions, props, on-screen text, dialogue, locations, music or ambient sound beyond what it asks for or clearly implies. Return only the complete revised prompt, no commentary outside it.",
+    ];
     return lines.join("\n");
   }
 
@@ -938,8 +1064,7 @@ export function createPromptEditOverlay(
   }
   function progressTick() {
     const s = Math.round((Date.now() - progStart) / 1000);
-    enhBtnLabel.textContent = `${progStage} (${s}s)`;
-    statusTag.textContent = s > 30 ? `${progStage} — a cold model load can take a while past this point` : progStage;
+    statusTag.textContent = s > 30 ? `${progStage} (${s}s) — a cold model load can take a while past this point` : `${progStage} (${s}s)`;
     statusTag.style.color = BRAND;
   }
   function progressStop() {
@@ -947,20 +1072,36 @@ export function createPromptEditOverlay(
     progTimer = undefined;
   }
 
-  enhBtn.addEventListener("click", async () => {
-    if (busy) return;
-    const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean) : [];
-
+  function briefBackendCheck(): { briefOR: boolean; briefLlama: boolean } | null {
     const briefOR = state.h3BriefBackend === "openrouter";
-    const visionOR = state.h3VisionBackend === "openrouter";
     const briefLlama = state.h3BriefBackend === "llamagguf";
-    const visionLlama = state.h3VisionBackend === "llamagguf";
     if (!briefOR && !briefLlama && !state.nativeBriefClip) {
       ctx.showPopup("Set a Brief CLIP (or switch the Brief backend to OpenRouter/Llama GGUF in Settings).", true);
-      return;
+      return null;
     }
+    if (briefLlama && !state.h3LlamaBriefModel) {
+      ctx.showPopup("No Llama GGUF brief model set — pick one in Settings.", true);
+      return null;
+    }
+    return { briefOR, briefLlama };
+  }
+
+  async function doWrite() {
+    if (busy) return;
+    deriveModes(); renderImageRow();
+    const images = enhMode === "image" ? clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean) : [];
+
+    const backends = briefBackendCheck();
+    if (!backends) return;
+    const { briefOR, briefLlama } = backends;
+    const visionOR = state.h3VisionBackend === "openrouter";
+    const visionLlama = state.h3VisionBackend === "llamagguf";
     if (!visionOR && !visionLlama && images.length && !state.nativeVisionClip) {
       ctx.showPopup("Set a Vision CLIP (or switch the Vision backend to OpenRouter/Llama GGUF in Settings).", true);
+      return;
+    }
+    if (images.length && visionLlama && !state.h3LlamaVisionModel) {
+      ctx.showPopup("No Llama GGUF vision model set — pick one in Settings.", true);
       return;
     }
     const base = (editor.value || "").trim();
@@ -970,6 +1111,9 @@ export function createPromptEditOverlay(
     }
     busy = true;
     enhBtn.setAttribute("disabled", "true");
+    refineBtn.setAttribute("disabled", "true");
+    enhSpin.classList.remove("hidden");
+    setEditorBusy(true, "✨ Writing the prompt…");
     enhStopBtn.style.display = "inline-flex";
     enhStopBtn.removeAttribute("disabled");
     progressStart();
@@ -1023,15 +1167,66 @@ export function createPromptEditOverlay(
     } catch (e: any) {
       statusTag.textContent = `⚠ ${String(e.message || e).slice(0, 90)}`;
       statusTag.style.color = C.err;
-      ctx.showPopup(`Enhance failed: ${e.message || e} — check that ComfyUI is running with CORS allowed.`, true);
+      ctx.showPopup(`Prompt Write failed: ${e.message || e} — check that ComfyUI is running with CORS allowed.`, true);
     } finally {
       progressStop();
       busy = false;
       enhBtn.removeAttribute("disabled");
-      enhBtnLabel.textContent = "✨ Enhance";
+      refineBtn.removeAttribute("disabled");
+      enhSpin.classList.add("hidden");
+      setEditorBusy(false);
       enhStopBtn.style.display = "none";
     }
-  });
+  }
+  enhBtn.addEventListener("click", doWrite);
+
+  // Refine — text-only, no images re-attached (see buildRefineUserPrompt above).
+  async function doRefine() {
+    if (busy) return;
+    const backends = briefBackendCheck();
+    if (!backends) return;
+    const { briefOR, briefLlama } = backends;
+    const current = (editor.value || "").trim();
+    if (!current) { ctx.showPopup("Nothing to refine — write a prompt first (or use Prompt Write).", true); return; }
+    const instruction = await promptTextareaDialog("Revise the current prompt how?", {
+      tags: ["Picture", "Subject", "Shot"], okLabel: "Refine",
+    });
+    if (!instruction) return;
+    busy = true;
+    enhBtn.setAttribute("disabled", "true");
+    refineBtn.setAttribute("disabled", "true");
+    refineSpin.classList.remove("hidden");
+    setEditorBusy(true, "🔧 Refining the prompt…");
+    enhStopBtn.style.display = "inline-flex";
+    enhStopBtn.removeAttribute("disabled");
+    progressStart();
+    try {
+      progressStage("Refining brief…");
+      const userPrompt = buildRefineUserPrompt(current, instruction);
+      const text = (briefLlama
+        ? await writeBriefLlama(userPrompt, state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
+        : briefOR
+        ? await writeBriefOpenRouter(systemPrompt, userPrompt, state.h3OrModelBrief)
+        : await writeBriefNative(state.nativeBriefClip, systemPrompt, userPrompt)).trim();
+      if (!text) throw new Error("empty response");
+      openReview(text, (targetSel as HTMLSelectElement).value);
+      statusTag.textContent = "review the result";
+      statusTag.style.color = C.ok;
+    } catch (e: any) {
+      statusTag.textContent = `⚠ ${String(e.message || e).slice(0, 90)}`;
+      statusTag.style.color = C.err;
+      ctx.showPopup(`Prompt Refine failed: ${e.message || e} — check that ComfyUI is running with CORS allowed.`, true);
+    } finally {
+      progressStop();
+      busy = false;
+      enhBtn.removeAttribute("disabled");
+      refineBtn.removeAttribute("disabled");
+      refineSpin.classList.add("hidden");
+      setEditorBusy(false);
+      enhStopBtn.style.display = "none";
+    }
+  }
+  refineBtn.addEventListener("click", doRefine);
 
   // ── review overlay ──────────────────────────────────────────────────────
   // SPEC_MINIMAX_H3_ENHANCE_APPLY_MODES.md §1 — the cards are always a preview; how the result
@@ -1046,7 +1241,7 @@ export function createPromptEditOverlay(
   const reviewSel = new Set<string>();
   let reviewParsed: ReturnType<typeof parseBrief> = { header: "", shots: [], footer: "" };
   const rvHdr = el("div", { class: "flex items-center gap-2 shrink-0" });
-  rvHdr.appendChild(el("div", { text: "✨ Enhance result", class: "text-white text-[13px] font-bold" }));
+  rvHdr.appendChild(el("div", { text: "✨ Prompt Write/Refine result", class: "text-white text-[13px] font-bold" }));
   const rvInfo = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   rvHdr.appendChild(rvInfo);
   const rvBody = el("div", { class: "flex-1 overflow-y-auto flex flex-col gap-1.5" });
@@ -1128,7 +1323,7 @@ export function createPromptEditOverlay(
     if (reviewTarget === "all") {
       const want = targetPlan().shots;
       info += ` · ${got} shot${got > 1 ? "s" : ""}`;
-      if (want && got !== want) info += `  ⚠ asked for ${want} — use ✂ Split into clips or ↻ Enhance again`;
+      if (want && got !== want) info += `  ⚠ asked for ${want} — use ✂ Split into clips or ↻ Prompt Write again`;
     } else {
       info += ` → clip ${selected + 1}`;
     }
@@ -1337,12 +1532,7 @@ export function createPromptEditOverlay(
       ov.style.display = "flex";
       if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
       if (selected >= state.prompts.length) selected = 0;
-      // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §3 — opens in the enhance mode that matches the
-      // node's mode: Reference/First-Last already has images attached, so opening in
-      // Text → Brief would hide the attachment area (and the override checkbox with it) behind
-      // an extra click.
-      enhMode = (state.generationMode || "t2v") === "t2v" ? "text" : "image";
-      renderModes();
+      deriveModes();
       renderImageRow();
       renderAll();
       if (!systemPrompt) loadSystemPrompt();

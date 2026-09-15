@@ -364,6 +364,56 @@ export function promptDialog(message: string, defaultValue = ""): Promise<string
   });
 }
 
+// Same shape as promptDialog, but a multiline textarea with optional insert-at-cursor tag
+// buttons underneath (e.g. Picture/Subject/Shot — "N" inserted literally, the user replaces
+// it themselves) — for an instruction long enough that a single-line input would truncate it.
+export function promptTextareaDialog(message: string, opts: { defaultValue?: string; tags?: string[]; okLabel?: string } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
+    const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(420px, 92vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "10px" } });
+    box.appendChild(el("div", { text: message, style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" } }));
+    const input = el("textarea", { value: opts.defaultValue || "", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "13px", fontFamily: "inherit", outline: "none", minHeight: "90px", resize: "vertical", lineHeight: "1.5" } }) as HTMLTextAreaElement;
+    box.appendChild(input);
+    if (opts.tags?.length) {
+      const tagRow = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });
+      opts.tags.forEach((tag) => {
+        const b = el("button", { type: "button", text: tag, style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "3px 9px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+        // mousedown steals focus before click fires, collapsing the textarea's selection to
+        // the end — preventDefault keeps it focused so selectionStart/End still point right.
+        b.addEventListener("mousedown", (e) => e.preventDefault());
+        b.addEventListener("click", () => {
+          const s = input.selectionStart ?? input.value.length;
+          const e2 = input.selectionEnd ?? input.value.length;
+          const token = `<${tag} N>`;
+          input.value = input.value.slice(0, s) + token + input.value.slice(e2);
+          input.focus();
+          input.setSelectionRange(s + token.length, s + token.length);
+        });
+        tagRow.appendChild(b);
+      });
+      box.appendChild(tagRow);
+    }
+    const btnRow = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px" } });
+    function finish(v: string | null) {
+      document.removeEventListener("keydown", onKey);
+      document.body.removeChild(ov);
+      resolve(v);
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") finish(null);
+    };
+    const cancelBtn = button("Cancel", () => finish(null));
+    const okBtn = button(opts.okLabel || "OK", () => finish(input.value.trim() || null), "primary");
+    btnRow.append(cancelBtn, okBtn);
+    box.appendChild(btnRow);
+    ov.appendChild(box);
+    ov.addEventListener("click", (e) => { if (e.target === ov) finish(null); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(ov);
+    input.focus();
+  });
+}
+
 // applyMobileCollapsibleLayout — 767px 이하(휴대폰)에서만 leftPanel(설정)과
 // rightPanel(프롬프트/생성 결과)을 세로로 쌓고 각각 접었다 펼 수 있게 만든다.
 // PC/태블릿에서는 아무 영향 없음(CSS 미디어 쿼리로만 동작 — style.css 참고).

@@ -655,7 +655,7 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPi
   if (preset.nfe) state.pddNfe = preset.nfe;
   state.fp16Accum = true; // rides along with the Torch patch on every preset that has it
   // Restore the user-recipe fields when the preset carries them (built-ins never do). SPEC §4.
-  for (const k of RECIPE_KEYS) if ((preset as any)[k] !== undefined) (state as any)[k] = (preset as any)[k];
+  for (const k of RECIPE_KEYS) if ((preset as any)[k] !== undefined) (state as any)[k] = cloneVal((preset as any)[k]);
 }
 
 // ── User pipeline presets (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14) ───────────────────────
@@ -679,12 +679,24 @@ export const RECIPE_KEYS = [
   // keeps whatever UNET Settings → Models has for the mode. `applyPreset` only writes keys
   // actually present, so an axes-only preset never touches the model.
   "unetFirstLast", "unetReference",
+  // The general LoRA panel (up to 4, character/style) — mirrors node 3dfe3e2. Previously only
+  // the turbo-specific slots (turboLora/pddFile/slaTurboLora) rode along on a saved preset;
+  // this captures/restores the general list too. Applying a preset still overwrites
+  // state.loras outright (Reuse Setting already full-replaces meta.loras the same way).
+  "loras",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
+// A preset's own array/object fields must never be the same reference as the live panel's —
+// otherwise editing the panel after saving a preset silently mutates the saved preset too
+// (and vice versa on apply). Mirrors node's cloneVal() (commit 3dfe3e2).
+function cloneVal<T>(v: T): T {
+  return v == null ? v : (JSON.parse(JSON.stringify(v)) as T);
+}
+
 function recipeOf(state: MinimaxState): Partial<Pick<UserPipelinePreset, RecipeKey>> {
   const out: Record<string, unknown> = {};
-  for (const k of RECIPE_KEYS) if ((state as any)[k] !== undefined) out[k] = (state as any)[k];
+  for (const k of RECIPE_KEYS) if ((state as any)[k] !== undefined) out[k] = cloneVal((state as any)[k]);
   return out as Partial<Pick<UserPipelinePreset, RecipeKey>>;
 }
 
@@ -714,6 +726,7 @@ export interface UserPipelinePreset {
   pddFileReference?: string;
   unetFirstLast?: string;
   unetReference?: string;
+  loras?: LoraEntry[];
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */

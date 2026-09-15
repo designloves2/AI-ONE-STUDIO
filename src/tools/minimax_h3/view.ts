@@ -206,8 +206,48 @@ export function renderMinimaxH3(container: HTMLElement) {
       el("div", { text: "Manage saved presets", class: "flex-1", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }),
       button("✕", () => ov.remove(), "danger"),
     ]);
+    // Export/Import the whole saved-preset list as a plain JSON file — for sharing a set with
+    // someone else or backing it up outside the server's own storage. Mirrors node 3dfe3e2.
+    const fileInput = el("input", { type: "file", accept: "application/json", style: { display: "none" } }) as HTMLInputElement;
+    const exportBtn = button("⬇ Export", () => {
+      const blob = new Blob([JSON.stringify(userPresets, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = el("a", { href: url, download: "mmh3_presets.json" }) as HTMLAnchorElement;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    const importBtn = button("⬆ Import", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = "";
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const incoming: UserPipelinePreset[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.presets) ? parsed.presets : null;
+        if (!incoming) throw new Error("Not a preset list (expected an array or {presets:[...]})");
+        // Same collision rule as Save: a name that already exists is overwritten, not duplicated.
+        let added = 0, overwritten = 0;
+        let next = userPresets.slice();
+        for (const p of incoming) {
+          if (!p?.name) continue;
+          const idx = next.findIndex((x) => x.name === p.name);
+          if (idx >= 0) { next[idx] = p; overwritten++; }
+          else { next.push(p); added++; }
+        }
+        await savePresetList(next);
+        renderList();
+        renderLeft();
+        showPopup(`Imported: ${added} added, ${overwritten} overwritten.`, false);
+      } catch (e: any) {
+        showPopup(`Import failed: ${e.message || e}`, true);
+      }
+    });
+    const ioRow = el("div", { class: "flex gap-1.5" }, [exportBtn, importBtn, fileInput]);
     const list = el("div", { class: "flex flex-col gap-1.5 overflow-y-auto", style: { minHeight: "0" } });
-    box.append(hdr, list);
+    box.append(hdr, ioRow, list);
     ov.appendChild(box);
     ov.addEventListener("mousedown", (e) => { if (e.target === ov) ov.remove(); });
     document.body.appendChild(ov);

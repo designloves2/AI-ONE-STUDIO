@@ -26,7 +26,9 @@ import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import {
   analyzeImagesNative,
   analyzeImagesOpenRouter,
+  analyzeImageLlama,
   writeBriefOpenRouter,
+  writeBriefLlama,
   deletePromptSet,
   getModels,
   getPromptSet,
@@ -38,6 +40,24 @@ import {
   viewUrl,
   writeBriefNative,
 } from "./api";
+
+// Downsized/JPEG-encoded base64 of an input/ file — Llama GGUF vision takes one image per
+// call (no true multi-image batching like native TextGenerate has), read straight off the
+// same /view route the rest of this file already uses for previews.
+export async function imageToB64(filename: string): Promise<string> {
+  const resp = await fetch(viewUrl(filename));
+  const blob = await resp.blob();
+  const bitmap = await createImageBitmap(blob);
+  const targetPixels = 1024 * 1024;
+  const scale = Math.min(1, Math.sqrt(targetPixels / (bitmap.width * bitmap.height)));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  (canvas.getContext("2d") as CanvasRenderingContext2D).drawImage(bitmap, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  return dataUrl.split(",")[1] || "";
+}
 
 const MODES = [
   { key: "text", label: "✨ Text → Brief", hint: "rewrite the prompt into a shot-by-shot brief" },
@@ -933,12 +953,14 @@ export function createPromptEditOverlay(
 
     const briefOR = state.h3BriefBackend === "openrouter";
     const visionOR = state.h3VisionBackend === "openrouter";
-    if (!briefOR && !state.nativeBriefClip) {
-      ctx.showPopup("Set a Brief CLIP (or switch the Brief backend to OpenRouter in Settings).", true);
+    const briefLlama = state.h3BriefBackend === "llamagguf";
+    const visionLlama = state.h3VisionBackend === "llamagguf";
+    if (!briefOR && !briefLlama && !state.nativeBriefClip) {
+      ctx.showPopup("Set a Brief CLIP (or switch the Brief backend to OpenRouter/Llama GGUF in Settings).", true);
       return;
     }
-    if (!visionOR && images.length && !state.nativeVisionClip) {
-      ctx.showPopup("Set a Vision CLIP (or switch the Vision backend to OpenRouter in Settings).", true);
+    if (!visionOR && !visionLlama && images.length && !state.nativeVisionClip) {
+      ctx.showPopup("Set a Vision CLIP (or switch the Vision backend to OpenRouter/Llama GGUF in Settings).", true);
       return;
     }
     const base = (editor.value || "").trim();
@@ -954,13 +976,27 @@ export function createPromptEditOverlay(
     try {
       let imageSummary = "";
       if (images.length) {
-        progressStage(visionOR
-          ? `Analyzing ${images.length} image(s) (OpenRouter)…`
-          : `Analyzing ${images.length} image(s) (native, one batch)…`);
-        const prompt = `${VISION_SYSTEM_PROMPT} There are ${images.length} images, in order. Describe each one separately, each on its own line starting with "Image N: ".`;
-        imageSummary = (visionOR
-          ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModelBrief)
-          : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
+        if (visionLlama) {
+          // The shared /tj_studio_one/llm/image_to_prompt route (same one the image tools'
+          // Enhance panel uses) takes one image per call — no true multi-image batching like
+          // the native TextGenerate path has — so loop client-side.
+          const lines: string[] = [];
+          for (let i = 0; i < images.length; i++) {
+            progressStage(`Analyzing image ${i + 1}/${images.length}…`);
+            const b64 = await imageToB64(images[i]);
+            const desc = await analyzeImageLlama(b64, state.h3LlamaVisionModel, state.h3LlamaVisionMmproj, VISION_SYSTEM_PROMPT, state.h3LlamaNCtx, state.h3LlamaMaxTokens);
+            lines.push(String(desc || "").trim());
+          }
+          imageSummary = lines.join("\n");
+        } else {
+          progressStage(visionOR
+            ? `Analyzing ${images.length} image(s) (OpenRouter)…`
+            : `Analyzing ${images.length} image(s) (native, one batch)…`);
+          const prompt = `${VISION_SYSTEM_PROMPT} There are ${images.length} images, in order. Describe each one separately, each on its own line starting with "Image N: ".`;
+          imageSummary = (visionOR
+            ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModelBrief)
+            : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
+        }
         // The vision model is asked to number its own lines ("Image N: ..."), but it doesn't
         // reliably count right (a real 4-image run came back numbered 1/4/5/6). buildUserPrompt
         // separately tells the brief model these lines are <Picture 1>...<Picture N> strictly
@@ -975,7 +1011,9 @@ export function createPromptEditOverlay(
           .join("\n");
       }
       progressStage("Writing brief…");
-      const text = (briefOR
+      const text = (briefLlama
+        ? await writeBriefLlama(buildUserPrompt(base, imageSummary), state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
+        : briefOR
         ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary), state.h3OrModelBrief)
         : await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary))).trim();
       if (!text) throw new Error("empty response");

@@ -65,7 +65,7 @@ import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import { C, BRAND } from "../../identity";
-import { createPromptEditOverlay } from "./promptEdit";
+import { createPromptEditOverlay, imageToB64 } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
 import { mountImagePanel } from "./imagesPanel";
@@ -95,8 +95,10 @@ import {
   deleteVideo,
   analyzeImagesOpenRouter,
   analyzeImagesNative,
+  analyzeImageLlama,
   writeBriefOpenRouter,
   writeBriefNative,
+  writeBriefLlama,
   scanFaceRefine,
   listPromptSets,
   getPromptSet,
@@ -1204,7 +1206,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     return uploadMedia(new File([blob], `ltx_srcframe_${Date.now()}.png`, { type: "image/png" }));
   }
   function ltxVisionLabel() {
-    if ((state.ltxVisionBackend || "native") === "openrouter") return `OpenRouter · ${(state.ltxVisionOrModel || "(model not set)").split("/").pop()}`;
+    const backend = state.ltxVisionBackend || "native";
+    if (backend === "openrouter") return `OpenRouter · ${(state.ltxVisionOrModel || "(model not set)").split("/").pop()}`;
+    if (backend === "llamagguf") return `Llama GGUF · ${(state.ltxLlamaModel || "(model not set)").split(/[\\/]/).pop()}`;
     return `native CLIP · ${(state.ltxVisionClip || "(clip not set)").split(/[\\/]/).pop()}`;
   }
   async function ltxWritePrompt() {
@@ -1212,13 +1216,16 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (!state.ltxSource) { showPopup("Pick a source clip first.", true); return; }
     const backend = state.ltxVisionBackend || "native";
     if (backend === "openrouter" && !(state.ltxVisionOrModel || "").trim()) { showPopup("Set the OpenRouter vision model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
-    if (backend !== "openrouter" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native vision CLIP in ⚙ Settings → LLM Setting → LTX Upscale (or switch that backend to OpenRouter).", true); return; }
+    if (backend === "llamagguf" && !(state.ltxLlamaModel || "").trim()) { showPopup("Set the Llama GGUF model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend === "native" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native vision CLIP in ⚙ Settings → LLM Setting → LTX Upscale (or switch that backend to OpenRouter/Llama GGUF).", true); return; }
     _ltxBusy = true; renderPrompts();
     try {
       const frame = await grabFirstFrameFile();
       const instr = (state.ltxLlmPrompt || "").trim() || "Describe this video frame as one text-to-image prompt matching exactly what is shown.";
       const text = backend === "openrouter"
         ? await analyzeImagesOpenRouter([frame], instr, state.ltxVisionOrModel)
+        : backend === "llamagguf"
+        ? await analyzeImageLlama(await imageToB64(frame), state.ltxLlamaModel, state.ltxLlamaMmproj, instr, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : await analyzeImagesNative(state.ltxVisionClip, [frame], instr, "ltxv");
       if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Prompt written from the source clip's first frame.", false); }
       else showPopup("The vision model returned nothing — try again or write the prompt by hand.", true);
@@ -1233,12 +1240,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (!src) { showPopup("Nothing to convert — the prompt box is empty. Load a gallery clip or use ✨.", true); return; }
     const backend = state.ltxVisionBackend || "native";
     if (backend === "openrouter" && !(state.ltxVisionOrModel || "").trim()) { showPopup("Set the OpenRouter model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
-    if (backend !== "openrouter" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native LLM CLIP in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend === "llamagguf" && !(state.ltxLlamaModel || "").trim()) { showPopup("Set the Llama GGUF model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend === "native" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native LLM CLIP in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
     _ltxBusy = true; renderPrompts();
     try {
       const sys = (state.ltxConvertPrompt || "").trim() || "Rewrite this MiniMax-H3 brief as one LTX-2.5 prompt paragraph.";
       const text = backend === "openrouter"
         ? await writeBriefOpenRouter(sys, src, state.ltxVisionOrModel)
+        : backend === "llamagguf"
+        ? await writeBriefLlama(`${sys}\n\n${src}`, state.ltxLlamaModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : await writeBriefNative(state.ltxVisionClip, sys, src, "ltxv");
       if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Converted the H3 brief to an LTX 2.5 prompt.", false); }
       else showPopup("The model returned nothing — try again.", true);

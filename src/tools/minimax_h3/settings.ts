@@ -3,7 +3,7 @@
 // 실행마다 바뀌는 값(steps, accel 등)은 좌측 패널에 남아있다 — 원본과 동일한 구분.
 import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
-import { button, checkboxRow, clear, col, el, label, panel, row, searchableSelect } from "../../shared/ui";
+import { button, checkboxRow, clear, col, el, label, numberField, panel, row, searchableSelect } from "../../shared/ui";
 import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
 import { C, BRAND } from "../../identity";
 import { buildDepFix } from "./depBanner";
@@ -294,6 +294,21 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     if (!availability.available?.TJStudioOneTextOutput) missing.push("TJStudioOneTextOutput (this package)");
     const clipList = ["none", ...(modelData.text_encoders || []).filter((x) => x !== "none")];
 
+    // Same local llama.cpp backend the image tools' shared Enhance/Image→Prompt panel already
+    // uses — /tj_studio_one/llm/* is served by this pack's own backend (loads TJ_NODE's
+    // prompt_enhancer.py/image_to_prompt.py dynamically), not a separate route namespace.
+    let _llamaModels: { gguf: string[]; mmproj: string[]; available: boolean } | null = null;
+    async function llamaModels() {
+      if (_llamaModels) return _llamaModels;
+      try {
+        const d = await (await fetch("/tj_studio_one/llm/models")).json();
+        _llamaModels = { gguf: d.gguf || [], mmproj: d.mmproj || [], available: !!d.local_available };
+      } catch {
+        _llamaModels = { gguf: [], mmproj: [], available: false };
+      }
+      return _llamaModels;
+    }
+
     // full OpenRouter model list with a filter box — no vision-capability filter, the user
     // owns the choice (node 6a6ffb0 / d33aab3). Soft pre-select of gemini-2.5-flash only.
     const orModelSel = (get: () => string, set: (v: string) => void) => {
@@ -307,27 +322,68 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       return ss.el;
     };
 
-    // one row: backend select + (native → CLIP picker | openrouter → OR model select)
+    // one row: backend select + (native → CLIP picker | openrouter → OR model select |
+    // llamagguf → GGUF model [+ mmproj] picker + shared n_ctx/max_tokens fields)
     const roleRow = (
       roleLabel: string,
       backendGet: () => string, backendSet: (v: string) => void,
       clipGet: () => string, clipSet: (v: string) => void,
       orGet: () => string, orSet: (v: string) => void,
+      // Llama GGUF role fields — null when this role has no vision (mmproj) slot (Brief).
+      llamaGet?: () => string, llamaSet?: (v: string) => void,
+      llamaMmprojGet?: (() => string) | null, llamaMmprojSet?: ((v: string) => void) | null,
       extraRows?: HTMLElement[],
     ) => {
       const beSel = el("select", { style: selStyle }) as HTMLSelectElement;
-      [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"]].forEach(([v, t]) => {
+      [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"], ["llamagguf", "Llama GGUF (local llama.cpp)"]].forEach(([v, t]) => {
         const o = el("option", { value: v, text: t }) as HTMLOptionElement;
         if ((backendGet() || "native") === v) o.selected = true;
         beSel.appendChild(o);
       });
       beSel.addEventListener("change", () => { backendSet(beSel.value); ctx.persist(); renderModelPickers(); });
       const isOR = (backendGet() || "native") === "openrouter";
-      const modelCtl = isOR
-        ? orModelSel(orGet, orSet)
-        : (missing.length
-            ? el("div", { text: `⚠ Native needs: ${missing.join(", ")}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })
-            : searchableSelect(clipList, clipGet() || "none", (v) => { clipSet(v === "none" ? "" : v); ctx.persist(); }).el);
+      const isLlama = (backendGet() || "native") === "llamagguf";
+      let modelCtl: HTMLElement;
+      if (isLlama && llamaGet && llamaSet) {
+        const holder = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
+        holder.appendChild(el("div", { text: "loading gguf models…", style: { fontSize: "11px", color: C.muted } }));
+        llamaModels().then((d) => {
+          clear(holder);
+          if (!d.available) {
+            holder.appendChild(el("div", { html: "⚠ Local GGUF LLM not available — TJ_NODE not installed, or its llm files failed to load.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
+            return;
+          }
+          const isMmprojName = (n: string) => /mmproj/i.test(String(n || ""));
+          const ggufList = d.gguf.filter((n) => !isMmprojName(n));
+          if (!ggufList.length) ggufList.push("(none found)");
+          if (!llamaGet() && ggufList[0] && ggufList[0] !== "(none found)") { llamaSet(ggufList[0]); ctx.persist(); }
+          const ggufPick = searchableSelect(ggufList, llamaGet() || ggufList[0], (v) => { llamaSet(v); ctx.persist(); });
+          holder.appendChild(col([label("GGUF model"), ggufPick.el]));
+          if (llamaMmprojGet && llamaMmprojSet) {
+            const mmList = ["none", ...d.mmproj.filter((n) => n !== "none" && isMmprojName(n))];
+            if (!llamaMmprojGet()) { llamaMmprojSet("none"); ctx.persist(); }
+            const mmPick = searchableSelect(mmList, llamaMmprojGet() || "none", (v) => { llamaMmprojSet(v); ctx.persist(); });
+            holder.appendChild(col([label("mmproj model"), mmPick.el]));
+          }
+          // Shared by every Llama role — one context window size for whichever GGUF loads.
+          // Defaults to 16384, not llama.cpp's own 4096: H3's system prompt (guide + few-shot
+          // examples) plus a real request measured 5436 tokens on its own in testing, already
+          // over 4096 before generation even starts (silent empty result, no error).
+          const nCtxField = numberField(state.h3LlamaNCtx ?? 16384, (v) => { state.h3LlamaNCtx = Math.max(512, Math.round(v)); ctx.persist(); }, 512);
+          holder.appendChild(col([label("Context length (n_ctx)"), nCtxField]));
+          // A truncated brief is exactly as unusable as an empty one — this needs real
+          // headroom (a full multi-shot brief measured well over 2000 tokens).
+          const maxTokField = numberField(state.h3LlamaMaxTokens ?? 4096, (v) => { state.h3LlamaMaxTokens = Math.max(256, Math.round(v)); ctx.persist(); }, 256);
+          holder.appendChild(col([label("Max output tokens"), maxTokField]));
+        });
+        modelCtl = holder;
+      } else if (isOR) {
+        modelCtl = orModelSel(orGet, orSet) as HTMLElement;
+      } else {
+        modelCtl = missing.length
+          ? el("div", { text: `⚠ Native needs: ${missing.join(", ")}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })
+          : searchableSelect(clipList, clipGet() || "none", (v) => { clipSet(v === "none" ? "" : v); ctx.persist(); }).el;
+      }
       return col([label(roleLabel), beSel, modelCtl, ...(extraRows || [])]);
     };
 
@@ -335,11 +391,14 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       roleRow("Brief — writes the prompt (text only)",
         () => state.h3BriefBackend, (v) => { state.h3BriefBackend = v; pushLlmConfig({ h3_brief_backend: v }); },
         () => state.nativeBriefClip, (v) => (state.nativeBriefClip = v),
-        () => state.h3OrModelBrief, (v) => { state.h3OrModelBrief = v; pushLlmConfig({ or_model_text: v }); }),
+        () => state.h3OrModelBrief, (v) => { state.h3OrModelBrief = v; pushLlmConfig({ or_model_text: v }); },
+        () => state.h3LlamaBriefModel, (v) => { state.h3LlamaBriefModel = v; }, null, null),
       roleRow("Vision — reads the reference images (multimodal)",
         () => state.h3VisionBackend, (v) => { state.h3VisionBackend = v; pushLlmConfig({ h3_vision_backend: v }); },
         () => state.nativeVisionClip, (v) => (state.nativeVisionClip = v),
-        () => state.h3OrModelVision, (v) => { state.h3OrModelVision = v; pushLlmConfig({ or_model_vision: v }); }),
+        () => state.h3OrModelVision, (v) => { state.h3OrModelVision = v; pushLlmConfig({ or_model_vision: v }); },
+        () => state.h3LlamaVisionModel, (v) => { state.h3LlamaVisionModel = v; },
+        () => state.h3LlamaVisionMmproj, (v) => { state.h3LlamaVisionMmproj = v; }),
     );
 
     // ── LTX Upscale ✨ — its own vision model (reads the source clip's first frame), never
@@ -355,6 +414,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         () => state.ltxVisionBackend, (v) => { state.ltxVisionBackend = v; pushLlmConfig({ ltx_vision_backend: v }); },
         () => state.ltxVisionClip, (v) => (state.ltxVisionClip = v),
         () => state.ltxVisionOrModel, (v) => { state.ltxVisionOrModel = v; pushLlmConfig({ ltx_vision_or_model: v }); },
+        () => state.ltxLlamaModel, (v) => { state.ltxLlamaModel = v; },
+        () => state.ltxLlamaMmproj, (v) => { state.ltxLlamaMmproj = v; },
         [
           col([label("✨ instruction (system prompt)"), ltxInstr]),
           el("div", { text: "The ✨ button in the LTX Upscale prompt area feeds this + the source clip's first frame to the model above. Saved with Save All.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.55" } }),
@@ -634,6 +695,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       h3_vision_backend: state.h3VisionBackend || "native",
       h3_or_model_brief: state.h3OrModelBrief || "",
       h3_or_model_vision: state.h3OrModelVision || "",
+      h3_llama_vision_model: state.h3LlamaVisionModel || "",
+      h3_llama_vision_mmproj: state.h3LlamaVisionMmproj || "",
+      h3_llama_brief_model: state.h3LlamaBriefModel || "",
+      h3_llama_n_ctx: state.h3LlamaNCtx ?? 16384,
+      h3_llama_max_tokens: state.h3LlamaMaxTokens ?? 4096,
+      ltx_llama_model: state.ltxLlamaModel || "",
+      ltx_llama_mmproj: state.ltxLlamaMmproj || "",
       filename_prefix: state.filenamePrefix || "MMH3",
       stitch_at_end: state.stitchAtEnd ?? true,
       trim_last_clip: state.trimLastClip ?? false,
@@ -741,6 +809,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       // brief model: new key, fall back to the pre-split h3_or_model (node migrates it too)
       if (cfg.h3_or_model_brief || cfg.h3_or_model) state.h3OrModelBrief = (cfg.h3_or_model_brief || cfg.h3_or_model)!;
       if (cfg.h3_or_model_vision) state.h3OrModelVision = cfg.h3_or_model_vision;
+      if (cfg.h3_llama_vision_model) state.h3LlamaVisionModel = cfg.h3_llama_vision_model;
+      if (cfg.h3_llama_vision_mmproj) state.h3LlamaVisionMmproj = cfg.h3_llama_vision_mmproj;
+      if (cfg.h3_llama_brief_model) state.h3LlamaBriefModel = cfg.h3_llama_brief_model;
+      if (cfg.h3_llama_n_ctx != null) state.h3LlamaNCtx = cfg.h3_llama_n_ctx;
+      if (cfg.h3_llama_max_tokens != null) state.h3LlamaMaxTokens = cfg.h3_llama_max_tokens;
+      if (cfg.ltx_llama_model) state.ltxLlamaModel = cfg.ltx_llama_model;
+      if (cfg.ltx_llama_mmproj) state.ltxLlamaMmproj = cfg.ltx_llama_mmproj;
       // save_subfolder round-trips through the config route but had no load-side read at
       // all — the field only ever showed what pathIn.value already held client-side, so a
       // saved folder silently reset to the default on the next session/device.

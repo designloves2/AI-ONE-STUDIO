@@ -1,4 +1,5 @@
 import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
+import { API } from "./core";
 // comfyClient.ts — ComfyUI 웹소켓 기반 큐잉/이벤트 클라이언트.
 // 원본 ComfyUI 프론트엔드의 scripts/api.js(EventTarget 인터페이스)를 독립 사이트에서
 // 재구현한 것 — §3-2 comfy-client.ts의 이 도구 전용 슬라이스. 다른 도구를 이식할 때
@@ -123,6 +124,33 @@ export function queuePrompt(
     let promptId: string | null = opts?.existingPromptId || null;
     const outputs: Record<string, any> = {};
 
+    // Every save path in this pack produces a plain filename_prefix except
+    // VHS_VideoCombine, whose real final file always carries its own "-audio" suffix when the
+    // clip has sound — fixed once here so every caller downstream (metadata, gallery listing,
+    // chunked stitching) sees the same plain-name shape regardless of which save node ran.
+    async function fixAudioSuffixes(byNode: Record<string, any>) {
+      for (const key in byNode) {
+        const out = byNode[key];
+        for (const arr of [out?.images, out?.gifs]) {
+          if (!Array.isArray(arr)) continue;
+          for (const item of arr) {
+            if (!item?.filename) continue;
+            const m = /^(.*)-audio(\.[^.]+)$/.exec(item.filename);
+            if (!m) continue;
+            try {
+              const r = await fetch(`${BASE}${API}/rename`, {
+                method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename: item.filename, subfolder: item.subfolder || "", new_filename: m[1] + m[2] }),
+              });
+              const d = await r.json();
+              if (d.ok) item.filename = m[1] + m[2];
+            } catch { /* leave the "-audio" filename as-is */ }
+          }
+        }
+      }
+      return byNode;
+    }
+
     const samplerNodes = opts?.samplerNode == null ? null : Array.isArray(opts.samplerNode) ? opts.samplerNode : [opts.samplerNode];
     const onProgress = (d: any) => {
       if (!opts?.onProgress) return;
@@ -135,10 +163,10 @@ export function queuePrompt(
       if (d?.prompt_id && promptId && d.prompt_id !== promptId) return;
       if (d?.node != null && d?.output) outputs[d.node] = d.output;
     };
-    const onSuccess = (d: any) => {
+    const onSuccess = async (d: any) => {
       if (d?.prompt_id && promptId && d.prompt_id !== promptId) return;
       cleanup();
-      resolve({ byNode: outputs });
+      resolve({ byNode: await fixAudioSuffixes(outputs) });
     };
     const onError = (d: any) => {
       if (d?.prompt_id && promptId && d.prompt_id !== promptId) return;
@@ -179,7 +207,7 @@ export function queuePrompt(
           cleanup();
           const outs: Record<string, any> = {};
           for (const nodeId in entry.outputs || {}) outs[nodeId] = entry.outputs[nodeId];
-          resolve({ byNode: outs });
+          resolve({ byNode: await fixAudioSuffixes(outs) });
           return;
         }
         if (entry?.status?.status_str === "error") {
@@ -224,7 +252,7 @@ export function queuePrompt(
             cleanup();
             const outs: Record<string, any> = {};
             for (const nodeId in entry.outputs || {}) outs[nodeId] = entry.outputs[nodeId];
-            resolve({ byNode: outs });
+            resolve({ byNode: await fixAudioSuffixes(outs) });
           } else if (entry?.status?.status_str === "error") {
             cleanup();
             reject(new Error(entry.status?.messages?.map((m: any) => m?.[1]?.exception_message || "").filter(Boolean).join(" ") || "generation failed"));
@@ -240,7 +268,16 @@ export function queuePrompt(
       const resp = await comfyApi.fetchApi("/prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptGraph, client_id: CLIENT_ID }),
+        // VHS_VideoCombine reads these two flags from extra_pnginfo.workflow.extra (its own
+        // node inputs have no such widgets) — without them it leaves a video-only intermediate
+        // AND a first-frame PNG sitting next to the real "-audio" output, both of which the
+        // gallery then lists as their own separate cards.
+        body: JSON.stringify({
+          prompt: promptGraph, client_id: CLIENT_ID,
+          extra_data: { extra_pnginfo: { workflow: { extra: {
+            VHS_KeepIntermediate: false, VHS_MetadataImage: false,
+          } } } },
+        }),
       });
       const data = await resp.json();
       if (data.error) {
@@ -269,7 +306,7 @@ export function queuePrompt(
               cleanup();
               const outs: Record<string, any> = { ...outputs };
               for (const nodeId in entry.outputs || {}) outs[nodeId] = entry.outputs[nodeId];
-              resolve({ byNode: outs });
+              resolve({ byNode: await fixAudioSuffixes(outs) });
             } else if (entry?.status?.status_str === "error") {
               cleanup();
               reject(new Error(entry.status?.messages?.map((m: any) => m?.[1]?.exception_message || "").filter(Boolean).join(" ") || "generation failed"));

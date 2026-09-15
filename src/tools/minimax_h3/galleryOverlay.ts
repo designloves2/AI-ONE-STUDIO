@@ -3,7 +3,7 @@
 // 썸네일 지연로딩, 호버 미리재생, 더블클릭 풀스크린, 프롬프트 표시/Reuse/Copy, 삭제,
 // 스티치 — 을 전부 이 도구 전용 오버레이로 이식했다.
 import type { MinimaxState } from "./core";
-import { SUBFOLDER, FPS, UPSCALE_MODES, FLASHVSR_MODELS, FLASHVSR_MODES, framesToSeconds, composeStitchedPrompt } from "./core";
+import { SUBFOLDER, FPS, UPSCALE_MODES, FLASHVSR_MODELS, FLASHVSR_MODES, computeRtxTarget, framesToSeconds, composeStitchedPrompt } from "./core";
 import { button, el, clear, confirmDialog, alertDialog, select, numberField } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 
@@ -48,7 +48,7 @@ const POST_JOB_KEY = "aos_mmh3_post_job";
 // card badges / Reuse / info tooltip read one field set whichever path produced the file.
 interface PostInfo {
   deblur?: string;
-  upscale?: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string }
+  upscale?: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | { method: "rtx"; width: number; height: number; quality: string }
     | { method: "flashvsr"; model: string; mode: string; scale: number; colorFix: boolean; tileSize: number; tileOverlap: number; seed: number } | null;
   interpolate?: { targetFps: number };
   resize?: { mode: string; w: number; h: number };
@@ -796,6 +796,12 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   let upscaleModelVal = state.upscaleModel || "";
   let upscaleRtxScale = state.rtxScale ?? 2.0;
   let upscaleRtxQuality = state.rtxQuality || "ULTRA";
+  let upscaleRtxSizeMode = state.rtxSizeMode || "scale";
+  let upscaleRtxShort = state.rtxShort ?? 1080;
+  let upscaleRtxLong = state.rtxLong ?? 1920;
+  let upscaleRtxW = state.rtxW ?? 1920;
+  let upscaleRtxH = state.rtxH ?? 1080;
+  let upscaleRtxCropAnchor = state.rtxCropAnchor || "center";
   // FlashVSR VSR — same 8 fields as the H3 left panel's own Upscale accordion, seeded from
   // the same state.flashvsr* so the two surfaces start in sync.
   let upscaleFvsrModel = state.flashvsrModel || "FlashVSR-v1.1";
@@ -824,15 +830,24 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       model: upscaleFvsrModel, mode: upscaleFvsrMode, scale: upscaleFvsrScale, colorFix: upscaleFvsrColorFix,
       tileSize: upscaleFvsrTileSize, tileOverlap: upscaleFvsrTileOverlap, seed: upscaleFvsrSeed,
     };
+    const rtxTarget = computeRtxTarget(
+      { rtxSizeMode: upscaleRtxSizeMode, rtxShort: upscaleRtxShort, rtxLong: upscaleRtxLong, rtxW: upscaleRtxW, rtxH: upscaleRtxH, rtxCropAnchor: upscaleRtxCropAnchor, rtxScale: upscaleRtxScale },
+      (v as any).meta?.w || 1280, (v as any).meta?.h || 720
+    );
     const upscale: PostInfo["upscale"] =
       upscaleMethod === "none" ? null
-      : upscaleMethod === "rtx" ? { method: "rtx", scale: upscaleRtxScale, quality: upscaleRtxQuality }
+      : upscaleMethod === "rtx"
+        ? (rtxTarget.resizeType === "scale by multiplier"
+            ? { method: "rtx", scale: upscaleRtxScale, quality: upscaleRtxQuality }
+            : { method: "rtx", width: rtxTarget.width, height: rtxTarget.height, quality: upscaleRtxQuality })
       : upscaleMethod === "flashvsr" ? { method: "flashvsr", ...fvsrParams }
       : { method: "model", model: upscaleModelVal };
     runPost(
       v,
       (f, stem, chunkOpts) => buildUpscaleGraph(f, chunkOpts.folder || (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/"), stem, {
         method: upscaleMethod as "model" | "rtx" | "flashvsr" | "none", upscaleModel: upscaleModelVal, rtxScale: upscaleRtxScale, rtxQuality: upscaleRtxQuality,
+        rtxSizeMode: upscaleRtxSizeMode, rtxShort: upscaleRtxShort, rtxLong: upscaleRtxLong, rtxW: upscaleRtxW, rtxH: upscaleRtxH, rtxCropAnchor: upscaleRtxCropAnchor,
+        srcW: (v as any).meta?.w, srcH: (v as any).meta?.h,
         flashvsr: fvsrParams, deblur: deblurStrength,
         skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
         saveSuffix: upscaleMethod === "none" && chunkOpts.saveSuffix === undefined ? "_deblur" : chunkOpts.saveSuffix,
@@ -876,14 +891,38 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   }
   function renderUpscaleRtx() {
     clear(upscaleRtxWrap);
-    const scaleField = numberField(upscaleRtxScale, (v) => { upscaleRtxScale = Math.max(1, Math.min(4, v)); }, 1);
-    (scaleField as HTMLElement).style.width = "50px";
+    const sizeModeSel = select(
+      [{ value: "scale", label: "Scale" }, { value: "short", label: "Short side" }, { value: "long", label: "Long side" }, { value: "wh", label: "W×H" }],
+      upscaleRtxSizeMode, (v) => { upscaleRtxSizeMode = v; renderUpscaleRtx(); }
+    );
+    (sizeModeSel as HTMLElement).style.fontSize = "10.5px";
     const qualitySel = select(["LOW", "MEDIUM", "HIGH", "ULTRA"], upscaleRtxQuality, (v) => { upscaleRtxQuality = v; });
     (qualitySel as HTMLElement).style.fontSize = "10.5px";
-    upscaleRtxWrap.append(
-      el("span", { text: "scale", class: "text-[10.5px]", style: { color: C.muted } }), scaleField,
-      el("span", { text: "quality", class: "text-[10.5px]", style: { color: C.muted } }), qualitySel
-    );
+    upscaleRtxWrap.append(el("span", { text: "size", class: "text-[10.5px]", style: { color: C.muted } }), sizeModeSel);
+    if (upscaleRtxSizeMode === "scale") {
+      const scaleField = numberField(upscaleRtxScale, (v) => { upscaleRtxScale = Math.max(1, Math.min(4, v)); }, 1);
+      (scaleField as HTMLElement).style.width = "50px";
+      upscaleRtxWrap.append(scaleField);
+    } else if (upscaleRtxSizeMode === "short" || upscaleRtxSizeMode === "long") {
+      const isShort = upscaleRtxSizeMode === "short";
+      const field = numberField(isShort ? upscaleRtxShort : upscaleRtxLong, (v) => { if (isShort) upscaleRtxShort = Math.max(8, Math.round(v)); else upscaleRtxLong = Math.max(8, Math.round(v)); }, 8);
+      (field as HTMLElement).style.width = "60px";
+      upscaleRtxWrap.append(field, el("span", { text: "px", class: "text-[10.5px]", style: { color: C.muted } }));
+    } else if (upscaleRtxSizeMode === "wh") {
+      const wField = numberField(upscaleRtxW, (v) => { upscaleRtxW = Math.max(8, Math.round(v)); }, 8);
+      const hField = numberField(upscaleRtxH, (v) => { upscaleRtxH = Math.max(8, Math.round(v)); }, 8);
+      (wField as HTMLElement).style.width = "60px"; (hField as HTMLElement).style.width = "60px";
+      const anchorSel = select(
+        [{ value: "center", label: "Center" }, { value: "left", label: "Left" }, { value: "right", label: "Right" }, { value: "top", label: "Top" }, { value: "bottom", label: "Bottom" }],
+        upscaleRtxCropAnchor, (v) => { upscaleRtxCropAnchor = v; }
+      );
+      (anchorSel as HTMLElement).style.fontSize = "10.5px";
+      upscaleRtxWrap.append(
+        wField, el("span", { text: "×", class: "text-[10.5px]", style: { color: C.muted } }), hField,
+        el("span", { text: "crop", class: "text-[10.5px]", style: { color: C.muted } }), anchorSel
+      );
+    }
+    upscaleRtxWrap.append(el("span", { text: "quality", class: "text-[10.5px]", style: { color: C.muted } }), qualitySel);
   }
   function renderUpscaleFvsr() {
     clear(upscaleFvsrWrap);
@@ -987,7 +1026,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
           targetFps: interpTargetFps, scale: interpScale, batchSize: interpBatch, useFp16: interpFp16,
           skipFirstFrames: chunkOpts.skipFirstFrames, frameLoadCap: chunkOpts.frameLoadCap,
           saveSuffix: chunkOpts.saveSuffix,
-        }),
+        }, ctx.availability),
         interpReadout, interpRunBtn, "Interpolation", `_${interpTargetFps}fps`,
         undefined, // no chunkPlan → interpolate keeps the RAM byte-budget sizing
         { interpolate: { targetFps: interpTargetFps } },
@@ -1365,7 +1404,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         if (m.upscale) marks.push(m.upscale.method === "flashvsr"
           ? ["◮", `Upscaled — FlashVSR ${m.upscale.model} ×${m.upscale.scale} (${m.upscale.mode})`]
           : ["⇪", m.upscale.method === "rtx"
-              ? `Upscaled — RTX VSR ×${m.upscale.scale} (${m.upscale.quality})`
+              ? (m.upscale.scale != null
+                  ? `Upscaled — RTX VSR ×${m.upscale.scale} (${m.upscale.quality})`
+                  : `Upscaled — RTX VSR ${m.upscale.width}×${m.upscale.height} (${m.upscale.quality})`)
               : `Upscaled — ${String(m.upscale.model || "model").split(/[\\/]/).pop()}`]);
         if (m.deblur && m.deblur !== "none") marks.push(["✧", `Deblurred — strength ${m.deblur}`]);
         if (m.interpolate) marks.push(["⇄", `Interpolated${m.interpolate.targetFps ? ` — ${Math.round(m.interpolate.targetFps)}fps` : ""}`]);

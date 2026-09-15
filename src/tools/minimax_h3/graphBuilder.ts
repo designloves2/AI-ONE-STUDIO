@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry, PipelinePreset, UserPipelinePreset } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, PDD_NFE_CHOICES, pddFileForMode, PIPELINE_PRESETS, applyPreset } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, PDD_NFE_CHOICES, pddFileForMode, PIPELINE_PRESETS, applyPreset } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -38,6 +38,7 @@ const N = {
   upModel: "MM:upscale_model",
   upApply: "MM:upscale",
   rtx: "MM:rtx",
+  rtxCrop: "MM:rtx_crop",
   fvsrPipe: "MM:flashvsr_pipe",
   fvsr: "MM:flashvsr",
   deblurR: "MM:deblur",
@@ -75,6 +76,67 @@ const has = (avail: Avail | undefined, name: string) => !!(avail && avail[name])
 
 export function previewNodeKey(nodeId: string | number) {
   return `MMH3_preview_${nodeId}`;
+}
+
+// Builds the RTXVideoSuperResolution node (+ an optional ImageCrop node ahead of it for the
+// "wh" size mode's forced crop, per computeRtxTarget) and returns the final image link plus
+// the {method, ...} descriptor buildPreset()/gallery cards already display.
+function buildRtxNode(
+  g: Graph,
+  ids: { crop: string; rtx: string },
+  images: any,
+  state: Parameters<typeof computeRtxTarget>[0],
+  srcW: number,
+  srcH: number
+) {
+  const t = computeRtxTarget(state, srcW, srcH);
+  if (t.crop) {
+    g[ids.crop] = { class_type: "ImageCrop", inputs: {
+      image: images, width: t.crop.width, height: t.crop.height, x: t.crop.x, y: t.crop.y,
+    } };
+    images = [ids.crop, 0];
+  }
+  g[ids.rtx] = t.resizeType === "scale by multiplier"
+    ? { class_type: "RTXVideoSuperResolution", inputs: {
+        images, resize_type: "scale by multiplier", "resize_type.scale": t.scale, quality: (state as any).rtxQuality || "ULTRA",
+      } }
+    : { class_type: "RTXVideoSuperResolution", inputs: {
+        images, resize_type: "target dimensions",
+        "resize_type.width": t.width, "resize_type.height": t.height, quality: (state as any).rtxQuality || "ULTRA",
+      } };
+  const upscaleUsed = t.resizeType === "scale by multiplier"
+    ? { method: "rtx" as const, scale: t.scale, quality: (state as any).rtxQuality || "ULTRA" }
+    : { method: "rtx" as const, width: t.width, height: t.height, quality: (state as any).rtxQuality || "ULTRA" };
+  return { images: [ids.rtx, 0], upscaleUsed };
+}
+
+// Writes the final video-save step: VHS_VideoCombine's nvenc_h264-mp4 format (real NVIDIA
+// GPU/NVENC hardware encoding) when the pack is installed, falling back to ComfyUI core's
+// CreateVideo -> SaveVideo pair (CPU software encoding via PyAV/libx264) otherwise — same
+// "missing pack disables the feature, not the whole prompt" policy as every other optional
+// node here. VHS reports its saved file under a `gifs` key; api.ts already normalizes that
+// the same way `images` is read for every save node, so nothing downstream needs to change.
+function saveVideoNode(
+  g: Graph,
+  ids: { video: string; save: string },
+  images: any,
+  audio: any,
+  fps: number,
+  filenamePrefix: string,
+  avail: Avail | undefined
+) {
+  if (has(avail, "VHS_VideoCombine")) {
+    g[ids.save] = { class_type: "VHS_VideoCombine", inputs: {
+      images, audio, frame_rate: fps, loop_count: 0,
+      filename_prefix: filenamePrefix, format: "video/nvenc_h264-mp4",
+      pingpong: false, save_output: true,
+    } };
+  } else {
+    g[ids.video] = { class_type: "CreateVideo", inputs: { images, fps, audio } };
+    g[ids.save] = { class_type: "SaveVideo", inputs: {
+      video: [ids.video, 0], filename_prefix: filenamePrefix, format: "auto", codec: "auto",
+    } };
+  }
 }
 
 export interface FlashVSRParams {
@@ -636,7 +698,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // upscaled clip and to show its real dimensions. Set only inside the branch that wires the
   // node, never recomputed from raw state.
   let deblurUsed: string | null = null;
-  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | ReturnType<typeof flashvsrUsed> | null = null;
+  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | { method: "rtx"; width: number; height: number; quality: string } | ReturnType<typeof flashvsrUsed> | null = null;
   // Deblur runs on the decoded frames before any upscale, at their own resolution. It is
   // independent of the upscale setting: Upscale = None still deblurs.
   if (state.deblurStrength && state.deblurStrength !== "none" && has(avail, "TJ_RTXDeblur")) {
@@ -651,9 +713,8 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     images = [N.upApply, 0];
     upscaleUsed = { method: "model", model: state.upscaleModel };
   } else if (up === "rtx" && has(avail, "RTXVideoSuperResolution")) {
-    g[N.rtx] = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" } };
-    images = [N.rtx, 0];
-    upscaleUsed = { method: "rtx", scale: state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" };
+    const r = buildRtxNode(g, { crop: N.rtxCrop, rtx: N.rtx }, images, state, width, height);
+    images = r.images; upscaleUsed = r.upscaleUsed;
   } else if (up === "flashvsr" && has(avail, "FlashVSRNodeAdv")) {
     const fvsrParams = flashvsrParamsFromState(state);
     buildFlashVSR(g, N.fvsrPipe, N.fvsr, fvsrParams, images);
@@ -662,8 +723,8 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   }
 
   const clipTag = String(clipIndex + 1).padStart(3, "0");
-  g[N.video] = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: lockAudio ? [N.audioLock, 1] : [N.decodeA, 0] } };
-  g[N.save] = { class_type: "SaveVideo", inputs: { video: [N.video, 0], filename_prefix: `${folder}/${stem}_clip${clipTag}`, format: "auto", codec: "auto" } };
+  saveVideoNode(g, { video: N.video, save: N.save }, images,
+    lockAudio ? [N.audioLock, 1] : [N.decodeA, 0], FPS, `${folder}/${stem}_clip${clipTag}`, avail);
 
   // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §6 — "Also save the clip before deblur /
   // upscale": a second file straight off the decode, before deblur/upscale touched it. Only
@@ -672,8 +733,8 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // clip stays the real one.
   const saveRawToo = !!state.saveUnprocessed && !!(deblurUsed || upscaleUsed);
   if (saveRawToo) {
-    g[N.videoRaw] = { class_type: "CreateVideo", inputs: { images: preProcImages, fps: FPS, audio: lockAudio ? [N.audioLock, 1] : [N.decodeA, 0] } };
-    g[N.saveRaw] = { class_type: "SaveVideo", inputs: { video: [N.videoRaw, 0], filename_prefix: `${folder}/${stem}_clip${clipTag}_raw`, format: "auto", codec: "auto" } };
+    saveVideoNode(g, { video: N.videoRaw, save: N.saveRaw }, preProcImages,
+      lockAudio ? [N.audioLock, 1] : [N.decodeA, 0], FPS, `${folder}/${stem}_clip${clipTag}_raw`, avail);
   }
 
   if (saveLastFrame) {
@@ -726,7 +787,8 @@ const L = {
   firstF: "LX:first_frame", i2v: "LX:i2v_inplace", audEnc: "LX:aud_encode", concat: "LX:concat",
   noise: "LX:noise", sampSel: "LX:sampler_sel", sched: "LX:scheduler", sampler: "LX:sampler",
   sep: "LX:separate", decV: "LX:decode_v", decA: "LX:decode_a", deblur: "LX:deblur",
-  upApply: "LX:up_apply", upLoad: "LX:up_load", rtx: "LX:rtx", video: "LX:video", save: "LX:save",
+  upApply: "LX:up_apply", upLoad: "LX:up_load", rtx: "LX:rtx", rtxCrop: "LX:rtx_crop",
+  video: "LX:video", save: "LX:save",
 };
 
 export interface LtxUpscaleOpts {
@@ -888,17 +950,15 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
     g[L.upApply] = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: [L.upLoad, 0], image: images } };
     images = [L.upApply, 0]; upscaleUsed = { method: "model", model: state.upscaleModel };
   } else if (up === "rtx" && has(avail, "RTXVideoSuperResolution")) {
-    g[L.rtx] = { class_type: "RTXVideoSuperResolution", inputs: {
-      images, resize_type: "scale by multiplier", "resize_type.scale": state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA",
-    } };
-    images = [L.rtx, 0]; upscaleUsed = { method: "rtx", scale: state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" };
+    // Standalone RTX pass, not chained through LTX's own scale — sized off the original
+    // source clip's own resolution (state.ltxSourceMeta), same as everywhere else RTX runs.
+    const sm = state.ltxSourceMeta || ({} as any);
+    const r = buildRtxNode(g, { crop: L.rtxCrop, rtx: L.rtx }, images, state, sm.w || 1280, sm.h || 720);
+    images = r.images; upscaleUsed = r.upscaleUsed;
   }
 
   // ── output ────────────────────────────────────────────────────────────────
-  g[L.video] = { class_type: "CreateVideo", inputs: { images, fps, audio: [L.decA, 0] } };
-  g[L.save] = { class_type: "SaveVideo", inputs: {
-    video: [L.video, 0], filename_prefix: `${folder}/${stem}_LTXUP${saveSuffix}`, format: "auto", codec: "auto",
-  } };
+  saveVideoNode(g, { video: L.video, save: L.save }, images, [L.decA, 0], fps, `${folder}/${stem}_LTXUP${saveSuffix}`, avail);
 
   const usedLoras = (state.ltxLoras || [])
     .filter((l) => l?.name && l.name !== "none" && l.enabled !== false)
@@ -1156,10 +1216,7 @@ export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefin
     undetected_frames: state.frUndetected || "fade_out",
   } };
 
-  g[FR.video] = { class_type: "CreateVideo", inputs: { images: [FR.stitch, 0], fps: FPS, audio: [N.audioLock, 1] } };
-  g[FR.save] = { class_type: "SaveVideo", inputs: {
-    video: [FR.video, 0], filename_prefix: `${folder}/${stem}_FACEREFINE`, format: "auto", codec: "auto",
-  } };
+  saveVideoNode(g, { video: FR.video, save: FR.save }, [FR.stitch, 0], [N.audioLock, 1], FPS, `${folder}/${stem}_FACEREFINE`, avail);
 
   const usedLoras = (state.frLoras || []).filter((l) => l?.name && l.name !== "none" && l.enabled !== false)
     .map((l) => ({ name: l.name, strength: l.strength ?? 1.0 }));
@@ -1184,6 +1241,16 @@ export interface UpscaleGraphOpts {
   upscaleModel?: string;
   rtxScale?: number;
   rtxQuality?: string;
+  // Same size-mode fields as the main/LTX Upscale RTX panels (see computeRtxTarget) — srcW/srcH
+  // is this file's own probed resolution, from the gallery's metadata.
+  rtxSizeMode?: string;
+  rtxShort?: number;
+  rtxLong?: number;
+  rtxW?: number;
+  rtxH?: number;
+  rtxCropAnchor?: string;
+  srcW?: number;
+  srcH?: number;
   flashvsr?: FlashVSRParams;
   // RTX Deblur — a pre-pass before upscale, at the input's own resolution, independent of
   // whether an upscale follows. "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA".
@@ -1220,8 +1287,8 @@ export function buildUpscaleGraph(inputFilename: string, folder: string, stem: s
     // deblur-only: nothing else touches the frames
     if (!deblurOn) throw new Error("Nothing to do — pick deblur, an upscale, or both.");
   } else if (opts.method === "rtx") {
-    g.rtx = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": opts.rtxScale ?? 2.0, quality: opts.rtxQuality || "ULTRA" } };
-    images = ["rtx", 0];
+    const r = buildRtxNode(g, { crop: "rtxCrop", rtx: "rtx" }, images, opts as any, opts.srcW || 1280, opts.srcH || 720);
+    images = r.images;
   } else if (opts.method === "flashvsr") {
     buildFlashVSR(g, "fvsrPipe", "fvsr", opts.flashvsr || {}, images);
     images = ["fvsr", 0];
@@ -1234,8 +1301,7 @@ export function buildUpscaleGraph(inputFilename: string, folder: string, stem: s
   // deblur-only gets its own suffix — otherwise a "_upscaled" file that never touched the
   // upscaler would misname what actually happened to it.
   const suffix = opts.saveSuffix !== undefined ? opts.saveSuffix : opts.method === "none" ? "_deblur" : "_upscaled";
-  g.video = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: ["load", 2] } };
-  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
+  saveVideoNode(g, { video: "video", save: "save" }, images, ["load", 2], FPS, `${folder}/${stem}${suffix}`, avail);
   // FlashVSR is a tiled post-process with its own progress ticks on the same submission —
   // callers that want to distinguish them from the (nonexistent, here) sampler's own progress
   // watch this node id too (see queuePrompt's samplerNode array support).
@@ -1252,7 +1318,7 @@ export interface InterpolateGraphOpts {
   saveSuffix?: string;
 }
 
-export function buildInterpolateGraph(inputFilename: string, folder: string, stem: string, opts: InterpolateGraphOpts) {
+export function buildInterpolateGraph(inputFilename: string, folder: string, stem: string, opts: InterpolateGraphOpts, avail?: Avail) {
   const g: Record<string, any> = {};
   g.load = { class_type: "VHS_LoadVideo", inputs: { video: inputFilename, force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: opts.frameLoadCap ?? 0, skip_first_frames: opts.skipFirstFrames ?? 0, select_every_nth: 1 } };
   g.rife = {
@@ -1271,8 +1337,7 @@ export function buildInterpolateGraph(inputFilename: string, folder: string, ste
   // more smoothly; encoding at the source rate would turn the extra frames into slow motion
   // and desync the audio.
   const suffix = opts.saveSuffix !== undefined ? opts.saveSuffix : `_${opts.targetFps}fps`;
-  g.video = { class_type: "CreateVideo", inputs: { images: ["rife", 0], fps: opts.targetFps, audio: ["load", 2] } };
-  g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
+  saveVideoNode(g, { video: "video", save: "save" }, ["rife", 0], ["load", 2], opts.targetFps, `${folder}/${stem}${suffix}`, avail);
   return { graph: g, saveNode: "save" };
 }
 

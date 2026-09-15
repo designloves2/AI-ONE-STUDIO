@@ -2437,8 +2437,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     const deblurNow = state.deblurStrength || "none";
     const rtxQualNow = state.upscaleMode === "rtx" ? (state.rtxQuality || "ULTRA") : "none";
     const rtxOn = rtxQualNow !== "none";
+    const rtxSizeTag = () => {
+      const m = state.rtxSizeMode || "scale";
+      return m === "scale" ? `${state.rtxScale ?? 2}×`
+        : m === "short" ? `short ${state.rtxShort ?? 1080}px`
+        : m === "long" ? `long ${state.rtxLong ?? 1920}px`
+        : `${state.rtxW ?? 1920}×${state.rtxH ?? 1080}`;
+    };
     leftPanel.appendChild(accordion("upscale", "Post finish",
-      [deblurNow !== "none" && `Deblur ${deblurNow}`, rtxOn && `RTX VSR ${state.rtxScale ?? 2}×`].filter(Boolean).join(" → ") || "OFF",
+      [deblurNow !== "none" && `Deblur ${deblurNow}`, rtxOn && `RTX VSR ${rtxSizeTag()}`].filter(Boolean).join(" → ") || "OFF",
       () => [
         col([label("Deblur"), select(QUAL, deblurNow, (v) => { state.deblurStrength = v; persist(); renderLeft(); })]),
         col([label("RTX Video Super Resolution"), select(QUAL, rtxQualNow, (v) => {
@@ -2446,13 +2453,9 @@ export function renderMinimaxH3(container: HTMLElement) {
           else { state.upscaleMode = "rtx"; state.rtxQuality = v; if (!(state.rtxScale > 0)) state.rtxScale = 2; }
           persist(); renderLeft();
         })]),
-        col([label("Scale (×)"), (() => {
-          const f = numberField(state.rtxScale ?? 2, (v) => { state.rtxScale = Math.max(1, v); persist(); }, 0.5);
-          if (!rtxOn) { (f as HTMLInputElement).disabled = true; f.style.opacity = "0.4"; }
-          return f;
-        })()]),
+        ...rtxSizeControls(rtxOn),
         !ctx.availability?.RTXVideoSuperResolution ? el("div", { html: "⚠ <code>RTXVideoSuperResolution</code> not installed — RTX VSR is skipped.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }) : null,
-        el("div", { text: "Runs on the LTX-upscaled frames after decode. Deblur sharpens at the same size; RTX VSR scales it further (e.g. 2× → 4K).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        el("div", { text: "A standalone pass over this clip's own frames (not chained through LTX's own scale). Deblur sharpens at the same size; RTX VSR scales it further.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
       ]));
 
     leftPanel.appendChild(el("div", {
@@ -3093,6 +3096,56 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
   }
 
+  // Shared RTX VSR size-mode controls — same 4 modes (Scale/Short/Long/W×H) in the main
+  // Upscale accordion and LTX Upscale's own Post finish accordion, both driven by the same
+  // state.rtx* fields (see computeRtxTarget in core.ts). Quality is each caller's own field
+  // (the two accordions gate on/off differently), so it's not included here.
+  function rtxSizeControls(rtxOn: boolean): (Node | null)[] {
+    const mode = state.rtxSizeMode || "scale";
+    const MODES: [string, string][] = [["scale", "Scale (×)"], ["short", "Short"], ["long", "Long"], ["wh", "W×H"]];
+    const modeRow = el("div", { style: { display: "flex", gap: "4px" } },
+      MODES.map(([k, lbl]) => {
+        const active = k === mode;
+        const b = el("button", { type: "button", text: lbl, style: {
+          cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 9px",
+          borderRadius: "5px", fontWeight: active ? "700" : "400",
+          background: active ? BRAND : C.bg2, color: "#fff",
+          border: `1px solid ${active ? BRAND : C.border}`,
+        } }) as HTMLButtonElement;
+        b.disabled = !rtxOn;
+        if (!rtxOn) b.style.opacity = "0.4";
+        b.addEventListener("click", () => { state.rtxSizeMode = k; persist(); renderLeft(); });
+        return b;
+      }));
+    const disabledField = <T extends HTMLElement>(f: T): T => { if (!rtxOn) { (f as any).disabled = true; f.style.opacity = "0.4"; } return f; };
+    const fields: (Node | null)[] = [col([label("Size"), modeRow])];
+    if (mode === "scale") {
+      fields.push(col([label("Scale (×)"), disabledField(numberField(state.rtxScale ?? 2, (v) => { state.rtxScale = Math.max(1, v); persist(); }, 0.5))]));
+    } else if (mode === "short" || mode === "long") {
+      const isShort = mode === "short";
+      fields.push(col([
+        label(isShort ? "Short side (px)" : "Long side (px)"),
+        disabledField(numberField(isShort ? (state.rtxShort ?? 1080) : (state.rtxLong ?? 1920), (v) => {
+          if (isShort) state.rtxShort = Math.max(8, Math.round(v)); else state.rtxLong = Math.max(8, Math.round(v));
+          persist();
+        }, 8)),
+      ]));
+    } else {
+      fields.push(row([
+        col([label("Width"), disabledField(numberField(state.rtxW ?? 1920, (v) => { state.rtxW = Math.max(8, Math.round(v)); persist(); }, 8))]),
+        col([label("Height"), disabledField(numberField(state.rtxH ?? 1080, (v) => { state.rtxH = Math.max(8, Math.round(v)); persist(); }, 8))]),
+      ]));
+      fields.push(col([
+        label("Crop anchor"),
+        disabledField(select(
+          [{ value: "center", label: "Center" }, { value: "left", label: "Left" }, { value: "right", label: "Right" }, { value: "top", label: "Top" }, { value: "bottom", label: "Bottom" }],
+          state.rtxCropAnchor || "center", (v) => { state.rtxCropAnchor = v; persist(); }
+        )),
+      ]));
+    }
+    return fields;
+  }
+
   function renderLeft() {
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
     if (state.generationMode === "facerefine") { renderFaceRefineLeft(); return; }
@@ -3360,10 +3413,8 @@ export function renderMinimaxH3(container: HTMLElement) {
           col([label("Upscale"), select(UPSCALE_MODES.map((m) => ({ value: m.key, label: m.label })), state.upscaleMode, (v) => { state.upscaleMode = v; persist(); renderLeft(); })]),
           ...(state.upscaleMode === "rtx"
             ? [
-                row([
-                  col([label("RTX scale"), numberField(state.rtxScale ?? 2, (v) => { state.rtxScale = v; persist(); }, 0.5)]),
-                  col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })), state.rtxQuality || "ULTRA", (v) => { state.rtxQuality = v; persist(); })]),
-                ]),
+                col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })), state.rtxQuality || "ULTRA", (v) => { state.rtxQuality = v; persist(); })]),
+                ...rtxSizeControls(true),
               ]
             : []),
           // FlashVSR (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — only 8 fields are exposed; the

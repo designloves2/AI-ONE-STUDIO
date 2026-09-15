@@ -116,9 +116,12 @@ export interface MinimaxState {
   ltxPreviewQuality: number;
   // The ✨ vision LLM for LTX Upscale — its own backend + model, never inherits an H3 value
   // (⚙ Settings → LLM Setting → "LTX Upscale ✨", a 3rd role next to H3 Brief/Vision).
-  ltxVisionBackend: string;  // "native" | "openrouter"
+  ltxVisionBackend: string;  // "native" | "openrouter" | "llamagguf"
   ltxVisionClip: string;     // native: the vision CLIP (text_encoders)
   ltxVisionOrModel: string;  // openrouter: model id
+  // LTX Upscale has no paired "brief" row — standalone vision role, own GGUF model + mmproj.
+  ltxLlamaModel: string;
+  ltxLlamaMmproj: string;
   ltxLlmPrompt: string;      // ✨ "Write from source frame" instruction (vision)
   ltxConvertPrompt: string;  // "H3 → LTX 2.5" instruction (text-only, rewrites an H3 brief)
 
@@ -250,6 +253,14 @@ export interface MinimaxState {
   h3VisionBackend: string;
   h3OrModelBrief: string;   // OpenRouter brief model (writes the prompt — text only)
   h3OrModelVision: string;  // OpenRouter vision model (reads the reference images — multimodal)
+  // Llama GGUF (local llama.cpp, via TJ_NODE's prompt_enhancer.py/image_to_prompt.py — the
+  // same backend the image tools' shared Enhance/Image→Prompt panel already uses). Vision
+  // picks its own GGUF model independently of Brief, plus its own mmproj.
+  h3LlamaVisionModel: string;
+  h3LlamaVisionMmproj: string;
+  h3LlamaBriefModel: string;
+  h3LlamaNCtx: number;
+  h3LlamaMaxTokens: number;
 
   // SolAttn (SolAttnPatch)
   solTau: number;
@@ -270,6 +281,13 @@ export interface MinimaxState {
   // RTX VSR upscale
   rtxScale: number;
   rtxQuality: string;
+  // RTX VSR size input mode — "scale" | "short" | "long" | "wh" (see computeRtxTarget)
+  rtxSizeMode: string;
+  rtxShort: number;
+  rtxLong: number;
+  rtxW: number;
+  rtxH: number;
+  rtxCropAnchor: string;
 
   // FlashVSR VSR upscale — only these 8 fields are exposed; everything else
   // FlashVSRInitPipe/FlashVSRNodeAdv takes is fixed at the shipped API workflow's own values.
@@ -415,6 +433,50 @@ export const ASPECTS = [
   { label: "16:9 Landscape", w: 16, h: 9 },
   { label: "21:9 Cinema", w: 21, h: 9 },
 ];
+
+/**
+ * RTX Video Super Resolution's own node has two native input shapes: a scale multiplier, or
+ * an exact target width/height (which it resizes to directly — no crop, so a mismatched
+ * aspect ratio stretches). This adds two more convenience input modes on top of those two:
+ * "short"/"long" take one side's target pixel count and compute the other from the source's
+ * own aspect ratio (so the result is always an exact width/height pair with no distortion, no
+ * crop needed), while "wh" is the node's own exact-size mode with a forced center/edge crop
+ * added first so an aspect mismatch there never stretches either.
+ *
+ * `srcW`/`srcH` is whatever this RTX pass will actually receive — the H3 render's own target
+ * resolution for the main pipeline, the original source clip for LTX Upscale (treated as a
+ * standalone step, not chained through LTX's own scale), or a gallery file's own probed size.
+ */
+export function computeRtxTarget(state: Pick<MinimaxState, "rtxSizeMode" | "rtxShort" | "rtxLong" | "rtxW" | "rtxH" | "rtxCropAnchor" | "rtxScale">, srcW: number, srcH: number) {
+  const mode = state.rtxSizeMode || "scale";
+  const round8 = (v: number) => Math.max(8, Math.round(v / 8) * 8);
+  if (mode === "short" || mode === "long") {
+    const short = Math.min(srcW, srcH), long = Math.max(srcW, srcH);
+    const target = Math.max(8, Math.round(mode === "short" ? (state.rtxShort ?? 1080) : (state.rtxLong ?? 1920)));
+    const otherTarget = mode === "short" ? target * (long / short) : target * (short / long);
+    const isWSide = srcW <= srcH; // portrait: W is the short side; landscape: W is the long side
+    const width = mode === "short" ? (isWSide ? target : round8(otherTarget)) : (isWSide ? round8(otherTarget) : target);
+    const height = mode === "short" ? (isWSide ? round8(otherTarget) : target) : (isWSide ? target : round8(otherTarget));
+    return { resizeType: "target dimensions" as const, width: round8(width), height: round8(height), crop: null as { x: number; y: number; width: number; height: number } | null };
+  }
+  if (mode === "wh") {
+    const width = round8(Math.max(8, Math.round(state.rtxW ?? 1920)));
+    const height = round8(Math.max(8, Math.round(state.rtxH ?? 1080)));
+    // Crop the source down to the target's aspect ratio first — center by default, or pinned
+    // to one edge — so the node's own exact-size resize never has to stretch.
+    const targetAspect = width / height, srcAspect = srcW / srcH;
+    let cropW = srcW, cropH = srcH;
+    if (srcAspect > targetAspect) cropW = Math.round(srcH * targetAspect);
+    else if (srcAspect < targetAspect) cropH = Math.round(srcW / targetAspect);
+    const anchor = state.rtxCropAnchor || "center";
+    const x = anchor === "left" ? 0 : anchor === "right" ? srcW - cropW : Math.round((srcW - cropW) / 2);
+    const y = anchor === "top" ? 0 : anchor === "bottom" ? srcH - cropH : Math.round((srcH - cropH) / 2);
+    const crop = cropW < srcW || cropH < srcH ? { x, y, width: cropW, height: cropH } : null;
+    return { resizeType: "target dimensions" as const, width, height, crop };
+  }
+  // "scale" — the node's own multiplier mode, unchanged from before this feature.
+  return { resizeType: "scale by multiplier" as const, scale: state.rtxScale ?? 2.0, crop: null as { x: number; y: number; width: number; height: number } | null };
+}
 
 export function resolveResolution(aspectLabel: string, megapixels: number) {
   const a = ASPECTS.find((x) => x.label === aspectLabel) || ASPECTS[0];
@@ -1156,7 +1218,7 @@ export function groupShotsWithBreaks(shots: string[], groups: number, breaks?: n
 
 export const IMAGE_BRIEF_MODES = [
   { key: "fl", label: "First/Last (max 2)", max: 2, hint: "image 1 = the starting frame, image 2 = the ending frame — write the brief as a first/last-frame shot" },
-  { key: "ref", label: "Reference (max 8)", max: 8, hint: "each image is a <Picture N> reference, in upload order" },
+  { key: "ref", label: "Reference (max 9)", max: 9, hint: "each image is a <Picture N> reference, in upload order" },
 ];
 export function imageBriefMax(mode: string) {
   return (IMAGE_BRIEF_MODES.find((m) => m.key === mode) || IMAGE_BRIEF_MODES[1]).max;
@@ -1395,6 +1457,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ltxPreviewQuality: saved.ltxPreviewQuality ?? 85,
     ltxVisionBackend: saved.ltxVisionBackend || "native",
     ltxVisionClip: saved.ltxVisionClip || "",
+    ltxLlamaModel: saved.ltxLlamaModel || "",
+    ltxLlamaMmproj: saved.ltxLlamaMmproj || "none",
     ltxVisionOrModel: saved.ltxVisionOrModel || "",
     ltxLlmPrompt: saved.ltxLlmPrompt || LTX_UPSCALE_LLM_PROMPT,
     ltxConvertPrompt: saved.ltxConvertPrompt || LTX_CONVERT_LLM_PROMPT,
@@ -1502,6 +1566,17 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     h3VisionBackend: saved.h3VisionBackend || (saved as any).h3LlmBackend || "native",
     h3OrModelBrief: saved.h3OrModelBrief || (saved as any).h3OrModel || "",
     h3OrModelVision: saved.h3OrModelVision || "",
+    h3LlamaVisionModel: saved.h3LlamaVisionModel || "",
+    h3LlamaVisionMmproj: saved.h3LlamaVisionMmproj || "none",
+    h3LlamaBriefModel: saved.h3LlamaBriefModel || "",
+    // 16384, not llama.cpp's/the route's own 4096 default — H3's system prompt (guide + few-shot
+    // examples) plus a real request measured 5436 tokens on its own in testing, already over
+    // 4096 before generation even starts (observed failure: a silent empty result, no error).
+    h3LlamaNCtx: saved.h3LlamaNCtx ?? 16384,
+    // 4096 — a real full brief (opening style + multiple [Shot N] + Ambient sound + Music) got
+    // cut off mid-sentence at 2000 in testing; a truncated brief is exactly as unusable as an
+    // empty one.
+    h3LlamaMaxTokens: saved.h3LlamaMaxTokens ?? 4096,
     pddFile: saved.pddFile || "none",
     pddFileReference: saved.pddFileReference || "none",
     pddNfe: String(saved.pddNfe ?? "8"),
@@ -1521,6 +1596,12 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     specHistoryStore: saved.specHistoryStore || "system_ram",
     rtxScale: saved.rtxScale ?? 2.0,
     rtxQuality: saved.rtxQuality || "ULTRA",
+    rtxSizeMode: saved.rtxSizeMode || "scale",
+    rtxShort: saved.rtxShort ?? 1080,
+    rtxLong: saved.rtxLong ?? 1920,
+    rtxW: saved.rtxW ?? 1920,
+    rtxH: saved.rtxH ?? 1080,
+    rtxCropAnchor: saved.rtxCropAnchor || "center",
     // FlashVSR VSR — defaults match the shipped API workflow (16GB, 2x, 384 tile).
     flashvsrModel: saved.flashvsrModel || "FlashVSR-v1.1",
     flashvsrMode: saved.flashvsrMode || "tiny",

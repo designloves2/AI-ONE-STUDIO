@@ -961,6 +961,18 @@ export function createPromptEditOverlay(
         imageSummary = (visionOR
           ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModelBrief)
           : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
+        // The vision model is asked to number its own lines ("Image N: ..."), but it doesn't
+        // reliably count right (a real 4-image run came back numbered 1/4/5/6). buildUserPrompt
+        // separately tells the brief model these lines are <Picture 1>...<Picture N> strictly
+        // BY POSITION ("analyzed in order") — leaving the vision model's own (possibly wrong)
+        // numbers embedded on each line meant two conflicting numbering schemes in the same
+        // prompt, and the brief model could follow the wrong one. Re-number every line by its
+        // actual array position here, discarding whatever the vision model wrote, so the brief
+        // model only ever sees correctly sequential labels.
+        imageSummary = imageSummary
+          .split("\n")
+          .map((line, i) => line.replace(/^\s*(?:Image|Picture)\s*\d+\s*:/i, `Image ${i + 1}:`))
+          .join("\n");
       }
       progressStage("Writing brief…");
       const text = (briefOR

@@ -1290,6 +1290,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     const v = list[playIndex];
     curSensKey = mediaKey(v.filename, v.subfolder || "");
     pTitle.textContent = v.filename;
+    pTitle.title = v.filename;
     pPos.textContent = `${playIndex + 1} / ${list.length}`;
     player.classList.remove("hidden");
     player.style.display = "flex";
@@ -1523,7 +1524,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
         meta.appendChild(el("div", { text: `[${mw}x${mh}px / ${mp}MP${ratio ? `    ${ratio}` : ""}]`, style: { fontSize: "9px", color: "#fff", fontWeight: "600" } }));
       }
       meta.append(
-        el("div", { text: v.filename, class: "text-[10px] overflow-hidden text-ellipsis whitespace-nowrap", style: { color: C.text } }),
+        el("div", { text: v.filename, title: v.filename, class: "text-[10px] overflow-hidden text-ellipsis whitespace-nowrap", style: { color: C.text } }),
         el("div", { text: `${durationText}${fmtSize((v as any).size)} · ${fmtWhen((v as any).mtime)}`, class: "text-[9px]", style: { color: C.muted } })
       );
       if (isFull) meta.appendChild(el("div", { text: "★ stitched", class: "text-[9px] font-bold", style: { color: STITCH_COLOR } }));
@@ -1599,7 +1600,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     eye.style.cssText += "position:absolute;bottom:6px;right:6px;z-index:3;width:26px;height:26px;font-size:14px;background:rgba(0,0,0,0.7);border-radius:6px;";
     videoWrap.append(shade, eye);
 
-    const infoBox = el("div", { style: { fontSize: "10px", color: C.text, lineHeight: "1.6", whiteSpace: "pre-wrap", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px" } });
+    const infoBox = el("div", { style: { fontSize: "10px", color: C.text, lineHeight: "1.6", whiteSpace: "pre-wrap", wordBreak: "break-all", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px" } });
     const lines = metaInfoLines((v as any).meta);
     infoBox.textContent = lines.length ? lines.join("\n") : "No settings saved for this clip.";
 

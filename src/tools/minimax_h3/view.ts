@@ -3875,7 +3875,12 @@ export function renderMinimaxH3(container: HTMLElement) {
       // turboMode="pdd" with no file and effectiveTurbo fell back to normal steps. (The restore
       // branch in applyClipSettings for the turboLora fields was dead for the same reason.)
       pddFile: rs.pddFile, pddFileReference: rs.pddFileReference, pddNfe: rs.pddNfe,
-      turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
+      // Only recorded when Turbo is actually set to the larryvrh LoRA mode — these two fields
+      // stay populated in state even with Turbo off or set to pdd/lightx2v, so writing them
+      // unconditionally made a clip's sidecar (and Reuse) claim the 4-step LoRA ran on every
+      // clip regardless of what actually rendered it.
+      turboLora: rs.turboMode === "larryvrh" ? rs.turboLora : null,
+      turboLoraReference: rs.turboMode === "larryvrh" ? rs.turboLoraReference : null,
       turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
       turboSteps: rs.turboSteps, slaTurboSteps: rs.slaTurboSteps,
       scheduler: rs.scheduler, denoise: rs.denoise, shiftVideo: rs.shiftVideo, shiftAudio: rs.shiftAudio,
@@ -4275,7 +4280,9 @@ export function renderMinimaxH3(container: HTMLElement) {
             clip: curClip, clips: plan.count, seed: seedForClip(rs, i), mode: modeForClip,
             prompts: [promptText(rs.prompts?.[i])], onetake: isOneTake,
             elapsedSec,
-            turboLora: rs.turboLora, turboLoraReference: rs.turboLoraReference,
+            // turboLora/turboLoraReference are gated inside metaForVideo() itself (only
+            // recorded when turboMode === "larryvrh"); strength/lowVram are just config for
+            // that mode, harmless to keep even when unused.
             turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
             loras: JSON.parse(JSON.stringify(rs.loras || [])),
             // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — the assets this clip actually rendered

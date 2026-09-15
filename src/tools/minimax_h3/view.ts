@@ -1149,16 +1149,65 @@ export function renderMinimaxH3(container: HTMLElement) {
   promptHdr.append(promptTitle, promptCount);
 
   const smallBtnStyle = { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` };
-  const commonBtn = el("button", { type: "button", text: "🧩 Common", title: "Edit the header / sound-music text shared by every clip", style: smallBtnStyle, class: "ml-auto" });
+  // Insert-at-cursor tags — <Picture N>, <Subject N>, <Shot N> — into whichever clip textarea
+  // was last focused. "N" is inserted literally; the user replaces it with the actual number.
+  let lastFocusedPromptTA: HTMLTextAreaElement | null = null;
+  function insertTagAtCursor(ta: HTMLTextAreaElement, tag: string) {
+    const s = ta.selectionStart ?? ta.value.length;
+    const e = ta.selectionEnd ?? ta.value.length;
+    const token = `<${tag} N>`;
+    ta.value = ta.value.slice(0, s) + token + ta.value.slice(e);
+    ta.focus();
+    ta.setSelectionRange(s + token.length, s + token.length);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  const tagBtnRow = el("div", { class: "flex gap-1", style: { marginLeft: "auto" } },
+    ["Picture", "Subject", "Shot"].map((tag) => {
+      const b = el("button", { type: "button", text: tag, title: `Insert <${tag} N> into the last-focused clip prompt`, style: smallBtnStyle });
+      // mousedown steals focus from the clip textarea before click fires, collapsing its
+      // selection to the end — preventDefault keeps it focused throughout.
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => {
+        const ta = lastFocusedPromptTA;
+        if (!ta) { showPopup("Click into a clip's prompt field first.", true); return; }
+        insertTagAtCursor(ta, tag);
+      });
+      return b;
+    }));
+  promptHdr.appendChild(tagBtnRow);
+  const commonBtn = el("button", { type: "button", text: "🧩 Common", title: "Edit the header / sound-music text shared by every clip", style: smallBtnStyle });
+  const refineBtn = el("button", { type: "button", text: "🔧 Refine", title: "Revise the current clip's prompt from a typed instruction — same result review as Prompt Write", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
+  const writeBtn = el("button", { type: "button", text: "✨ Prompt Write", title: "Write a fresh prompt for the current clip — same result review as inside Prompt Edit", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const editBtn = el("button", { type: "button", text: "📝 Prompt Edit", title: "Open the full prompt editor (with Ollama enhance)", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips", style: smallBtnStyle });
   const addBtn = el("button", { type: "button", text: "+ Add", style: smallBtnStyle });
   const resetTAHBtn = el("button", { type: "button", text: "↕", title: "Reset text field size (not the prompt text itself) back to the default", style: smallBtnStyle });
   resetTAHBtn.addEventListener("click", () => resetPromptTAHeights());
-  promptHdr.append(commonBtn, editBtn, splitBtn, addBtn, resetTAHBtn);
+  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, splitBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
-  promptWrap.append(promptHdr, promptList);
+  // Sibling wrapper, not a child of promptList itself — promptList gets its innerHTML wiped
+  // and fully rebuilt by renderPrompts(), which would destroy an overlay appended inside it.
+  const promptListWrap = el("div", { class: "flex-1 relative", style: { minHeight: "0" } });
+  // Same visual language as the live-preview's own "busy, no per-step feedback" banners
+  // (frDetectBanner/fvsrBanner) — dim cover + centered glowing text — so a Refine/Prompt
+  // Write run reads as "busy" the same way a render does, instead of looking like the fields
+  // just silently stopped responding to clicks.
+  const promptBusyOv = el("div", {
+    text: "✨ Writing the prompt…",
+    class: "absolute inset-0 flex items-center justify-center text-center hidden",
+    style: { zIndex: "5", background: "rgba(0,0,0,0.75)", padding: "0 16px", borderRadius: "6px", color: "#b57bff", fontSize: "18px", fontWeight: "700", textShadow: "0 0 12px rgba(181,123,255,0.5)" },
+  });
+  promptListWrap.append(promptList, promptBusyOv);
+  promptWrap.append(promptHdr, promptListWrap);
+  // Shared by the main-screen Refine/Prompt Write buttons AND the Prompt Edit popup — whichever
+  // one is running an LLM call locks every clip's prompt field here too, since they all edit
+  // the same underlying state.prompts.
+  function setPromptBusy(busy: boolean, label?: string) {
+    promptBusyOv.textContent = label || "✨ Writing the prompt…";
+    promptBusyOv.classList.toggle("hidden", !busy);
+    promptList.querySelectorAll("textarea").forEach((t) => { (t as HTMLTextAreaElement).disabled = busy; });
+  }
 
   function currentPlan() {
     return clipPlan(state);
@@ -1611,6 +1660,12 @@ export function renderMinimaxH3(container: HTMLElement) {
     splitBtn.style.display = hidesShotList ? "none" : "";
     addBtn.style.display = hidesShotList ? "none" : "";
     resetTAHBtn.style.display = hidesShotList ? "none" : "";
+    // Refine/Prompt Write and the tag-insert row act on state.prompts[i] (the shot list) via
+    // lastFocusedPromptTA — LTX Upscale/Face Refine's own single prompt box never sets that,
+    // so these have nothing to act on there either.
+    refineBtn.style.display = hidesShotList ? "none" : "";
+    writeBtn.style.display = hidesShotList ? "none" : "";
+    tagBtnRow.style.display = hidesShotList ? "none" : "";
     promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
@@ -1656,7 +1711,8 @@ export function renderMinimaxH3(container: HTMLElement) {
         state.prompts[i].text = ta.value;
         persist();
       });
-      ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
+      ta.dataset.clipIndex = String(i);
+      ta.addEventListener("focus", () => { ta.style.borderColor = BRAND; lastFocusedPromptTA = ta; });
       ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
       allPromptTAs.push(ta);
       watchPromptTA(ta);
@@ -4696,7 +4752,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   const promptEditOv = createPromptEditOverlay(
     state,
-    { persist, showPopup, currentPlan, get missingAssets() { return missingAssets; }, checkMissingAssets: refreshMissingAssets },
+    { persist, showPopup, currentPlan, get missingAssets() { return missingAssets; }, checkMissingAssets: refreshMissingAssets, setPromptBusy },
     // Loading a prompt set (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7) can change generationMode,
     // which the left panel's mode buttons and Images accordion need to see, not just the plan line.
     () => { refreshPlan(); renderLeft(); }
@@ -4706,6 +4762,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (state.generationMode === "facerefine") { openFrPromptEdit(); return; }
     promptEditOv.show();
   });
+  // Whichever clip's textarea was last focused, so Refine/Prompt Write from the main screen
+  // act on the clip the user was actually just looking at — same tracking the tag-insert
+  // buttons above use.
+  const lastFocusedClipIndex = () => {
+    const idx = Number(lastFocusedPromptTA?.dataset.clipIndex);
+    return Number.isFinite(idx) ? idx : null;
+  };
+  refineBtn.addEventListener("click", () => promptEditOv.openRefine(lastFocusedClipIndex()));
+  writeBtn.addEventListener("click", () => promptEditOv.openWrite(lastFocusedClipIndex()));
 
   const commonPromptOv = createCommonPromptOverlay(state, { persist }, () => {
     refreshPlan();

@@ -67,6 +67,11 @@ export interface PromptEditHandle {
   show(): void;
   hide(): void;
   syncCommon(): void;
+  // Main-screen shortcuts — open the popup already on the given clip (or whichever is
+  // currently selected) and immediately fire Prompt Write / Prompt Refine, as if the user had
+  // opened the popup and clicked the button themselves.
+  openWrite(clipIndex?: number | null): void;
+  openRefine(clipIndex?: number | null): void;
 }
 
 export function createPromptEditOverlay(
@@ -80,6 +85,10 @@ export function createPromptEditOverlay(
     missingAssets?: Set<string>;
     // Re-runs the missing-asset check (one batch, common + every clip's own set) and re-renders.
     checkMissingAssets?: () => void;
+    // Locks every clip's prompt field on the main screen (via a busy banner) whenever this
+    // popup's own Write/Refine — or the main screen's own — is running an LLM call, since
+    // both edit the same underlying state.prompts.
+    setPromptBusy?: (busy: boolean, label?: string) => void;
   },
   onApply?: () => void
 ): PromptEditHandle {
@@ -511,6 +520,10 @@ export function createPromptEditOverlay(
     editorBusyOv.textContent = busyLabel || "✨ Writing the prompt…";
     editorBusyOv.classList.toggle("hidden", !isBusy);
     (editor as HTMLTextAreaElement).disabled = isBusy;
+    // Whichever of this popup's own Write/Refine OR the main screen's own Write/Refine
+    // buttons is running an LLM call locks every clip's prompt field there too, since they
+    // all edit the same underlying state.prompts.
+    ctx.setPromptBusy?.(isBusy, busyLabel);
   }
   editCol.append(editHdr, editorWrap, firstFrameRow, firstFrameHint);
   body.append(listCol, editCol);
@@ -1547,6 +1560,30 @@ export function createPromptEditOverlay(
       headerUC.paint();
       footerUC.paint();
       refreshPreviewTag();
+    },
+    async openWrite(clipIndex) {
+      if (typeof clipIndex === "number" && clipIndex >= 0) selected = clipIndex;
+      ov.style.display = "flex";
+      if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
+      if (selected >= state.prompts.length) selected = 0;
+      deriveModes();
+      renderImageRow();
+      renderAll();
+      refreshEnhanceModels();
+      if (!systemPrompt) await loadSystemPrompt();
+      doWrite();
+    },
+    async openRefine(clipIndex) {
+      if (typeof clipIndex === "number" && clipIndex >= 0) selected = clipIndex;
+      ov.style.display = "flex";
+      if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
+      if (selected >= state.prompts.length) selected = 0;
+      deriveModes();
+      renderImageRow();
+      renderAll();
+      refreshEnhanceModels();
+      if (!systemPrompt) await loadSystemPrompt();
+      doRefine();
     },
   };
 }

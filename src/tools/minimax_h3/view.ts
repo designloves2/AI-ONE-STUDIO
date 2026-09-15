@@ -1111,7 +1111,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   const editBtn = el("button", { type: "button", text: "📝 Prompt Edit", title: "Open the full prompt editor (with Ollama enhance)", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips", style: smallBtnStyle });
   const addBtn = el("button", { type: "button", text: "+ Add", style: smallBtnStyle });
-  const resetTAHBtn = el("button", { type: "button", text: "↺", title: "Reset the prompt boxes' height back to the default", style: smallBtnStyle });
+  const resetTAHBtn = el("button", { type: "button", text: "↕", title: "Reset text field size (not the prompt text itself) back to the default", style: smallBtnStyle });
   resetTAHBtn.addEventListener("click", () => resetPromptTAHeights());
   promptHdr.append(commonBtn, editBtn, splitBtn, addBtn, resetTAHBtn);
 

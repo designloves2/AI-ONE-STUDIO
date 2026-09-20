@@ -32,17 +32,22 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
 
   const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   topRow.appendChild(el("div", { text: "🖼 Gallery — Krea 2", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
+  // Header order per node's gallery multi-select port (Krea2-era fa76f7e, other 5 in 8938d00):
+  // red "Delete N Image(s)" (only once ≥1 checked) / Select ("N Select" while active) /
+  // ☆ Favs / ↻ Reload / ✕ Close. Send-to-MiniMax extras (not in node) stay, tucked between
+  // Favs and Reload so the Select/Delete/Favs/Reload/Close cluster still reads left-to-right
+  // as the spec describes.
   const favBtn = btn("☆ Favs", () => { favOnly = !favOnly; favBtn.textContent = favOnly ? "★ Favs (ON)" : "☆ Favs"; reset(); });
-  const selectModeBtn = btn("☑ Select", () => toggleSelectMode());
-  const deleteSelBtn = btn("🗑 Delete Selection (0)", () => deleteSelected(), "danger");
+  const selectModeBtn = btn("Select", () => toggleSelectMode());
+  const deleteSelBtn = btn("Delete 0 Image(s)", () => deleteSelected(), "danger");
   deleteSelBtn.style.display = "none";
   const sendFLBtn = btn("→ FL2VA", () => sendSelectedToMinimax("firstlast"));
   sendFLBtn.style.display = "none";
   const sendRefBtn = btn("→ REF2VA", () => sendSelectedToMinimax("reference"));
   sendRefBtn.style.display = "none";
-  const refreshBtn = btn("↻", () => reset());
-  const closeBtn = btn("✕", () => (ov.style.display = "none"), "danger");
-  topRow.append(favBtn, sendFLBtn, sendRefBtn, selectModeBtn, deleteSelBtn, refreshBtn, closeBtn);
+  const refreshBtn = btn("↻ Reload", () => reset());
+  const closeBtn = btn("✕ Close", () => (ov.style.display = "none"), "danger");
+  topRow.append(deleteSelBtn, selectModeBtn, favBtn, sendFLBtn, sendRefBtn, refreshBtn, closeBtn);
   ov.appendChild(topRow);
 
   let favOnly = false, offset = 0, total = 0, loading = false;
@@ -55,15 +60,19 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
 
   function toggleSelectMode() {
     selectMode = !selectMode;
-    selectModeBtn.textContent = selectMode ? "☑ Select (ON)" : "☑ Select";
-    deleteSelBtn.style.display = selectMode ? "inline-block" : "none";
     sendFLBtn.style.display = selectMode ? "inline-block" : "none";
     sendRefBtn.style.display = selectMode ? "inline-block" : "none";
     selected.clear();
     updateDeleteBtn();
     reset();
   }
-  function updateDeleteBtn() { deleteSelBtn.textContent = `🗑 Delete Selection (${selected.size})`; }
+  // Select button reads "Select" when off, "N Select" while active with N picked — the red
+  // "Delete N Image(s)" button (left of Select) only appears once at least one is checked.
+  function updateDeleteBtn() {
+    selectModeBtn.textContent = selectMode ? `${selected.size} Select` : "Select";
+    deleteSelBtn.textContent = `Delete ${selected.size} Image(s)`;
+    deleteSelBtn.style.display = selectMode && selected.size > 0 ? "inline-block" : "none";
+  }
 
   async function deleteSelected() {
     if (!selected.size) return;

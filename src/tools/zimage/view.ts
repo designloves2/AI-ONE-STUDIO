@@ -18,8 +18,18 @@ import { queuePrompt } from "./comfyClient";
 import type { AppConfig } from "./settings";
 import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
-import { createPromptExpandOverlay, createTemplateOverlay } from "./promptTools";
+import { createTemplateOverlay } from "./promptTools";
 import { createMaskEditor } from "./maskEditor";
+import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
+import { comfyApi } from "./comfyClient";
+
+const LLM_LS_KEY = "tj_studio_one_llm_settings";
+function loadLlmState(): PromptEditLlmState {
+  try { return JSON.parse(localStorage.getItem(LLM_LS_KEY) || "{}"); } catch { return {}; }
+}
+function saveLlmState(s: PromptEditLlmState) {
+  try { localStorage.setItem(LLM_LS_KEY, JSON.stringify(s)); } catch {}
+}
 
 export function renderZImage(root: HTMLElement) {
   clear(root);
@@ -270,9 +280,18 @@ export function renderZImage(root: HTMLElement) {
   const promptHdr = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
   const charCount = el("span", { style: { color: C.muted, fontSize: "10px" } });
   promptHdr.append(el("div", { text: "PROMPT", style: { color: C.muted, fontSize: "11px", flex: "1", textTransform: "uppercase", letterSpacing: "0.04em" } }), charCount);
-  const templatesBtn = button("📋 Templates", () => templateOv.show());
-  const expandBtn = button("🔍 Expand / LLM", () => promptExpandOv.show());
-  promptHdr.append(templatesBtn, expandBtn);
+  function purpleHdrBtn(text: string, onClick: () => void) {
+    return el("button", {
+      type: "button", text, onclick: onClick,
+      style: { background: BRAND, color: "#fff", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", fontSize: "11px", fontWeight: "700", whiteSpace: "nowrap" },
+    });
+  }
+  const expandBtn = purpleHdrBtn("🔍 Prompt Edit", () => promptExpandOv.show());
+  const templatesBtn = purpleHdrBtn("📋 Prompt Preset", () => templateOv.show());
+  // Hermes agent job.json header button — zimage is in scope (krea2 + zimage only, node's
+  // Krea2-era + 1af0942 commits).
+  const agentJsonHdrBtn = purpleHdrBtn("⬇ job.json", () => downloadAgentJson());
+  promptHdr.append(expandBtn, templatesBtn, agentJsonHdrBtn);
 
   const promptTA = el("textarea", { placeholder: "Prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } });
   function updatePromptCount() {
@@ -287,10 +306,19 @@ export function renderZImage(root: HTMLElement) {
   promptWrap.append(promptHdr, promptTA);
   rightPanel.appendChild(promptWrap);
 
-  const promptExpandOv = createPromptExpandOverlay(
-    () => getModePrompt(state, state.mode),
-    (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }
-  );
+  const llmState = loadLlmState();
+  const promptExpandOv = createPromptEditPopup({
+    fetchApi: (path, opts) => comfyApi.fetchApi(path, opts),
+    getPrompt: () => getModePrompt(state, state.mode),
+    setPrompt: (text) => { setModePrompt(state, state.mode, text); refreshPromptBox(); },
+    persist,
+    openImageGalleryPicker: (onPick) => openImageGalleryPicker(onPick),
+    viewUrl: (filename) => api.viewUrl(filename, "", "input"),
+    llm: llmState,
+    saveLlm: () => saveLlmState(llmState),
+    openSettings: () => settingsOv.show(),
+    title: "🔍 Prompt Edit",
+  });
   const templateOv = createTemplateOverlay(
     () => state.mode,
     (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }
@@ -317,12 +345,9 @@ export function renderZImage(root: HTMLElement) {
   leftBottomBar.append(genBtn, stopBtn);
 
   // Hermes agent job file: {tool:"zimage", job:{...}, target:"..."} — straight from the panel's
-  // current settings, see buildAgentJob(). Hidden outside t2i/i2i (not in zimage-headless's scope).
-  const agentJsonBtn = el("button", {
-    type: "button", text: "⬇ Agent JSON", title: "Download this setup as a job.json for the zimage-headless agent",
-    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 8px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}`, width: "100%" },
-  });
-  agentJsonBtn.addEventListener("click", () => {
+  // current settings, see buildAgentJob(). Hidden outside t2i/i2i (not in zimage-headless's
+  // scope). Moved from a left-panel button into the prompt header (agentJsonHdrBtn above).
+  function downloadAgentJson() {
     const job = buildAgentJob(state);
     if (!job) { window.alert("Agent JSON is only available in Text-only and Image-to-Image mode — the other modes aren't in zimage-headless's scope."); return; }
     const envelope = { tool: "zimage", job, target: "" };
@@ -333,8 +358,7 @@ export function renderZImage(root: HTMLElement) {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
-  leftBottomBar.appendChild(agentJsonBtn);
+  }
 
   // ── Overlays ────────────────────────────────────────────────────────────
   const settingsOv = createSettingsOverlay(state, {

@@ -16,7 +16,17 @@ import { queuePrompt } from "./comfyClient";
 import type { AppConfig } from "./settings";
 import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
-import { createPromptExpandOverlay, createTemplateOverlay } from "./promptTools";
+import { createTemplateOverlay } from "./promptTools";
+import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
+import { comfyApi } from "./comfyClient";
+
+const LLM_LS_KEY = "tj_studio_one_llm_settings";
+function loadLlmState(): PromptEditLlmState {
+  try { return JSON.parse(localStorage.getItem(LLM_LS_KEY) || "{}"); } catch { return {}; }
+}
+function saveLlmState(s: PromptEditLlmState) {
+  try { localStorage.setItem(LLM_LS_KEY, JSON.stringify(s)); } catch {}
+}
 import { createMaskEditor } from "./maskEditor";
 import { createAngleScene, ANGLE_H_OPTS, ANGLE_V_OPTS, ANGLE_Z_OPTS } from "./angleScene";
 
@@ -277,9 +287,17 @@ export function renderQwen2511(root: HTMLElement) {
   const promptHdr = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
   const charCount = el("span", { style: { color: C.muted, fontSize: "10px" } });
   promptHdr.append(el("div", { text: "PROMPT", style: { color: C.muted, fontSize: "11px", flex: "1", textTransform: "uppercase", letterSpacing: "0.04em" } }), charCount);
-  const templatesBtn = button("📋 Templates", () => templateOv.show());
-  const expandBtn = button("🔍 Expand / LLM", () => promptExpandOv.show());
-  promptHdr.append(templatesBtn, expandBtn);
+  function purpleHdrBtn(text: string, onClick: () => void) {
+    return el("button", {
+      type: "button", text, onclick: onClick,
+      style: { background: BRAND, color: "#fff", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", fontSize: "11px", fontWeight: "700", whiteSpace: "nowrap" },
+    });
+  }
+  const expandBtn = purpleHdrBtn("🔍 Prompt Edit", () => promptExpandOv.show());
+  const templatesBtn = purpleHdrBtn("📋 Prompt Preset", () => templateOv.show());
+  // No job.json feature exists for qwen2511 (no headless package / buildAgentJob reference
+  // anywhere in this tool's source) — not adding the header button per the Plan A default.
+  promptHdr.append(expandBtn, templatesBtn);
 
   const promptTA = el("textarea", { placeholder: "Describe what you want to generate…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } });
   function updatePromptCount() {
@@ -297,10 +315,19 @@ export function renderQwen2511(root: HTMLElement) {
   promptWrap.append(promptHdr, promptTA);
   rightPanel.appendChild(promptWrap);
 
-  const promptExpandOv = createPromptExpandOverlay(
-    () => getModePrompt(state, state.mode),
-    (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }
-  );
+  const llmState = loadLlmState();
+  const promptExpandOv = createPromptEditPopup({
+    fetchApi: (path, opts) => comfyApi.fetchApi(path, opts),
+    getPrompt: () => getModePrompt(state, state.mode),
+    setPrompt: (text) => { setModePrompt(state, state.mode, text); refreshPromptBox(); },
+    persist,
+    openImageGalleryPicker: (onPick) => openImageGalleryPicker(onPick),
+    viewUrl: (filename) => api.viewUrl(filename, "", "input"),
+    llm: llmState,
+    saveLlm: () => saveLlmState(llmState),
+    openSettings: () => settingsOv.show(),
+    title: "🔍 Prompt Edit",
+  });
   const templateOv = createTemplateOverlay(
     () => state.mode,
     (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }

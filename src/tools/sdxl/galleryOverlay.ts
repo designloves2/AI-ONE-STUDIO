@@ -32,17 +32,21 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
 
   const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   topRow.appendChild(el("div", { text: "🖼 Gallery — SDXL", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
+  // SDXL's web gallery already has per-image favorite/delete buttons (same as the other 5
+  // tools) — the node-side "SDXL gallery had no pre-existing delete/favorite buttons" gap
+  // does not apply to this web port, so it gets the same checkbox-swap pattern, not the
+  // checkbox-only fallback.
   const favBtn = btn("☆ Favs", () => { favOnly = !favOnly; favBtn.textContent = favOnly ? "★ Favs (ON)" : "☆ Favs"; reset(); });
-  const selectModeBtn = btn("☑ Select", () => toggleSelectMode());
-  const deleteSelBtn = btn("🗑 Delete Selection (0)", () => deleteSelected(), "danger");
+  const selectModeBtn = btn("Select", () => toggleSelectMode());
+  const deleteSelBtn = btn("Delete 0 Image(s)", () => deleteSelected(), "danger");
   deleteSelBtn.style.display = "none";
   const sendFLBtn = btn("→ FL2VA", () => sendSelectedToMinimax("firstlast"));
   sendFLBtn.style.display = "none";
   const sendRefBtn = btn("→ REF2VA", () => sendSelectedToMinimax("reference"));
   sendRefBtn.style.display = "none";
-  const refreshBtn = btn("↻", () => reset());
-  const closeBtn = btn("✕", () => (ov.style.display = "none"), "danger");
-  topRow.append(favBtn, sendFLBtn, sendRefBtn, selectModeBtn, deleteSelBtn, refreshBtn, closeBtn);
+  const refreshBtn = btn("↻ Reload", () => reset());
+  const closeBtn = btn("✕ Close", () => (ov.style.display = "none"), "danger");
+  topRow.append(deleteSelBtn, selectModeBtn, favBtn, sendFLBtn, sendRefBtn, refreshBtn, closeBtn);
   ov.appendChild(topRow);
 
   let favOnly = false, offset = 0, total = 0, loading = false;
@@ -55,15 +59,17 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
 
   function toggleSelectMode() {
     selectMode = !selectMode;
-    selectModeBtn.textContent = selectMode ? "☑ Select (ON)" : "☑ Select";
-    deleteSelBtn.style.display = selectMode ? "inline-block" : "none";
     sendFLBtn.style.display = selectMode ? "inline-block" : "none";
     sendRefBtn.style.display = selectMode ? "inline-block" : "none";
     selected.clear();
     updateDeleteBtn();
     reset();
   }
-  function updateDeleteBtn() { deleteSelBtn.textContent = `🗑 Delete Selection (${selected.size})`; }
+  function updateDeleteBtn() {
+    selectModeBtn.textContent = selectMode ? `${selected.size} Select` : "Select";
+    deleteSelBtn.textContent = `Delete ${selected.size} Image(s)`;
+    deleteSelBtn.style.display = selectMode && selected.size > 0 ? "inline-block" : "none";
+  }
 
   async function deleteSelected() {
     if (!selected.size) return;

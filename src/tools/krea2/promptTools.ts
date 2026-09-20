@@ -68,7 +68,11 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
 
   // ── LLM 공용 설정 (Enhance/Image→Prompt 두 탭이 gguf/model_format/aesthetic 등을 공유) ──
   const llm = Object.assign(
-    { backend: "local", backend_text: "local", backend_vision: "local", or_model: "", or_model_vision: "", gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
+    { backend: "local", backend_text: "local", backend_vision: "local", or_model: "", or_model_vision: "", gguf_model: "", mmproj_file: "none", text_encoder_name: "", clip_loader_type: "Auto",
+      // "Caption + Format" is the only vision task that actually applies Model Format/Aesthetic
+      // (TJ_ImageToPrompt ignores model_format for every other task) — default to it so the
+      // dropdown below isn't a silent no-op (node llm_panel.js, same fix).
+      vision_task: "Caption + Format (apply model_format below)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
     loadLLMSettings()
   );
   function saveLLM() { saveLLMSettings(llm); }
@@ -121,7 +125,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       const r = await comfyApi.fetchApi("/tj_studio_one/llm/enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, backend: llm.backend_text, or_model: llm.or_model, gguf_model: llm.gguf_model, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed, model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions }),
+        body: JSON.stringify({ prompt, backend: llm.backend_text, or_model: llm.or_model, gguf_model: llm.gguf_model, text_encoder_name: llm.text_encoder_name, clip_loader_type: llm.clip_loader_type, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed, model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions }),
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
@@ -240,7 +244,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       const r = await comfyApi.fetchApi("/tj_studio_one/llm/image_to_prompt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_b64: imgB64, backend: llm.backend_vision, or_model: llm.or_model_vision, gguf_model: llm.gguf_model, mmproj_file: llm.mmproj_file, vision_task: llm.vision_task, model_format: llm.model_format, aesthetic: llm.aesthetic, custom_instruction: llm.custom_instruction, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed }),
+        body: JSON.stringify({ image_b64: imgB64, backend: llm.backend_vision, or_model: llm.or_model_vision, gguf_model: llm.gguf_model, mmproj_file: llm.mmproj_file, text_encoder_name: llm.text_encoder_name, clip_loader_type: llm.clip_loader_type, vision_task: llm.vision_task, model_format: llm.model_format, aesthetic: llm.aesthetic, custom_instruction: llm.custom_instruction, n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens, temperature: llm.temperature, seed: llm.seed }),
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
@@ -296,6 +300,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
         [ggufSelE, ggufSelI].forEach((s) => populateSelect(s, d.gguf, llm.gguf_model));
         if (!llm.gguf_model && d.gguf[0]) { llm.gguf_model = d.gguf[0]; saveLLM(); ggufSelE.value = llm.gguf_model; ggufSelI.value = llm.gguf_model; }
       }
+      beGroup.fillTextEncodersAll(d.text_encoders || [], d.clip_loader_types || []);
       if (d.mmproj?.length) populateSelect(mmprojSel, d.mmproj, llm.mmproj_file);
       if (d.vision_tasks?.length) populateSelect(vtSel, d.vision_tasks, llm.vision_task);
       if (d.model_formats?.length) [modelFmtSelE, modelFmtSelI].forEach((s) => populateSelect(s, d.model_formats, llm.model_format));

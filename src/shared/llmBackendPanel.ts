@@ -48,6 +48,11 @@ export interface LlmBackendState {
   backend_vision?: string;
   or_model?: string;         // legacy / text OpenRouter model
   or_model_vision?: string;
+  // "comfy" backend (ComfyUI Native TextGenerate via CLIPLoader) — node's llm_panel.js
+  // makeBackendBlock: reuses whatever CLIP-type text-encoder checkpoint is already installed,
+  // shared across both roles (no per-role text encoder — node only has one).
+  text_encoder_name?: string;
+  clip_loader_type?: string;
   [k: string]: any;
 }
 
@@ -57,6 +62,8 @@ interface Block {
   localOnly: HTMLElement[];
   syncFromState: () => void;
   fill: (orModels: string[], keyHint: string) => void;
+  /** ComfyUI Native option — text-encoder checkpoint list + CLIP loader type list. */
+  fillTextEncoders: (list: string[], types: string[]) => void;
 }
 
 export interface LlmBackendGroup {
@@ -65,6 +72,7 @@ export interface LlmBackendGroup {
   makeBlock: (role?: LlmRole) => Block;
   syncAll: () => void;
   fillAll: (orModels: string[], keyHint: string) => void;
+  fillTextEncodersAll: (list: string[], types: string[]) => void;
   /** force every role to the OpenRouter backend (TJ_NODE local LLM not installed) */
   stripLocal: () => void;
 }
@@ -95,11 +103,14 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
   const blocks: Block[] = [];
   const syncAll = () => blocks.forEach((b) => b.syncFromState());
   const fillAll = (m: string[], k: string) => blocks.forEach((b) => b.fill(m, k));
+  const fillTextEncodersAll = (list: string[], types: string[]) => blocks.forEach((b) => b.fillTextEncoders(list, types));
   const stripLocal = () => {
-    state.backend_text = "openrouter";
-    state.backend_vision = "openrouter";
+    // TJ_NODE local LLM (llama.cpp GGUF) missing — fall back to OpenRouter only for roles
+    // currently on "local"; ComfyUI Native stays available (it doesn't need TJ_NODE at all).
+    if (state.backend_text === "local") state.backend_text = "openrouter";
+    if (state.backend_vision === "local") state.backend_vision = "openrouter";
     save();
-    pushLlmConfig({ backend_text: "openrouter", backend_vision: "openrouter" });
+    pushLlmConfig({ backend_text: state.backend_text, backend_vision: state.backend_vision });
     blocks.forEach((b) => { b.localOnly.forEach((r) => r.remove()); b.localOnly.length = 0; b.syncFromState(); });
   };
 
@@ -117,9 +128,24 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
     const wrap = document.createElement("div");
     Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "6px", marginBottom: "2px" });
 
-    const beSel = sel(["Local GGUF", "OpenRouter"], getBackend() === "openrouter" ? "OpenRouter" : "Local GGUF",
-      (v) => { setBackend(v === "OpenRouter" ? "openrouter" : "local"); save(); syncAll(); });
+    const BACKEND_LABELS = ["Local GGUF", "ComfyUI Native", "OpenRouter"];
+    const backendLabel = () => getBackend() === "openrouter" ? "OpenRouter" : getBackend() === "comfy" ? "ComfyUI Native" : "Local GGUF";
+    const beSel = sel(BACKEND_LABELS, backendLabel(),
+      (v) => { setBackend(v === "OpenRouter" ? "openrouter" : v === "ComfyUI Native" ? "comfy" : "local"); save(); syncAll(); });
     wrap.appendChild(lblRow(role === "vision" ? "Backend — vision (reads images)" : "Backend — text (writes prompt)", beSel));
+
+    // ComfyUI Native — reuses whatever CLIP-type text-encoder checkpoint is already installed
+    // for image generation; no extra file to download. Shared field across both roles (node's
+    // llm_panel.js only has one text_encoder_name/clip_loader_type, not per-role).
+    const comfyGroup = document.createElement("div");
+    Object.assign(comfyGroup.style, { display: "flex", flexDirection: "column", gap: "6px" });
+    const teSel = sel([state.text_encoder_name || "Loading…"], state.text_encoder_name || "",
+      (v) => { state.text_encoder_name = v; save(); });
+    const clipTypeSel = sel([state.clip_loader_type || "Auto"], state.clip_loader_type || "Auto",
+      (v) => { state.clip_loader_type = v; save(); });
+    comfyGroup.appendChild(lblRow("Text Encoder (CLIP)", teSel));
+    comfyGroup.appendChild(lblRow("CLIP Loader Type", clipTypeSel));
+    wrap.appendChild(comfyGroup);
 
     const orGroup = document.createElement("div");
     Object.assign(orGroup.style, { display: "flex", flexDirection: "column", gap: "6px" });
@@ -145,11 +171,16 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
       el: wrap,
       localOnly: [],
       syncFromState() {
-        beSel.value = getBackend() === "openrouter" ? "OpenRouter" : "Local GGUF";
+        beSel.value = backendLabel();
         if (getModel()) orSS.setValue(getModel());
-        const or = getBackend() === "openrouter";
+        teSel.value = state.text_encoder_name || "";
+        clipTypeSel.value = state.clip_loader_type || "Auto";
+        const b = getBackend();
+        const or = b === "openrouter";
+        const comfy = b === "comfy";
         orGroup.style.display = or ? "flex" : "none";
-        block.localOnly.forEach((r) => (r.style.display = or ? "none" : "flex"));
+        comfyGroup.style.display = comfy ? "flex" : "none";
+        block.localOnly.forEach((r) => (r.style.display = or || comfy ? "none" : "flex"));
       },
       fill(orModels, keyHint) {
         if (orModels && orModels.length) {
@@ -162,11 +193,22 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
         }
         if (keyHint) keyInp.placeholder = keyHint + "  — click to replace";
       },
+      fillTextEncoders(list, types) {
+        if (list?.length) {
+          teSel.innerHTML = "";
+          list.forEach((m) => { const o = document.createElement("option"); o.value = m; o.textContent = m; if (m === state.text_encoder_name) o.selected = true; teSel.appendChild(o); });
+          if (!state.text_encoder_name && list[0]) { state.text_encoder_name = list[0]; save(); teSel.value = list[0]; }
+        }
+        if (types?.length) {
+          clipTypeSel.innerHTML = "";
+          types.forEach((m) => { const o = document.createElement("option"); o.value = m; o.textContent = m; if (m === state.clip_loader_type) o.selected = true; clipTypeSel.appendChild(o); });
+        }
+      },
     };
     block.syncFromState();
     blocks.push(block);
     return block;
   }
 
-  return { makeBlock, syncAll, fillAll, stripLocal };
+  return { makeBlock, syncAll, fillAll, fillTextEncodersAll, stripLocal };
 }

@@ -4557,6 +4557,8 @@ export function renderMinimaxH3(container: HTMLElement) {
         state.ppResizeUpscaleMethod || "lanczos", (v) => { state.ppResizeUpscaleMethod = v; persist(); })])]));
       return kids;
     }));
+
+    leftOuter.appendChild(seedGenWrap);
   }
 
   let ppRunning = false;

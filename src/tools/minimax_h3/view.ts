@@ -7,6 +7,9 @@ import type { MinimaxState } from "./core";
 import {
   ASPECTS,
   IMAGE_GEN_MODES,
+  CHARSHEET_FRAMES,
+  CHARSHEET_DEFAULT_FRAME_INDICES,
+  CHARSHEET_PROMPT_TEMPLATE,
   ATTN_BACKENDS,
   ATTN_FORWARDS,
   BLOCK_CACHES,
@@ -108,7 +111,7 @@ import {
   type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
-import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -3288,9 +3291,69 @@ export function renderMinimaxH3(container: HTMLElement) {
     ]));
 
     if (subMode === "charsheet") {
-      leftPanel.appendChild(panel([el("div", {
-        text: "Character Sheet ships in a follow-up pass — pick T2I or Reference to Image for now.",
-        style: { fontSize: "11.5px", color: C.warn, lineHeight: "1.6" } })]));
+      if (!state.charSheetPrompt) { state.charSheetPrompt = CHARSHEET_PROMPT_TEMPLATE; persist(); }
+
+      // Subject name — folds into the saved filename, matching the reference workflow's
+      // own "Subject Name" + Finalize concat.
+      leftPanel.appendChild(panel([
+        label("Subject Name"),
+        (() => {
+          const inp = el("input", { type: "text", value: state.charSheetSubjectName || "Character", style: {
+            width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text,
+            border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", fontFamily: "inherit",
+          } }) as HTMLInputElement;
+          inp.addEventListener("input", () => { state.charSheetSubjectName = inp.value.trim() || "Character"; persist(); });
+          return inp;
+        })(),
+      ]));
+
+      // Post-finish on the raw 124-frame render — Deblur + native RTX VSR, plus the
+      // reference workflow's own two-pass "Use Latent Upscale" option and per-frame saving.
+      const rtxOn = !!state.charSheetRtxVsr;
+      leftPanel.appendChild(panel([
+        label("Post finish"),
+        row([col([label("Deblur"), select(
+          ["none", "LOW", "MEDIUM", "HIGH", "ULTRA"].map((v) => ({ value: v, label: v === "none" ? "Off" : v })),
+          state.charSheetDeblur || "none", (v) => { state.charSheetDeblur = v; persist(); })])]),
+        checkboxRow("RTX VSR (2× scale, ULTRA quality)", rtxOn, (v) => { state.charSheetRtxVsr = v; persist(); renderLeft(); }),
+        !rtxOn ? null : checkboxRow("↳ For Supersampling (resize back down to render size)", !!state.charSheetRtxSupersample,
+          (v) => { state.charSheetRtxSupersample = v; persist(); }),
+        checkboxRow("Use Latent Upscale (cheap first pass, then upscale)", !!state.charSheetUseLatentUpscale,
+          (v) => { state.charSheetUseLatentUpscale = v; persist(); renderLeft(); }),
+        !state.charSheetUseLatentUpscale ? null : row([col([label("First Pass MP"), numberField(
+          state.charSheetFirstPassRatio ?? 0.36, (v) => { state.charSheetFirstPassRatio = Math.max(0.05, v); persist(); }, 0.02)])]),
+        checkboxRow("Save Each Frame separately", !!state.charSheetSaveEachFrames, (v) => { state.charSheetSaveEachFrames = v; persist(); }),
+        row([col([label("Sheet Max Size (px)"), numberField(
+          state.charSheetMaxSize ?? 2048, (v) => { state.charSheetMaxSize = Math.max(256, Math.round(v)); persist(); }, 64)])]),
+      ]));
+
+      // 8 frame indices, directly editable — an alternative to scrubbing through 🖼 View &
+      // Edit Sheet below for a quick numeric tweak.
+      if (!Array.isArray(state.charSheetFrameIndices) || state.charSheetFrameIndices.length !== 8) {
+        state.charSheetFrameIndices = CHARSHEET_DEFAULT_FRAME_INDICES.slice();
+      }
+      const frameRows: (Node | null)[] = [label(`Frame Indices (8 shots) — ${state.charSheetFrameIndices.join(",")}`)];
+      for (let i = 0; i < 8; i += 2) {
+        frameRows.push(row([
+          col([label(`Shot ${i + 1}`), numberField(state.charSheetFrameIndices[i],
+            (v) => { state.charSheetFrameIndices[i] = Math.max(0, Math.min(CHARSHEET_FRAMES - 1, Math.round(v))); persist(); }, 1)]),
+          col([label(`Shot ${i + 2}`), numberField(state.charSheetFrameIndices[i + 1],
+            (v) => { state.charSheetFrameIndices[i + 1] = Math.max(0, Math.min(CHARSHEET_FRAMES - 1, Math.round(v))); persist(); }, 1)]),
+        ]));
+      }
+      frameRows.push(state.charSheetVideoFile
+        ? button("↻ Rebuild sheet with these indices", async () => {
+            try { await rebuildCharacterSheetGrid(); showPopup("Sheet rebuilt.", false); }
+            catch (e: any) { showPopup(e?.message || String(e), true); }
+          })
+        : el("div", { text: "Render the sheet once first — these apply on rebuild.", style: { fontSize: "10px", color: C.muted } }));
+      leftPanel.appendChild(panel(frameRows));
+
+      if (state.charSheetVideoFile) {
+        const editBtn2 = button("🖼 View & Edit Sheet", () => openCharSheetEditor());
+        editBtn2.style.width = "100%";
+        leftPanel.appendChild(panel([editBtn2]));
+      }
     }
   }
 
@@ -3391,6 +3454,180 @@ export function renderMinimaxH3(container: HTMLElement) {
       try { await freeMemory(); } catch {}
       stopClock();
     }
+  }
+
+  // ── Character Sheet — expensive render, then a cheap grid-assembly step ────────────────
+  // Two separate graphs, deliberately: re-picking a frame for any of the 8 shots afterward
+  // (the user's own edit loop) re-runs only rebuildCharacterSheetGrid(), not the whole
+  // 124-frame render again. Node parity: runCharacterSheet/rebuildCharacterSheetGrid/
+  // openCharSheetEditor.
+  async function runCharacterSheet() {
+    if (running) return;
+    const refImages = (state.imgRefImages || []).filter(Boolean);
+    if (!refImages.length) { showPopup("Pick at least one reference image first.", true); return; }
+    running = true; stopRequested = false;
+    genBtn.disabled = true;
+    const genLabel = genBtn.textContent;
+    genBtn.textContent = "⏳ Rendering…";
+    setStatus(`Character Sheet — rendering ${CHARSHEET_FRAMES} frames…`);
+    resetPreview();
+    startClock();
+    try {
+      if (!ctx.availability || !Object.keys(ctx.availability).length) {
+        const av = await getNodeAvailability();
+        ctx.availability = av.available || {}; ctx.availabilityInfo = av;
+      }
+      const finalRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgFinalMp ?? 1.0);
+      const firstPassRes = state.charSheetUseLatentUpscale
+        ? resolveResolution(state.imgAspect || "2:3 Portrait", state.charSheetFirstPassRatio ?? 0.36) : null;
+      const seed = state.seedMode === "fixed" ? (state.seed ?? 0) : randomSeed();
+      if (state.seedMode !== "fixed") { state.seed = seed; persist(); seedInput.value = String(seed); }
+      const subjectStem = (state.charSheetSubjectName || "Character").replace(/[^\w-]+/g, "_");
+      const built = buildCharacterSheetVideoGraph(state, ctx.availability || {}, {
+        refImages, refImageSize: state.imgRefImageSize || "max",
+        prompt: state.charSheetPrompt || CHARSHEET_PROMPT_TEMPLATE,
+        deblur: state.charSheetDeblur || "none",
+        rtx: state.charSheetRtxVsr ? { rtxScale: 2.0, rtxQuality: "ULTRA" } : null,
+        rtxSupersample: !!state.charSheetRtxSupersample,
+        useLatentUpscale: !!state.charSheetUseLatentUpscale, firstPassRes,
+        width: finalRes.width, height: finalRes.height, seed,
+        filenamePrefix: `${state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER}/${subjectStem}_${Date.now()}`,
+      });
+      const res = await queuePrompt(built.graph, {
+        onProgress: (v: number, m: number) => setStatus(`Character Sheet — ${Math.round((v / (m || 1)) * 100)}%`),
+      });
+      const o = firstOutput(res.byNode, built.saveNode);
+      if (!o) throw new Error("No output produced.");
+      setStatus("Character Sheet — preparing for frame picking…");
+      const videoInputFile = await copyOutputToInput(o.filename, o.subfolder || "", "output");
+      state.charSheetVideoFile = videoInputFile;
+      state.charSheetVideoOutput = { filename: o.filename, subfolder: o.subfolder || "" };
+      state.charSheetRefImage = refImages[0];
+      if (!Array.isArray(state.charSheetFrameIndices) || state.charSheetFrameIndices.length !== 8) {
+        state.charSheetFrameIndices = CHARSHEET_DEFAULT_FRAME_INDICES.slice();
+      }
+      state.charSheetCellW = finalRes.width; state.charSheetCellH = finalRes.height;
+      persist();
+      setStatus("Character Sheet — assembling the sheet…");
+      await rebuildCharacterSheetGrid();
+      setStatus("✓ Character Sheet done.");
+      showPopup("Character Sheet finished — pick 🖼 View & Edit Sheet to swap any shot.", false);
+      renderLeft();
+    } catch (e: any) {
+      const why = explainGenerationError(e.message);
+      setStatus(`Error: ${why || e.message}`);
+      showPopup(why || e.message, true);
+    } finally {
+      running = false; stopRequested = false;
+      genBtn.disabled = false; genBtn.textContent = genLabel || "▶ Generate";
+      try { await freeMemory(); } catch {}
+      stopClock();
+    }
+  }
+
+  // Re-assembles the sheet image from the ALREADY-RENDERED video + whatever
+  // state.charSheetFrameIndices currently holds — cheap, no H3 model touched. Used both
+  // right after the render and every time the editor swaps one shot.
+  async function rebuildCharacterSheetGrid() {
+    const subjectStem = (state.charSheetSubjectName || "Character").replace(/[^\w-]+/g, "_");
+    const folder = state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER;
+    const built = buildCharacterSheetGridGraph({
+      videoFile: state.charSheetVideoFile!, refImage: state.charSheetRefImage!,
+      frameIndices: state.charSheetFrameIndices, cellWidth: state.charSheetCellW, cellHeight: state.charSheetCellH,
+      maxDimension: state.charSheetMaxSize ?? 2048,
+      saveEachFrames: !!state.charSheetSaveEachFrames,
+      framesFilenamePrefix: `${folder}/${subjectStem}_frames`,
+      filenamePrefix: `${folder}/${subjectStem}_sheet_${Date.now()}`,
+    }, ctx.availability || {});
+    const res = await queuePrompt(built.graph, {});
+    const o = firstOutput(res.byNode, built.saveNode);
+    if (!o) throw new Error("No sheet output produced.");
+    const url = outputViewUrl(o.filename, o.subfolder || "", "output");
+    showResultImage(url);
+    await saveMeta(o.filename, o.subfolder || (state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER), {
+      created: Date.now(), prompt: state.charSheetPrompt || "", subMode: "charsheet",
+      frameIndices: state.charSheetFrameIndices, sheetSource: state.charSheetVideoOutput,
+    }).catch(() => {});
+    try { refreshGallery(); } catch {}
+    return { filename: o.filename, subfolder: o.subfolder || "" };
+  }
+
+  // "🖼 View & Edit Sheet" — scrub the raw render to pick a different frame for any of the
+  // 8 shots, then rebuild just the (cheap) grid.
+  function openCharSheetEditor() {
+    let armedShot: number | null = null;
+    const sheetImg = el("img", { src: lastResultURL || "", style: {
+      width: "100%", maxHeight: "50vh", objectFit: "contain", background: "#000", borderRadius: "6px", display: "block" } }) as HTMLImageElement;
+    const shotRow = el("div", { style: { display: "flex", gap: "5px", flexWrap: "wrap" } });
+    const scrubWrap = el("div", { style: { display: "none", flexDirection: "column", gap: "6px",
+      background: C.bg2, border: `1px solid ${BRAND}`, borderRadius: "6px", padding: "10px" } });
+    const armedLabel = el("div", { style: { fontSize: "12px", color: BRAND, fontWeight: "700" } });
+    const vid = el("video", { muted: true, preload: "metadata", style: { width: "100%", background: "#000", borderRadius: "4px", display: "block" } }) as HTMLVideoElement;
+    vid.src = `/view?filename=${encodeURIComponent(state.charSheetVideoOutput!.filename)}&subfolder=${encodeURIComponent(state.charSheetVideoOutput!.subfolder || "")}&type=output`;
+    const frameSlider = el("input", { type: "range", min: "0", max: String(CHARSHEET_FRAMES - 1), value: "0",
+      style: { width: "100%", accentColor: BRAND, cursor: "pointer" } }) as HTMLInputElement;
+    const frameLabel = el("div", { style: { fontSize: "11px", color: C.muted, textAlign: "center" } });
+    const seekTo = (idx: number) => { try { vid.currentTime = idx / FPS; } catch {} frameLabel.textContent = `frame ${idx} / ${CHARSHEET_FRAMES - 1}`; };
+    frameSlider.addEventListener("input", () => seekTo(parseInt(frameSlider.value, 10)));
+    const useBtn = button("✓ Use this frame", async () => {
+      if (armedShot == null) return;
+      state.charSheetFrameIndices[armedShot] = parseInt(frameSlider.value, 10);
+      persist();
+      useBtn.disabled = true; useBtn.textContent = "⏳ Rebuilding…";
+      try {
+        await rebuildCharacterSheetGrid();
+        sheetImg.src = lastResultURL || "";
+        renderShotRow();
+        showPopup(`Shot ${armedShot + 1} replaced.`, false);
+      } catch (e: any) { showPopup(e?.message || String(e), true); }
+      useBtn.disabled = false; useBtn.textContent = "✓ Use this frame";
+    }, "primary") as HTMLButtonElement;
+    scrubWrap.append(armedLabel, vid, frameSlider, frameLabel, useBtn);
+
+    function renderShotRow() {
+      clear(shotRow);
+      for (let i = 0; i < 8; i++) {
+        const active = armedShot === i;
+        const b = el("button", { type: "button", text: `Shot ${i + 1} (f${state.charSheetFrameIndices[i]})`, style: {
+          cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "5px 8px",
+          borderRadius: "6px", background: active ? BRAND : C.bg2, color: active ? "#fff" : C.text,
+          border: `1px solid ${active ? BRAND : C.border}`,
+        } });
+        b.addEventListener("click", () => {
+          armedShot = i;
+          armedLabel.textContent = `Scrubbing for Shot ${i + 1} — drag the slider, then confirm.`;
+          scrubWrap.style.display = "flex";
+          frameSlider.value = String(state.charSheetFrameIndices[i]);
+          seekTo(state.charSheetFrameIndices[i]);
+          renderShotRow();
+        });
+        shotRow.appendChild(b);
+      }
+    }
+    renderShotRow();
+
+    const closeBtn = el("button", { type: "button", text: "✕ Close", style: {
+      cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px",
+      borderRadius: "6px", border: "none", background: "#c0392b", color: "#fff", alignSelf: "flex-end",
+    } });
+    const box = el("div", { style: {
+      background: "#141414", border: `1px solid ${C.border}`, borderRadius: "10px",
+      width: "720px", maxWidth: "94%", maxHeight: "92vh", overflowY: "auto", padding: "16px",
+      display: "flex", flexDirection: "column", gap: "10px", boxShadow: "0 16px 50px rgba(0,0,0,0.65)",
+    } }, [
+      el("div", { text: "Character Sheet — View & Edit", style: { color: "#fff", fontSize: "14px", fontWeight: "700" } }),
+      sheetImg, el("div", { text: "Click a shot below, scrub the raw render, then confirm to replace just that cell.",
+        style: { fontSize: "10.5px", color: C.muted } }),
+      shotRow, scrubWrap, closeBtn,
+    ]);
+    const pop = el("div", { style: {
+      position: "fixed", inset: "0", zIndex: "100060", display: "flex",
+      alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.72)",
+    } }, [box]);
+    const close = () => { try { vid.pause(); } catch {} pop.remove(); };
+    closeBtn.addEventListener("click", close);
+    pop.addEventListener("mousedown", (e) => { if (e.target === pop) close(); });
+    document.body.appendChild(pop);
   }
 
   // Shared RTX VSR size-mode controls — same 4 modes (Scale/Short/Long/W×H) in the main
@@ -4436,7 +4673,10 @@ export function renderMinimaxH3(container: HTMLElement) {
   genBtn.addEventListener("click", () => {
     if (state.generationMode === "ltxupscale") { runLtxUpscale(); return; }
     if (state.generationMode === "facerefine") { runFaceRefine(); return; }
-    if (state.generationMode === "imagegen") { runImageGen({ final: true }); return; }
+    if (state.generationMode === "imagegen") {
+      if (state.imageGenMode === "charsheet") runCharacterSheet(); else runImageGen({ final: true });
+      return;
+    }
     runGenerate();
   });
 

@@ -1744,3 +1744,46 @@ export function buildCharacterSheetGridGraph(opts: CharacterSheetGridOpts, avail
   g[CSG.save] = { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [CSG.scaleMax, 0] } };
   return { graph: g, saveNode: CSG.save };
 }
+
+// ── H3 image gallery post-process (Deblur + RTX VSR only) ─────────────────────────────
+//
+// The dedicated H3 image gallery keeps only Deblur/RTX VSR from the video gallery's wider
+// post-process set (no Interpolate/Resize/Stitch — video-only concepts). Same shape as
+// buildUpscaleGraph but LoadImage/SaveImage instead of VHS_LoadVideo/VHS_VideoCombine — a
+// still has no audio/fps/chunking to carry through. Node parity: buildImageUpscaleGraph.
+const IMGPP = { load: "IMGPP:load", deblur: "IMGPP:deblur", rtxCrop: "IMGPP:rtx_crop", rtx: "IMGPP:rtx", save: "IMGPP:save" };
+
+export interface ImageUpscaleOpts {
+  inputFile: string; // filename already in ComfyUI's input folder
+  deblur?: string; // "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA"
+  rtx?: { rtxScale?: number; rtxQuality?: string; srcW?: number; srcH?: number } | null;
+  folder: string;
+  stem: string;
+  saveSuffix?: string;
+}
+
+export function buildImageUpscaleGraph(opts: ImageUpscaleOpts, avail: Avail | undefined) {
+  const { inputFile, deblur = "none", rtx = null, folder, stem, saveSuffix = "_post" } = opts;
+  const g: Graph = {};
+  g[IMGPP.load] = { class_type: "LoadImage", inputs: { image: inputFile } };
+  let image: any = [IMGPP.load, 0];
+  let used = false;
+
+  if (deblur && deblur !== "none") {
+    if (!has(avail, "TJ_RTXDeblur")) throw new Error("RTX Deblur (TJ_RTXDeblur) is not installed.");
+    g[IMGPP.deblur] = { class_type: "TJ_RTXDeblur", inputs: { images: image, strength: deblur } };
+    image = [IMGPP.deblur, 0];
+    used = true;
+  }
+  if (rtx) {
+    if (!has(avail, "RTXVideoSuperResolution")) throw new Error("RTXVideoSuperResolution is not installed.");
+    const rtxState = { rtxSizeMode: "scale", rtxScale: rtx.rtxScale ?? 2.0, rtxQuality: rtx.rtxQuality || "ULTRA", rtxShort: 0, rtxLong: 0, rtxW: 0, rtxH: 0, rtxCropAnchor: "center" };
+    const r = buildRtxNode(g, { crop: IMGPP.rtxCrop, rtx: IMGPP.rtx }, image, rtxState, rtx.srcW || 1024, rtx.srcH || 1024);
+    image = r.images;
+    used = true;
+  }
+  if (!used) throw new Error("Nothing to do — enable Deblur, RTX VSR, or both.");
+
+  g[IMGPP.save] = { class_type: "SaveImage", inputs: { filename_prefix: `${folder}/${stem}${saveSuffix}`, images: image } };
+  return { graph: g, saveNode: IMGPP.save };
+}

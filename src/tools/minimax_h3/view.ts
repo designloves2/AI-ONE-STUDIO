@@ -69,6 +69,7 @@ import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay, imageToB64 } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
+import { createImageGalleryOverlay } from "./imageGalleryOverlay";
 import { mountImagePanel, imageSlot } from "./imagesPanel";
 import { createCommonPromptOverlay } from "./commonPromptOverlay";
 import { renderDepBanner } from "./depBanner";
@@ -383,7 +384,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     pillsWrap,
     warnTag,
     iconBtn("⚙", "Settings", () => settingsOv.show()),
-    iconBtn("🖼", "Gallery", () => galleryOv.show()),
+    iconBtn("🖼", "Gallery", () => { if (state.generationMode === "imagegen") imageGalleryOv.show(); else galleryOv.show(); }),
     iconBtn("?", "Help", () => (helpOv.style.display = "flex"))
   );
 
@@ -4973,7 +4974,48 @@ export function renderMinimaxH3(container: HTMLElement) {
     // 도구 전용 갤러리는 열릴 때(show()) 스스로 새로고침한다 — 여기서는 클립 저장 직후
     // 갤러리가 이미 열려 있으면 최신 목록을 반영하기 위한 훅.
     if (galleryOv.isOpen()) (galleryOv as any).show?.();
+    if (imageGalleryOv.isOpen()) imageGalleryOv.refresh();
   }
+
+  // H3 Image Gallery's own "↩ Reuse Setting" — Image Generator has none of the main clip's
+  // accelerator/turbo stack, so this is a separate, much smaller restore than reusePrompt/
+  // applyClipSettings rather than a variant of it: prompt, sub-mode, resolution, LoRAs and
+  // (for Reference to Image) the reference image set. Node parity: ctx.reuseImageSettings.
+  function reuseImageSettings(meta: any): boolean {
+    if (!meta) return false;
+    state.generationMode = "imagegen";
+    const subMode = ["t2i", "ref2i", "charsheet"].includes(meta.subMode) ? meta.subMode : "t2i";
+    state.imageGenMode = subMode;
+    if (subMode === "charsheet") state.charSheetPrompt = String(meta.prompt || "");
+    else state.imgPrompt = String(meta.prompt || "");
+    if (meta.imgAspect) state.imgAspect = meta.imgAspect;
+    if (meta.imgPreviewMp != null) state.imgPreviewMp = meta.imgPreviewMp;
+    if (meta.imgFinalMp != null) state.imgFinalMp = meta.imgFinalMp;
+    if (Array.isArray(meta.imgLoras)) {
+      state.imgLoras = meta.imgLoras.map((l: any) => ({
+        name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false,
+      }));
+    }
+    if (Array.isArray(meta.refImages)) state.imgRefImages = meta.refImages.slice();
+    if (meta.refImageSize) state.imgRefImageSize = meta.refImageSize;
+    if (meta.imgSteps != null) state.imgSteps = meta.imgSteps;
+    if (meta.imgTurboOn != null) state.imgTurboOn = !!meta.imgTurboOn;
+    if (meta.imgTurboLora) {
+      const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";
+      (state as any)[turboKey] = meta.imgTurboLora;
+    }
+    if (meta.imgTurboLoraStrength != null) state.imgTurboLoraStrength = meta.imgTurboLoraStrength;
+    if (meta.seed != null) { state.seed = meta.seed; state.seedMode = "fixed"; seedInput.value = String(meta.seed); }
+    persist();
+    renderPills(); renderLeft(); renderPrompts();
+    return true;
+  }
+
+  const imageGalleryOv = createImageGalleryOverlay(state, {
+    showPopup,
+    get availability() { return ctx.availability; },
+    reuseImageSettings,
+  });
 
   // Reuse coming from the standalone gallery page (gallery.html) — run it through the tool's
   // own applyClipSettings so the field reshaping is identical to an in-app Reuse.
@@ -5010,7 +5052,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   commonBtn.addEventListener("click", () => commonPromptOv.show());
 
-  wrap.append(depBannerEl, subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, settingsOv.el, helpOv, queueListOv);
+  wrap.append(depBannerEl, subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, imageGalleryOv.el, settingsOv.el, helpOv, queueListOv);
   container.appendChild(wrap);
   document.body.appendChild(galleryOv.playerEl); // 풀스크린 플레이어는 다른 모든 것 위에 떠야 하므로 body 직속
 

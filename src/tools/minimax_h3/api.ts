@@ -639,6 +639,33 @@ export async function listVideos(subfolder?: string, opts: { offset?: number; li
   return r.json();
 }
 
+export interface GalleryImage {
+  filename: string;
+  subfolder: string;
+  size?: number;
+  mtime?: number;
+  favorite?: boolean;
+  prompt?: string;
+  meta?: Record<string, any>;
+  [key: string]: any;
+}
+
+// Image Generator's own dedicated listing (/minimax_h3_one/images) — separate route from
+// /videos above, so the H3 image gallery is its own thing, not a filtered view of the
+// video gallery's data. Node parity: api_minimax.js listImages.
+export async function listImages(subfolder?: string, opts: { offset?: number; limit?: number } = {}): Promise<{ images: GalleryImage[] } & Record<string, any>> {
+  const { offset = 0, limit = 120 } = opts;
+  const r = await fetchApi(`${API}/images?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(subfolder || SUBFOLDER)}`);
+  if (!r.ok) return { images: [] };
+  return r.json();
+}
+
+// Same /delete route the video gallery already uses — delete is filename+subfolder generic.
+export async function deleteImage(filename: string, subfolder?: string): Promise<{ ok: boolean; error?: string }> {
+  const r = await fetchApi(`${API}/delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename, subfolder: subfolder || "" }) });
+  return r.json();
+}
+
 export function clipViewUrl(filename: string, subfolder?: string) {
   return `${BASE}/view?filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder || "")}&type=output`;
 }

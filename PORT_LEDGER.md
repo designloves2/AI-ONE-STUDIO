@@ -306,6 +306,80 @@ The other 5 tools' `promptTools.ts` still carry the stale default in their dead/
 code — harmless since the new popup doesn't read it, but a candidate for the same cleanup pass
 that removes the dead `createPromptExpandOverlay` functions.
 
+## MiniMax H3 — Image Generator (T2I/Ref2I) + Character Sheet (2026-09-21)
+
+Whole new feature, did not exist in web at all before this port: web's `minimax_h3`
+`generationMode` only had `t2v`/`firstlast`/`reference`/`facerefine`/`ltxupscale` — no
+`imagegen` mode, no T2I/Ref2I still-image path, no dedicated still-image gallery, no
+Character Sheet. Ported from 10 node commits (oldest first, all in
+`ComfyUI-TJ_NODE_STUDIO_ONE`), 65aefa2 through 1ccf315.
+
+| node commit | what it did | web commit | verified | origin | notes |
+|---|---|---|---|---|---|
+| `65aefa2` | H3 image gallery gets full card layout, Reuse Setting, Prompt View | `d678f21` | 2026-09-21 | node→web | ported into a new `imageGalleryOverlay.ts`, not a modification of the existing video `galleryOverlay.ts` — same design choice the node itself made |
+| `98342b9` | Character Sheet implemented (input→generate→sheet assembly→frame-replace loop) + Image Generator polish (dynamic LoRA, prompt-edit popup) | `fd5e46e`, `ff2647a`, `01eed0f`, `cf42c93`, `20e92de` | 2026-09-21 | node→web | the single largest node commit, split across 5 web commits (state, T2I/Ref2I graph builder, Character Sheet graph builders, left-panel wiring, Character Sheet UI) rather than landed as one — each slice tsc/build-verified independently |
+| `3d5950f` | gallery card layout/multi-select, popup pan/zoom/fit | `d678f21` | 2026-09-21 | node→web | folded into the same gallery-file port — web's `imageGalleryOverlay.ts` was written directly from node's already-final (post-1ccf315) `ui_gallery_minimax_images.js`, not incrementally replayed commit-by-commit |
+| `71fbd37` | gallery card buttons always visible, badge gets aspect-ratio | `d678f21` | 2026-09-21 | node→web | same as above — `aspectRatioLabel()` ported verbatim |
+| `142203a` | image lightbox → full-screen, matching the video gallery's player structure | `d678f21` | 2026-09-21 | node→web | same as above |
+| `197205f` | bugfix: pan-drag triggered the browser's native image drag-ghost | `d678f21` | 2026-09-21 | node→web | `draggable=false` + `pointer-events:none` + blocked `dragstart` on the lightbox `<img>` — applied from the start in the web port, not retrofitted after hitting the bug |
+| `f2b5fe2` | thumbnail `object-fit` cover→contain | `d678f21` | 2026-09-21 | node→web | same as above |
+| `7be53c4` | full-screen popup: inline prompt block → separate "📄 Prompt View" modal | `d678f21` | 2026-09-21 | node→web | same as above |
+| `da0f5df` | Image Generator: Turbo switch (separate T2I/Ref2I LoRA slots) + Save Preview to Gallery checkbox | `fd5e46e`, `ff2647a`, `cf42c93` | 2026-09-21 | node→web | state fields + `buildImageGenGraph` + panel wiring |
+| `1ccf315` | Turbo LoRA + Character Sheet Post finish settings remember the LAST SET VALUE as an install-wide default | `3187752` | 2026-09-21 | node→web | `rememberImgConfig()` in view.ts mirrors node's top-level-hoisted `rememberLora` |
+
+**New web files:** `src/tools/minimax_h3/imageGalleryOverlay.ts` (still-image gallery — card
+grid, multi-select, Deblur/RTX VSR post-process bar, full-screen Prompt View lightbox with
+pan/zoom/nav). No new file for the Image Generator panel/run-loop itself — it lives in
+`view.ts` alongside the other generation-mode branches (`renderImageGenLeft`/
+`renderImageGenPrompt`/`runImageGen`/`runCharacterSheet`/`rebuildCharacterSheetGrid`/
+`openCharSheetEditor`/`showResultImage`), matching how `ltxupscale`/`facerefine` are already
+structured there rather than each getting a dedicated file — kept consistent with the existing
+split (`promptEdit.ts`/`imagesPanel.ts` are separate because they're reused across modes, not
+because "generation mode" implies "own file").
+
+**New state (`core.ts`):** `MinimaxState.imageGenMode` (`"t2i" | "ref2i" | "charsheet"`),
+`imgPrompt`, `imgRefImages`/`imgRefImagesMp`/`imgRefImageSize`, `imgAspect`/`imgPreviewMp`/
+`imgFinalMp`, `imgLoras` (own list, never the main `loras`), `imgSaveSubfolder`,
+`imgPreviewSaveToGallery`, `imgSteps`/`imgTurboOn`/`imgTurboLoraT2i`/`imgTurboLoraRef2i`/
+`imgTurboLoraStrength`, and the whole `charSheet*` block (`charSheetPrompt`,
+`charSheetSubjectName`, `charSheetFrameIndices`, `charSheetDeblur`, `charSheetRtxVsr`,
+`charSheetRtxSupersample`, `charSheetUseLatentUpscale`, `charSheetFirstPassRatio`,
+`charSheetSaveEachFrames`, `charSheetMaxSize`, `charSheetVideoFile`, `charSheetVideoOutput`,
+`charSheetRefImage`, `charSheetCellW`/`charSheetCellH`). Field names match node's
+`one_node_minimax_h3.js` 1:1. Also `GENERATION_MODES` gained `"imagegen"`, new exports
+`IMAGE_GEN_MODES`, `CHARSHEET_FRAMES` (124), `CHARSHEET_DEFAULT_FRAME_INDICES`,
+`CHARSHEET_PROMPT_TEMPLATE`.
+
+**New graph builders (`graphBuilder.ts`):** `buildImageGenGraph` (T2I/Ref2I — preview pass +
+optional final-resolution latent-upscale second pass + optional Turbo LoRA), 
+`buildCharacterSheetVideoGraph` (the expensive 124-frame ref2va render), 
+`buildCharacterSheetGridGraph` (the cheap re-assembly graph — kept as two separate graphs
+deliberately, same reasoning as the node: picking a different frame re-runs only the grid
+graph), `buildImageUpscaleGraph` (the image gallery's own Deblur/RTX VSR post-process, LoadImage/
+SaveImage variant of the video gallery's `buildUpscaleGraph`).
+
+**New API (`api.ts`):** `listImages`/`deleteImage` (dedicated `/minimax_h3_one/images` route,
+same backend both node and web hit — no server-side change needed). `MmhConfig` gained the 11
+remembered-default fields from node `1ccf315`.
+
+**Intentional divergences / notes for a future pass:**
+- The 3-slice split of node's single `98342b9` commit into `fd5e46e`/`ff2647a`/`01eed0f`/
+  `cf42c93`/`20e92de` is a pure landing-strategy difference, not a functional gap — every piece
+  from that node commit is ported.
+- `imageSlot`-based reference-image picker (up to 9 flat slots, `+` to add) rather than porting
+  node's own drag-reorder `mountImagePanel`-style UI for `imgRefImages` — functionally
+  equivalent (pick/replace/remove up to 9), simpler implementation, no reordering. If reordering
+  matters later, `imagesPanel.ts`'s `dragReorder()` helper is already there to add it.
+  `imgRefImagesMp` (per-reference megapixel override) exists in state but has no UI control yet
+  — node's own reference workflow uses a fixed ratio per slot; not currently exposed in the web
+  panel either.
+- No live end-to-end Character Sheet render (a real 124-frame H3 queue submission) was run this
+  session, same caveat node's own `98342b9` commit flagged for ITS first pass — the panel,
+  graph shapes, and run-loop wiring are verified; a real render + `openCharSheetEditor` replace
+  cycle still needs a live smoke test before relying on it in production.
+- `imgSteps` deliberately does NOT get an install-wide remembered default — matches node's own
+  `rememberLora` call list in `1ccf315`, which never touches `img_steps`.
+
 **Gallery header fix applied to all 6**: Select button reads "Select" when off, `"N Select"`
 while active with N checked (was a static label); red `"Delete N Image(s)"` button now only
 appears once ≥1 is checked and sits to the left of Select (was always visible in select mode,

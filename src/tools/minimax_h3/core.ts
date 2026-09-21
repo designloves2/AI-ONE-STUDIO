@@ -379,6 +379,56 @@ export interface MinimaxState {
   // Prompt Edit's LOCAL ENHANCE block collapsed state (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md
   // §10) — collapsing it hands its whole height to the clip editor above.
   enhCollapsed: boolean;
+
+  // ── Image Generator mode (generationMode "imagegen") ──────────────────────────────────
+  // Not a separate image model — the same H3 video pipeline (MiniMaxH3ImageToVideo /
+  // MiniMaxH3ReferenceToVideo) run at a short fixed length and read back as a still frame.
+  // Node parity: node's IMAGE_GEN_MODES (core_minimax.js) — t2i / ref2i / charsheet, picked
+  // from a second pill row inside the Image Generator panel (not 3 separate top-level
+  // GENERATION_MODES entries, since all 3 share one settings-panel shape).
+  imageGenMode: string; // "t2i" | "ref2i" | "charsheet"
+  imgPrompt: string;    // shared by t2i/ref2i
+  imgRefImages: string[];      // ref2i's reference set (also charsheet's input photos)
+  imgRefImagesMp: number[];
+  imgRefImageSize: string;     // "match" | "max"
+  imgAspect: string;
+  imgPreviewMp: number;
+  imgFinalMp: number;
+  imgLoras: LoraEntry[];       // up to 3 user LoRA slots, its own list (never the main `loras`)
+  imgSaveSubfolder: string;
+  imgPreviewSaveToGallery: boolean; // node "Save Preview to Gallery" — off = PreviewImage/temp only
+  // Turbo switch — off by default (no LoRA, Steps field drives both passes on a plain
+  // schedule); on = a LoRA dropdown + strength, SEPARATE T2I/Ref2I slots (mirrors the main
+  // pipeline's turboLora/turboLoraReference split — different base models need different
+  // turbo LoRAs), and the 2nd pass keeps the reference workflow's fixed 3-step schedule.
+  imgSteps: number;
+  imgTurboOn: boolean;
+  imgTurboLoraT2i: string;
+  imgTurboLoraRef2i: string;
+  imgTurboLoraStrength: number;
+
+  // ── Character Sheet (imageGenMode "charsheet") ─────────────────────────────────────────
+  // Own prompt (system-prompt flow, not the shared t2i/ref2i Prompt Edit popup), own
+  // subject name (folds into every saved filename), the 8 editable frame indices into the
+  // 124-frame turnaround, and its own Post-finish block (Deblur / RTX VSR / RTX VSR for
+  // supersampling / Use Latent Upscale + First Pass MP / Save Each Frame / Sheet Max Size).
+  charSheetPrompt: string;
+  charSheetSubjectName: string;
+  charSheetFrameIndices: number[]; // always 8
+  charSheetDeblur: string;         // "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA"
+  charSheetRtxVsr: boolean;
+  charSheetRtxSupersample: boolean;
+  charSheetUseLatentUpscale: boolean;
+  charSheetFirstPassRatio: number;
+  charSheetSaveEachFrames: boolean;
+  charSheetMaxSize: number;
+  // Set after a render — lets the cheap grid-assembly graph (and the View & Edit Sheet
+  // frame-scrub editor) re-run against the already-saved video without a full re-render.
+  charSheetVideoFile: string | null;
+  charSheetVideoOutput: { filename: string; subfolder: string } | null;
+  charSheetRefImage: string | null;
+  charSheetCellW: number;
+  charSheetCellH: number;
 }
 
 export const CLIP_LENGTHS = (() => {
@@ -498,7 +548,22 @@ export const GENERATION_MODES = [
   { key: "reference", label: "Reference to Video", hint: "up to 9 reference images (REF2VA)" },
   { key: "facerefine", label: "Face Refine MMH3", hint: "re-render a small/distant face per frame (H3)" },
   { key: "ltxupscale", label: "Upscale by LTX 2.5", hint: "2x refine an existing clip (LTX 2.5)" },
+  { key: "imagegen", label: "Image Generator", hint: "single-image T2I / Reference / Character Sheet (H3 fl2va/ref2va)" },
 ];
+
+// Image Generator's own 3 sub-modes, picked from a second pill row inside its left panel —
+// see MinimaxState.imageGenMode. Node parity: core_minimax.js IMAGE_GEN_MODES.
+export const IMAGE_GEN_MODES = [
+  { key: "t2i", label: "Text to Image", hint: "MiniMaxH3ImageToVideo (fl2va), no reference image" },
+  { key: "ref2i", label: "Reference to Image", hint: "MiniMaxH3ReferenceToVideo (ref2va), one reference image" },
+  { key: "charsheet", label: "Character Sheet", hint: "ref2va 8-shot turnaround + RTX Deblur/VSR + grid assembly" },
+];
+
+// Character Sheet's fixed frame count for the 8-shot turnaround (node's CHARSHEET_FRAMES —
+// each [Shot N] marker in the reference workflow's own prompt assumes this exact length).
+export const CHARSHEET_FRAMES = 124;
+// Default frame picks for the grid — node's CHARSHEET_DEFAULT_FRAME_INDICES.
+export const CHARSHEET_DEFAULT_FRAME_INDICES = [7, 22, 37, 52, 67, 82, 107, 118];
 
 // The ✨ button's default system prompt — a ready-to-use LTX-2.5 prompt author written to
 // the official LTX-2.5 prompt guide (six elements in order: shot / scene / action /
@@ -1666,6 +1731,44 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     solSchedInt8Pv: saved.solSchedInt8Pv ?? false,
     solSchedSinkConditioning: saved.solSchedSinkConditioning || "exact_kv_and_rows",
     solSchedDenseBlocks: saved.solSchedDenseBlocks || "",
+
+    // ── Image Generator mode ────────────────────────────────────────────────
+    imageGenMode: saved.imageGenMode || "t2i",
+    imgPrompt: saved.imgPrompt || "",
+    imgRefImages: Array.isArray(saved.imgRefImages) ? saved.imgRefImages.slice(0, 9) : [],
+    imgRefImagesMp: Array.isArray(saved.imgRefImagesMp) ? saved.imgRefImagesMp.slice(0, 9) : [],
+    imgRefImageSize: saved.imgRefImageSize || "max",
+    imgAspect: saved.imgAspect || "2:3 Portrait",
+    imgPreviewMp: saved.imgPreviewMp ?? 0.2,
+    imgFinalMp: saved.imgFinalMp ?? 1.0,
+    imgLoras: Array.isArray(saved.imgLoras)
+      ? saved.imgLoras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))
+      : [],
+    imgSaveSubfolder: saved.imgSaveSubfolder || "",
+    imgPreviewSaveToGallery: !!saved.imgPreviewSaveToGallery,
+    imgSteps: saved.imgSteps ?? 8,
+    imgTurboOn: !!saved.imgTurboOn,
+    imgTurboLoraT2i: saved.imgTurboLoraT2i || "none",
+    imgTurboLoraRef2i: saved.imgTurboLoraRef2i || "none",
+    imgTurboLoraStrength: saved.imgTurboLoraStrength ?? 1.0,
+
+    // ── Character Sheet ─────────────────────────────────────────────────────
+    charSheetPrompt: saved.charSheetPrompt || "",
+    charSheetSubjectName: saved.charSheetSubjectName || "Character",
+    charSheetFrameIndices: Array.isArray(saved.charSheetFrameIndices) && saved.charSheetFrameIndices.length === 8
+      ? saved.charSheetFrameIndices.slice() : CHARSHEET_DEFAULT_FRAME_INDICES.slice(),
+    charSheetDeblur: saved.charSheetDeblur || "none",
+    charSheetRtxVsr: !!saved.charSheetRtxVsr,
+    charSheetRtxSupersample: !!saved.charSheetRtxSupersample,
+    charSheetUseLatentUpscale: !!saved.charSheetUseLatentUpscale,
+    charSheetFirstPassRatio: saved.charSheetFirstPassRatio ?? 0.36,
+    charSheetSaveEachFrames: !!saved.charSheetSaveEachFrames,
+    charSheetMaxSize: saved.charSheetMaxSize ?? 2048,
+    charSheetVideoFile: saved.charSheetVideoFile || null,
+    charSheetVideoOutput: saved.charSheetVideoOutput || null,
+    charSheetRefImage: saved.charSheetRefImage || null,
+    charSheetCellW: saved.charSheetCellW ?? 0,
+    charSheetCellH: saved.charSheetCellH ?? 0,
   };
 }
 

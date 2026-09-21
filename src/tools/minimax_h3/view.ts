@@ -6,6 +6,7 @@
 import type { MinimaxState } from "./core";
 import {
   ASPECTS,
+  IMAGE_GEN_MODES,
   ATTN_BACKENDS,
   ATTN_FORWARDS,
   BLOCK_CACHES,
@@ -68,7 +69,7 @@ import { C, BRAND } from "../../identity";
 import { createPromptEditOverlay, imageToB64 } from "./promptEdit";
 import { createSettingsOverlay, type SettingsCtx } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
-import { mountImagePanel } from "./imagesPanel";
+import { mountImagePanel, imageSlot } from "./imagesPanel";
 import { createCommonPromptOverlay } from "./commonPromptOverlay";
 import { renderDepBanner } from "./depBanner";
 import {
@@ -106,7 +107,7 @@ import {
   type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
-import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -1666,9 +1667,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     refineBtn.style.display = hidesShotList ? "none" : "";
     writeBtn.style.display = hidesShotList ? "none" : "";
     tagBtnRow.style.display = hidesShotList ? "none" : "";
-    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : "PROMPTS";
+    const isImageGen = state.generationMode === "imagegen";
+    if (isImageGen) {
+      commonBtn.style.display = "none"; splitBtn.style.display = "none"; addBtn.style.display = "none";
+      resetTAHBtn.style.display = "none"; refineBtn.style.display = "none"; writeBtn.style.display = "none"; tagBtnRow.style.display = "none";
+    }
+    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : isImageGen ? "IMAGE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
+    if (isImageGen) { renderImageGenPrompt(); return; }
     // Each re-render rebuilds every clip's textarea from scratch, so the previous render's
     // ResizeObservers must be torn down first or they'd keep firing on detached nodes.
     promptTAObservers.forEach((o) => o.disconnect());
@@ -3162,6 +3169,229 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
   }
 
+  // Shows a finished (or preview) Image Generator still in the preview box, same slot the
+  // live-sampling frames already use (previewImg) — a still result has no video to play, so
+  // this is showResultVideo()'s image-only sibling rather than a variant of it.
+  function showResultImage(url: string) {
+    lastResultURL = url;
+    placeholder.style.display = "none";
+    previewOffMsg.classList.add("hidden");
+    try { previewVid.pause(); } catch {}
+    previewVid.style.display = "none";
+    try { resultVid.pause(); } catch {}
+    resultVid.style.display = "none";
+    previewImg.src = url;
+    previewImg.style.display = "block";
+    badge.classList.remove("hidden");
+    lastCompareSource = null;
+    fsBtn.classList.add("hidden");
+    compareBtn.classList.add("hidden");
+  }
+
+  // ── Image Generator mode (generationMode "imagegen") ───────────────────────────────────
+  // Not a separate image model — the same H3 fl2va/ref2va pipeline read back as a still.
+  // t2i/ref2i are implemented here; Character Sheet ships in a follow-up pass (its own
+  // render+grid-assembly loop and editor modal are a large separate feature — see
+  // graphBuilder.ts's buildCharacterSheetVideoGraph/buildCharacterSheetGridGraph, already
+  // ported and ready for that follow-up to wire up).
+  function renderImageGenPrompt() {
+    promptList.innerHTML = "";
+    promptCount.textContent = "";
+    const isCharSheet = state.imageGenMode === "charsheet";
+    const ta = el("textarea", {
+      placeholder: isCharSheet ? "Character Sheet uses its own system prompt — see the panel." : "Describe the image…",
+      style: { minHeight: "120px", width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "vertical" },
+    }) as HTMLTextAreaElement;
+    ta.value = isCharSheet ? (state.charSheetPrompt || "") : (state.imgPrompt || "");
+    ta.disabled = isCharSheet;
+    if (isCharSheet) ta.style.opacity = "0.5";
+    ta.addEventListener("input", () => {
+      if (isCharSheet) state.charSheetPrompt = ta.value; else state.imgPrompt = ta.value;
+      persist();
+    });
+    ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
+    ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
+    promptList.style.gap = "6px";
+    promptList.append(ta);
+  }
+
+  function renderImageGenLeft() {
+    setLeftLocked(false);
+    leftPanel.innerHTML = "";
+    const subMode = state.imageGenMode || "t2i";
+
+    leftPanel.appendChild(panel([
+      label("Image Generator mode"),
+      modeBar(IMAGE_GEN_MODES.map((m) => ({ key: m.key, label: m.label })), subMode, (v) => {
+        state.imageGenMode = v; persist(); renderLeft(); renderPrompts();
+      }),
+    ]));
+
+    if (subMode === "ref2i") {
+      leftPanel.appendChild(panel([
+        label("Reference images (up to 9)"),
+        (() => {
+          const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+          const refs = (state.imgRefImages || []).slice(0, 9);
+          const slotsWrap = el("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px" } });
+          refs.forEach((name, i) => {
+            const handle = imageSlot(`Ref ${i + 1}`, name, (v) => {
+              const list = (state.imgRefImages || []).slice();
+              if (v) list[i] = v; else list.splice(i, 1);
+              state.imgRefImages = list.filter(Boolean).slice(0, 9);
+              persist(); renderLeft();
+            }, { box: 64 });
+            slotsWrap.appendChild(handle.el);
+          });
+          if (refs.length < 9) {
+            const addHandle = imageSlot("Add", null, (v) => {
+              if (!v) return;
+              const list = (state.imgRefImages || []).slice();
+              list.push(v);
+              state.imgRefImages = list.slice(0, 9);
+              persist(); renderLeft();
+            }, { box: 64 });
+            slotsWrap.appendChild(addHandle.el);
+          }
+          wrap.appendChild(slotsWrap);
+          wrap.appendChild(row([col([label("Ref image size"), select(
+            [{ value: "max", label: "Max" }, { value: "match", label: "Match" }],
+            state.imgRefImageSize || "max", (v) => { state.imgRefImageSize = v; persist(); })])]));
+          return wrap;
+        })(),
+      ]));
+    }
+
+    leftPanel.appendChild(panel([
+      label("Canvas"),
+      row([col([label("Aspect"), select(ASPECTS.map((a) => ({ value: a.label, label: a.label })), state.imgAspect || "2:3 Portrait", (v) => { state.imgAspect = v; persist(); })])]),
+      row([
+        col([label("Preview MP"), numberField(state.imgPreviewMp ?? 0.2, (v) => { state.imgPreviewMp = Math.max(0.05, v); persist(); }, 0.05)]),
+        col([label("Final MP"), numberField(state.imgFinalMp ?? 1.0, (v) => { state.imgFinalMp = Math.max(0.1, v); persist(); }, 0.1)]),
+      ]),
+      checkboxRow("Save Preview to Gallery", !!state.imgPreviewSaveToGallery, (v) => { state.imgPreviewSaveToGallery = v; persist(); }),
+    ]));
+
+    leftPanel.appendChild(panel([mountImgLoraPanel()]));
+
+    const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";
+    const turboOn = !!state.imgTurboOn;
+    leftPanel.appendChild(panel([
+      label("Turbo"),
+      checkboxRow("Turbo (adds one LoRA, fixed 3-step 2nd pass)", turboOn, (v) => { state.imgTurboOn = v; persist(); renderLeft(); }),
+      turboOn ? row([col([label("Turbo LoRA"), searchableSelect(["none", ...availableLoras.filter((x) => x !== "none")], (state as any)[turboKey] || "none", (v) => {
+        (state as any)[turboKey] = v; persist();
+      }).el])]) : null,
+      turboOn ? row([col([label("strength"), numberField(state.imgTurboLoraStrength ?? 1.0, (v) => { state.imgTurboLoraStrength = v; persist(); }, 0.05)])]) : null,
+      !turboOn ? row([col([label("Steps"), numberField(state.imgSteps ?? 8, (v) => { state.imgSteps = Math.max(1, Math.round(v)); persist(); }, 1)])]) : null,
+    ]));
+
+    if (subMode === "charsheet") {
+      leftPanel.appendChild(panel([el("div", {
+        text: "Character Sheet ships in a follow-up pass — pick T2I or Reference to Image for now.",
+        style: { fontSize: "11.5px", color: C.warn, lineHeight: "1.6" } })]));
+    }
+  }
+
+  // Small dedicated LoRA panel for Image Generator's own imgLoras list (up to 3 slots) —
+  // never state.loras (the main pipeline's own list, a different render path entirely).
+  function mountImgLoraPanel() {
+    const wrap = el("div");
+    function render() {
+      clear(wrap);
+      const loras = state.imgLoras || (state.imgLoras = []);
+      const head = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
+      head.append(label(`LoRA (${loras.filter((l) => l.enabled !== false && l.name && l.name !== "none").length}/${loras.length} on)`), el("div", { style: { flex: "1" } }),
+        button("+ Add", () => { if (loras.length < 3) { loras.push({ name: "none", strength: 1.0, triggerWord: "", enabled: true }); persist(); render(); } }));
+      const kids: (Node | null)[] = [head];
+      const all = ["none", ...availableLoras.filter((x) => x !== "none")];
+      loras.slice(0, 3).forEach((l, i) => {
+        const off = l.enabled === false;
+        const rowEl = el("div", { style: { display: "flex", gap: "6px", alignItems: "center" } });
+        const tog = el("button", { type: "button", text: off ? "OFF" : "ON", style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "10px", border: "none", fontWeight: "700", background: off ? "#444" : BRAND, color: "#fff" } });
+        tog.addEventListener("click", () => { l.enabled = off; persist(); render(); });
+        const picker = searchableSelect(all, l.name || "none", (v) => { l.name = v; persist(); });
+        const strWrap = el("div", { style: { width: "60px", flexShrink: "0" } });
+        strWrap.appendChild(numberField(l.strength ?? 1.0, (v) => { l.strength = v; persist(); }, 0.05));
+        const del = el("button", { type: "button", text: "✕", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.err, border: "none", fontSize: "11px" } });
+        del.addEventListener("click", () => { loras.splice(i, 1); persist(); render(); });
+        rowEl.append(tog, picker.el, strWrap, del);
+        kids.push(rowEl);
+      });
+      wrap.append(...kids.filter((k): k is Node => !!k));
+    }
+    render();
+    return wrap;
+  }
+
+  async function runImageGen(opts: { final: boolean }) {
+    if (running) return;
+    const subMode = (state.imageGenMode === "ref2i" ? "ref2i" : "t2i") as "t2i" | "ref2i";
+    if (subMode === "ref2i" && !(state.imgRefImages || []).filter(Boolean).length) {
+      showPopup("Pick at least one reference image first.", true); return;
+    }
+    running = true; stopRequested = false;
+    genBtn.disabled = true;
+    const genLabel = genBtn.textContent;
+    genBtn.textContent = opts.final ? "⏳ Rendering…" : "⏳ Preview…";
+    setStatus(opts.final ? "Image Generator — rendering…" : "Image Generator — preview…");
+    resetPreview();
+    startClock();
+    try {
+      if (!ctx.availability || !Object.keys(ctx.availability).length) {
+        const av = await getNodeAvailability();
+        ctx.availability = av.available || {}; ctx.availabilityInfo = av;
+      }
+      const previewRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgPreviewMp ?? 0.2);
+      const finalRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgFinalMp ?? 1.0);
+      const seed = state.seedMode === "fixed" ? (state.seed ?? 0) : randomSeed();
+      if (state.seedMode !== "fixed") { state.seed = seed; persist(); seedInput.value = String(seed); }
+      const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";
+      const built = buildImageGenGraph(state, ctx.availability || {}, {
+        subMode, final: opts.final,
+        refImages: state.imgRefImages, refImageSize: state.imgRefImageSize || "max",
+        prompt: state.imgPrompt || "", seed, previewRes, finalRes,
+        filenamePrefix: `${state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER}/img_${Date.now()}`,
+        steps: state.imgSteps ?? 8,
+        turboOn: !!state.imgTurboOn, turboLora: (state as any)[turboKey], turboLoraStrength: state.imgTurboLoraStrength ?? 1.0,
+        savePreview: !!state.imgPreviewSaveToGallery,
+      });
+      const res = await queuePrompt(built.graph, {
+        onProgress: (v: number, m: number) => setStatus(`Image Generator — ${Math.round((v / (m || 1)) * 100)}%`),
+      });
+      const o = firstOutput(res.byNode, built.saveNode);
+      if (!o) throw new Error("No output produced.");
+      const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");
+      showResultImage(url);
+      if (opts.final) {
+        await saveMeta(o.filename, o.subfolder || (state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER), {
+          created: Date.now(), prompt: state.imgPrompt || "",
+          w: finalRes.width, h: finalRes.height,
+          imgAspect: state.imgAspect || "2:3 Portrait",
+          imgPreviewMp: state.imgPreviewMp ?? 0.2, imgFinalMp: state.imgFinalMp ?? 1.0,
+          imgLoras: state.imgLoras || [], subMode,
+          refImages: subMode === "ref2i" ? (state.imgRefImages || []) : [],
+          refImageSize: state.imgRefImageSize || "max", seed,
+          imgSteps: state.imgSteps ?? 8, imgTurboOn: !!state.imgTurboOn,
+          imgTurboLora: state.imgTurboOn ? ((state as any)[turboKey] || null) : null,
+          imgTurboLoraStrength: state.imgTurboLoraStrength ?? 1.0,
+        }).catch(() => {});
+      }
+      setStatus(`✓ Image Generator done${opts.final ? "" : " (preview)"}.`);
+      showPopup(opts.final ? "Image finished — saved to output." : "Preview ready.", false);
+      try { refreshGallery(); } catch {}
+    } catch (e: any) {
+      const why = explainGenerationError(e.message);
+      setStatus(`Error: ${why || e.message}`);
+      showPopup(why || e.message, true);
+    } finally {
+      running = false; stopRequested = false;
+      genBtn.disabled = false; genBtn.textContent = genLabel || "▶ Generate";
+      try { await freeMemory(); } catch {}
+      stopClock();
+    }
+  }
+
   // Shared RTX VSR size-mode controls — same 4 modes (Scale/Short/Long/W×H) in the main
   // Upscale accordion and LTX Upscale's own Post finish accordion, both driven by the same
   // state.rtx* fields (see computeRtxTarget in core.ts). Quality is each caller's own field
@@ -3215,6 +3445,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   function renderLeft() {
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
     if (state.generationMode === "facerefine") { renderFaceRefineLeft(); return; }
+    if (state.generationMode === "imagegen") { renderImageGenLeft(); return; }
     setLeftLocked(false); // the lock overlay is LTX Upscale-only
     const contModes = continuityModesFor(state.generationMode, state);
     const cur = contModes.find((m) => m.key === state.continuityMode);
@@ -4204,6 +4435,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   genBtn.addEventListener("click", () => {
     if (state.generationMode === "ltxupscale") { runLtxUpscale(); return; }
     if (state.generationMode === "facerefine") { runFaceRefine(); return; }
+    if (state.generationMode === "imagegen") { runImageGen({ final: true }); return; }
     runGenerate();
   });
 

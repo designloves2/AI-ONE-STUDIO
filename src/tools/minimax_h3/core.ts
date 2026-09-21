@@ -6,6 +6,11 @@ export const LS_KEY = "minimax_h3_one_state_v1";
 export const API = "/minimax_h3_one";
 export const SUBFOLDER = "one_minimax_h3";
 export const FPS = 24;
+// Every preview run that opts out of the real output/ gallery (Postprocess's Preview button,
+// and any later mode's) lands in one shared scratch folder under ComfyUI's own temp/ — Settings
+// → Output reports its size (getTempSize) and can clear it (clearTempFiles), scoped to just this
+// one subfolder, nothing else in temp/.
+export const TEMP_PREVIEW_SUBFOLDER = "one_minimax_h3_preview";
 
 export interface PromptEntry {
   text: string;
@@ -429,6 +434,66 @@ export interface MinimaxState {
   charSheetRefImage: string | null;
   charSheetCellW: number;
   charSheetCellH: number;
+
+  // ── Postprocess mode (generationMode "postprocess") ────────────────────────────────────
+  // A chained post-effect pipeline applied to an already-rendered/uploaded clip, separate from
+  // generation — Deblur -> Denoise -> Upscale -> Skin Retouch -> Add Grain -> Interpolate ->
+  // Resize (fixed order A-G, each step independently toggled; a disabled step is skipped, not
+  // bypassed-on-canvas). PORT_LEDGER row 428 — every field below is registered here on day one
+  // so this mode never hits the whitelist-gap bug the node's own port found (fields added to the
+  // UI/state but never registered in defaultState() silently reverting to defaults on reload).
+  ppSource: string;
+  ppSourceKind: string; // "gallery" | "upload"
+  ppSourceMeta: { w: number; h: number; fps: number; frames: number; duration: number } | null;
+  // The FULL source clip's own saved meta (prompt/seed/loras/everything) — kept separately from
+  // the numeric subset above so a real (non-preview) run can spread it forward onto the output's
+  // own meta, same shape the gallery's own post-process tools use.
+  ppSourceFullMeta: Record<string, any> | null;
+  ppPreviewStart: number;
+  ppPreviewEnd: number; // 0 = full clip
+  // A. Deblur (TJ_RTXDeblur)
+  ppDeblurOn: boolean;
+  ppDeblurStrength: string; // "LOW" | "MEDIUM" | "HIGH" | "ULTRA"
+  // B. Denoise (TJ_NODE_RTXDenoise)
+  ppDenoiseOn: boolean;
+  ppDenoiseStrength: string;
+  // C. Upscale — reuses the shared upscaleMode/upscaleModel/rtx*/flashvsr* fields already in
+  // this state (same "one setting, offered everywhere" convention as the main Upscale accordion
+  // and the gallery's own Upscale bar); only this on/off flag is Postprocess-specific.
+  ppUpscaleOn: boolean;
+  // D. Skin Retouch (TJ_SkinRetouch) — right after Upscale per the reference tool's own layout.
+  ppSkinRetouchOn: boolean;
+  ppSkinEvenness: number;
+  ppSkinSmoothing: number;
+  ppSkinRedness: number;
+  ppSkinShine: number;
+  ppSkinBlemishMode: string; // "off" | "subtle" | "strong"
+  ppSkinMicrotexture: number;
+  ppSkinPreserveMarks: boolean;
+  // E. Add Grain (GLSLShader, ComfyUI core — first web usage of this node)
+  ppGrainOn: boolean;
+  ppGrainAmount: number;
+  ppGrainSize: number;
+  ppGrainColor: number;
+  ppGrainLumBias: number;
+  ppGrainNoiseMode: string; // "smooth" | "grainy"
+  // F. Interpolate (RIFEInterpolation)
+  ppInterpolateOn: boolean;
+  ppInterpolateTargetFps: number;
+  ppInterpolateScale: number;
+  // G. Resize (TJ_VideoResize) — its own state, separate from the gallery's own local resize-bar
+  // closure state (which drives a different node, core ImageScale) since Postprocess's Resize
+  // step is TJ_VideoResize with its own param shape and needs to persist across reloads.
+  ppResizeOn: boolean;
+  ppResizeMode: string; // "Long side" | "Short side" | "Ratio" | "Mega Pixel" | "Width x Height"
+  ppResizeUpscaleMethod: string;
+  ppResizeTargetPx: number;
+  ppResizeRatioW: number;
+  ppResizeRatioH: number;
+  ppResizeMegapixels: number;
+  ppResizeTargetWidth: number;
+  ppResizeTargetHeight: number;
+  ppResizeCropMode: string; // "crop" | "stretch"
 }
 
 export const CLIP_LENGTHS = (() => {
@@ -549,6 +614,7 @@ export const GENERATION_MODES = [
   { key: "facerefine", label: "Face Refine MMH3", hint: "re-render a small/distant face per frame (H3)" },
   { key: "ltxupscale", label: "Upscale by LTX 2.5", hint: "2x refine an existing clip (LTX 2.5)" },
   { key: "imagegen", label: "Image Generator", hint: "single-image T2I / Reference / Character Sheet (H3 fl2va/ref2va)" },
+  { key: "postprocess", label: "Postprocess", hint: "chained post-effects (Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize) on an existing clip" },
 ];
 
 // Image Generator's own 3 sub-modes, picked from a second pill row inside its left panel —
@@ -1140,6 +1206,14 @@ export function generationModesFor(state: MinimaxState) {
     if (m.key === "ltxupscale") {
       const ok = ltxUpscaleReady(state);
       return { ...m, enabled: ok, reason: ok ? "" : `Set the LTX 2.5 models in ⚙ Settings (missing: ${ltxUpscaleMissing(state).join(", ")})` };
+    }
+    if (m.key === "postprocess") {
+      // No UNET/CLIP/VAE requirement at all — every step (Deblur/Denoise/Upscale/Skin
+      // Retouch/Grain/Interpolate/Resize) is a standalone TJ_NODE/ComfyUI-core node chain, not
+      // the H3 sampler pipeline. Availability of the individual step nodes is checked at run
+      // time (buildPostprocessGraph throws a clear per-step error), same as every other
+      // optional-node-gated feature here.
+      return { ...m, enabled: true, reason: "" };
     }
     if (m.key === "facerefine") {
       // Uses MiniMaxH3ReferenceToVideo's conditioning shape either way; the Reference UNET
@@ -1804,6 +1878,46 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     charSheetRefImage: saved.charSheetRefImage || null,
     charSheetCellW: saved.charSheetCellW ?? 0,
     charSheetCellH: saved.charSheetCellH ?? 0,
+
+    // ── Postprocess mode ────────────────────────────────────────────────────
+    ppSource: saved.ppSource || "",
+    ppSourceKind: saved.ppSourceKind || "gallery",
+    ppSourceMeta: saved.ppSourceMeta || null,
+    ppSourceFullMeta: saved.ppSourceFullMeta || null,
+    ppPreviewStart: saved.ppPreviewStart ?? 0,
+    ppPreviewEnd: saved.ppPreviewEnd ?? 0,
+    ppDeblurOn: !!saved.ppDeblurOn,
+    ppDeblurStrength: saved.ppDeblurStrength || "MEDIUM",
+    ppDenoiseOn: !!saved.ppDenoiseOn,
+    ppDenoiseStrength: saved.ppDenoiseStrength || "MEDIUM",
+    ppUpscaleOn: !!saved.ppUpscaleOn,
+    ppSkinRetouchOn: !!saved.ppSkinRetouchOn,
+    ppSkinEvenness: saved.ppSkinEvenness ?? 0,
+    ppSkinSmoothing: saved.ppSkinSmoothing ?? 0,
+    ppSkinRedness: saved.ppSkinRedness ?? 0,
+    ppSkinShine: saved.ppSkinShine ?? 0,
+    ppSkinBlemishMode: saved.ppSkinBlemishMode || "off",
+    ppSkinMicrotexture: saved.ppSkinMicrotexture ?? 0,
+    ppSkinPreserveMarks: saved.ppSkinPreserveMarks !== false,
+    ppGrainOn: !!saved.ppGrainOn,
+    ppGrainAmount: saved.ppGrainAmount ?? 0.25,
+    ppGrainSize: saved.ppGrainSize ?? 0.1,
+    ppGrainColor: saved.ppGrainColor ?? 0,
+    ppGrainLumBias: saved.ppGrainLumBias ?? 0,
+    ppGrainNoiseMode: saved.ppGrainNoiseMode || "smooth",
+    ppInterpolateOn: !!saved.ppInterpolateOn,
+    ppInterpolateTargetFps: saved.ppInterpolateTargetFps ?? FPS * 2,
+    ppInterpolateScale: saved.ppInterpolateScale ?? 1.0,
+    ppResizeOn: !!saved.ppResizeOn,
+    ppResizeMode: saved.ppResizeMode || "Long side",
+    ppResizeUpscaleMethod: saved.ppResizeUpscaleMethod || "lanczos",
+    ppResizeTargetPx: saved.ppResizeTargetPx ?? 1920,
+    ppResizeRatioW: saved.ppResizeRatioW ?? 16,
+    ppResizeRatioH: saved.ppResizeRatioH ?? 9,
+    ppResizeMegapixels: saved.ppResizeMegapixels ?? 1.0,
+    ppResizeTargetWidth: saved.ppResizeTargetWidth ?? 1920,
+    ppResizeTargetHeight: saved.ppResizeTargetHeight ?? 1080,
+    ppResizeCropMode: saved.ppResizeCropMode || "crop",
   };
 }
 

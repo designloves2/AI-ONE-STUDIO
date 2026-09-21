@@ -123,13 +123,17 @@ function saveVideoNode(
   audio: any,
   fps: number,
   filenamePrefix: string,
-  avail: Avail | undefined
+  avail: Avail | undefined,
+  preview = false
 ) {
   if (has(avail, "VHS_VideoCombine")) {
     g[ids.save] = { class_type: "VHS_VideoCombine", inputs: {
       images, audio, frame_rate: fps, loop_count: 0,
       filename_prefix: filenamePrefix, format: "video/nvenc_h264-mp4",
-      pingpong: false, save_output: true,
+      // preview:true (Postprocess's Preview button) never writes into the real output/ gallery —
+      // save_output:false routes VHS's own save into ComfyUI's temp/ dir instead (the caller is
+      // responsible for pointing `filenamePrefix` at TEMP_PREVIEW_SUBFOLDER when preview is set).
+      pingpong: false, save_output: !preview,
     } };
   } else {
     g[ids.video] = { class_type: "CreateVideo", inputs: { images, fps, audio } };
@@ -1369,6 +1373,317 @@ export function buildResizeGraph(inputFilename: string, folder: string, stem: st
   g.video = { class_type: "CreateVideo", inputs: { images: ["resize", 0], fps: FPS, audio: ["load", 2] } };
   g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
   return { graph: g, saveNode: "save" };
+}
+
+// ── Postprocess (generationMode "postprocess") ──────────────────────────────────────────────
+//
+// A chained post-effect pipeline applied to an already-rendered/uploaded clip, separate from
+// generation — Deblur -> Denoise -> Upscale(FlashVSR/RTX VSR(TJ)/Model) -> Skin Retouch ->
+// Add Grain -> Interpolate -> Resize, in that fixed order. Every step is independently optional
+// (opts.<step>.enabled); a disabled step is simply skipped, so any subset can chain. Node parity:
+// graph_builder_minimax.js buildPostprocessGraph (PORT_LEDGER row 428).
+const PPX = {
+  load: "PPX:load",
+  deblur: "PPX:deblur",
+  denoise: "PPX:denoise",
+  rtxCrop: "PPX:rtx_crop",
+  rtx: "PPX:rtx",
+  fvsrPipe: "PPX:flashvsr_pipe",
+  fvsr: "PPX:flashvsr",
+  upModel: "PPX:upscale_model",
+  upApply: "PPX:upscale",
+  skinRetouch: "PPX:skin_retouch",
+  grain: "PPX:grain",
+  grainDealpha: "PPX:grain_dealpha",
+  rife: "PPX:rife",
+  resize: "PPX:resize",
+  video: "PPX:video",
+  save: "PPX:save",
+};
+
+// Film-grain fragment shader for GLSLShader (ComfyUI core) — verbatim from the node's own
+// reference "Flim Grain.json" export: pcg-hash based grain, smooth or grainy noise mode,
+// luminance-weighted (less grain in highlights), optional per-channel color grain.
+const GRAIN_FRAGMENT_SHADER = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_image0;
+uniform vec2 u_resolution;
+uniform float u_float0; // grain amount      [0.0 – 1.0]   typical: 0.2–0.8
+uniform float u_float1; // grain size        [0.3 – 3.0]   lower = finer grain
+uniform float u_float2; // color amount      [0.0 – 1.0]   0 = monochrome, 1 = RGB grain
+uniform float u_float3; // luminance bias    [0.0 – 1.0]   0 = uniform, 1 = shadows only
+uniform int   u_int0;   // noise mode        [0 or 1]      0 = smooth, 1 = grainy
+
+in vec2 v_texCoord;
+layout(location = 0) out vec4 fragColor0;
+
+uint pcg(uint v) {
+    uint state = v * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+uint hash2d(uvec2 p) {
+    return pcg(p.x + pcg(p.y));
+}
+
+float hashf(uvec2 p) {
+    return float(hash2d(p)) / float(0xffffffffu);
+}
+
+float hashf(uvec2 p, uint offset) {
+    return float(pcg(hash2d(p) + offset)) / float(0xffffffffu);
+}
+
+float toGaussian(uvec2 p) {
+    float sum = hashf(p, 0u) + hashf(p, 1u) + hashf(p, 2u) + hashf(p, 3u);
+    return (sum - 2.0) * 0.7;
+}
+
+float toGaussian(uvec2 p, uint offset) {
+    float sum = hashf(p, offset) + hashf(p, offset + 1u)
+              + hashf(p, offset + 2u) + hashf(p, offset + 3u);
+    return (sum - 2.0) * 0.7;
+}
+
+float smoothNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    uvec2 ui = uvec2(i);
+    float a = toGaussian(ui);
+    float b = toGaussian(ui + uvec2(1u, 0u));
+    float c = toGaussian(ui + uvec2(0u, 1u));
+    float d = toGaussian(ui + uvec2(1u, 1u));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float smoothNoise(vec2 p, uint offset) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    uvec2 ui = uvec2(i);
+    float a = toGaussian(ui, offset);
+    float b = toGaussian(ui + uvec2(1u, 0u), offset);
+    float c = toGaussian(ui + uvec2(0u, 1u), offset);
+    float d = toGaussian(ui + uvec2(1u, 1u), offset);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+void main() {
+    vec4 color = texture(u_image0, v_texCoord);
+    float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+    vec2 grainUV = v_texCoord * u_resolution / max(u_float1, 0.01);
+    uvec2 grainPixel = uvec2(grainUV);
+    float g;
+    vec3 grainRGB;
+    if (u_int0 == 1) {
+        g = toGaussian(grainPixel);
+        grainRGB = vec3(
+            toGaussian(grainPixel, 100u),
+            toGaussian(grainPixel, 200u),
+            toGaussian(grainPixel, 300u)
+        );
+    } else {
+        g = smoothNoise(grainUV);
+        grainRGB = vec3(
+            smoothNoise(grainUV, 100u),
+            smoothNoise(grainUV, 200u),
+            smoothNoise(grainUV, 300u)
+        );
+    }
+    float lumWeight = mix(1.0, 1.0 - luma, clamp(u_float3, 0.0, 1.0));
+    float strength = u_float0 * 0.15;
+    vec3 grainColor = mix(vec3(g), grainRGB, clamp(u_float2, 0.0, 1.0));
+    color.rgb += grainColor * strength * lumWeight;
+    fragColor0 = vec4(clamp(color.rgb, 0.0, 1.0), color.a);
+}
+`;
+
+export interface PostprocessGraphOpts {
+  inputFile: string;
+  folder: string;
+  stem: string;
+  skipFirstFrames?: number;
+  frameLoadCap?: number;
+  saveSuffix?: string;
+  preview?: boolean;
+  deblur?: { enabled?: boolean; strength?: string };
+  denoise?: { enabled?: boolean; strength?: string };
+  upscale?: {
+    enabled?: boolean;
+    method?: "flashvsr" | "rtx" | "model" | "none";
+    modelName?: string;
+    rtxScale?: number; rtxQuality?: string; rtxSizeMode?: string;
+    rtxShort?: number; rtxLong?: number; rtxW?: number; rtxH?: number; rtxCropAnchor?: string;
+    srcW?: number; srcH?: number;
+    flashvsr?: FlashVSRParams;
+  };
+  skinRetouch?: {
+    enabled?: boolean; evenness?: number; smoothing?: number; redness?: number; shine?: number;
+    blemishMode?: string; preserveMarks?: boolean; microtextureStrength?: number;
+  };
+  grain?: { enabled?: boolean; amount?: number; size?: number; color?: number; lumBias?: number; noiseMode?: string };
+  interpolate?: { enabled?: boolean; targetFps?: number; scale?: number; modelName?: string; batchSize?: number; useFp16?: boolean };
+  resize?: {
+    enabled?: boolean; mode?: string; upscaleMethod?: string; targetPx?: number;
+    ratioW?: number; ratioH?: number; megapixels?: number; targetWidth?: number; targetHeight?: number; cropMode?: string;
+  };
+}
+
+export function buildPostprocessGraph(opts: PostprocessGraphOpts, avail?: Avail) {
+  const { inputFile, folder, stem, skipFirstFrames = 0, frameLoadCap = 0, saveSuffix = "_post", preview = false } = opts;
+  const deblur = opts.deblur || {}, denoise = opts.denoise || {}, upscale = opts.upscale || {};
+  const skinRetouch = opts.skinRetouch || {}, grain = opts.grain || {};
+  const interpolate = opts.interpolate || {}, resize = opts.resize || {};
+  const g: Graph = {};
+  const usedSteps: string[] = [];
+
+  g[PPX.load] = { class_type: "VHS_LoadVideo", inputs: {
+    video: inputFile, force_rate: 0, custom_width: 0, custom_height: 0,
+    frame_load_cap: frameLoadCap, skip_first_frames: skipFirstFrames, select_every_nth: 1,
+  } };
+  let images: any = [PPX.load, 0];
+  let fps = FPS;
+
+  // A. Deblur
+  if (deblur.enabled && deblur.strength && deblur.strength !== "none") {
+    if (!has(avail, "TJ_RTXDeblur")) throw new Error("RTX Deblur (TJ_RTXDeblur) is not installed.");
+    g[PPX.deblur] = { class_type: "TJ_RTXDeblur", inputs: { images, strength: deblur.strength } };
+    images = [PPX.deblur, 0];
+    usedSteps.push("deblur");
+  }
+
+  // B. Denoise
+  if (denoise.enabled && denoise.strength && denoise.strength !== "none") {
+    if (!has(avail, "TJ_NODE_RTXDenoise")) throw new Error("RTX Denoise (TJ_NODE_RTXDenoise) is not installed.");
+    g[PPX.denoise] = { class_type: "TJ_NODE_RTXDenoise", inputs: { images, strength: denoise.strength } };
+    images = [PPX.denoise, 0];
+    usedSteps.push("denoise");
+  }
+
+  // C. Upscale — TJ_NODE's own "RTX VSR (TJ)" (TJ_NODE_RTXVSR), deliberately NOT the third-party
+  // RTXVideoSuperResolution buildUpscaleGraph/buildRtxNode use elsewhere: Deblur/Denoise already
+  // depend on TJ_NODE here, so keeping VSR on the same pack avoids a second dependency.
+  let upscaleUsedInfo: any = null;
+  if (upscale.enabled && upscale.method && upscale.method !== "none") {
+    if (upscale.method === "flashvsr") {
+      if (!has(avail, "FlashVSRNodeAdv")) throw new Error("FlashVSRInitPipe/FlashVSRNodeAdv is not installed.");
+      buildFlashVSR(g, PPX.fvsrPipe, PPX.fvsr, upscale.flashvsr || {}, images);
+      images = [PPX.fvsr, 0];
+      upscaleUsedInfo = flashvsrUsed(upscale.flashvsr || {});
+    } else if (upscale.method === "rtx") {
+      if (!has(avail, "TJ_NODE_RTXVSR")) throw new Error("RTX VSR (TJ_NODE_RTXVSR) is not installed.");
+      const t = computeRtxTarget({
+        rtxSizeMode: upscale.rtxSizeMode as any, rtxScale: upscale.rtxScale, rtxShort: upscale.rtxShort,
+        rtxLong: upscale.rtxLong, rtxW: upscale.rtxW, rtxH: upscale.rtxH, rtxCropAnchor: upscale.rtxCropAnchor as any,
+      } as any, upscale.srcW || 1280, upscale.srcH || 720);
+      if (t.crop) {
+        g[PPX.rtxCrop] = { class_type: "ImageCrop", inputs: { image: images, width: t.crop.width, height: t.crop.height, x: t.crop.x, y: t.crop.y } };
+        images = [PPX.rtxCrop, 0];
+      }
+      g[PPX.rtx] = { class_type: "TJ_NODE_RTXVSR", inputs: {
+        images, resize_type: t.resizeType, scale: t.scale ?? 2.0,
+        width: t.width ?? 1920, height: t.height ?? 1080, quality: upscale.rtxQuality || "ULTRA",
+      } };
+      images = [PPX.rtx, 0];
+      upscaleUsedInfo = t.resizeType === "scale by multiplier"
+        ? { method: "rtx", scale: t.scale, quality: upscale.rtxQuality || "ULTRA" }
+        : { method: "rtx", width: t.width, height: t.height, quality: upscale.rtxQuality || "ULTRA" };
+    } else {
+      if (!upscale.modelName || upscale.modelName === "none") throw new Error("No upscale model selected.");
+      g[PPX.upModel] = { class_type: "UpscaleModelLoader", inputs: { model_name: upscale.modelName } };
+      g[PPX.upApply] = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: [PPX.upModel, 0], image: images } };
+      images = [PPX.upApply, 0];
+      upscaleUsedInfo = { method: "model", model: upscale.modelName };
+    }
+    usedSteps.push("upscale");
+  }
+
+  // D. Skin Retouch — right after Upscale (matches the reference tool's own layout).
+  if (skinRetouch.enabled) {
+    if (!has(avail, "TJ_SkinRetouch")) throw new Error("Skin Retouch (TJ_SkinRetouch) is not installed.");
+    g[PPX.skinRetouch] = { class_type: "TJ_SkinRetouch", inputs: {
+      images,
+      evenness: skinRetouch.evenness ?? 0,
+      smoothing: skinRetouch.smoothing ?? 0,
+      redness: skinRetouch.redness ?? 0,
+      shine: skinRetouch.shine ?? 0,
+      blemish_mode: skinRetouch.blemishMode || "off",
+      preserve_marks: skinRetouch.preserveMarks !== false,
+      microtexture_strength: skinRetouch.microtextureStrength ?? 0,
+    } };
+    images = [PPX.skinRetouch, 0];
+    usedSteps.push("skin retouch");
+  }
+
+  // E. Add Grain — GLSLShader (ComfyUI core). images/floats/ints are COMFY_AUTOGROW_V3 groups;
+  // the real required API keys, confirmed against a live /prompt validator error (two earlier
+  // guesses both wrong), are dotted flat keys — "images.image0" / "floats.u_float0..3" /
+  // "ints.u_int0" — NOT a nested {images:{image0:...}} object and NOT a bare "image0".
+  if (grain.enabled) {
+    if (!has(avail, "GLSLShader")) throw new Error("GLSLShader is not installed (ComfyUI core is out of date).");
+    g[PPX.grain] = { class_type: "GLSLShader", inputs: {
+      fragment_shader: GRAIN_FRAGMENT_SHADER,
+      size_mode: "from_input",
+      "images.image0": images,
+      "floats.u_float0": grain.amount ?? 0.25,
+      "floats.u_float1": grain.size ?? 0.1,
+      "floats.u_float2": grain.color ?? 0,
+      "floats.u_float3": grain.lumBias ?? 0,
+      "ints.u_int0": grain.noiseMode === "grainy" ? 1 : 0,
+    } };
+    // GLSLShader's IMAGE0 output is RGBA even for an RGB input — everything downstream
+    // (RIFEInterpolation/TJ_VideoResize/the video save) expects [N,H,W,3] and throws otherwise.
+    // SplitImageWithAlpha (ComfyUI core) strips it back to RGB; its MASK output is discarded.
+    if (!has(avail, "SplitImageWithAlpha")) throw new Error("SplitImageWithAlpha is not installed (ComfyUI core is out of date).");
+    g[PPX.grainDealpha] = { class_type: "SplitImageWithAlpha", inputs: { image: [PPX.grain, 0] } };
+    images = [PPX.grainDealpha, 0];
+    usedSteps.push("grain");
+  }
+
+  // F. Interpolate — RIFEInterpolation, same shape as buildInterpolateGraph.
+  if (interpolate.enabled) {
+    if (!has(avail, "RIFEInterpolation")) throw new Error("RIFE Frame Interpolation is not installed.");
+    const dstFps = Math.max(fps, Number(interpolate.targetFps) || fps * 2);
+    g[PPX.rife] = { class_type: "RIFEInterpolation", inputs: {
+      images, source_fps: fps, target_fps: dstFps,
+      scale: interpolate.scale ?? 1.0,
+      model_name: interpolate.modelName || "flownet.pkl",
+      batch_size: Math.max(1, Math.round(interpolate.batchSize ?? 8)),
+      use_fp16: interpolate.useFp16 !== false,
+    } };
+    images = [PPX.rife, 0];
+    fps = dstFps;
+    usedSteps.push("interpolate");
+  }
+
+  // G. Resize — TJ_VideoResize.
+  if (resize.enabled) {
+    if (!has(avail, "TJ_VideoResize")) throw new Error("Video Resize (TJ) is not installed.");
+    g[PPX.resize] = { class_type: "TJ_VideoResize", inputs: {
+      images,
+      mode: resize.mode || "Long side",
+      upscale_method: resize.upscaleMethod || "lanczos",
+      target_px: Math.max(8, Math.round(resize.targetPx ?? 1920)),
+      ratio_w: Math.max(1, Math.round(resize.ratioW ?? 16)),
+      ratio_h: Math.max(1, Math.round(resize.ratioH ?? 9)),
+      megapixels: Math.max(0.01, resize.megapixels ?? 1.0),
+      target_width: Math.max(8, Math.round(resize.targetWidth ?? 1920)),
+      target_height: Math.max(8, Math.round(resize.targetHeight ?? 1080)),
+      crop_mode: resize.cropMode || "crop",
+    } };
+    images = [PPX.resize, 0];
+    usedSteps.push("resize");
+  }
+
+  if (!usedSteps.length) throw new Error("Nothing to do — enable at least one Postprocess effect.");
+
+  // preview:true routes save_output:false at TEMP_PREVIEW_SUBFOLDER (the caller is responsible
+  // for passing that as `folder` on a preview run) — never touches the real output/ gallery.
+  saveVideoNode(g, { video: PPX.video, save: PPX.save }, images, [PPX.load, 2], fps, `${folder}/${stem}${saveSuffix}`, avail, preview);
+  return { graph: g, saveNode: PPX.save, usedSteps, upscaleUsedInfo };
 }
 
 // ── Image Generator (generationMode "imagegen", state.imageGenMode "t2i" | "ref2i") ───────

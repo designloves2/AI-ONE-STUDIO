@@ -203,6 +203,26 @@ export async function saveUserPresets(list: UserPipelinePreset[]) {
   return saveConfig({ user_presets: list });
 }
 
+// Every preview run that opts out of the real output/ gallery (Postprocess's Preview button)
+// lands in one shared scratch folder under ComfyUI's own temp/ (core.ts's TEMP_PREVIEW_SUBFOLDER)
+// — Settings → Output reports its size here and can clear it, scoped to just that one subfolder.
+export async function getTempSize(): Promise<{ ok: boolean; bytes?: number; count?: number }> {
+  try {
+    const r = await fetchApi(`${API}/temp_size`);
+    return await r.json();
+  } catch {
+    return { ok: false };
+  }
+}
+export async function clearTempFiles(): Promise<{ ok: boolean; removed?: number }> {
+  try {
+    const r = await fetchApi(`${API}/temp_clear`, { method: "POST" });
+    return await r.json();
+  } catch {
+    return { ok: false };
+  }
+}
+
 export const MMH3_OPTIONAL_NODES = [
   "PathchSageAttentionKJ",
   "ModelPreviewOverrideKJ",
@@ -251,6 +271,19 @@ export const MMH3_OPTIONAL_NODES = [
   // node, the Acc file loads through LoraLoaderModelOnly. SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md.
   // RTX Deblur — SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §15.
   "TJ_RTXDeblur",
+  // FlashVSR VSR (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — main Upscale accordion + gallery.
+  "FlashVSRInitPipe", "FlashVSRNodeAdv",
+  // Postprocess mode (PORT_LEDGER row 428) — Deblur/Denoise/Upscale(RTX VSR TJ)/Skin Retouch/
+  // Resize are TJ_NODE-native; GLSLShader/SplitImageWithAlpha are ComfyUI core (Add Grain step —
+  // GLSLShader's own IMAGE0 output is RGBA, SplitImageWithAlpha strips it back to RGB for
+  // whatever runs after Grain). Node's own port hit a real bug omitting SplitImageWithAlpha
+  // from this list — "not installed" fired even when it was — so both are registered here from
+  // day one.
+  "TJ_NODE_RTXDenoise",
+  "TJ_NODE_RTXVSR",
+  "TJ_SkinRetouch",
+  "TJ_VideoResize",
+  "GLSLShader", "SplitImageWithAlpha",
 ];
 export const MMH3_CORE_NODES = ["MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo", "MiniMaxH3SigmaShift", "SamplerCustomAdvanced", "CreateVideo", "SaveVideo"];
 

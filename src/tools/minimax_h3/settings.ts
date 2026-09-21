@@ -12,6 +12,8 @@ import {
   getModels,
   getNodeAvailability,
   getPreviewTinyVaeOptions,
+  getTempSize,
+  clearTempFiles,
   listVideos,
   saveConfig,
   type ModelLists,
@@ -588,6 +590,35 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     suffixIn.value = state.promptSuffix || "";
     suffixIn.addEventListener("input", () => { state.promptSuffix = suffixIn.value; ctx.persist(); });
     wrap.appendChild(panel([label("Prompt Suffix (appended to every clip prompt)"), suffixIn]));
+
+    // Temp Preview Files — every mode's Preview run (currently just Postprocess's) that opts
+    // out of the real output/ gallery lands in one shared scratch subfolder under ComfyUI's
+    // own temp/ (core.ts TEMP_PREVIEW_SUBFOLDER). This reports its size and can clear it,
+    // scoped to just that one subfolder — nothing else under temp/ is touched.
+    const tempStatus = el("div", { text: "—", style: { fontSize: "11px", color: C.muted } });
+    const tempClearBtn = button("Clear temp preview files", async () => {
+      tempClearBtn.setAttribute("disabled", "true");
+      try {
+        const r = await clearTempFiles();
+        tempStatus.textContent = r.ok ? `Cleared${r.removed != null ? ` (${r.removed} file${r.removed === 1 ? "" : "s"})` : ""}.` : "Failed to clear.";
+      } catch { tempStatus.textContent = "Failed to clear."; }
+      finally { tempClearBtn.removeAttribute("disabled"); refreshTempStatus(); }
+    });
+    function fmtBytes(n: number) {
+      if (!n) return "0 B";
+      const units = ["B", "KB", "MB", "GB"];
+      let i = 0, v = n;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+    }
+    async function refreshTempStatus() {
+      try {
+        const r = await getTempSize();
+        tempStatus.textContent = r.ok ? `${fmtBytes(r.bytes || 0)} · ${r.count ?? 0} file${(r.count ?? 0) === 1 ? "" : "s"}` : "—";
+      } catch { tempStatus.textContent = "—"; }
+    }
+    wrap.appendChild(panel([label("Temp Preview Files"), tempStatus, tempClearBtn]));
+    refreshTempStatus();
     return wrap;
   }
 

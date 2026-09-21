@@ -20,6 +20,7 @@ import {
   SAMPLERS,
   SCHEDULERS,
   SUBFOLDER,
+  TEMP_PREVIEW_SUBFOLDER,
   UPSCALE_MODES,
   FLASHVSR_MODELS,
   FLASHVSR_MODES,
@@ -112,7 +113,7 @@ import {
   type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
-import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -410,6 +411,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         renderPills();
         renderLeft();
         renderPrompts();
+        restoreModeResult();
       })
     );
 
@@ -518,6 +520,24 @@ export function renderMinimaxH3(container: HTMLElement) {
     style: { background: "rgba(0,0,0,0.55)" },
   });
   fvsrBanner.innerHTML = "<div style='font-size:16px;font-weight:700;color:#e0a530;text-shadow:0 0 12px rgba(224,165,48,0.5);padding:24px 16px;'>◮ FlashVSR upscaling… please wait — no live preview for this pass</div>";
+  // Postprocess's own pre-sampling banner — its chained steps (Deblur/Denoise/Upscale/Skin
+  // Retouch/Grain/Interpolate/Resize) stream no live preview of their own either, same "is it
+  // doing anything?" problem frDetectBanner/fvsrBanner solve. Text differs between a short
+  // Preview run and a real Generate run (setPpBusy below).
+  const ppBanner = el("div", {
+    class: "absolute inset-0 z-[5] flex items-center justify-center text-center hidden",
+    style: { background: "rgba(0,0,0,0.55)" },
+  });
+  function setPpBusy(on: boolean, full = true) {
+    if (on) {
+      ppBanner.innerHTML = `<div style='font-size:16px;font-weight:700;color:${BRAND};text-shadow:0 0 12px rgba(181,123,255,0.5);padding:24px 16px;'>${
+        full ? "후보정을 반영하여 처리중입니다. 잠시 기다려주세요." : "미리보기 처리중입니다. 잠시 기다려주세요."
+      }</div>`;
+      ppBanner.classList.remove("hidden"); ppBanner.classList.add("flex");
+    } else {
+      ppBanner.classList.add("hidden"); ppBanner.classList.remove("flex");
+    }
+  }
   // 라이브 프리뷰 온/오프 — off일 때는 새 스텝이 와도 화면을 갱신하지 않는다(진행률 텍스트는 계속 반영).
   // Settings의 previewEnabled와 같은 값을 공유해 여기서 끄면 Settings에도 반영된다.
   const previewToggleBtn = el("button", {
@@ -596,7 +616,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(720, savedH))}px`;
   } catch {}
 
-  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
+  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, ppBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
   // Captured at the moment the result is shown (showResultVideo), NOT re-derived from live
@@ -964,8 +984,25 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
     badge.classList.remove("hidden");
   }
-  function showResultVideo(url: string) {
+  // One preview box + one lastResultURL serves EVERY mode — switching Text-to-Video ↔
+  // Postprocess ↔ Image Generator (and Image Generator's own t2i/ref2i/charsheet sub-modes)
+  // used to keep showing whichever mode's result was generated LAST, since nothing repainted
+  // the box on a pure mode-switch. modeResultCache (keyed by resultModeKey) + restoreModeResult
+  // (called from the mode-pill's own onChange, and once at mount) fixes that generically —
+  // PORT_LEDGER row 428 fix (6), audited as applying to every mode here, not just Postprocess.
+  const modeResultCache = new Map<string, { kind: "video" | "image"; url: string }>();
+  function resultModeKey() {
+    return state.generationMode === "imagegen" ? `imagegen:${state.imageGenMode || "t2i"}` : state.generationMode || "t2v";
+  }
+  function restoreModeResult() {
+    const hit = modeResultCache.get(resultModeKey());
+    if (!hit) { resetPreview(); return; }
+    if (hit.kind === "video") showResultVideo(hit.url, { cache: false });
+    else showResultImage(hit.url, { cache: false });
+  }
+  function showResultVideo(url: string, opts: { cache?: boolean } = {}) {
     lastResultURL = url;
+    if (opts.cache !== false) modeResultCache.set(resultModeKey(), { kind: "video", url });
     placeholder.style.display = "none";
     previewOffMsg.classList.add("hidden");
     previewImg.style.display = "none";
@@ -3177,8 +3214,9 @@ export function renderMinimaxH3(container: HTMLElement) {
   // Shows a finished (or preview) Image Generator still in the preview box, same slot the
   // live-sampling frames already use (previewImg) — a still result has no video to play, so
   // this is showResultVideo()'s image-only sibling rather than a variant of it.
-  function showResultImage(url: string) {
+  function showResultImage(url: string, opts: { cache?: boolean } = {}) {
     lastResultURL = url;
+    if (opts.cache !== false) modeResultCache.set(resultModeKey(), { kind: "image", url });
     placeholder.style.display = "none";
     previewOffMsg.classList.add("hidden");
     try { previewVid.pause(); } catch {}
@@ -3238,7 +3276,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftPanel.appendChild(panel([
       label("Image Generator mode"),
       modeBar(IMAGE_GEN_MODES.map((m) => ({ key: m.key, label: m.label })), subMode, (v) => {
-        state.imageGenMode = v; persist(); renderLeft(); renderPrompts();
+        state.imageGenMode = v; persist(); renderLeft(); renderPrompts(); restoreModeResult();
       }),
     ]));
 
@@ -3693,9 +3731,14 @@ export function renderMinimaxH3(container: HTMLElement) {
   }
 
   function renderLeft() {
+    const isPP = state.generationMode === "postprocess";
+    seedRowPanel.style.display = isPP ? "none" : "";
+    ppRowPanel.style.display = isPP ? "" : "none";
+    ppPreviewBtn.style.display = isPP ? "" : "none";
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
     if (state.generationMode === "facerefine") { renderFaceRefineLeft(); return; }
     if (state.generationMode === "imagegen") { renderImageGenLeft(); return; }
+    if (state.generationMode === "postprocess") { renderPostprocessLeft(); return; }
     setLeftLocked(false); // the lock overlay is LTX Upscale-only
     const contModes = continuityModesFor(state.generationMode, state);
     const cur = contModes.find((m) => m.key === state.continuityMode);
@@ -4244,6 +4287,354 @@ export function renderMinimaxH3(container: HTMLElement) {
     return wrap;
   }
 
+  // ── Postprocess mode (generationMode "postprocess") ─────────────────────────────────────
+  // A chained post-effect pipeline applied to an already-rendered/uploaded clip, separate from
+  // generation — Deblur -> Denoise -> Upscale -> Skin Retouch -> Add Grain -> Interpolate ->
+  // Resize (fixed order A-G, each step independently toggled). PORT_LEDGER row 428.
+  let _ppSrcInfo: { width?: number; height?: number; duration?: number; fps?: number } | null = null;
+  async function loadPpSrcInfo() {
+    _ppSrcInfo = null;
+    if (!state.ppSource) { renderLeft(); return; }
+    try {
+      const d = await getMediaInfo(state.ppSource);
+      if (d && d.ok) _ppSrcInfo = d;
+    } catch {}
+    renderLeft();
+  }
+  function setPpSource(inputFilename: string, kind: string, item?: any) {
+    state.ppSource = inputFilename; state.ppSourceKind = kind;
+    let m = (item && item.meta) || {};
+    if (typeof m === "string") { try { m = JSON.parse(m); } catch { m = {}; } }
+    const durM = m.durationSeconds || m.seconds || (m.frames && m.fps ? m.frames / m.fps : 0) || 0;
+    state.ppSourceMeta = (m.w || m.h || m.fps || m.frames || durM)
+      ? { w: m.w || 0, h: m.h || 0, fps: m.fps || 0, frames: m.frames || 0, duration: durM }
+      : null;
+    // The full source meta (prompt, seed, loras, everything) — kept separately so a real
+    // (non-preview) run can spread it forward onto the output's own meta, same shape the
+    // gallery's own post-process tools use.
+    state.ppSourceFullMeta = (m && Object.keys(m).length) ? m : null;
+    // A different source invalidates any preview range picked against the old clip's length —
+    // 0/0 (whole clip) is always safe regardless of the new duration.
+    state.ppPreviewStart = 0; state.ppPreviewEnd = 0;
+    ppPreviewStartIn.value = "0"; ppPreviewEndIn.value = "0";
+    _ppSrcInfo = null;
+    persist(); renderLeft();
+    loadPpSrcInfo();
+  }
+
+  function renderPostprocessLeft() {
+    setLeftLocked(false);
+    leftPanel.innerHTML = "";
+
+    // ── source clip ──────────────────────────────────────────────────────
+    const srcKids: (Node | null)[] = [label("Source clip")];
+    const hasSrc = !!state.ppSource;
+    const card = el("div", { style: {
+      position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000",
+      borderRadius: "8px", overflow: "hidden", border: `1px solid ${hasSrc ? BRAND : C.border}`,
+      display: "flex", alignItems: "center", justifyContent: "center",
+    } });
+    if (hasSrc) {
+      const vid = el("video", {
+        src: `${comfyApi.base}/view?filename=${encodeURIComponent(state.ppSource)}&type=input`,
+        muted: true, loop: true, playsinline: true, preload: "metadata",
+        style: { width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "block", cursor: "pointer" },
+      }) as HTMLVideoElement;
+      vid.addEventListener("click", () => { vid.paused ? vid.play() : vid.pause(); });
+      applySourceCardAspect(card, vid);
+      card.appendChild(vid);
+      card.appendChild(el("button", {
+        type: "button", text: "✕", title: "Clear source", style: {
+          position: "absolute", top: "6px", right: "6px", zIndex: "3", width: "24px", height: "24px",
+          border: "none", borderRadius: "6px", background: "rgba(0,0,0,0.7)", color: "#fff", cursor: "pointer", fontSize: "12px",
+        },
+        onclick: () => { state.ppSource = ""; state.ppSourceKind = "gallery"; state.ppSourceMeta = null; _ppSrcInfo = null; persist(); renderLeft(); },
+      }));
+      srcKids.push(card);
+      const info = _ppSrcInfo, sm = state.ppSourceMeta || ({} as any);
+      const dur = info?.duration || sm.duration || 0;
+      const w = info?.width || sm.w || 0, h = info?.height || sm.h || 0;
+      let fpsV = info?.fps || sm.fps || 0;
+      if (!fpsV && sm.frames && dur) fpsV = sm.frames / dur;
+      const fmtT = (s: number) => { s = Math.max(0, s || 0); const m = Math.floor(s / 60); const ss = Math.floor(s % 60); return `${m}:${String(ss).padStart(2, "0")}`; };
+      srcKids.push(el("div", {
+        style: { display: "flex", alignItems: "center", gap: "16px", padding: "4px 2px", fontSize: "11px", color: C.text },
+      }, [
+        el("span", { text: fmtT(dur) }),
+        el("span", { text: fpsV ? `${Math.round(fpsV)}fps` : "—", style: { color: fpsV ? C.text : C.muted } }),
+        el("span", { text: w && h ? `${w}x${h}` : "—", style: { color: w && h ? C.text : C.muted } }),
+      ]));
+    } else {
+      card.appendChild(el("div", { text: "no source clip", style: { color: C.muted, fontSize: "12px" } }));
+      srcKids.push(card);
+    }
+    const ppFileInp = el("input", { type: "file", accept: "video/*", style: { display: "none" } }) as HTMLInputElement;
+    ppFileInp.addEventListener("change", async () => {
+      const f = ppFileInp.files?.[0]; ppFileInp.value = "";
+      if (!f) return;
+      try { showPopup("Uploading…", false); const name = await uploadMedia(f); setPpSource(name, "upload"); }
+      catch (e: any) { showPopup(e.message, true); }
+    });
+    const ppGalBtn = button("🖼 From gallery", () => galleryOv.showPicker((inputFilename, item) => setPpSource(inputFilename, "gallery", item)));
+    const ppUpBtn = button("⬆ Upload", () => ppFileInp.click());
+    ppGalBtn.style.flex = "1"; ppUpBtn.style.flex = "1";
+    srcKids.push(el("div", { style: { display: "flex", gap: "8px" } }, [ppGalBtn, ppUpBtn]));
+    srcKids.push(ppFileInp);
+    leftPanel.appendChild(panel(srcKids));
+
+    // ── A. Deblur ────────────────────────────────────────────────────────
+    leftPanel.appendChild(accordion("ppDeblur", "A. Deblur", state.ppDeblurOn ? (state.ppDeblurStrength || "MEDIUM") : "OFF", () => [
+      checkboxRow("Enable Deblur (RTX Deblur)", state.ppDeblurOn, (v) => { state.ppDeblurOn = v; persist(); renderLeft(); }),
+      state.ppDeblurOn ? row([col([label("Strength"), select(
+        ["LOW", "MEDIUM", "HIGH", "ULTRA"].map((s) => ({ value: s, label: s })),
+        state.ppDeblurStrength || "MEDIUM", (v) => { state.ppDeblurStrength = v; persist(); })])]) : null,
+    ]));
+
+    // ── B. Denoise ───────────────────────────────────────────────────────
+    leftPanel.appendChild(accordion("ppDenoise", "B. Denoise", state.ppDenoiseOn ? (state.ppDenoiseStrength || "MEDIUM") : "OFF", () => [
+      checkboxRow("Enable Denoise (RTX Denoise)", state.ppDenoiseOn, (v) => { state.ppDenoiseOn = v; persist(); renderLeft(); }),
+      state.ppDenoiseOn ? row([col([label("Strength"), select(
+        ["LOW", "MEDIUM", "HIGH", "ULTRA"].map((s) => ({ value: s, label: s })),
+        state.ppDenoiseStrength || "MEDIUM", (v) => { state.ppDenoiseStrength = v; persist(); })])]) : null,
+    ]));
+
+    // ── C. Upscale — 1. FlashVSR, 2. RTX VSR (TJ), 3. Model — reuses the shared upscaleMode/
+    // upscaleModel/rtx*/flashvsr* state fields the main Upscale accordion + gallery Upscale bar
+    // already use; only this on/off flag and the menu order/labels are Postprocess-specific.
+    const PP_UPSCALE_METHODS = [
+      { value: "flashvsr", label: "FlashVSR" },
+      { value: "rtx", label: "RTX VSR (TJ)" },
+      { value: "model", label: "Model" },
+    ];
+    leftPanel.appendChild(accordion("ppUpscale", "C. Upscale",
+      state.ppUpscaleOn ? (state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr") : "OFF", () => {
+        const kids: (Node | null)[] = [checkboxRow("Enable Upscale", state.ppUpscaleOn, (v) => { state.ppUpscaleOn = v; persist(); renderLeft(); })];
+        if (!state.ppUpscaleOn) return kids;
+        const method = state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr";
+        kids.push(row([col([label("Method"), select(PP_UPSCALE_METHODS, method, (v) => { state.upscaleMode = v; persist(); renderLeft(); })])]));
+        if (method === "flashvsr") {
+          kids.push(row([
+            col([label("Model"), select(FLASHVSR_MODELS.map((m) => ({ value: m, label: m })), state.flashvsrModel || "FlashVSR-v1.1", (v) => { state.flashvsrModel = v; persist(); })]),
+            col([label("Mode"), select(FLASHVSR_MODES.map((m) => ({ value: m, label: m })), state.flashvsrMode || "tiny", (v) => { state.flashvsrMode = v; persist(); })]),
+          ]));
+          kids.push(row([
+            col([label("Scale"), numberField(state.flashvsrScale ?? 2, (v) => { state.flashvsrScale = Math.min(4, Math.max(2, Math.round(v))); persist(); }, 1)]),
+            col([label("Tile"), numberField(state.flashvsrTileSize ?? 384, (v) => { state.flashvsrTileSize = Math.max(32, Math.round(v)); persist(); }, 32)]),
+          ]));
+        } else if (method === "rtx") {
+          kids.push(row([
+            col([label("Scale"), numberField(state.rtxScale ?? 2.0, (v) => { state.rtxScale = Math.max(1, v); persist(); }, 0.25)]),
+            col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })), state.rtxQuality || "ULTRA", (v) => { state.rtxQuality = v; persist(); })]),
+          ]));
+        } else {
+          kids.push(row([col([label("Model"), select(
+            (ctx.availableModels?.upscale_models || ["none"]).map((m: string) => ({ value: m, label: m })),
+            state.upscaleModel || "none", (v) => { state.upscaleModel = v; persist(); })])]));
+        }
+        return kids;
+      }));
+
+    // ── D. Skin Retouch — right after Upscale (matches the reference tool's own layout). ───
+    leftPanel.appendChild(accordion("ppSkinRetouch", "D. Skin Retouch", state.ppSkinRetouchOn ? "on" : "OFF", () => [
+      checkboxRow("Enable Skin Retouch (TJ)", state.ppSkinRetouchOn, (v) => { state.ppSkinRetouchOn = v; persist(); renderLeft(); }),
+      !state.ppSkinRetouchOn ? null : row([
+        col([label("Evenness"), numberField(state.ppSkinEvenness ?? 0, (v) => { state.ppSkinEvenness = Math.max(0, Math.min(1, v)); persist(); }, 0.1)]),
+        col([label("Smoothing"), numberField(state.ppSkinSmoothing ?? 0, (v) => { state.ppSkinSmoothing = Math.max(0, Math.min(1, v)); persist(); }, 0.1)]),
+      ]),
+      !state.ppSkinRetouchOn ? null : row([
+        col([label("Redness"), numberField(state.ppSkinRedness ?? 0, (v) => { state.ppSkinRedness = Math.max(0, Math.min(1, v)); persist(); }, 0.1)]),
+        col([label("Shine"), numberField(state.ppSkinShine ?? 0, (v) => { state.ppSkinShine = Math.max(0, Math.min(1, v)); persist(); }, 0.1)]),
+      ]),
+      !state.ppSkinRetouchOn ? null : row([
+        col([label("Blemish"), select([{ value: "off", label: "Off" }, { value: "subtle", label: "Subtle" }, { value: "strong", label: "Strong" }],
+          state.ppSkinBlemishMode || "off", (v) => { state.ppSkinBlemishMode = v; persist(); })]),
+        col([label("Microtexture"), numberField(state.ppSkinMicrotexture ?? 0, (v) => { state.ppSkinMicrotexture = Math.max(0, Math.min(3, v)); persist(); }, 0.1)]),
+      ]),
+      !state.ppSkinRetouchOn ? null : checkboxRow("Preserve marks (moles/scars)", state.ppSkinPreserveMarks !== false, (v) => { state.ppSkinPreserveMarks = v; persist(); }),
+    ]));
+
+    // ── E. Add Grain ─────────────────────────────────────────────────────
+    leftPanel.appendChild(accordion("ppGrain", "E. Add Grain", state.ppGrainOn ? "on" : "OFF", () => [
+      checkboxRow("Enable Add Grain (GLSL film grain)", state.ppGrainOn, (v) => { state.ppGrainOn = v; persist(); renderLeft(); }),
+      !state.ppGrainOn ? null : row([
+        col([label("Amount"), numberField(state.ppGrainAmount ?? 0.25, (v) => { state.ppGrainAmount = Math.max(0, Math.min(1, v)); persist(); }, 0.05)]),
+        col([label("Size"), numberField(state.ppGrainSize ?? 0.1, (v) => { state.ppGrainSize = Math.max(0.01, v); persist(); }, 0.05)]),
+      ]),
+      !state.ppGrainOn ? null : row([
+        col([label("Color"), numberField(state.ppGrainColor ?? 0, (v) => { state.ppGrainColor = Math.max(0, Math.min(1, v)); persist(); }, 0.1)]),
+        col([label("Lum bias"), numberField(state.ppGrainLumBias ?? 0, (v) => { state.ppGrainLumBias = Math.max(0, Math.min(1, v)); persist(); }, 0.1)]),
+      ]),
+      !state.ppGrainOn ? null : row([col([label("Noise"), select(
+        [{ value: "smooth", label: "Smooth" }, { value: "grainy", label: "Grainy" }],
+        state.ppGrainNoiseMode || "smooth", (v) => { state.ppGrainNoiseMode = v; persist(); })])]),
+    ]));
+
+    // ── F. Interpolate ───────────────────────────────────────────────────
+    leftPanel.appendChild(accordion("ppInterpolate", "F. Interpolate", state.ppInterpolateOn ? `${FPS} → ${state.ppInterpolateTargetFps ?? FPS * 2}fps` : "OFF", () => [
+      checkboxRow("Enable Interpolate (RIFE)", state.ppInterpolateOn, (v) => { state.ppInterpolateOn = v; persist(); renderLeft(); }),
+      !state.ppInterpolateOn ? null : row([
+        col([label(`${FPS} fps →`), numberField(state.ppInterpolateTargetFps ?? FPS * 2, (v) => { state.ppInterpolateTargetFps = Math.max(FPS + 1, Math.round(v)); persist(); }, 1)]),
+        col([label("Scale"), select(["0.25", "0.5", "1.0", "2.0", "4.0"].map((v) => ({ value: v, label: v })),
+          String(state.ppInterpolateScale ?? 1.0), (v) => { state.ppInterpolateScale = parseFloat(v); persist(); })]),
+      ]),
+    ]));
+
+    // ── G. Resize — TJ_VideoResize, own ppResize* state (separate from the gallery's own
+    // local resize-bar closure state, which drives a different node). ─────────────────────
+    leftPanel.appendChild(accordion("ppResize", "G. Resize", state.ppResizeOn ? (state.ppResizeMode || "Long side") : "OFF", () => {
+      const kids: (Node | null)[] = [checkboxRow("Enable Resize (Video Resize (TJ))", state.ppResizeOn, (v) => { state.ppResizeOn = v; persist(); renderLeft(); })];
+      if (!state.ppResizeOn) return kids;
+      const RESIZE_MODES = ["Long side", "Short side", "Ratio", "Mega Pixel", "Width x Height"];
+      const mode = state.ppResizeMode || "Long side";
+      kids.push(row([col([label("Mode"), select(RESIZE_MODES.map((m) => ({ value: m, label: m })), mode, (v) => { state.ppResizeMode = v; persist(); renderLeft(); })])]));
+      if (mode === "Long side" || mode === "Short side") {
+        kids.push(row([col([label("Target px"), numberField(state.ppResizeTargetPx ?? 1920, (v) => { state.ppResizeTargetPx = Math.max(8, Math.round(v)); persist(); }, 8)])]));
+      } else if (mode === "Ratio") {
+        kids.push(row([
+          col([label("Ratio W"), numberField(state.ppResizeRatioW ?? 16, (v) => { state.ppResizeRatioW = Math.max(1, Math.round(v)); persist(); }, 1)]),
+          col([label("Ratio H"), numberField(state.ppResizeRatioH ?? 9, (v) => { state.ppResizeRatioH = Math.max(1, Math.round(v)); persist(); }, 1)]),
+        ]));
+      } else if (mode === "Mega Pixel") {
+        kids.push(row([col([label("Megapixels"), numberField(state.ppResizeMegapixels ?? 1.0, (v) => { state.ppResizeMegapixels = Math.max(0.01, v); persist(); }, 0.1)])]));
+      } else {
+        kids.push(row([
+          col([label("Width"), numberField(state.ppResizeTargetWidth ?? 1920, (v) => { state.ppResizeTargetWidth = Math.max(8, Math.round(v)); persist(); }, 8)]),
+          col([label("Height"), numberField(state.ppResizeTargetHeight ?? 1080, (v) => { state.ppResizeTargetHeight = Math.max(8, Math.round(v)); persist(); }, 8)]),
+        ]));
+        kids.push(row([col([label("Crop mode"), select([{ value: "crop", label: "Crop" }, { value: "stretch", label: "Stretch" }],
+          state.ppResizeCropMode || "crop", (v) => { state.ppResizeCropMode = v; persist(); })])]));
+      }
+      kids.push(row([col([label("Upscale method"), select(
+        ["lanczos", "bilinear", "bicubic", "area", "nearest-exact"].map((m) => ({ value: m, label: m })),
+        state.ppResizeUpscaleMethod || "lanczos", (v) => { state.ppResizeUpscaleMethod = v; persist(); })])]));
+      return kids;
+    }));
+  }
+
+  let ppRunning = false;
+  async function runPostprocess(opts: { full?: boolean } = {}) {
+    const full = opts.full !== false;
+    if (ppRunning || running) return;
+    if (!state.ppSource) { showPopup("Pick a source clip first.", true); return; }
+    const stepFlags: (keyof MinimaxState)[] = ["ppDeblurOn", "ppDenoiseOn", "ppUpscaleOn", "ppSkinRetouchOn", "ppGrainOn", "ppInterpolateOn", "ppResizeOn"];
+    if (!stepFlags.some((k) => (state as any)[k])) { showPopup("Enable at least one effect (A-G) first.", true); return; }
+    ppRunning = true; running = true; stopRequested = false;
+    const busyBtn = full ? genBtn : ppPreviewBtn;
+    genBtn.disabled = true; ppPreviewBtn.disabled = true;
+    const genLabel = genBtn.textContent;
+    busyBtn.textContent = full ? "⏳ Running…" : "⏳ Preview…";
+    setStatus("Postprocess running…");
+    setPpBusy(true, full);
+    resetPreview();
+    startClock();
+    try {
+      if (!ctx.availability || !Object.keys(ctx.availability).length) {
+        const av = await getNodeAvailability();
+        ctx.availability = av.available || {}; ctx.availabilityInfo = av;
+      }
+      // Generate always runs the whole clip — the range fields only ever apply to Preview's
+      // own short-look run, never to a real/final one.
+      const startS = full ? 0 : Math.max(0, state.ppPreviewStart || 0);
+      const endS = full ? 0 : Math.max(0, state.ppPreviewEnd || 0);
+      const srcMeta = state.ppSourceMeta || (_ppSrcInfo ? { fps: _ppSrcInfo.fps || 0, w: _ppSrcInfo.width || 0, h: _ppSrcInfo.height || 0 } : {} as any);
+      const srcFps = srcMeta.fps || FPS;
+      const skipFirstFrames = Math.round(startS * srcFps);
+      const frameLoadCap = endS > startS ? Math.round((endS - startS) * srcFps) : 0;
+
+      // A preview writes into ComfyUI's own temp/ dir (preview:true -> save_output:false in
+      // buildPostprocessGraph/saveVideoNode), under one fixed subfolder (TEMP_PREVIEW_SUBFOLDER)
+      // shared by every tool's preview runs — never touches the real output/ gallery.
+      const built = buildPostprocessGraph({
+        inputFile: state.ppSource,
+        folder: full ? (state.saveSubfolder || SUBFOLDER) : TEMP_PREVIEW_SUBFOLDER,
+        stem: state.ppSource.replace(/\.[^.]+$/, ""),
+        skipFirstFrames, frameLoadCap,
+        saveSuffix: frameLoadCap ? "_post_preview" : "_post",
+        preview: !full,
+        deblur: { enabled: state.ppDeblurOn, strength: state.ppDeblurStrength || "MEDIUM" },
+        denoise: { enabled: state.ppDenoiseOn, strength: state.ppDenoiseStrength || "MEDIUM" },
+        upscale: {
+          enabled: state.ppUpscaleOn,
+          method: (state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr") as any,
+          modelName: state.upscaleModel,
+          rtxScale: state.rtxScale, rtxQuality: state.rtxQuality, rtxSizeMode: state.rtxSizeMode || "scale",
+          rtxShort: state.rtxShort, rtxLong: state.rtxLong, rtxW: state.rtxW, rtxH: state.rtxH,
+          rtxCropAnchor: state.rtxCropAnchor, srcW: srcMeta.w, srcH: srcMeta.h,
+          flashvsr: {
+            model: state.flashvsrModel, mode: state.flashvsrMode, scale: state.flashvsrScale,
+            colorFix: state.flashvsrColorFix, tileSize: state.flashvsrTileSize,
+            tileOverlap: state.flashvsrTileOverlap, seed: randomSeed(),
+          },
+        },
+        skinRetouch: {
+          enabled: state.ppSkinRetouchOn, evenness: state.ppSkinEvenness, smoothing: state.ppSkinSmoothing,
+          redness: state.ppSkinRedness, shine: state.ppSkinShine, blemishMode: state.ppSkinBlemishMode,
+          preserveMarks: state.ppSkinPreserveMarks, microtextureStrength: state.ppSkinMicrotexture,
+        },
+        grain: {
+          enabled: state.ppGrainOn, amount: state.ppGrainAmount, size: state.ppGrainSize,
+          color: state.ppGrainColor, lumBias: state.ppGrainLumBias, noiseMode: state.ppGrainNoiseMode,
+        },
+        interpolate: {
+          enabled: state.ppInterpolateOn, targetFps: state.ppInterpolateTargetFps,
+          scale: state.ppInterpolateScale, batchSize: 8, useFp16: true,
+        },
+        resize: {
+          enabled: state.ppResizeOn, mode: state.ppResizeMode, upscaleMethod: state.ppResizeUpscaleMethod,
+          targetPx: state.ppResizeTargetPx, ratioW: state.ppResizeRatioW, ratioH: state.ppResizeRatioH,
+          megapixels: state.ppResizeMegapixels, targetWidth: state.ppResizeTargetWidth,
+          targetHeight: state.ppResizeTargetHeight, cropMode: state.ppResizeCropMode,
+        },
+      }, ctx.availability || {});
+
+      setStatus(`Postprocess: ${built.usedSteps.join(" + ")}…`);
+      const res = await queuePrompt(built.graph, {
+        onProgress: (v: number, m: number) => setStatus(`Postprocess: ${built.usedSteps.join(" + ")} — ${Math.round((v / (m || 1)) * 100)}%`),
+      });
+      const o = firstOutput(res.byNode, built.saveNode);
+      if (!o) throw new Error("No output produced.");
+      // A Preview run's VHS_VideoCombine has save_output:false, so ComfyUI reports it back with
+      // type "temp", not "output" — outputViewUrl's own &t=Date.now() cache-busts it too, so two
+      // different preview runs sharing the same filename/subfolder/type never collide.
+      const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");
+      showResultVideo(url);
+      if (full) {
+        try {
+          const patched: Record<string, any> = {
+            ...(state.ppSourceFullMeta || {}),
+            created: Date.now(), postProcess: built.usedSteps.join(" + "), postSource: state.ppSource,
+          };
+          delete patched.elapsedSec; delete patched.sourceW; delete patched.sourceH;
+          try {
+            const oi = await getVideoInfo(o.filename, o.subfolder || "", "output");
+            if (oi?.width || oi?.height) {
+              const srcW = state.ppSourceMeta?.w, srcH = state.ppSourceMeta?.h;
+              if ((oi.width && oi.width !== srcW) || (oi.height && oi.height !== srcH)) { patched.sourceW = srcW; patched.sourceH = srcH; }
+              if (oi.width) patched.w = oi.width;
+              if (oi.height) patched.h = oi.height;
+            }
+            if (oi?.frames) { patched.frames = oi.frames; patched.durationSeconds = oi.frames / (oi.fps || FPS); }
+            if (oi?.fps) patched.fps = oi.fps;
+          } catch { /* keep the source geometry rather than fail */ }
+          await saveMeta(o.filename, o.subfolder || (state.saveSubfolder || SUBFOLDER), patched);
+        } catch {}
+        try { refreshGallery(); } catch {}
+      }
+      setStatus(`✓ Postprocess done (${built.usedSteps.join(" + ")})${full ? "" : " — preview only, not saved to the gallery"}.`);
+      showPopup(full ? "Postprocess finished — the new file is in the gallery." : "Preview ready — compare it, then hit ▶ Generate to produce and save the full clip.", false);
+    } catch (e: any) {
+      setStatus(`Error: ${e?.message || e}`);
+      showPopup(e?.message || String(e), true);
+    } finally {
+      setPpBusy(false);
+      ppRunning = false; running = false; stopRequested = false;
+      genBtn.disabled = false; genBtn.textContent = genLabel || "▶ Generate";
+      ppPreviewBtn.disabled = false; ppPreviewBtn.textContent = "Preview";
+      try { await freeMemory(); } catch {}
+      stopClock();
+    }
+  }
+
   // ── 시드 + 생성 버튼 ──────────────────────────────────────────────
   const seedInput = numberField(state.seed, (v) => { state.seed = v; persist(); }, 1);
   const seedModeDD = select(
@@ -4257,7 +4648,25 @@ export function renderMinimaxH3(container: HTMLElement) {
     (v) => { state.seedMode = v; persist(); }
   );
   const seedGenWrap = el("div", { class: "flex flex-col gap-1.5 pt-2 shrink-0 border-t border-border" });
-  seedGenWrap.appendChild(panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]));
+  const seedRowPanel = panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]);
+  seedGenWrap.appendChild(seedRowPanel);
+
+  // Postprocess mode replaces the fixed Seed/Mode row with a preview-range (Start/End seconds)
+  // + its own light-purple Preview button — a quick, NOT-saved look at a short slice — the usual
+  // ▶ Generate/■ Stop row below always runs (and saves) the FULL clip regardless of the range
+  // fields. Preview is an optional check, not a gate: Generate works with nothing previewed.
+  const ppPreviewStartIn = numberField(state.ppPreviewStart ?? 0, (v) => { state.ppPreviewStart = Math.max(0, v); persist(); }, 0.1);
+  const ppPreviewEndIn = numberField(state.ppPreviewEnd ?? 0, (v) => { state.ppPreviewEnd = Math.max(0, v); persist(); }, 0.1);
+  const ppPreviewBtn = el("button", {
+    type: "button", text: "Preview",
+    style: { cursor: "pointer", width: "100%", padding: "10px", fontSize: "13px", fontWeight: "700", borderRadius: "6px", border: "none", background: "#e4d4fb", color: BRAND },
+  });
+  ppPreviewBtn.addEventListener("click", () => runPostprocess({ full: false }));
+  const ppRowPanel = panel([row([col([label("Start (s)"), ppPreviewStartIn]), col([label("End (s) — 0 = full"), ppPreviewEndIn])])]);
+  ppRowPanel.style.display = "none";
+  seedGenWrap.appendChild(ppRowPanel);
+  seedGenWrap.appendChild(ppPreviewBtn);
+  ppPreviewBtn.style.display = "none";
 
   const genBtn = button("▶ Generate", null, "primary");
   genBtn.className = "flex-1 py-2.5 text-sm whitespace-nowrap";
@@ -4689,6 +5098,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (state.imageGenMode === "charsheet") runCharacterSheet(); else runImageGen({ final: true });
       return;
     }
+    if (state.generationMode === "postprocess") { runPostprocess({ full: true }); return; }
     runGenerate();
   });
 

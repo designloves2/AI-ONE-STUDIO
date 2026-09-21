@@ -1370,3 +1370,172 @@ export function buildResizeGraph(inputFilename: string, folder: string, stem: st
   g.save = { class_type: "SaveVideo", inputs: { video: ["video", 0], filename_prefix: `${folder}/${stem}${suffix}`, format: "auto", codec: "auto" } };
   return { graph: g, saveNode: "save" };
 }
+
+// ── Image Generator (generationMode "imagegen", state.imageGenMode "t2i" | "ref2i") ───────
+//
+// Not a separate image model — the same H3 video pipeline (MiniMaxH3ImageToVideo /
+// MiniMaxH3ReferenceToVideo) run at a short fixed length (8 frames) and read back as a
+// single still. Node parity: graph_builder_minimax.js buildImageGenGraph. A cheap first
+// pass at the "preview" resolution, then — only for a real (non-preview) run — a second
+// pass through MinimaxH3LatentUpscaler3D up to the "final" resolution. A user-facing Turbo
+// switch (off by default) optionally patches in one LoRA — separate slots for T2I/Ref2I
+// (imgTurboLoraT2i/imgTurboLoraRef2i), same reasoning as the main pipeline's own
+// turboLora/turboLoraReference split, since a turbo LoRA is trained against one base model.
+// With Turbo on, the second pass keeps the reference workflow's own fixed 3-step sigma
+// schedule; with Turbo off, both passes run a plain schedule at the user's own step count.
+const IMG = {
+  unet: "IMG:unet", sage: "IMG:sage", memSage: "IMG:mem_sage",
+  lora: (i: number) => `IMG:lora_${i}`,
+  turboLora: "IMG:turbo_lora",
+  clip: "IMG:clip", vaeV: "IMG:vae_video",
+  ref: (i: number) => `IMG:ref_image_${i}`,
+  cond: "IMG:cond",
+  noise: "IMG:noise", sampSel1: "IMG:sampler_sel1", sched: "IMG:scheduler",
+  guider1: "IMG:guider1", sampler1: "IMG:sampler1",
+  sepAV: "IMG:sep_av", latentUp: "IMG:latent_up", concatAV: "IMG:concat_av",
+  sampSel2: "IMG:sampler_sel2", guider2: "IMG:guider2", sigmas2: "IMG:sigmas2", sampler2: "IMG:sampler2",
+  decode: "IMG:decode", frame: "IMG:frame", save: "IMG:save",
+};
+
+// The reference workflow's own fixed second-pass schedule ("3 step Sigmas").
+const IMG_PASS2_SIGMAS = "0.9035, 0.6316, 0.3158, 0.0000";
+// Frame count for the short clip a still is read back from — fixed, not user-facing (the
+// reference workflow's own PrimitiveInt value); ImageFromBatch's batch_index below always
+// matches it, so this is the one place both must agree if it's ever changed.
+const IMG_LENGTH = 8;
+
+function buildImageLoraChain(g: Graph, state: MinimaxState, modelLink: any) {
+  const loras: LoraEntry[] = Array.isArray(state.imgLoras) ? state.imgLoras : [];
+  let link = modelLink;
+  loras.slice(0, 3).forEach((l, i) => {
+    if (!l || l.enabled === false || !l.name || l.name === "none") return;
+    g[IMG.lora(i)] = { class_type: "LoraLoaderModelOnly", inputs: {
+      lora_name: l.name, strength_model: l.strength ?? 1.0, model: link,
+    } };
+    link = [IMG.lora(i), 0];
+  });
+  return link;
+}
+
+export interface ImageGenOpts {
+  subMode: "t2i" | "ref2i";
+  final: boolean; // false = preview pass only; true = full run (adds latent-upscale 2nd pass, saves for real)
+  refImages?: string[]; // ref2i only — up to 9 filenames already in ComfyUI's input/
+  refImageSize?: string; // "match" | "max"
+  prompt: string;
+  seed: number;
+  previewRes: { width: number; height: number };
+  finalRes: { width: number; height: number };
+  filenamePrefix: string;
+  steps?: number; // first-pass step count (also both passes' count with Turbo off); default 8
+  turboOn?: boolean;
+  turboLora?: string;
+  turboLoraStrength?: number;
+  savePreview?: boolean; // false (default) = a !final run's still goes to PreviewImage instead of SaveImage
+}
+
+export function buildImageGenGraph(state: MinimaxState, avail: Avail | undefined, opts: ImageGenOpts) {
+  const { subMode, final, refImages, refImageSize, prompt, seed, previewRes, finalRes, filenamePrefix,
+    steps, turboOn, turboLora, turboLoraStrength, savePreview } = opts;
+  const refList = (refImages || []).filter(Boolean).slice(0, 9);
+  if (subMode === "ref2i" && !refList.length) throw new Error("Reference to Image needs at least one reference image.");
+  const g: Graph = {};
+
+  const unetName = subMode === "ref2i" ? state.unetReference : state.unetFirstLast;
+  if (!unetName || unetName === "none") throw new Error(
+    `${subMode === "ref2i" ? "Reference" : "First/Last"} UNET is not set — check ⚙ Settings → Models.`);
+  g[IMG.unet] = { class_type: "UNETLoader", inputs: { unet_name: unetName, weight_dtype: "default" } };
+  let model: any = [IMG.unet, 0];
+
+  if (has(avail, "PathchSageAttentionKJ")) {
+    g[IMG.sage] = { class_type: "PathchSageAttentionKJ", inputs: { sage_attention: "auto", allow_compile: true, model } };
+    model = [IMG.sage, 0];
+  }
+  if (has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
+    g[IMG.memSage] = { class_type: "MiniMaxH3MemoryEfficientSageAttentionPatch", inputs: { model } };
+    model = [IMG.memSage, 0];
+  }
+  model = buildImageLoraChain(g, state, model);
+
+  // Turbo LoRA — user-selectable, off by default (goes after the user LoRA chain so it
+  // sits closest to the sampler, same ordering the main pipeline's own turbo LoRA uses).
+  if (turboOn && turboLora && turboLora !== "none") {
+    g[IMG.turboLora] = { class_type: "LoraLoaderModelOnly", inputs: {
+      model, lora_name: turboLora, strength_model: turboLoraStrength ?? 1.0,
+    } };
+    model = [IMG.turboLora, 0];
+  }
+
+  g[IMG.clip] = { class_type: "CLIPLoader", inputs: { clip_name: state.clipName, type: "minimax", device: "default" } };
+  g[IMG.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
+
+  const condInputs: Record<string, any> = {
+    clip: [IMG.clip, 0], vae: [IMG.vaeV, 0],
+    prompt, width: previewRes.width, height: previewRes.height, length: IMG_LENGTH,
+  };
+  if (subMode === "ref2i") {
+    condInputs.ref_image_size = refImageSize || "max";
+    refList.forEach((name, i) => {
+      g[IMG.ref(i)] = { class_type: "LoadImage", inputs: { image: name } };
+      condInputs[`ref_images.ref_image_${i}`] = [IMG.ref(i), 0];
+    });
+    g[IMG.cond] = { class_type: "MiniMaxH3ReferenceToVideo", inputs: condInputs };
+  } else {
+    g[IMG.cond] = { class_type: "MiniMaxH3ImageToVideo", inputs: condInputs };
+  }
+
+  const stepCount = Math.max(1, Math.round(steps ?? 8));
+  g[IMG.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
+  g[IMG.sampSel1] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+  g[IMG.sched] = { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
+  g[IMG.guider1] = { class_type: "BasicGuider", inputs: { model, conditioning: [IMG.cond, 0] } };
+  g[IMG.sampler1] = { class_type: "SamplerCustomAdvanced", inputs: {
+    noise: [IMG.noise, 0], guider: [IMG.guider1, 0], sampler: [IMG.sampSel1, 0],
+    sigmas: [IMG.sched, 0], latent_image: [IMG.cond, 1],
+  } };
+
+  let decodeSamples: any;
+  if (!final) {
+    // Preview: decode the cheap first pass directly, at the preview resolution.
+    decodeSamples = [IMG.sampler1, 0];
+  } else {
+    // Real run: latent-upscale the first pass's video component up to the final
+    // resolution, re-attach its (unused) audio component, and run the fixed 3-step
+    // second pass — exactly the reference workflow's own two-pass shape.
+    if (!has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("MinimaxH3LatentUpscaler3D is not installed.");
+    g[IMG.sepAV] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: [IMG.sampler1, 1] } };
+    g[IMG.latentUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
+      model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+      mode: "target dimensions", "mode.width": finalRes.width, "mode.height": finalRes.height,
+      align: 32, enable_temporal_chunking: true, force_unload: true, device: "cuda", precision: "fp16",
+      latent: [IMG.sepAV, 0],
+    } };
+    g[IMG.concatAV] = { class_type: "LTXVConcatAVLatent", inputs: {
+      video_latent: [IMG.latentUp, 0], audio_latent: [IMG.sepAV, 1],
+    } };
+    g[IMG.sampSel2] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+    g[IMG.guider2] = { class_type: "BasicGuider", inputs: { model, conditioning: [IMG.cond, 0] } };
+    // Turbo on: the reference workflow's own fixed 3-step schedule, built for a turbo
+    // LoRA's distilled step count. Turbo off: a plain schedule at the same step count as
+    // the first pass, since there's no turbo LoRA here to justify only 3 steps.
+    g[IMG.sigmas2] = turboOn
+      ? { class_type: "ManualSigmas", inputs: { sigmas: IMG_PASS2_SIGMAS } }
+      : { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
+    g[IMG.sampler2] = { class_type: "SamplerCustomAdvanced", inputs: {
+      noise: [IMG.noise, 0], guider: [IMG.guider2, 0], sampler: [IMG.sampSel2, 0],
+      sigmas: [IMG.sigmas2, 0], latent_image: [IMG.concatAV, 0],
+    } };
+    decodeSamples = [IMG.sampler2, 0];
+  }
+
+  g[IMG.decode] = { class_type: "VAEDecode", inputs: { samples: decodeSamples, vae: [IMG.vaeV, 0] } };
+  g[IMG.frame] = { class_type: "ImageFromBatch", inputs: { batch_index: IMG_LENGTH, length: 1, image: [IMG.decode, 0] } };
+  // A preview the user hasn't opted to keep goes to PreviewImage (ComfyUI's own temp/
+  // folder) instead of SaveImage, so it never lands in the output folder the H3 image
+  // gallery scans — nothing to clean up afterward. A real (final) run always saves.
+  g[IMG.save] = (final || savePreview)
+    ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [IMG.frame, 0] } }
+    : { class_type: "PreviewImage", inputs: { images: [IMG.frame, 0] } };
+
+  return { graph: g, saveNode: IMG.save };
+}

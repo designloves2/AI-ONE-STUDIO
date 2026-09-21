@@ -624,12 +624,17 @@ export function renderMinimaxH3(container: HTMLElement) {
   // so reading state.generationMode/frSource/ltxSource inside the click handler could pair
   // the still-visible result with whatever clip the NEW mode happens to have selected.
   let lastCompareSource: string | null = null;
+  // Set alongside lastCompareSource when the shown result came from a TRIMMED run
+  // (Postprocess Preview's Start(s)/End(s)) — { start, end } in seconds into the ORIGINAL
+  // clip. null means "compare the whole original" (Face Refine / LTX Upscale / a real
+  // Postprocess Generate run all cover the full clip, same as the original).
+  let lastCompareRange: { start: number; end: number } | null = null;
   fsBtn.addEventListener("click", () => {
     if (lastResultURL) window.open(lastResultURL, "_blank");
   });
   compareBtn.addEventListener("click", () => {
     if (!lastResultURL || !lastCompareSource) return;
-    openCompareViewer(`${comfyApi.base}/view?filename=${encodeURIComponent(lastCompareSource)}&type=input`, lastResultURL);
+    openCompareViewer(`${comfyApi.base}/view?filename=${encodeURIComponent(lastCompareSource)}&type=input`, lastResultURL, lastCompareRange);
   });
 
   // Original / Restored / Compare (wipe) / Side-by-side viewer for a finished Face Refine
@@ -637,12 +642,20 @@ export function renderMinimaxH3(container: HTMLElement) {
   // one_node_minimax_h3.js openCompareViewer(). Wheel to zoom, drag to pan, double-click to
   // reset — same gestures on Original/Restored/Compare; Side-by-side keeps both clips at
   // 1:1 so a direct pixel comparison isn't distorted by an unsynced zoom on only one side.
-  function openCompareViewer(originalUrl: string, restoredUrl: string) {
+  function openCompareViewer(originalUrl: string, restoredUrl: string, range: { start: number; end: number } | null = null) {
     let mode: "original" | "restored" | "compare" | "side" = "compare";
     let wipe = 50; // percent, compare mode only
     let zoom = 1, panX = 0, panY = 0;
     const CFPS = 24; // this app's clips are constant-framerate 24fps throughout
     let kh: ((e: KeyboardEvent) => void) | null = null;
+    // range = { start, end } seconds into originalUrl — set when restoredUrl came from a
+    // TRIMMED run (Postprocess Preview's Start(s)/End(s)). origVid (the master clock) is
+    // clamped/looped to that window instead of its own full native duration, so it always
+    // compares against the SAME span of time as restoredUrl, not the whole untrimmed source
+    // (8s original vs 1s preview would otherwise never line up). null = compare the whole
+    // original (Face Refine / LTX Upscale / a real Postprocess Generate run).
+    const rangeStart = range ? Math.max(0, range.start || 0) : 0;
+    let rangeEnd = range ? Math.max(rangeStart, range.end || 0) : 0;
 
     const ov = el("div", { style: {
       position: "fixed", inset: "0", background: "rgba(10,10,14,0.97)", zIndex: "100060",
@@ -696,9 +709,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     // it forces restVid's pixels to exactly match origVid's on-screen rectangle rather than
     // trusting the file's own reported aspect ratio. Face Refine has no such mismatch (same
     // canvas in/out) but this shared rect is harmless for it too.
-    const origVid = el("video", { src: originalUrl, loop: "", muted: "", playsinline: "",
+    // No native `loop` on ANY video here — origVid is the master clock and looping is handled
+    // manually (below) between rangeStart/rangeEnd, so a Postprocess Preview's TRIMMED
+    // restoredUrl (shorter than the full source) compares against only the matching WINDOW of
+    // the original, not its full length. restVid/side clips are then kept glued to origVid's
+    // clock every timeupdate tick (see syncTo below) rather than looping on their own native
+    // duration, which would otherwise drift them apart mid-playback.
+    const origVid = el("video", { src: originalUrl, muted: "", playsinline: "",
       style: { position: "absolute", objectFit: "fill" } }) as HTMLVideoElement;
-    const restVid = el("video", { src: restoredUrl, loop: "", muted: "", playsinline: "",
+    const restVid = el("video", { src: restoredUrl, muted: "", playsinline: "",
       style: { position: "absolute", objectFit: "fill" } }) as HTMLVideoElement;
     origVid.muted = true; restVid.muted = true;
 
@@ -742,9 +761,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     // flex:1 belongs on the WRAPPER (the actual flex child of sideWrap) — putting it on the
     // <video> itself does nothing (its parent isn't a flex container), and leaves width:0 as
     // the only surviving rule, collapsing both videos to zero width.
-    const sideOrig = el("video", { src: originalUrl, loop: "", muted: "", playsinline: "",
+    const sideOrig = el("video", { src: originalUrl, muted: "", playsinline: "",
       style: { width: "100%", height: "100%", objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
-    const sideRest = el("video", { src: restoredUrl, loop: "", muted: "", playsinline: "",
+    const sideRest = el("video", { src: restoredUrl, muted: "", playsinline: "",
       style: { width: "100%", height: "100%", objectFit: "contain", background: "#000" } }) as HTMLVideoElement;
     sideOrig.muted = true; sideRest.muted = true;
     const sideOrigWrap = el("div", { style: { position: "relative", flex: "1", height: "100%" } }, [sideOrig, makeLabel("Original", "left")]);
@@ -812,7 +831,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
     // videoWidth/videoHeight are 0 until metadata loads, and the modal's own size can change
     // (window resize) — recompute the content rect whenever either happens.
-    origVid.addEventListener("loadedmetadata", () => renderStage());
+    let rangeInited = false;
+    origVid.addEventListener("loadedmetadata", () => {
+      if (!rangeInited) {
+        rangeInited = true;
+        if (!rangeEnd) rangeEnd = origVid.duration || 0;
+        try { origVid.currentTime = rangeStart; } catch {}
+      }
+      renderStage();
+    });
     const onWinResize = () => renderStage();
     window.addEventListener("resize", onWinResize);
 
@@ -920,11 +947,22 @@ export function renderMinimaxH3(container: HTMLElement) {
       return `${String(m).padStart(2, "0")}:${sec.toFixed(3).padStart(6, "0")}`;
     }
     // The "master" clock is always origVid — restVid (and the two side clips) are kept in
-    // lock-step with it, since a Face Refine / LTX Upscale output has the same frame count
-    // as the clip it started from.
+    // lock-step with it. origVid's own clock runs in ABSOLUTE source-clip time
+    // (rangeStart..rangeEnd); restVid/side clips run in RELATIVE time from their own start
+    // (0..rangeEnd-rangeStart), since a trimmed Postprocess Preview result's file only ever
+    // contains that window, not the full original.
     function allVids() { return [origVid, restVid, sideOrig, sideRest]; }
-    function syncTo(t: number) {
-      for (const v of allVids()) { if (Math.abs(v.currentTime - t) > 0.03) { try { v.currentTime = t; } catch {} } }
+    function syncTo(origT: number) {
+      const relT = Math.max(0, origT - rangeStart);
+      for (const v of allVids()) {
+        const target = v === origVid ? origT : relT;
+        if (Math.abs(v.currentTime - target) > 0.03) { try { v.currentTime = target; } catch {} }
+        // A clip can pause itself on `ended` (e.g. restVid reaching ITS OWN short end while
+        // origVid still has more of its window left) — once the loop below wraps everything
+        // back to rangeStart it needs an explicit play() to resume, or it just sits on its
+        // last frame forever.
+        if (playing && v.paused) { try { v.play().catch(() => {}); } catch {} }
+      }
     }
     let playing = false;
     function setPlaying(p: boolean) {
@@ -933,18 +971,25 @@ export function renderMinimaxH3(container: HTMLElement) {
       for (const v of allVids()) { try { playing ? v.play().catch(() => {}) : v.pause(); } catch {} }
     }
     playBtn.addEventListener("click", () => setPlaying(!playing));
-    prevBtn.addEventListener("click", () => { setPlaying(false); syncTo(Math.max(0, origVid.currentTime - 1 / CFPS)); });
-    nextBtn.addEventListener("click", () => { setPlaying(false); syncTo(Math.min(origVid.duration || 0, origVid.currentTime + 1 / CFPS)); });
+    prevBtn.addEventListener("click", () => { setPlaying(false); syncTo(Math.max(rangeStart, origVid.currentTime - 1 / CFPS)); });
+    nextBtn.addEventListener("click", () => { setPlaying(false); syncTo(Math.min(rangeEnd || origVid.duration || 0, origVid.currentTime + 1 / CFPS)); });
     scrub.addEventListener("input", () => {
       setPlaying(false);
-      const dur = origVid.duration || 0;
-      syncTo((parseFloat(scrub.value) / 1000) * dur);
+      const dur = (rangeEnd || origVid.duration || 0) - rangeStart;
+      syncTo(rangeStart + (parseFloat(scrub.value) / 1000) * dur);
     });
     origVid.addEventListener("timeupdate", () => {
-      const dur = origVid.duration || 0;
-      if (dur > 0) scrub.value = String(Math.round((origVid.currentTime / dur) * 1000));
-      timeText.textContent = `${fmtT(origVid.currentTime)} / ${fmtT(dur)}`;
-      frameText.textContent = `Frame ${Math.round(origVid.currentTime * CFPS)} / ${Math.round(dur * CFPS)}`;
+      const dur = (rangeEnd || origVid.duration || 0) - rangeStart;
+      const t = Math.max(0, origVid.currentTime - rangeStart);
+      if (dur > 0) scrub.value = String(Math.round((t / dur) * 1000));
+      timeText.textContent = `${fmtT(t)} / ${fmtT(dur)}`;
+      frameText.textContent = `Frame ${Math.round(t * CFPS)} / ${Math.round(dur * CFPS)}`;
+      if (playing) {
+        // No native `loop` on origVid any more (see its own comment above) — once its clock
+        // reaches rangeEnd, wrap everything back to rangeStart by hand instead.
+        if (rangeEnd && origVid.currentTime >= rangeEnd - 0.02) syncTo(rangeStart);
+        else syncTo(origVid.currentTime);
+      }
     });
 
     function close() {
@@ -990,19 +1035,19 @@ export function renderMinimaxH3(container: HTMLElement) {
   // the box on a pure mode-switch. modeResultCache (keyed by resultModeKey) + restoreModeResult
   // (called from the mode-pill's own onChange, and once at mount) fixes that generically —
   // PORT_LEDGER row 428 fix (6), audited as applying to every mode here, not just Postprocess.
-  const modeResultCache = new Map<string, { kind: "video" | "image"; url: string }>();
+  const modeResultCache = new Map<string, { kind: "video" | "image"; url: string; compareRange?: { start: number; end: number } | null }>();
   function resultModeKey() {
     return state.generationMode === "imagegen" ? `imagegen:${state.imageGenMode || "t2i"}` : state.generationMode || "t2v";
   }
   function restoreModeResult() {
     const hit = modeResultCache.get(resultModeKey());
     if (!hit) { resetPreview(); return; }
-    if (hit.kind === "video") showResultVideo(hit.url, { cache: false });
+    if (hit.kind === "video") showResultVideo(hit.url, { cache: false, compareRange: hit.compareRange });
     else showResultImage(hit.url, { cache: false });
   }
-  function showResultVideo(url: string, opts: { cache?: boolean } = {}) {
+  function showResultVideo(url: string, opts: { cache?: boolean; compareRange?: { start: number; end: number } | null } = {}) {
     lastResultURL = url;
-    if (opts.cache !== false) modeResultCache.set(resultModeKey(), { kind: "video", url });
+    if (opts.cache !== false) modeResultCache.set(resultModeKey(), { kind: "video", url, compareRange: opts.compareRange ?? null });
     placeholder.style.display = "none";
     previewOffMsg.classList.add("hidden");
     previewImg.style.display = "none";
@@ -1015,10 +1060,12 @@ export function renderMinimaxH3(container: HTMLElement) {
       resultVid.currentTime = 0;
     } catch {}
     lastCompareSource = state.generationMode === "facerefine" ? (state.frSource || null)
-      : state.generationMode === "ltxupscale" ? (state.ltxSource || null) : null;
+      : state.generationMode === "ltxupscale" ? (state.ltxSource || null)
+      : state.generationMode === "postprocess" ? (state.ppSource || null) : null;
+    lastCompareRange = opts.compareRange ?? null;
     const hasOriginal = !!lastCompareSource;
     // The compare viewer already covers fullscreen viewing (its own overlay, zoom/pan) for
-    // these two modes, so a separate fullscreen button is redundant there.
+    // these modes, so a separate fullscreen button is redundant there.
     fsBtn.classList.toggle("hidden", hasOriginal);
     compareBtn.classList.toggle("hidden", !hasOriginal);
   }
@@ -1028,6 +1075,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     previewImg.style.display = "none";
     previewVid.style.display = "none";
     lastCompareSource = null;
+    lastCompareRange = null;
     try {
       previewVid.pause();
       previewVid.removeAttribute("src");
@@ -4597,7 +4645,11 @@ export function renderMinimaxH3(container: HTMLElement) {
       // type "temp", not "output" — outputViewUrl's own &t=Date.now() cache-busts it too, so two
       // different preview runs sharing the same filename/subfolder/type never collide.
       const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");
-      showResultVideo(url);
+      // A Preview run's result file only covers [startS, endS) of the source clip — the
+      // Compare viewer needs that same window on the ORIGINAL side too, or it plays the whole
+      // untrimmed source against a few trimmed seconds. A real/final Generate run covers the
+      // whole clip, same as the original, so no range restriction there.
+      showResultVideo(url, { compareRange: (!full && endS > startS) ? { start: startS, end: endS } : null });
       if (full) {
         try {
           const patched: Record<string, any> = {

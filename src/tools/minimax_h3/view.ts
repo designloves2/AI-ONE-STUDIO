@@ -108,6 +108,7 @@ import {
   listPromptSets,
   getPromptSet,
   getClipLastFrame,
+  saveConfig,
   type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
@@ -3219,6 +3220,16 @@ export function renderMinimaxH3(container: HTMLElement) {
     promptList.append(ta);
   }
 
+  // Image Generator's Turbo LoRA (T2I/Ref2I) and Character Sheet's Post finish settings
+  // remember the LAST SET VALUE as an install-wide default — same persist pattern as the
+  // main pipeline's own turboLora (saveConfig with a single-key patch, fire-and-forget).
+  // Node parity: rememberLora (hoisted to top-level in node one_node_minimax_h3.js so
+  // renderImageGenLeft can use it too — here it is its own small helper for the same reason).
+  function rememberImgConfig(patch: Record<string, any>) {
+    persist();
+    saveConfig(patch).catch(() => {});
+  }
+
   function renderImageGenLeft() {
     setLeftLocked(false);
     leftPanel.innerHTML = "";
@@ -3282,11 +3293,12 @@ export function renderMinimaxH3(container: HTMLElement) {
     const turboOn = !!state.imgTurboOn;
     leftPanel.appendChild(panel([
       label("Turbo"),
-      checkboxRow("Turbo (adds one LoRA, fixed 3-step 2nd pass)", turboOn, (v) => { state.imgTurboOn = v; persist(); renderLeft(); }),
+      checkboxRow("Turbo (adds one LoRA, fixed 3-step 2nd pass)", turboOn, (v) => { state.imgTurboOn = v; rememberImgConfig({ img_turbo_on: v }); renderLeft(); }),
       turboOn ? row([col([label("Turbo LoRA"), searchableSelect(["none", ...availableLoras.filter((x) => x !== "none")], (state as any)[turboKey] || "none", (v) => {
-        (state as any)[turboKey] = v; persist();
+        (state as any)[turboKey] = v;
+        rememberImgConfig(subMode === "ref2i" ? { img_turbo_lora_ref2i: v } : { img_turbo_lora_t2i: v });
       }).el])]) : null,
-      turboOn ? row([col([label("strength"), numberField(state.imgTurboLoraStrength ?? 1.0, (v) => { state.imgTurboLoraStrength = v; persist(); }, 0.05)])]) : null,
+      turboOn ? row([col([label("strength"), numberField(state.imgTurboLoraStrength ?? 1.0, (v) => { state.imgTurboLoraStrength = v; rememberImgConfig({ img_turbo_lora_strength: v }); }, 0.05)])]) : null,
       !turboOn ? row([col([label("Steps"), numberField(state.imgSteps ?? 8, (v) => { state.imgSteps = Math.max(1, Math.round(v)); persist(); }, 1)])]) : null,
     ]));
 
@@ -3314,17 +3326,17 @@ export function renderMinimaxH3(container: HTMLElement) {
         label("Post finish"),
         row([col([label("Deblur"), select(
           ["none", "LOW", "MEDIUM", "HIGH", "ULTRA"].map((v) => ({ value: v, label: v === "none" ? "Off" : v })),
-          state.charSheetDeblur || "none", (v) => { state.charSheetDeblur = v; persist(); })])]),
-        checkboxRow("RTX VSR (2× scale, ULTRA quality)", rtxOn, (v) => { state.charSheetRtxVsr = v; persist(); renderLeft(); }),
+          state.charSheetDeblur || "none", (v) => { state.charSheetDeblur = v; rememberImgConfig({ charsheet_deblur: v }); })])]),
+        checkboxRow("RTX VSR (2× scale, ULTRA quality)", rtxOn, (v) => { state.charSheetRtxVsr = v; rememberImgConfig({ charsheet_rtx_vsr: v }); renderLeft(); }),
         !rtxOn ? null : checkboxRow("↳ For Supersampling (resize back down to render size)", !!state.charSheetRtxSupersample,
-          (v) => { state.charSheetRtxSupersample = v; persist(); }),
+          (v) => { state.charSheetRtxSupersample = v; rememberImgConfig({ charsheet_rtx_supersample: v }); }),
         checkboxRow("Use Latent Upscale (cheap first pass, then upscale)", !!state.charSheetUseLatentUpscale,
-          (v) => { state.charSheetUseLatentUpscale = v; persist(); renderLeft(); }),
+          (v) => { state.charSheetUseLatentUpscale = v; rememberImgConfig({ charsheet_use_latent_upscale: v }); renderLeft(); }),
         !state.charSheetUseLatentUpscale ? null : row([col([label("First Pass MP"), numberField(
-          state.charSheetFirstPassRatio ?? 0.36, (v) => { state.charSheetFirstPassRatio = Math.max(0.05, v); persist(); }, 0.02)])]),
-        checkboxRow("Save Each Frame separately", !!state.charSheetSaveEachFrames, (v) => { state.charSheetSaveEachFrames = v; persist(); }),
+          state.charSheetFirstPassRatio ?? 0.36, (v) => { state.charSheetFirstPassRatio = Math.max(0.05, v); rememberImgConfig({ charsheet_first_pass_ratio: state.charSheetFirstPassRatio }); }, 0.02)])]),
+        checkboxRow("Save Each Frame separately", !!state.charSheetSaveEachFrames, (v) => { state.charSheetSaveEachFrames = v; rememberImgConfig({ charsheet_save_each_frames: v }); }),
         row([col([label("Sheet Max Size (px)"), numberField(
-          state.charSheetMaxSize ?? 2048, (v) => { state.charSheetMaxSize = Math.max(256, Math.round(v)); persist(); }, 64)])]),
+          state.charSheetMaxSize ?? 2048, (v) => { state.charSheetMaxSize = Math.max(256, Math.round(v)); rememberImgConfig({ charsheet_max_size: state.charSheetMaxSize }); }, 64)])]),
       ]));
 
       // 8 frame indices, directly editable — an alternative to scrubbing through 🖼 View &

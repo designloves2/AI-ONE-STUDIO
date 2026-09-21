@@ -153,6 +153,22 @@ export interface MmhConfig {
   trim_last_clip?: boolean;
   unload_between_clips?: boolean;
   user_presets?: UserPipelinePreset[];
+  // Image Generator's Turbo LoRA (T2I/Ref2I) and Character Sheet's Post finish settings —
+  // remember the LAST SET VALUE as an install-wide default, same persist pattern as the
+  // main pipeline's turbo_lora. Node parity: nodes.py's /minimax_h3_one/config response
+  // (node commit 1ccf315).
+  img_steps?: number;
+  img_turbo_on?: boolean;
+  img_turbo_lora_t2i?: string;
+  img_turbo_lora_ref2i?: string;
+  img_turbo_lora_strength?: number;
+  charsheet_deblur?: string;
+  charsheet_rtx_vsr?: boolean;
+  charsheet_rtx_supersample?: boolean;
+  charsheet_use_latent_upscale?: boolean;
+  charsheet_first_pass_ratio?: number;
+  charsheet_save_each_frames?: boolean;
+  charsheet_max_size?: number;
 }
 
 export async function getConfig(): Promise<MmhConfig> {

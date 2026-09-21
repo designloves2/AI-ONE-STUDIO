@@ -800,6 +800,21 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.fbc_end_percent != null) state.fbcEndPercent = cfg.fbc_end_percent;
       if (cfg.fbc_max_consecutive_hits != null) state.fbcMaxConsecutiveHits = cfg.fbc_max_consecutive_hits;
       if (cfg.fbc_temporal_guard != null) state.fbcTemporalGuard = cfg.fbc_temporal_guard;
+      // Image Generator Turbo (T2I/Ref2I) + Character Sheet Post finish — remembered
+      // install-wide defaults, seeded here so a fresh node/browser instance inherits them
+      // (node parity: ui_app_settings_minimax.js's seed-on-mount block, node commit 1ccf315).
+      if (cfg.img_steps != null) state.imgSteps = cfg.img_steps;
+      if (cfg.img_turbo_on != null) state.imgTurboOn = cfg.img_turbo_on;
+      take("imgTurboLoraT2i", cfg.img_turbo_lora_t2i);
+      take("imgTurboLoraRef2i", cfg.img_turbo_lora_ref2i);
+      if (cfg.img_turbo_lora_strength != null) state.imgTurboLoraStrength = cfg.img_turbo_lora_strength;
+      if (cfg.charsheet_deblur) state.charSheetDeblur = cfg.charsheet_deblur;
+      if (cfg.charsheet_rtx_vsr != null) state.charSheetRtxVsr = cfg.charsheet_rtx_vsr;
+      if (cfg.charsheet_rtx_supersample != null) state.charSheetRtxSupersample = cfg.charsheet_rtx_supersample;
+      if (cfg.charsheet_use_latent_upscale != null) state.charSheetUseLatentUpscale = cfg.charsheet_use_latent_upscale;
+      if (cfg.charsheet_first_pass_ratio != null) state.charSheetFirstPassRatio = cfg.charsheet_first_pass_ratio;
+      if (cfg.charsheet_save_each_frames != null) state.charSheetSaveEachFrames = cfg.charsheet_save_each_frames;
+      if (cfg.charsheet_max_size != null) state.charSheetMaxSize = cfg.charsheet_max_size;
       // vision_source ignored on load — Ollama removed, always native regardless of what a
       // config saved before this change says.
       if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;

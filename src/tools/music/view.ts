@@ -11,11 +11,11 @@ import {
   el, clear, loadState, saveState, defaultState, randomSeed,
   SAMPLERS, SCHEDULERS, AUDIO_FORMATS, STYLE_CHIPS, LYRIC_TAGS,
   DURATION_MIN, DURATION_MAX, LLM_BACKENDS, LLM_CLIP_TYPES, lyricsIntent, fmtDur, settingsBadge,
-  ENGINES, ENGINE_FIELDS, ACE_LANGUAGES, ACE_KEYSCALES, ACE_TIMESIGS,
+  ENGINES, ENGINE_FIELDS, YUE2_MODES, ACE_LANGUAGES, ACE_KEYSCALES, ACE_TIMESIGS,
   VOCAL_GENDER, VOCAL_STYLE, VOICE_TONE, buildAgentJob,
 } from "./core";
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
-import { comfyApi, jget, jpost, playableAudioUrl } from "./api";
+import { comfyApi, jget, jpost, playableAudioUrl, uploadCoverAudio } from "./api";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { attachSensitiveToggle, mediaKey } from "../../shared/sensitiveMedia";
 
@@ -28,7 +28,8 @@ export function renderMusic(container: HTMLElement) {
   const state: any = defaultState(loadState());
   const persist = () => saveState(state);
   const ctx: any = { availability: {}, models: {}, prompts: {} };
-  const CAPTION_ROLE = () => (state.engine === "acestep" ? "caption_acestep" : "caption_minimax");
+  const CAPTION_ROLE = () => (state.engine === "acestep" ? "caption_acestep"
+    : state.engine === "yue2" ? "caption_yue2" : "caption_minimax");
   const SUB = () => (state.saveSubfolder || "").trim().replace(/^[\/\\]+|[\/\\]+$/g, "") || SUBFOLDER;
 
   function switchEngine(next: string) {
@@ -273,7 +274,7 @@ export function renderMusic(container: HTMLElement) {
   }
 
   function coverURL(fn: string) { return `url("${comfyApi.base}/view?filename=${encodeURIComponent(fn)}&subfolder=${encodeURIComponent(SUB() + "/covers")}&type=output")`; }
-  const engLabel = (x: any) => (x && x.engine === "acestep") ? "ACE" : "MM";
+  const engLabel = (x: any) => (x && x.engine === "acestep") ? "ACE" : (x && x.engine === "yue2") ? "Y2" : "MM";
   function coverPlaceholder(x: any, fontSize?: string) {
     return el("span", { className: "mmm-engtxt", text: engLabel(x), style: fontSize ? { fontSize } : {} });
   }
@@ -285,7 +286,7 @@ export function renderMusic(container: HTMLElement) {
     audioEl.src = playableAudioUrl({ filename: t.filename, subfolder: t.subfolder || SUB() });
     audioEl.play().catch(() => {});
     nowTitle.textContent = t.title || t.filename;
-    nowSub.textContent = settingsBadge(t) || (t.engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3");
+    nowSub.textContent = settingsBadge(t) || (t.engine === "acestep" ? "Ace-Step 1.5" : t.engine === "yue2" ? "YuE2" : "MiniMax Music 3");
     if (t.cover) { miniCover.style.backgroundImage = coverURL(t.cover); miniCover.textContent = ""; }
     else { miniCover.style.backgroundImage = "none"; miniCover.textContent = engLabel(t); }
     renderPlaylist();
@@ -347,7 +348,7 @@ export function renderMusic(container: HTMLElement) {
     }}));
     acts.appendChild(el("button", { className: "mmm-ib", title: "More", text: "⋯", onclick: (e: Event) => { e.stopPropagation(); moreMenu(t, e); } }));
 
-    trow.append(title, el("span", { className: "mmm-eng", text: t.engine === "acestep" ? "Ace-Step" : "MiniMax" }), el("div", { style: { flex: "1" } }), acts);
+    trow.append(title, el("span", { className: "mmm-eng", text: t.engine === "acestep" ? "Ace-Step" : t.engine === "yue2" ? "YuE2" : "MiniMax" }), el("div", { style: { flex: "1" } }), acts);
     mid.appendChild(trow);
     const subText = (t.caption || "").replace(/\s*\n\s*/g, " ").trim() || (t.instrumental ? "instrumental" : settingsBadge(t));
     mid.appendChild(el("div", { className: "mmm-sub", text: subText }));
@@ -366,7 +367,7 @@ export function renderMusic(container: HTMLElement) {
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
     const trow = el("div", { className: "mmm-trow" });
     trow.append(el("div", { className: "mmm-tt", text: p.title || "New track", style: { cursor: "default" } }),
-                el("span", { className: "mmm-eng", text: p.engine === "acestep" ? "Ace-Step" : "MiniMax" }));
+                el("span", { className: "mmm-eng", text: p.engine === "acestep" ? "Ace-Step" : p.engine === "yue2" ? "YuE2" : "MiniMax" }));
     mid.appendChild(trow);
     const stage = el("div", { className: "mmm-stage" });
     stage.append(el("span", { text: p.stage || "Queued…" }), el("span", { className: "p", text: p.pct ? p.pct + "%" : "" }));
@@ -442,7 +443,7 @@ export function renderMusic(container: HTMLElement) {
     else big.appendChild(coverPlaceholder(t, "44px"));
     const metaCol = el("div", { style: { display: "flex", flexDirection: "column", gap: "5px", minWidth: 0, alignSelf: "center" } });
     const line = (k: string, v: string) => metaCol.append(el("div", { style: { fontSize: "11px", color: C.muted }, text: k }), el("div", { style: { fontSize: "12.5px", color: C.text, marginBottom: "3px" }, text: v }));
-    line("Engine", (meta || t).engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3");
+    line("Engine", (meta || t).engine === "acestep" ? "Ace-Step 1.5" : (meta || t).engine === "yue2" ? "YuE2" : "MiniMax Music 3");
     if (meta?.seconds) line("Length", fmtDur(meta.seconds));
     if (meta?.seed != null) line("Seed", String(meta.seed));
     if (meta?.llmBackend) {
@@ -459,6 +460,8 @@ export function renderMusic(container: HTMLElement) {
       blk("Lyrics", meta.lyrics || "(instrumental)");
       blk("Parameters", meta.engine === "acestep"
         ? { bpm: meta.bpm, key: meta.keyscale, timesig: meta.timesignature, language: meta.language, cfg_scale: meta.cfgScaleAce, stages: meta.aceStages }
+        : meta.engine === "yue2"
+        ? { mode: meta.yue2Mode, auto_abc: meta.yue2AutoAbc, repetition_penalty: meta.yue2RepetitionPenalty, top_k: meta.topK, top_p: meta.topP, temperature: meta.temperature }
         : { steps: meta.steps, cfg: meta.cfg, cfg_scale: meta.cfgScale, top_k: meta.topK, sampler: meta.sampler });
     }
     ov.appendChild(body);
@@ -467,9 +470,18 @@ export function renderMusic(container: HTMLElement) {
 
   function applyReuseMeta(m: any) {
     if (!m) return;
-    const eng = m.engine === "acestep" ? "acestep" : "minimax";
+    // bug (2): this used to force ANY non-acestep track (including yue2) into "minimax" —
+    // reusing a YuE2 track's settings silently switched the panel to MiniMax and dropped
+    // every yue2-only field. Check for "yue2" explicitly before falling back to "minimax".
+    const eng = m.engine === "acestep" ? "acestep" : m.engine === "yue2" ? "yue2" : "minimax";
     if (eng !== state.engine) switchEngine(eng);
     ENGINE_FIELDS.forEach((k) => { if (m[k] !== undefined) state[k] = m[k]; });
+    if (eng === "yue2") {
+      state.yue2Mode = m.yue2Mode || "text2music";
+      state.yue2AutoAbc = m.yue2AutoAbc !== false;
+      state.yue2CoverAudio = m.yue2CoverAudio || "";
+      state.yue2RepetitionPenalty = m.yue2RepetitionPenalty ?? 1.2;
+    }
     state.lyricsInput = m.lyricsInput ?? m.lyrics ?? "";
     state.lyrics      = m.lyrics ?? "";
     state.caption     = m.caption ?? "";
@@ -481,7 +493,7 @@ export function renderMusic(container: HTMLElement) {
     state.seedMode = "fixed";
     if (m.seed != null) state.seed = m.seed;
     persist(); renderCompose(); loadPlaylist();
-    statusEl.textContent = `Reused — ${m.engine === "acestep" ? "Ace-Step" : "MiniMax"}`;
+    statusEl.textContent = `Reused — ${m.engine === "acestep" ? "Ace-Step" : m.engine === "yue2" ? "YuE2" : "MiniMax"}`;
   }
   function reuse(t: any) {
     jget(`/meta?filename=${encodeURIComponent(t.filename)}&subfolder=${encodeURIComponent(t.subfolder || SUB())}`).then((d) => {
@@ -741,10 +753,16 @@ export function renderMusic(container: HTMLElement) {
           (p) => { state.lyricsInput = p.lyricsInput ?? p.lyrics ?? ""; state.lyrics = state.lyricsInput; renderCompose(); })
       : presetMenu("style", e, () => ({ captionBrief: state.captionBrief, caption: state.caption, styleChips: state.styleChips }),
           (p) => { state.captionBrief = p.captionBrief ?? ""; state.caption = p.caption ?? ""; state.styleChips = p.styleChips ?? []; renderCompose(); }));
+    // bug (4): every LLM callback here sets state + persist() + renderCompose() instead of
+    // poking lyricsTA/styleTA.value directly. runLLM() is an async round-trip — if ANY
+    // unrelated re-render fires while it's in flight (switching Song/Instrumental,
+    // Simple/Advanced, editing Title, etc.), renderCompose() throws away the old textarea
+    // and builds a fresh one from state; a direct .value write afterwards lands on that
+    // stale, detached element and is invisible even though state WAS updated correctly.
     const varBtn = isLyr ? null : tb("Reroll", "Rewrite the prompt a different way", () =>
       runLLM(CAPTION_ROLE(), state.captionBrief || styleTA.value,
         { lyrics: state.lyrics, chips: (state.styleChips || []).join(", "), ...vocalHints(), variation: Date.now() },
-        (txt) => { state.caption = txt; styleTA.value = txt; persist(); }, styleWrap));
+        (txt) => { state.caption = txt; persist(); renderCompose(); }, styleWrap));
     const expandBtn = tb("Expand", "Full-screen editor", () => isLyr
       ? bigEdit("Lyrics", () => state.lyricsInput || state.lyrics, (v) => { state.lyricsInput = v; state.lyrics = v; })
       : bigEdit(state.engine === "acestep" ? "Style tags" : "Style", () => state.caption || state.captionBrief, (v) => { if (state.engine === "acestep" || !/###\s/.test(v)) state.captionBrief = v; state.caption = v; }));
@@ -758,13 +776,19 @@ export function renderMusic(container: HTMLElement) {
         else if (intent === "empty") { statusEl.textContent = "Write a brief, or fill in the Title"; return; }
         const durSec = effectiveDuration({ ...state, lyricsInput: cur });
         runLLM(role, input, { engine: state.engine, language: state.language, duration_seconds: durSec, style_caption: state.caption, title: state.title || "" }, (txt) => {
-          state.lyrics = txt; state.lyricsInput = cur; lyricsTA.value = txt; persist();
+          // bug (5): the field's own getV() is `state.lyricsInput || state.lyrics` —
+          // lyricsInput is the user's ORIGINAL brief, which stays truthy after this call.
+          // Writing the result only into state.lyrics (keeping lyricsInput = cur, the
+          // pre-LLM text) means the box shows the brief forever, never the generated
+          // lyrics. Write the result into BOTH, matching what the live textarea's own
+          // "input" handler already does (keeps them in sync on every keystroke).
+          state.lyrics = txt; state.lyricsInput = txt; persist(); renderCompose();
         }, lyricsWrap, "Writing lyrics…");
       } else {
         const brief = (state.captionBrief || styleTA.value || "").trim();
         if (!brief) { statusEl.textContent = "Write a few words of style first"; return; }
         state.captionBrief = brief;
-        runLLM(CAPTION_ROLE(), brief, { lyrics: state.lyrics, chips: (state.styleChips || []).join(", "), ...vocalHints() }, (txt) => { state.caption = txt; styleTA.value = txt; persist(); }, styleWrap, "Writing prompt…");
+        runLLM(CAPTION_ROLE(), brief, { lyrics: state.lyrics, chips: (state.styleChips || []).join(", "), ...vocalHints() }, (txt) => { state.caption = txt; persist(); renderCompose(); }, styleWrap, "Writing prompt…");
       }
     }});
     return [resetBtn, presetBtn, varBtn, expandBtn, spark].filter(Boolean);
@@ -778,6 +802,42 @@ export function renderMusic(container: HTMLElement) {
     engSel?._sync?.(state.engine);
 
     compose.appendChild(seg([["Simple", false], ["Advanced", true]], state.advanced, (v) => { state.advanced = v; persist(); renderCompose(); }));
+
+    // ── YuE2's own left-menu modes (B-1) — Text to Music / Cover Music ──
+    if (state.engine === "yue2") {
+      const modeRow = el("div", { style: { display: "flex", gap: "4px", marginTop: "6px" } });
+      YUE2_MODES.forEach((m) => {
+        const active = state.yue2Mode === m.key;
+        modeRow.appendChild(el("button", { text: m.label, className: "mmm-chip", style: {
+          flex: "1", fontSize: "11px", padding: "6px 8px", fontWeight: active ? "700" : "400",
+          background: active ? BRAND : undefined, color: active ? "#fff" : undefined,
+          borderColor: active ? BRAND : undefined,
+        }, onclick: () => { state.yue2Mode = m.key; persist(); renderCompose(); } }));
+      });
+      compose.appendChild(modeRow);
+
+      if (state.yue2Mode === "cover") {
+        compose.appendChild(sectionHead("Source Recording"));
+        const coverBox = el("div", { style: {
+          display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px",
+          background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px",
+        } });
+        const coverLabel = el("div", { style: { flex: "1", fontSize: "11px", color: state.yue2CoverAudio ? C.text : C.muted },
+          text: state.yue2CoverAudio || "No file picked — YuE2 transcribes its melody (SheetSage2) and follows it." });
+        const coverInput: any = el("input", { type: "file", accept: "audio/*", style: { display: "none" } });
+        coverInput.addEventListener("change", async () => {
+          const f = coverInput.files?.[0]; if (!f) return;
+          coverLabel.textContent = "Uploading…";
+          try {
+            state.yue2CoverAudio = await uploadCoverAudio(f);
+            persist(); renderCompose();
+          } catch (e: any) { coverLabel.textContent = "Upload failed — " + (e?.message || e); }
+        });
+        const pickBtn = el("button", { className: "mmm-chip", text: state.yue2CoverAudio ? "Change…" : "Pick file…", onclick: () => coverInput.click() });
+        coverBox.append(coverLabel, pickBtn, coverInput);
+        compose.appendChild(coverBox);
+      }
+    }
 
     // ── Title + Cover Info ──
     const titleIn = fld(state.title || "", (v: string) => { state.title = v; state.titleTouched = !!v.trim(); persist(); }, { ph: "Song title (optional — ✨ can turn it into lyrics)" });
@@ -822,12 +882,14 @@ export function renderMusic(container: HTMLElement) {
     const stLbl = state.engine === "acestep" ? "Style tags" : "Style";
     compose.appendChild(sectionHead(stLbl, ...headBtns("style")));
     const sb = resizableBox(() => state.caption || state.captionBrief, (v) => {
-      if (state.engine === "acestep") { state.caption = v; state.captionBrief = v; }
+      if (state.engine === "acestep" || state.engine === "yue2") { state.caption = v; state.captionBrief = v; }
       else if (/###\s/.test(v)) state.caption = v; else state.captionBrief = v;
     }, "styleH");
     styleTA = sb.ta; styleWrap = sb.wrap;
     styleTA.placeholder = state.engine === "acestep"
       ? "cinematic melodic house, Alan Walker vibe, plucky synth, airy pads, breathy vocals …\n✨ turns it into finished tags"
+      : state.engine === "yue2"
+      ? "English, warm piano pop, expressive female voice, acoustic piano, rounded bass and light drums, lyrical memorable melody, unhurried phrasing, 88 BPM …\n✨ turns it into a YuE2-style descriptor line"
       : "warm acoustic pop, female vocal, fingerpicked guitar …\n✨ turns it into a structured caption";
     compose.appendChild(sb.wrap);
     const chipRow = el("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "5px" } });
@@ -869,14 +931,36 @@ export function renderMusic(container: HTMLElement) {
     // ── advanced ──
     if (state.advanced) {
       const acc = el("div", { className: "mmm-acc" });
-      acc.appendChild(el("div", { className: "hd", text: state.engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3" }));
+      acc.appendChild(el("div", { className: "hd",
+        text: state.engine === "acestep" ? "Ace-Step 1.5" : state.engine === "yue2" ? "YuE2" : "MiniMax Music 3" }));
 
       const fmtSel = fieldCol("format", sel(AUDIO_FORMATS, state.format || "flac", (v) => { state.format = v; persist(); renderCompose(); }));
       const qualSel = (state.format === "mp3" || state.format === "opus")
         ? fieldCol("quality", sel(state.format === "opus" ? ["64k", "96k", "128k", "192k", "320k"] : ["V0", "128k", "320k"], state.audioQuality || (state.format === "opus" ? "128k" : "V0"), (v) => { state.audioQuality = v; persist(); }))
         : null;
 
-      if (state.engine === "acestep") {
+      if (state.engine === "yue2") {
+        if (state.yue2Mode === "text2music") {
+          acc.appendChild(checkRow("Auto-sketch a melody plan first (YuE2GenerateABC)", state.yue2AutoAbc !== false,
+            (v) => { state.yue2AutoAbc = v; persist(); }));
+        }
+        const g2y = el("div", { className: "mmm-grid2" });
+        g2y.append(
+          fieldCol("temperature", fld(state.temperature ?? 1.0, (v: number) => { state.temperature = v; persist(); }, { num: true })),
+          fieldCol("top_p", fld(state.topP ?? 0.95, (v: number) => { state.topP = v; persist(); }, { num: true })),
+        );
+        acc.appendChild(g2y);
+        const g3y = el("div", { className: "mmm-grid3" });
+        g3y.append(
+          fieldCol("top_k", fld(state.topK ?? 100, (v: number) => { state.topK = Math.round(v); persist(); }, { num: true })),
+          fieldCol("repetition penalty", fld(state.yue2RepetitionPenalty ?? 1.2, (v: number) => { state.yue2RepetitionPenalty = v; persist(); }, { num: true })),
+          el("div"),
+        );
+        acc.appendChild(g3y);
+        const afy = el("div", { className: "mmm-grid2" });
+        afy.append(fmtSel, qualSel || el("div"));
+        acc.appendChild(afy);
+      } else if (state.engine === "acestep") {
         const g2a = el("div", { className: "mmm-grid2" });
         g2a.append(
           fieldCol("language", sel(ACE_LANGUAGES, state.language || "en", (v) => { state.language = v; persist(); })),
@@ -948,7 +1032,10 @@ export function renderMusic(container: HTMLElement) {
       }
       compose.appendChild(acc);
 
-      // LoRA
+      // LoRA — add / remove list (searchable, matches the image nodes). Not wired for
+      // YuE2 (its own reference workflow has no LoRA slot) — hidden rather than shown
+      // and silently ignored.
+      if (state.engine !== "yue2") {
       const lr = el("div", { className: "mmm-acc" });
       const lrHd = el("div", { style: { display: "flex", alignItems: "center" } });
       lrHd.append(el("div", { className: "hd", text: `LoRA${state.loras.length ? ` (${state.loras.length})` : ""}`, style: { flex: "1" } }));
@@ -969,6 +1056,7 @@ export function renderMusic(container: HTMLElement) {
       });
       lr.appendChild(el("button", { className: "mmm-add", text: "+ Add LoRA", onclick: () => { state.loras.push({ name: "none", strength: 1.0 }); persist(); renderCompose(); } }));
       compose.appendChild(lr);
+      }
 
       compose.appendChild(el("div", { className: "mmm-hint",
         text: (() => {
@@ -1095,7 +1183,10 @@ export function renderMusic(container: HTMLElement) {
     const st = job.snap;
     if (!st.caption && st.captionBrief) {
       job.stage = "Writing prompt…"; paintJob(job);
-      const role = st.engine === "acestep" ? "caption_acestep" : "caption_minimax";
+      // bug (3): this used to hardcode a 2-engine ternary, silently running YuE2 tracks'
+      // auto-caption through MiniMax's own prompt style — CAPTION_ROLE() (used everywhere
+      // else in this file) already handles yue2 correctly; this inline duplicate didn't.
+      const role = st.engine === "acestep" ? "caption_acestep" : st.engine === "yue2" ? "caption_yue2" : "caption_minimax";
       const c = await llmOnce(role, st.captionBrief, { lyrics: st.lyrics, ...vocalHintsOf(st) });
       if (c) st.caption = c;
     }
@@ -1311,7 +1402,7 @@ export function renderMusic(container: HTMLElement) {
     if (!pending || !Object.keys(pending).length) return true;
     try {
       await jpost("/config", pending);
-      const map: any = { dit: "dit", clip: "clip", dav: "dav", ace_unet: "aceUnet", ace_clip1: "aceClip1", ace_clip2: "aceClip2", ace_vae: "aceVae", ace_sampler_name: "aceSamplerName", ace_scheduler: "aceScheduler", ace_shift: "aceShift", llm_backend: "llmBackend", llm_model: "llmModel", llm_or_model: "llmOrModel", llm_clip: "llmClip", llm_clip_type: "llmClipType", save_subfolder: "saveSubfolder" };
+      const map: any = { dit: "dit", clip: "clip", dav: "dav", ace_unet: "aceUnet", ace_clip1: "aceClip1", ace_clip2: "aceClip2", ace_vae: "aceVae", ace_sampler_name: "aceSamplerName", ace_scheduler: "aceScheduler", ace_shift: "aceShift", yue2_ckpt: "yue2Ckpt", llm_backend: "llmBackend", llm_model: "llmModel", llm_or_model: "llmOrModel", llm_clip: "llmClip", llm_clip_type: "llmClipType", save_subfolder: "saveSubfolder" };
       const folderChanged = ("save_subfolder" in pending) && (pending.save_subfolder || "") !== (state.saveSubfolder || "");
       for (const k in pending) if (map[k]) state[map[k]] = pending[k];
       persist(); pending = {}; renderCompose();
@@ -1341,8 +1432,8 @@ export function renderMusic(container: HTMLElement) {
     settingsEl.appendChild(hd);
 
     const tabs: any = el("div", { className: "mmm-tabs" });
-    ([["minimax", "MiniMax Music 3"], ["acestep", "Ace-Step 1.5"], ["llm", "LLM"]] as [string, string][]).forEach(([k, lbl]) => {
-      tabs.appendChild(el("button", { text: lbl, className: setTab === k ? "on" : "", onclick: () => { setTab = k; renderTab(cfg, m); [...tabs.children].forEach((c: any, i: number) => c.classList.toggle("on", ["minimax", "acestep", "llm"][i] === k)); } }));
+    ([["minimax", "MiniMax Music 3"], ["acestep", "Ace-Step 1.5"], ["yue2", "YuE2"], ["llm", "LLM"]] as [string, string][]).forEach(([k, lbl]) => {
+      tabs.appendChild(el("button", { text: lbl, className: setTab === k ? "on" : "", onclick: () => { setTab = k; renderTab(cfg, m); [...tabs.children].forEach((c: any, i: number) => c.classList.toggle("on", ["minimax", "acestep", "yue2", "llm"][i] === k)); } }));
     });
     settingsEl.appendChild(tabs);
 
@@ -1392,6 +1483,9 @@ export function renderMusic(container: HTMLElement) {
         fieldCol("shift (AuraFlow)", fld(pending.ace_shift ?? cfg.ace_shift ?? 3, (v: number) => { pending.ace_shift = v; }, { num: true })),
       );
       b.appendChild(g);
+    } else if (setTab === "yue2") {
+      b.appendChild(setNote("YuE2 (B-1) — one checkpoint carries model/CLIP/VAE together. Text to Music and Cover Music (SheetSage2 melody transcription) both use it."));
+      b.appendChild(setSelectRow("Checkpoint", "yue2_ckpt", m.checkpoints, cfg.yue2_ckpt));
     } else {
       b.appendChild(setNote("LLM — writes the lyrics, style caption and cover-art prompts. Captions need strong instruction-following, so OpenRouter is recommended."));
       b.appendChild(fieldCol("Backend", sel(LLM_BACKENDS.map((x) => ({ value: x.key, label: x.label })), pending.llm_backend ?? cfg.llm_backend, (v) => { pending.llm_backend = v; renderTab(cfg, m); })));
@@ -1445,6 +1539,7 @@ export function renderMusic(container: HTMLElement) {
     state.aceUnet = state.aceUnet || d.ace_unet; state.aceClip1 = state.aceClip1 || d.ace_clip1;
     state.aceClip2 = state.aceClip2 || d.ace_clip2; state.aceVae = state.aceVae || d.ace_vae;
     state.aceSamplerName = state.aceSamplerName || d.ace_sampler_name;
+    state.yue2Ckpt = state.yue2Ckpt || d.yue2_ckpt;
     if (!state.saveSubfolder && d.save_subfolder && d.save_subfolder !== SUBFOLDER) state.saveSubfolder = d.save_subfolder;
     if (d.llm_backend)    state.llmBackend  = d.llm_backend;
     if (d.llm_model != null)    state.llmModel   = d.llm_model;

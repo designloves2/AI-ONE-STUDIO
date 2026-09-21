@@ -92,7 +92,7 @@ export function createMusicGalleryMount(): GalleryMount {
   box.append(head, selBar, listBody, bar);
 
   function coverURL(fn: string) { return `url("${comfyApi.base}/view?filename=${encodeURIComponent(fn)}&subfolder=${encodeURIComponent(SUB() + "/covers")}&type=output")`; }
-  const engLabel = (x: any) => (x && x.engine === "acestep") ? "ACE" : "MM";
+  const engLabel = (x: any) => (x && x.engine === "acestep") ? "ACE" : (x && x.engine === "yue2") ? "Y2" : "MM";
   const coverPlaceholder = (x: any, fs?: string) => el("span", { className: "mmm-engtxt", text: engLabel(x), style: fs ? { fontSize: fs } : {} });
 
   function renderSelBar() {
@@ -116,7 +116,7 @@ export function createMusicGalleryMount(): GalleryMount {
     audioEl.src = playableAudioUrl({ filename: t.filename, subfolder: t.subfolder || SUB() });
     audioEl.play().catch(() => {});
     nowTitle.textContent = t.title || t.filename;
-    nowSub.textContent = settingsBadge(t) || (t.engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3");
+    nowSub.textContent = settingsBadge(t) || (t.engine === "acestep" ? "Ace-Step 1.5" : t.engine === "yue2" ? "YuE2" : "MiniMax Music 3");
     if (t.cover) { miniCover.style.backgroundImage = coverURL(t.cover); miniCover.textContent = ""; }
     else { miniCover.style.backgroundImage = "none"; miniCover.textContent = engLabel(t); }
     renderList();
@@ -163,7 +163,7 @@ export function createMusicGalleryMount(): GalleryMount {
     if (t.cover) big.style.backgroundImage = coverURL(t.cover); else big.appendChild(coverPlaceholder(t, "44px"));
     const metaCol = el("div", { style: { display: "flex", flexDirection: "column", gap: "5px", minWidth: 0, alignSelf: "center" } });
     const line = (k: string, v: string) => metaCol.append(el("div", { style: { fontSize: "11px", color: C.muted }, text: k }), el("div", { style: { fontSize: "12.5px", color: C.text, marginBottom: "3px" }, text: v }));
-    line("Engine", (meta || t).engine === "acestep" ? "Ace-Step 1.5" : "MiniMax Music 3");
+    line("Engine", (meta || t).engine === "acestep" ? "Ace-Step 1.5" : (meta || t).engine === "yue2" ? "YuE2" : "MiniMax Music 3");
     if (meta?.seconds) line("Length", fmtDur(meta.seconds));
     if (meta?.seed != null) line("Seed", String(meta.seed));
     if (meta?.llmBackend) {
@@ -179,6 +179,8 @@ export function createMusicGalleryMount(): GalleryMount {
       blk("Lyrics", meta.lyrics || "(instrumental)");
       blk("Parameters", meta.engine === "acestep"
         ? { bpm: meta.bpm, key: meta.keyscale, timesig: meta.timesignature, language: meta.language, cfg_scale: meta.cfgScaleAce, stages: meta.aceStages }
+        : meta.engine === "yue2"
+        ? { mode: meta.yue2Mode, auto_abc: meta.yue2AutoAbc, repetition_penalty: meta.yue2RepetitionPenalty, top_k: meta.topK, top_p: meta.topP, temperature: meta.temperature }
         : { steps: meta.steps, cfg: meta.cfg, cfg_scale: meta.cfgScale, top_k: meta.topK, sampler: meta.sampler });
     }
     ov.appendChild(body);
@@ -241,7 +243,7 @@ export function createMusicGalleryMount(): GalleryMount {
       { label: "Delete", danger: true, fn: async () => { if (confirm("Delete this track?")) { await jpost("/delete", { filename: t.filename, subfolder: SUB() }); loadPlaylist(); } } },
     ]); } }));
 
-    trow.append(title, el("span", { className: "mmm-eng", text: t.engine === "acestep" ? "Ace-Step" : "MiniMax" }), el("div", { style: { flex: "1" } }), acts);
+    trow.append(title, el("span", { className: "mmm-eng", text: t.engine === "acestep" ? "Ace-Step" : t.engine === "yue2" ? "YuE2" : "MiniMax" }), el("div", { style: { flex: "1" } }), acts);
     mid.appendChild(trow);
     const subText = (t.caption || "").replace(/\s*\n\s*/g, " ").trim() || (t.instrumental ? "instrumental" : settingsBadge(t));
     mid.appendChild(el("div", { className: "mmm-sub", text: subText }));

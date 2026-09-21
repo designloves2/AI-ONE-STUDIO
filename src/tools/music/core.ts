@@ -22,6 +22,14 @@ export const LS_KEY    = "music_one_state_v1";
 export const ENGINES = [
   { key: "acestep", label: "Ace-Step 1.5" },
   { key: "minimax", label: "MiniMax Music 3" },
+  { key: "yue2",    label: "YuE2" },
+];
+// YuE2's own left-menu sub-modes (B-1) — Text to Music writes a song from style+lyrics
+// (optionally auto-sketching a melody plan first); Cover Music transcribes an uploaded
+// recording's melody (SheetSage2) and renders a new song that follows it.
+export const YUE2_MODES = [
+  { key: "text2music", label: "Text to Music" },
+  { key: "cover",      label: "Cover Music" },
 ];
 export const ACE_LANGUAGES = ["en", "ko", "ja", "zh", "es", "fr", "de", "auto"];
 export const ACE_KEYSCALES = [
@@ -50,6 +58,12 @@ export const LLM_ROLES = [
   "lyrics_from_theme", "lyrics_from_title", "lyrics_enhance",
   "caption_rewrite", "title", "cover_prompt",
 ];
+
+// The official YuE2 skill's own prompt guidance (github.com/multimodal-art-projection/
+// YuE/tree/main/skills/yue2-music) lives server-side as the "caption_yue2" role, same as
+// caption_acestep/caption_minimax — the backend's /music_one/llm/prompts + /llm/run
+// discover every *.md under web/music/llm_prompts/ by filename, no client-side change
+// needed beyond picking the right role key (see CAPTION_ROLE() in view.ts).
 
 // State fields that belong to ONE engine — swapped when the engine switches.
 export const ENGINE_FIELDS = [
@@ -101,11 +115,19 @@ export function saveState(s: any) {
 export function defaultState(saved: any): any {
   saved = saved || {};
   return {
-    engine: saved.engine || "acestep",   // "acestep" | "minimax"
+    engine: saved.engine || "acestep",   // "acestep" | "minimax" | "yue2"
 
     dit:  saved.dit  || "",
     clip: saved.clip || "",
     dav:  saved.dav  || "",
+
+    // YuE2 — checkpoint set once in Settings; the rest is per-run. Kept OUT of
+    // ENGINE_FIELDS (only meaningful for this engine, so no need to stash/swap it).
+    yue2Ckpt:      saved.yue2Ckpt      || "",
+    yue2Mode:      saved.yue2Mode      || "text2music",   // "text2music" | "cover" (B-1's two left-menu modes)
+    yue2AutoAbc:   saved.yue2AutoAbc   ?? true,            // text2music: let YuE2GenerateABC sketch a melody plan first
+    yue2CoverAudio: saved.yue2CoverAudio || "",            // cover: the uploaded source recording's filename
+    yue2RepetitionPenalty: saved.yue2RepetitionPenalty ?? 1.2,
 
     aceUnet:  saved.aceUnet  || "",
     aceClip1: saved.aceClip1 || "",
@@ -137,6 +159,13 @@ export function defaultState(saved: any): any {
     styleChips:   Array.isArray(saved.styleChips) ? saved.styleChips : [],
     styleFamily:  saved.styleFamily  || "",
     title:        saved.title        || "",
+    // Whether the user actually typed a title themselves — processJob() only lets the
+    // finished track keep an LLM-generated title when this is false. Missing from this
+    // whitelist meant it silently reverted to falsy on any state rebuild even though the
+    // user HAD typed one, so a completed track's title kept getting overwritten by the
+    // auto-title LLM call (same bug class as MiniMax H3 Postprocess's defaultState() gap —
+    // persist() saves the field, defaultState() never lists it, so it silently reverts).
+    titleTouched: saved.titleTouched ?? false,
     instrumental: saved.instrumental ?? false,
     vocalGender:  saved.vocalGender  || "auto",
     vocalStyle:   saved.vocalStyle   || "auto",

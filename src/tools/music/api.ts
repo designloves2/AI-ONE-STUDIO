@@ -24,6 +24,20 @@ export const viewURL = (t: any): string =>
 /** absolute /view URL (covers etc.) */
 export const viewAbs = (qs: string): string => `${comfyApi.base}/view?${qs}`;
 
+// YuE2 Cover Music's source recording — same ComfyUI upload endpoint every other tool's
+// image/video/audio upload already goes through (the "image" field name is just what the
+// endpoint expects; it accepts any file type).
+export async function uploadCoverAudio(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append("image", file);
+  fd.append("subfolder", "");
+  fd.append("type", "input");
+  const r = await comfyApi.fetchApi("/upload/image", { method: "POST", body: fd });
+  if (!r.ok) throw new Error(`upload failed (${r.status})`);
+  const d = await r.json();
+  return d.name;
+}
+
 // iOS Safari can't (reliably) decode FLAC / opus in <audio> — a played track just sits at
 // 0:00. When the browser isn't confident it can play the file's container, stream the server's
 // on-the-fly MP3 transcode (`/music_one/download`, ffmpeg + ID3, cached to .export/) instead.

@@ -423,8 +423,9 @@ yet merged to `master` — this session ran in a worktree, see git log for the e
   timeline), per-clip `<canvas>` waveform (1px bars, peak-normalized, calls `/api/waveform`,
   cached per media path), Properties panel (Start/Duration/Track, First Frame/End Frame jump
   buttons, Delete Clip), Render modal (3 buttons → `render_to_gallery` with
-  `video_audio`/`video_only`/`audio_only`), and a **minimal** gallery list (plain filename list,
-  not the card/lightbox design).
+  `video_audio`/`video_only`/`audio_only`), and the **real** render gallery overlay
+  (`galleryOverlay.ts` — see the "done 2026-09-23" entry below; replaced the old plain-list
+  stub).
 - Registered as tool id `"itda"` in `src/shared/tools.ts` (video group, positioned after
   `"music"` per instruction) and `src/main.ts`; `menu.ts` card description added.
 
@@ -454,11 +455,32 @@ is what this pass was scoped to confirm.
    render and check it lands in the shared `output/one_minimax_h3` gallery with a `metadata/<stem>.json`
    sidecar (per `gallery.py`'s convention — **not yet cross-checked against `gallery.py`'s exact
    sidecar field names**, read that file in full before wiring anything gallery-metadata-shaped).
-2. Gallery overlay — port `web/shared/ui_gallery_itda.js`'s card design (★ stitch mark, ⓘ info
-   popup, ⬇ import, double-click fullscreen) onto the `src/tools/minimax_h3/galleryOverlay.ts`
-   pattern, replacing the current plain-list stub in `view.ts`'s `openGalleryOverlay()`.
-3. 4-tab video gallery picker (`web/shared/ui_video_gallery_picker.js` — Input/Output/MiniMax H3/
-   ITDA Studio tabs, video-filtered) for loading a clip into the media bin from any tool's output.
+2. ~~Gallery overlay~~ — **done 2026-09-23**, `src/tools/itda/galleryOverlay.ts` (new file):
+   ported `web/shared/ui_gallery_itda.js`'s card design (★ stitch mark on `meta.media_used.length
+   > 1`, ⓘ hover info popup, ⬇ explicit import button, hover-preview `<video>`, double-click
+   fullscreen) using this repo's `el`/`sensitiveMedia` conventions instead of the
+   `minimax_h3/galleryOverlay.ts` file directly (that file's Stitch/Upscale/Interpolate/Resize
+   modes have no ITDA-side equivalent). The node's bottom 2x2 Reuse/Extend/View/Copy button grid
+   is deliberately NOT built — the node's own comment says it's unimplemented there too, and none
+   of the four have anything ITDA-side to wire to; left out entirely (not shown disabled), same
+   as the node. `view.ts`'s old plain-list `openGalleryOverlay()` stub is gone; the toolbar's
+   "Gallery" button now opens the real overlay.
+3. ~~4-tab video gallery picker~~ — **done 2026-09-23**, `src/tools/itda/videoGalleryPicker.ts`
+   (new file), structural twin of `src/shared/imageGalleryPicker.ts` (same overlay chrome, tool
+   tab bar, INPUT/OUTPUT 2-level folder dropdown via `/tj_shared/gallery_folders`) sourced from
+   `web/shared/ui_video_gallery_picker.js`'s 4 tabs (Input/Output/MiniMax H3/ITDA Studio) and
+   video-only routes (`*_gallery_video`, `/minimax_h3_one/videos`, ITDA's own `gallery/list`
+   filtered to `has_video !== false`). Picking a video copies it into the ITDA project's own
+   media folder — Input/Output/MiniMax H3 via a new `api.importMediaFromGallery()` wrapper
+   (mirrors nodes.py's `/itda_studio_one/media/from_gallery` route, the exact one the node's
+   `one_node_itda_studio.js` `HOOKS.pickVideoFromGallery` uses); the ITDA Studio tab via the
+   existing `api.importGalleryItem()` (id-based) instead, since a rendered gallery item's real
+   file can live under a user-configured `gallery_dir` outside ComfyUI's `output/` root (see
+   `itda_studio_backend/paths.py`), which `from_gallery`'s input/output/temp-only lookup can't
+   reach. Wired into `view.ts`'s Media Bin as two new buttons, "🎞 Video (Gallery)" (this new
+   picker) and "🎵 Audio (Gallery)" (reuses the existing `src/shared/audioGalleryPicker.ts`,
+   with the same `importMediaFromGallery` copy-into-project step added after its own
+   copy-to-ComfyUI-input step, since that shared picker only does the latter on its own).
 4. ~~System-level App Settings panel (`gallery_dir` + LLM backend/model)~~ — **done 2026-09-23
    follow-up pass**, see the entries below.
 5. Read `export.py`, `media.py`, `itda_app_ported.js`, `dom_build.js`, `core_itda_studio.js`,

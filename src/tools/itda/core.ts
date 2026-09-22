@@ -45,6 +45,7 @@ export class ItdaState {
   playhead = 0;
   selectedClipId: string | null = null;
   zoomPxPerFrame = 2;
+  snap = true;
   dirty = false;
 
   // Real last-clip end across all tracks — export/prerender length and the Properties panel's
@@ -117,51 +118,85 @@ export class ItdaState {
     }
   }
 
-  // ── snap: cross-track candidate edges (other clips' start/end + playhead + 0) ──────────────
-  // Ported from snapMoveStart/snapEdge (itda_app_ported.js) — collects edges across ALL tracks,
-  // not just the dragged clip's own track, and returns the nearest candidate within thresholdPx
-  // converted to frames via zoomPxPerFrame.
-  snapCandidates(excludeClipId: string): number[] {
-    const set = new Set<number>([0, this.playhead, this.totalFrames]);
+  // ── snap: cross-track candidate edges (other clips' start/end only) ────────────────────────
+  // Ported node-for-node from snapMoveStart/snapEdge in itda_app_ported.js (lines 569-609):
+  // threshold is `Math.max(4, 14/pxPerFrame)` frames (a floor of 4 frames, not a raw px/zoom
+  // ratio), candidates come ONLY from other clips' start/end across ALL tracks (cross-track,
+  // per user: "스냅은 동일트랙만이 아니고 아래 위 트랙도 인식하게해줘") — the node does NOT
+  // snap to the playhead, 0, or totalFrames for either move or trim drags. Peak/beat-match
+  // candidates (state.peakSnap, from cached waveform + detected beats) are a separate,
+  // not-yet-ported feature — left out here, tracked in PORT_LEDGER.md.
+  private snapThresholdFrames(): number {
+    return Math.max(4, 14 / this.zoomPxPerFrame);
+  }
+
+  private otherClipEdges(excludeClipId: string): { start: number; end: number }[] {
+    const out: { start: number; end: number }[] = [];
     for (const t of this.tracks) {
       for (const c of t.clips) {
         if (c.id === excludeClipId) continue;
-        set.add(c.start);
-        set.add(c.start + c.duration);
+        out.push({ start: c.start, end: c.start + c.duration });
       }
     }
-    return Array.from(set).sort((a, b) => a - b);
+    return out;
   }
 
-  snapFrame(frame: number, excludeClipId: string, thresholdPx = 8): number {
-    const thresholdFrames = thresholdPx / this.zoomPxPerFrame;
-    let best = frame;
-    let bestDist = thresholdFrames;
-    for (const cand of this.snapCandidates(excludeClipId)) {
-      const d = Math.abs(cand - frame);
-      if (d < bestDist) {
-        bestDist = d;
-        best = cand;
+  // Public snap entry point for a brand-new (not-yet-placed) clip's drop position — same
+  // threshold/candidate rules as snapEdge (no length offset, since there's no clip yet).
+  snapFrame(proposedFrame: number, excludeClipId: string): number {
+    if (!this.snap) return Math.round(proposedFrame);
+    const threshold = this.snapThresholdFrames();
+    let best: number | null = null;
+    let bestDist = Infinity;
+    for (const o of this.otherClipEdges(excludeClipId)) {
+      for (const cand of [o.start, o.end]) {
+        const d = Math.abs(cand - proposedFrame);
+        if (d <= threshold && d < bestDist) {
+          bestDist = d;
+          best = cand;
+        }
       }
     }
-    return best;
+    return best != null ? Math.round(best) : Math.round(proposedFrame);
   }
 
-  // Move-drag: snap the CLIP'S START to nearby edges (snapMoveStart).
+  // Move-drag: snap the CLIP'S START, matching against both start-aligned and end-aligned
+  // (start - length / end - length) candidates in one pass — mirrors node's snapMoveStart.
   snapMoveStart(clip: ItdaClip, proposedStart: number): number {
-    const snappedStart = this.snapFrame(proposedStart, clip.id);
-    // also try snapping the end so a clip can dock flush against another clip's start
-    const proposedEnd = proposedStart + clip.duration;
-    const snappedEnd = this.snapFrame(proposedEnd, clip.id);
-    if (snappedEnd !== proposedEnd && snappedStart === proposedStart) {
-      return snappedEnd - clip.duration;
+    if (!this.snap) return Math.round(proposedStart);
+    const threshold = this.snapThresholdFrames();
+    const length = clip.duration;
+    let bestEdge: number | null = null;
+    let bestDist = Infinity;
+    for (const o of this.otherClipEdges(clip.id)) {
+      for (const cand of [o.start, o.end, o.start - length, o.end - length]) {
+        const d = Math.abs(cand - proposedStart);
+        if (d <= threshold && d < bestDist) {
+          bestDist = d;
+          bestEdge = cand;
+        }
+      }
     }
-    return snappedStart;
+    return bestEdge != null ? Math.max(0, Math.round(bestEdge)) : Math.max(0, Math.round(proposedStart));
   }
 
-  // Trim-drag: snap the edge being dragged (snapEdge).
+  // Trim-drag: snap the edge being dragged to another clip's plain start/end (no length offset)
+  // — mirrors node's snapEdge.
   snapEdge(clip: ItdaClip, _edge: "left" | "right", proposedFrame: number): number {
-    return this.snapFrame(proposedFrame, clip.id);
+    if (!this.snap) return Math.round(proposedFrame);
+    const threshold = this.snapThresholdFrames();
+    let best: number | null = null;
+    let bestDist = Infinity;
+    for (const o of this.otherClipEdges(clip.id)) {
+      for (const cand of [o.start, o.end]) {
+        const d = Math.abs(cand - proposedFrame);
+        if (d <= threshold && d < bestDist) {
+          bestDist = d;
+          best = cand;
+        }
+      }
+    }
+    return best != null ? Math.round(best) : Math.round(proposedFrame);
   }
 
   async loadProject(name: string) {

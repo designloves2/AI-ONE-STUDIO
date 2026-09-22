@@ -7,7 +7,7 @@ import type { ItdaProject, MediaItem, RenderMode } from "./api";
 export interface ItdaClip {
   id: string;
   media_path: string;
-  kind: "video" | "audio" | "image";
+  kind: "video" | "audio" | "image" | "stitched";
   track: number;
   start: number; // timeline frame where the clip begins
   duration: number; // frames on the timeline (post-trim)
@@ -15,6 +15,12 @@ export interface ItdaClip {
   source_out: number; // trim-out, source frames
   fps?: number;
   label?: string;
+  // ── stitch (🧵) — a "stitched" clip is a plain layer container, not a real media
+  // clip: it has no media_path of its own, just its original children preserved so
+  // 🪢 UnStitch can restore them at their exact original track/start. Structurally
+  // mirrors itda_app_ported.js's stitchSelected()/unstitchSelected() (children carry
+  // orig_start/orig_track instead of a source file).
+  children?: ItdaClip[];
 }
 
 export interface ItdaTrack {
@@ -44,6 +50,10 @@ export class ItdaState {
   media: MediaItem[] = [];
   playhead = 0;
   selectedClipId: string | null = null;
+  // Multi-select (ctrl/shift-click, view.ts) — Stitch needs 2+ clips at once. Properties
+  // panel and single-clip actions (trim/split/snapshot) keep using selectedClipId, which
+  // view.ts always sets to the most-recently-clicked clip.
+  selectedClipIds: Set<string> = new Set();
   zoomPxPerFrame = 2;
   snap = true;
   dirty = false;
@@ -197,6 +207,124 @@ export class ItdaState {
       }
     }
     return best != null ? Math.round(best) : Math.round(proposedFrame);
+  }
+
+  // ── ✂ Split — cut the selected clip at the current playhead frame into two clips on the
+  // same track. Structural port of itda_app_ported.js's splitSelected() (pure local edit, no
+  // backend call — same as the node). No-op if the playhead isn't strictly inside the clip.
+  splitSelectedAtPlayhead(): boolean {
+    if (!this.selectedClipId) return false;
+    const found = this.findClip(this.selectedClipId);
+    if (!found) return false;
+    const { track, clip } = found;
+    if (clip.kind === "stitched") return false;
+    const end = clip.start + clip.duration;
+    if (this.playhead <= clip.start || this.playhead >= end) return false;
+    const leftLen = this.playhead - clip.start;
+    const rightLen = end - this.playhead;
+    const left: ItdaClip = { ...clip, id: `clip_${Date.now()}_L`, duration: leftLen, source_out: clip.source_in + leftLen };
+    const right: ItdaClip = {
+      ...clip,
+      id: `clip_${Date.now()}_R`,
+      start: this.playhead,
+      duration: rightLen,
+      source_in: clip.source_in + leftLen,
+      source_out: clip.source_in + leftLen + rightLen,
+    };
+    const i = track.clips.findIndex((c) => c.id === clip.id);
+    track.clips.splice(i, 1, left, right);
+    this.selectedClipId = right.id;
+    this.selectedClipIds = new Set([right.id]);
+    this.dirty = true;
+    return true;
+  }
+
+  // ── 🧵 Stitch — combine 2+ selected clips (any track) into one "stitched" layer container
+  // spanning their min-start..max-end, children preserved verbatim (own track/start intact)
+  // so 🪢 UnStitch can restore them exactly. Structural port of stitchSelected(). The
+  // container is placed on the lowest track among the selected clips' tracks, matching the
+  // node's `lane=Math.min(...cs.map(c=>c.lane))`.
+  stitchSelected(): ItdaClip | null {
+    const picked: { track: ItdaTrack; clip: ItdaClip }[] = [];
+    for (const id of this.selectedClipIds) {
+      const found = this.findClip(id);
+      if (found && found.clip.kind !== "stitched") picked.push(found);
+    }
+    if (picked.length < 2) return null;
+    const minStart = Math.min(...picked.map((p) => p.clip.start));
+    const maxEnd = Math.max(...picked.map((p) => p.clip.start + p.clip.duration));
+    const minTrackIdx = Math.min(...picked.map((p) => p.track.index));
+    const children = picked.map((p) => ({ ...p.clip }));
+    const stitched: ItdaClip = {
+      id: `stitched_${Date.now()}`,
+      media_path: "",
+      kind: "stitched",
+      track: minTrackIdx,
+      start: minStart,
+      duration: maxEnd - minStart,
+      source_in: 0,
+      source_out: maxEnd - minStart,
+      label: `Stitched Clip (${picked.length})`,
+      children,
+    };
+    for (const { track, clip } of picked) {
+      const i = track.clips.findIndex((c) => c.id === clip.id);
+      if (i >= 0) track.clips.splice(i, 1);
+    }
+    const hostTrack = this.tracks.find((t) => t.index === minTrackIdx) || this.tracks[0];
+    hostTrack.clips.push(stitched);
+    this.selectedClipId = stitched.id;
+    this.selectedClipIds = new Set([stitched.id]);
+    this.dirty = true;
+    return stitched;
+  }
+
+  // ── 🪢 UnStitch — reverse: drop the selected "stitched" container's children back onto
+  // their own original tracks at their own original start. Structural port of
+  // unstitchSelected().
+  unstitchSelected(): boolean {
+    if (!this.selectedClipId) return false;
+    const found = this.findClip(this.selectedClipId);
+    if (!found || found.clip.kind !== "stitched" || !found.clip.children?.length) return false;
+    const { track: hostTrack, clip: stitched } = found;
+    const i = hostTrack.clips.findIndex((c) => c.id === stitched.id);
+    if (i >= 0) hostTrack.clips.splice(i, 1);
+    const restoredIds: string[] = [];
+    for (const child of stitched.children || []) {
+      const dest = this.tracks.find((t) => t.index === child.track) || hostTrack;
+      dest.clips.push(child);
+      restoredIds.push(child.id);
+    }
+    this.selectedClipId = restoredIds[0] || null;
+    this.selectedClipIds = new Set(restoredIds);
+    this.dirty = true;
+    return true;
+  }
+
+  // ── ▣ Snapshot candidate — the clip under the playhead on the topmost (highest-index)
+  // video/image-bearing track, preferring the current selection when it qualifies. Mirrors
+  // snapshotClipCandidate()/topVisualClip() (node picks the top-most visual lane; here
+  // "topmost" = highest track index, since tracks render top-to-bottom by index in view.ts).
+  snapshotCandidate(): ItdaClip | null {
+    if (this.selectedClipId) {
+      const found = this.findClip(this.selectedClipId);
+      if (found && found.clip.kind !== "stitched" && found.clip.kind !== "audio") {
+        const { clip } = found;
+        if (this.playhead >= clip.start && this.playhead < clip.start + clip.duration) return clip;
+      }
+    }
+    let best: ItdaClip | null = null;
+    let bestTrackIndex = -1;
+    for (const t of this.tracks) {
+      for (const c of t.clips) {
+        if (c.kind === "audio" || c.kind === "stitched") continue;
+        if (this.playhead >= c.start && this.playhead < c.start + c.duration && t.index > bestTrackIndex) {
+          best = c;
+          bestTrackIndex = t.index;
+        }
+      }
+    }
+    return best;
   }
 
   async loadProject(name: string) {

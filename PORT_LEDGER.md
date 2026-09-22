@@ -397,8 +397,18 @@ yet merged to `master` — this session ran in a worktree, see git log for the e
   (`init`/`project/:name` get+post/`projects`/`project/new`/`duplicate`/`rename`/`delete`),
   media bin (`media/:project`, `media/upload`, `media/delete`, `probe`, `waveform`), render
   (`render_to_gallery`, `export`, `prerender`), gallery (`gallery/list`/`delete`/`import`),
-  system `app_settings` get/post. NOT yet wrapped: `fonts`, `stitch_analyze`, `stitch_bridge`,
-  `scene_detect`, `beat_detect`, `snapshot`/`snapshot_frame`, `send_to_comfy`.
+  system `app_settings` get/post. **2026-09-23 follow-up pass:** remaining routes now wrapped too —
+  `listFonts` (`/api/fonts`), `stitchAnalyze`/`stitchBridge` (`/api/stitch_analyze`, `/api/stitch_bridge`,
+  exact payload shapes incl. `source_out_a`/`source_in_b`/`window_sec` and `frame_a`/`frame_b`/
+  `mode`/`num_frames`), `sceneDetect`/`beatDetect` (`/api/scene_detect`, `/api/beat_detect`),
+  `snapshotFrame`/`saveSnapshot` (`/api/snapshot_frame` JSON, `/api/snapshot` multipart image POST),
+  `sendToComfy` (`/api/send_to_comfy`, both the local `export_clip_for_comfy` path and the
+  `comfy_url` HTTP path for a standalone-mode instance). All read from `server.py`'s actual route
+  bodies (re-confirmed this pass, not re-derived from a summary). `tsc --noEmit` clean (only the
+  pre-existing unrelated `src/gallery/mounts.ts` TS2366 remains) and `vite build` clean.
+  **Still open:** none of these new wrappers are wired into `view.ts` yet — no UI calls them (no
+  stitch-bridge tool, no scene/beat auto-split, no snapshot button, no "Send to ComfyUI" action) —
+  that UI wiring is separate future work, not part of this route-wrapping pass.
 - `src/tools/itda/core.ts` — `ItdaState`: `tracks: ItdaTrack[]` (each `{index, kind, clips}`),
   `ItdaClip {id, media_path, kind, track, start, duration, source_in, source_out, fps, label}`.
   `contentEnd()` = real max(clip.start+duration) across all tracks (not Total Frames — matches
@@ -447,8 +457,10 @@ and an actual render round-trip through `/itda_studio_one/*` are all unverified 
    — noted in the node reference as a recent addition, not ported.
 7. Frame-accurate video preview / scrub playback (only playhead position + transport buttons
    exist now; no actual `<video>` element syncing to the timeline).
-8. Scene detect / beat detect / stitch analyze+bridge / snapshot / send-to-comfy routes — wrapped
-   in neither `api.ts` nor `view.ts` yet.
+8. ~~Scene detect / beat detect / stitch analyze+bridge / snapshot / send-to-comfy routes~~ —
+   **done 2026-09-23**, `api.ts` now wraps all of them (see the api.ts entry above). Still need
+   `view.ts` UI to actually call them (no stitch tool, no scene/beat auto-split UI, no snapshot
+   button, no "Send to ComfyUI" action exist yet).
   session, same caveat node's own `98342b9` commit flagged for ITS first pass — the panel,
   graph shapes, and run-loop wiring are verified; a real render + `openCharSheetEditor` replace
   cycle still needs a live smoke test before relying on it in production.

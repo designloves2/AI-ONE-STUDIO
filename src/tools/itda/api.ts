@@ -102,6 +102,117 @@ export async function getWaveform(project: string, path: string, bars = 240) {
   return post(`${API}/waveform`, { project, path, bars });
 }
 
+// ── fonts ───────────────────────────────────────────────────────────────────
+export interface ItdaFont {
+  name: string;
+  family: string;
+  format: string;
+  url: string;
+}
+export async function listFonts(): Promise<{ ok: boolean; items: ItdaFont[] }> {
+  return fetchJson(`${API}/fonts`);
+}
+
+// ── stitch (crossfade/interpolate bridge between two clips) ─────────────────
+export async function stitchAnalyze(
+  project: string,
+  pathA: string,
+  pathB: string,
+  sourceOutA: number,
+  sourceInB: number,
+  fps = 24,
+  windowSec = 2.0
+) {
+  return post(`${API}/stitch_analyze`, {
+    project,
+    path_a: pathA,
+    path_b: pathB,
+    source_out_a: sourceOutA,
+    source_in_b: sourceInB,
+    fps,
+    window_sec: windowSec,
+  });
+}
+
+export type StitchBridgeMode = "interpolate" | "crossfade";
+
+export async function stitchBridge(
+  project: string,
+  pathA: string,
+  frameA: number,
+  pathB: string,
+  frameB: number,
+  fps = 24,
+  mode: StitchBridgeMode = "interpolate",
+  numFrames = 6
+) {
+  return post(`${API}/stitch_bridge`, {
+    project,
+    path_a: pathA,
+    frame_a: frameA,
+    path_b: pathB,
+    frame_b: frameB,
+    fps,
+    mode,
+    num_frames: numFrames,
+  });
+}
+
+// ── scene / beat detection ───────────────────────────────────────────────────
+export async function sceneDetect(project: string, path: string, fps = 24, threshold = 0.3) {
+  return post(`${API}/scene_detect`, { project, path, fps, threshold });
+}
+
+export async function beatDetect(project: string, path: string, fps = 24) {
+  return post(`${API}/beat_detect`, { project, path, fps });
+}
+
+// ── snapshots ─────────────────────────────────────────────────────────────
+export async function snapshotFrame(
+  project: string,
+  path: string,
+  kind: "video" | "image" = "video",
+  sourceFrame = 0,
+  sourceFps?: number
+): Promise<{ ok: boolean; path: string; source_frame: number }> {
+  return post(`${API}/snapshot_frame`, {
+    project,
+    path,
+    kind,
+    source_frame: sourceFrame,
+    source_fps: sourceFps,
+  });
+}
+
+/** POSTs a canvas/blob snapshot (e.g. from an in-app screenshot tool) as multipart form-data. */
+export async function saveSnapshot(project: string, image: Blob, filename = "snapshot.png") {
+  const fd = new FormData();
+  fd.append("project", project);
+  fd.append("image", image, filename);
+  const r = await fetch(`${BASE}${API}/snapshot`, { method: "POST", body: fd, credentials: "include" });
+  return r.json();
+}
+
+// ── send a trimmed clip to ComfyUI's own input (or a standalone instance) ──
+export async function sendToComfy(
+  project: string,
+  path: string,
+  kind: "video" | "audio" | "image" = "video",
+  opts?: { sourceIn?: number; sourceOut?: number; fps?: number; name?: string; comfyUrl?: string; comfyType?: string }
+) {
+  return post(`${API}/send_to_comfy`, {
+    project,
+    path,
+    kind,
+    source_in: opts?.sourceIn ?? 0,
+    source_out: opts?.sourceOut ?? 0,
+    fps: opts?.fps,
+    name: opts?.name,
+    comfy_url: opts?.comfyUrl,
+    comfy_type: opts?.comfyType,
+  });
+}
+
 // ── render / export ─────────────────────────────────────────────────────────
 export type RenderMode = "video_audio" | "video_only" | "audio_only";
 

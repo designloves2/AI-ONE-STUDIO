@@ -90,6 +90,15 @@ export function renderItda(container: HTMLElement) {
     showStatus: (msg: string) => { statusEl.textContent = msg; },
   });
 
+  // preview video — mirrors the node's #previewVideo: seeks to the frame under the
+  // playhead as it's scrubbed, instead of only updating a transport readout.
+  const previewVideo = el("video", {
+    style: { width: "100%", maxHeight: "220px", background: "#000", borderRadius: "6px", display: "none" },
+  }) as HTMLVideoElement;
+  previewVideo.muted = true;
+  previewVideo.playsInline = true;
+  centerCol.appendChild(previewVideo);
+
   // playhead controls
   const playheadInfo = el("span", { style: { color: C.muted, fontSize: "12px" } });
   const transport = row(
@@ -138,6 +147,74 @@ export function renderItda(container: HTMLElement) {
     state.playhead = Math.max(0, Math.min(state.totalFrames, f));
     playheadLine.style.left = `${frameToPx(state.playhead)}px`;
     refreshStatus();
+    updatePreview();
+  }
+
+  // Port of itda_app_ported.js's seekElementToFrame: frame-accurate scrub, but with
+  // only ONE seek in flight per element — a fast drag/scrub calls this on every single
+  // mousemove, far more often than the browser's decode pipeline can complete a seek.
+  // Firing video.currentTime= on each one queues a backlog of stale seeks that visibly
+  // lag behind the playhead. While a seek is still resolving, just remember the latest
+  // requested frame and jump straight there once 'seeked' fires.
+  function seekElementToFrame(video: HTMLVideoElement, clip: ItdaClip, frame: number) {
+    if (!video.src) return;
+    const fps = clip.fps || state.fps;
+    const local = Math.max(0, (frame - clip.start + (clip.source_in || 0)) / fps);
+    if (!Number.isFinite(local)) return;
+    const drift = Math.abs((video.currentTime || 0) - local);
+    if (drift <= 0.08) return;
+    const v = video as any;
+    if (v._itdaSeeking) {
+      v._itdaPendingFrame = frame;
+      return;
+    }
+    v._itdaSeeking = true;
+    let settled = false;
+    let safety: number;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(safety);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onSeeked);
+      v._itdaSeeking = false;
+      const pending = v._itdaPendingFrame;
+      v._itdaPendingFrame = null;
+      if (pending != null && pending !== frame) seekElementToFrame(video, clip, pending);
+    };
+    const onSeeked = () => settle();
+    safety = window.setTimeout(settle, 600);
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onSeeked);
+    try {
+      video.currentTime = local;
+    } catch {
+      settle();
+    }
+  }
+
+  function updatePreview() {
+    const clip = state.clipAtFrame(state.playhead);
+    if (!clip || clip.kind !== "video") {
+      if (clip && clip.kind === "image") {
+        // image clips have no seek/currentTime concept — just show a still frame slot
+        previewVideo.style.display = "none";
+      } else {
+        previewVideo.style.display = "none";
+        previewVideo.removeAttribute("src");
+      }
+      return;
+    }
+    const src = api.mediaFileUrl(clip.media_path, state.project);
+    if (previewVideo.dataset.src !== src) {
+      previewVideo.pause();
+      previewVideo.removeAttribute("src");
+      previewVideo.load();
+      previewVideo.src = src;
+      previewVideo.dataset.src = src;
+    }
+    previewVideo.style.display = "block";
+    seekElementToFrame(previewVideo, clip, state.playhead);
   }
 
   function renderRuler() {
@@ -227,12 +304,31 @@ export function renderItda(container: HTMLElement) {
       []
     );
 
-    // waveform canvas for audio-bearing clips (a "stitched" container has no media_path of
-    // its own to probe)
+    // waveform canvas for audio-bearing clips — sizing/opacity/bar-pitch match
+    // the node's v0.2.8 waveform/trim/audio hotfix (itda_style.css .clip-bars /
+    // .wf-canvas): track fills the clip edge-to-edge at clamp(30px,58%,58px)
+    // height, canvas painted at .92 opacity, 1px bar + 1px gap pitch. A "stitched"
+    // container has no media_path of its own to probe, so it's excluded.
     if (!isStitched && (clip.kind === "audio" || clip.kind === "video")) {
-      const canvas = el("canvas", { style: { position: "absolute", left: "0", bottom: "0", width: "100%", height: "60%", opacity: "0.55", pointerEvents: "none" } }) as HTMLCanvasElement;
-      clipEl.appendChild(canvas);
-      loadWaveform(clip, canvas, w);
+      const barsBox = el("div", {
+        style: {
+          position: "absolute",
+          left: "0",
+          right: "0",
+          bottom: "0",
+          height: "clamp(30px, 58%, 58px)",
+          background: "rgba(0,0,0,.32)",
+          borderRadius: "0 0 2px 2px",
+          overflow: "hidden",
+          pointerEvents: "none",
+        },
+      });
+      const canvas = el("canvas", { style: { position: "absolute", left: "0", top: "0", display: "block" } }) as HTMLCanvasElement;
+      barsBox.appendChild(canvas);
+      clipEl.appendChild(barsBox);
+      // deferred one frame so barsBox has real layout dimensions once it's
+      // actually attached to the DOM (getBoundingClientRect is 0x0 before that)
+      requestAnimationFrame(() => loadWaveform(clip, canvas, barsBox));
     }
 
     const leftHandle = el("div", { style: { position: "absolute", left: "0", top: "0", bottom: "0", width: "6px", cursor: "ew-resize" } });
@@ -264,6 +360,7 @@ export function renderItda(container: HTMLElement) {
         origSourceIn: clip.source_in,
         origSourceOut: clip.source_out,
         origDuration: clip.duration,
+        startScrollLeft: timelineScroll.scrollLeft,
       };
     });
 
@@ -271,7 +368,11 @@ export function renderItda(container: HTMLElement) {
   }
 
   const waveformCache = new Map<string, number[]>();
-  async function loadWaveform(clip: ItdaClip, canvas: HTMLCanvasElement, widthPx: number) {
+  // Port of the node's drawClipWaveform (itda_app_ported.js v0.2.8 hotfix):
+  // per-clip peak normalization (this clip's own loudest point in its
+  // trimmed range fills the track height), 1px bar + 1px gap pitch snapped
+  // to the pixel grid, dpr-aware canvas sizing, 2px min-height floor.
+  async function loadWaveform(clip: ItdaClip, canvas: HTMLCanvasElement, barsBox: HTMLElement) {
     const key = clip.media_path;
     let finalPeaks: number[] | undefined = waveformCache.get(key);
     if (!finalPeaks) {
@@ -282,15 +383,54 @@ export function renderItda(container: HTMLElement) {
     if (!finalPeaks.length) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const bars = Math.max(1, Math.min(finalPeaks.length, Math.round(widthPx)));
-    canvas.width = bars;
-    canvas.height = 20;
-    ctx.fillStyle = "#ffffff";
-    const step = finalPeaks.length / bars;
-    for (let i = 0; i < bars; i++) {
-      const p = finalPeaks[Math.floor(i * step)] || 0; // peak-normalized 0..1
-      const h = Math.max(1, p * canvas.height);
-      ctx.fillRect(i, canvas.height - h, 1, h);
+
+    const rect = barsBox.getBoundingClientRect();
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+    canvas.width = Math.max(1, Math.round(cssW * dpr));
+    canvas.height = Math.max(1, Math.round(cssH * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const peaks = finalPeaks;
+    const sourceTotal = Math.max(1, peaks.length);
+    const srcIn = Math.max(0, Math.min(sourceTotal - 1, Math.round(clip.source_in || 0)));
+    const length = Math.max(1, Math.min(Math.round(clip.duration || 1), sourceTotal - srcIn));
+
+    ctx.fillStyle = clip.kind === "audio" ? "rgba(205,255,235,.92)" : "rgba(238,222,255,.92)";
+    const mid = cssH / 2;
+
+    // peak-normalize over this clip's trimmed range only
+    let maxPeak = 0;
+    {
+      const a0 = Math.max(0, Math.floor((srcIn / sourceTotal) * peaks.length));
+      const b0 = Math.min(peaks.length, Math.ceil(((srcIn + length) / sourceTotal) * peaks.length));
+      for (let j = a0; j < b0; j++) {
+        const v = Math.abs(Number(peaks[j]) || 0);
+        if (v > maxPeak) maxPeak = v;
+      }
+    }
+    const norm = maxPeak > 0.005 ? 1 / maxPeak : 1;
+
+    const nBars = Math.max(1, Math.min(Math.round(cssW / 2), peaks.length));
+    const barW = 1;
+    for (let i = 0; i < nBars; i++) {
+      const frameA = srcIn + (i / nBars) * length;
+      const frameB = srcIn + ((i + 1) / nBars) * length;
+      const a = Math.max(0, Math.min(peaks.length - 1, Math.floor((frameA / sourceTotal) * peaks.length)));
+      const b = Math.max(a + 1, Math.min(peaks.length, Math.ceil((frameB / sourceTotal) * peaks.length)));
+      let peak = 0;
+      for (let j = a; j < b; j++) {
+        const v = Math.abs(Number(peaks[j]) || 0);
+        if (v > peak) peak = v;
+      }
+      peak = Math.min(1, peak * norm);
+      const h = Math.max(2, peak * mid * 2);
+      const x = Math.round((i / nBars) * cssW);
+      ctx.fillRect(x, mid - h / 2, barW, h);
     }
   }
 
@@ -299,7 +439,23 @@ export function renderItda(container: HTMLElement) {
     const found = state.findClip(dragState.clipId);
     if (!found) return;
     const { clip } = found;
-    const rawDeltaFrames = Math.round((e.clientX - dragState.startX) / state.zoomPxPerFrame);
+
+    // Autoscroll the timeline while dragging (move OR trim) near its left/right
+    // edge — matches itda_app_ported.js onClipPointer exactly: 36px edge zone,
+    // 22px step per mousemove, no rAF ticker (relies on the pointer continuing
+    // to move while at the edge).
+    {
+      const rect = timelineScroll.getBoundingClientRect();
+      const edge = 36;
+      const step = 22;
+      if (e.clientX > rect.right - edge) timelineScroll.scrollLeft += step;
+      else if (e.clientX < rect.left + edge) timelineScroll.scrollLeft = Math.max(0, timelineScroll.scrollLeft - step);
+    }
+    // Fold the timeline's own scroll movement back into the drag delta — without
+    // this, autoscrolling content under a stationary pointer would never let the
+    // drag target move past whatever was reachable on-screen at drag-start.
+    const scrollDelta = timelineScroll.scrollLeft - dragState.startScrollLeft;
+    const rawDeltaFrames = Math.round((e.clientX - dragState.startX + scrollDelta) / state.zoomPxPerFrame);
 
     if (dragState.mode === "move") {
       const proposedStart = Math.max(0, dragState.origStart + rawDeltaFrames);
@@ -346,9 +502,23 @@ export function renderItda(container: HTMLElement) {
       }
     }
   });
-  ruler.addEventListener("click", (e) => {
+
+  // Ruler scrub: mousedown-drag seeks continuously (not just on release), the video
+  // preview keeping up via seekElementToFrame's single-seek-in-flight throttle above —
+  // matches the node's scrub() (bind()) calling updatePlayhead on every mousemove.
+  let scrubbing = false;
+  ruler.addEventListener("mousedown", (e) => {
+    scrubbing = true;
     const rect = ruler.getBoundingClientRect();
     seekPlayhead(pxToFrame(e.clientX - rect.left));
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!scrubbing) return;
+    const rect = ruler.getBoundingClientRect();
+    seekPlayhead(pxToFrame(e.clientX - rect.left));
+  });
+  window.addEventListener("mouseup", () => {
+    scrubbing = false;
   });
 
   function renderMediaBin() {
@@ -513,5 +683,6 @@ export function renderItda(container: HTMLElement) {
     renderMediaBin();
     renderProps();
     refreshStatus();
+    updatePreview();
   })();
 }

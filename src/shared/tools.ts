@@ -6,7 +6,8 @@ export type ToolId =
   | "sdxl"
   | "anima"
   | "minimax_h3"
-  | "music";
+  | "music"
+  | "itda";
 
 export type MediaKind = "image" | "video";
 
@@ -24,6 +25,7 @@ export interface ToolMeta {
 export const TOOLS: ToolMeta[] = [
   { id: "minimax_h3", label: "MiniMax H3", hash: "#minimax_h3", kind: "video", group: "video" },
   { id: "music", label: "MusicMaker", hash: "#music", kind: "video", group: "video" },
+  { id: "itda", label: "ITDA ONE STUDIO", hash: "#itda", kind: "video", group: "video" },
   { id: "krea2", label: "Krea2", hash: "#krea2", kind: "image", group: "image" },
   { id: "zimage", label: "Z-Image", hash: "#zimage", kind: "image", group: "image" },
   { id: "klein", label: "Flux2 Klein", hash: "#klein", kind: "image", group: "image_edit" },

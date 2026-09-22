@@ -1,0 +1,205 @@
+// core.ts — ITDA Studio state model. Ported (structurally, not code-for-code) from
+// web/itda_studio/itda_app_ported.js in ComfyUI-TJ_NODE_STUDIO_ONE. Project/track/clip shapes
+// mirror what itda_studio_backend/project.py persists so save/load round-trips losslessly.
+import * as api from "./api";
+import type { ItdaProject, MediaItem, RenderMode } from "./api";
+
+export interface ItdaClip {
+  id: string;
+  media_path: string;
+  kind: "video" | "audio" | "image";
+  track: number;
+  start: number; // timeline frame where the clip begins
+  duration: number; // frames on the timeline (post-trim)
+  source_in: number; // trim-in, source frames
+  source_out: number; // trim-out, source frames
+  fps?: number;
+  label?: string;
+}
+
+export interface ItdaTrack {
+  index: number;
+  kind: "video" | "audio";
+  clips: ItdaClip[];
+}
+
+export interface DragState {
+  clipId: string;
+  mode: "move" | "trim-left" | "trim-right";
+  startX: number;
+  origStart: number;
+  origSourceIn: number;
+  origSourceOut: number;
+  origDuration: number;
+}
+
+export const DEFAULT_FPS = 24;
+export const DEFAULT_TOTAL_FRAMES = 24 * 60 * 5; // 5 min ceiling until a project sets its own
+
+export class ItdaState {
+  project = "itda-project-1";
+  fps = DEFAULT_FPS;
+  totalFrames = DEFAULT_TOTAL_FRAMES;
+  tracks: ItdaTrack[] = [{ index: 0, kind: "video", clips: [] }, { index: 1, kind: "audio", clips: [] }];
+  media: MediaItem[] = [];
+  playhead = 0;
+  selectedClipId: string | null = null;
+  zoomPxPerFrame = 2;
+  dirty = false;
+
+  // Real last-clip end across all tracks — export/prerender length and the Properties panel's
+  // "End Frame" jump both use this instead of stretching to Total Frames (export.py §content_end).
+  contentEnd(): number {
+    let end = 0;
+    for (const t of this.tracks) for (const c of t.clips) end = Math.max(end, c.start + c.duration);
+    return end;
+  }
+
+  addTrack(kind: "video" | "audio") {
+    const index = this.tracks.length;
+    this.tracks.push({ index, kind, clips: [] });
+    this.dirty = true;
+  }
+
+  findClip(id: string): { track: ItdaTrack; clip: ItdaClip } | null {
+    for (const t of this.tracks) {
+      const c = t.clips.find((c) => c.id === id);
+      if (c) return { track: t, clip: c };
+    }
+    return null;
+  }
+
+  addClip(trackIndex: number, media: MediaItem, startFrame: number): ItdaClip | null {
+    const track = this.tracks[trackIndex];
+    if (!track) return null;
+    const fps = media.fps || this.fps;
+    const durationFrames = Math.max(1, Math.round((media.duration || 1) * fps));
+    const clip: ItdaClip = {
+      id: `clip_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      media_path: media.path,
+      kind: (media.kind as any) || "video",
+      track: trackIndex,
+      start: Math.max(0, startFrame),
+      duration: durationFrames,
+      source_in: 0,
+      source_out: durationFrames,
+      fps,
+      label: media.name || media.path.split(/[\\/]/).pop(),
+    };
+    this.clampToTotalFrames(clip);
+    track.clips.push(clip);
+    this.dirty = true;
+    return clip;
+  }
+
+  removeClip(id: string) {
+    for (const t of this.tracks) {
+      const i = t.clips.findIndex((c) => c.id === id);
+      if (i >= 0) {
+        t.clips.splice(i, 1);
+        this.dirty = true;
+        return;
+      }
+    }
+  }
+
+  // Clips whose start+duration runs past Total Frames auto-clamp (node behavior) — trims the
+  // tail rather than silently rendering short or erroring at export time.
+  clampToTotalFrames(clip: ItdaClip) {
+    const maxEnd = this.totalFrames;
+    if (clip.start >= maxEnd) {
+      clip.start = Math.max(0, maxEnd - 1);
+    }
+    const overshoot = clip.start + clip.duration - maxEnd;
+    if (overshoot > 0) {
+      clip.duration = Math.max(1, clip.duration - overshoot);
+      clip.source_out = clip.source_in + clip.duration;
+    }
+  }
+
+  // ── snap: cross-track candidate edges (other clips' start/end + playhead + 0) ──────────────
+  // Ported from snapMoveStart/snapEdge (itda_app_ported.js) — collects edges across ALL tracks,
+  // not just the dragged clip's own track, and returns the nearest candidate within thresholdPx
+  // converted to frames via zoomPxPerFrame.
+  snapCandidates(excludeClipId: string): number[] {
+    const set = new Set<number>([0, this.playhead, this.totalFrames]);
+    for (const t of this.tracks) {
+      for (const c of t.clips) {
+        if (c.id === excludeClipId) continue;
+        set.add(c.start);
+        set.add(c.start + c.duration);
+      }
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }
+
+  snapFrame(frame: number, excludeClipId: string, thresholdPx = 8): number {
+    const thresholdFrames = thresholdPx / this.zoomPxPerFrame;
+    let best = frame;
+    let bestDist = thresholdFrames;
+    for (const cand of this.snapCandidates(excludeClipId)) {
+      const d = Math.abs(cand - frame);
+      if (d < bestDist) {
+        bestDist = d;
+        best = cand;
+      }
+    }
+    return best;
+  }
+
+  // Move-drag: snap the CLIP'S START to nearby edges (snapMoveStart).
+  snapMoveStart(clip: ItdaClip, proposedStart: number): number {
+    const snappedStart = this.snapFrame(proposedStart, clip.id);
+    // also try snapping the end so a clip can dock flush against another clip's start
+    const proposedEnd = proposedStart + clip.duration;
+    const snappedEnd = this.snapFrame(proposedEnd, clip.id);
+    if (snappedEnd !== proposedEnd && snappedStart === proposedStart) {
+      return snappedEnd - clip.duration;
+    }
+    return snappedStart;
+  }
+
+  // Trim-drag: snap the edge being dragged (snapEdge).
+  snapEdge(clip: ItdaClip, _edge: "left" | "right", proposedFrame: number): number {
+    return this.snapFrame(proposedFrame, clip.id);
+  }
+
+  async loadProject(name: string) {
+    const res = await api.getProject(name);
+    this.applyProject(res.project);
+  }
+
+  applyProject(p: ItdaProject) {
+    this.project = p.name || this.project;
+    this.fps = p.fps || DEFAULT_FPS;
+    this.totalFrames = p.total_frames || DEFAULT_TOTAL_FRAMES;
+    if (Array.isArray(p.tracks) && p.tracks.length) {
+      this.tracks = p.tracks as ItdaTrack[];
+    }
+    this.dirty = false;
+  }
+
+  toProject(): ItdaProject {
+    return {
+      name: this.project,
+      fps: this.fps,
+      total_frames: this.totalFrames,
+      tracks: this.tracks,
+    };
+  }
+
+  async save() {
+    await api.saveProject(this.project, this.toProject());
+    this.dirty = false;
+  }
+
+  async refreshMedia() {
+    const res = await api.getMedia(this.project);
+    this.media = res.items || [];
+  }
+
+  async render(mode: RenderMode) {
+    await this.save();
+    return api.renderToGallery(this.project, mode);
+  }
+}

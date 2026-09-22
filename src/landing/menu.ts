@@ -19,6 +19,7 @@ const TOOL_DESC: Partial<Record<ToolId, string>> = {
   klein: "Instruction-based image editing (T2I/I2I/Inpaint/Outpaint/Face Swap)",
   qwen2511: "Image editing with the Qwen Image Edit model",
   sdxl: "SDXL-based image generation (beta)",
+  itda: "Timeline-based multi-track video editor",
 };
 
 const GROUP_ICON: Record<ToolGroup, string> = {

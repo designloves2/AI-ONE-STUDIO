@@ -469,9 +469,8 @@ and an actual render round-trip through `/itda_studio_one/*` are all unverified 
    picker) and "🎵 Audio (Gallery)" (reuses the existing `src/shared/audioGalleryPicker.ts`,
    with the same `importMediaFromGallery` copy-into-project step added after its own
    copy-to-ComfyUI-input step, since that shared picker only does the latter on its own).
-4. System-level App Settings panel (`gallery_dir` + LLM backend/model) reusing
-   `src/shared/llmBackendPanel.ts` / `src/shared/promptEditPopup.ts` — `api.ts` already has
-   `getAppSettings`/`saveAppSettings` wired, just needs a UI panel.
+4. ~~System-level App Settings panel (`gallery_dir` + LLM backend/model)~~ — **done 2026-09-23
+   follow-up pass**, see the new entry below.
 5. Read `export.py`, `media.py`, `itda_app_ported.js`, `dom_build.js`, `core_itda_studio.js`,
    `itda_style.css` in full (not yet done) and cross-check `core.ts`'s clip/track model + the
    waveform sizing/clamp constants in `view.ts` against the node's actual v0.2.8 hotfix values.
@@ -480,9 +479,83 @@ and an actual render round-trip through `/itda_studio_one/*` are all unverified 
 7. Frame-accurate video preview / scrub playback (only playhead position + transport buttons
    exist now; no actual `<video>` element syncing to the timeline).
 8. ~~Scene detect / beat detect / stitch analyze+bridge / snapshot / send-to-comfy routes~~ —
-   **done 2026-09-23**, `api.ts` now wraps all of them (see the api.ts entry above). Still need
-   `view.ts` UI to actually call them (no stitch tool, no scene/beat auto-split UI, no snapshot
-   button, no "Send to ComfyUI" action exist yet).
+   route wrappers done 2026-09-23 (`api.ts`). UI wiring done in the 2026-09-23 follow-up pass
+   below for the buttons that have a genuine, non-disabled counterpart in the node
+   (Split/Stitch/UnStitch/Snapshot); Scene/Beat Detect, Auto Stitch, Add Transition, and
+   Send-to-ComfyUI stay unwired — see that entry for exactly why.
+
+## ITDA ONE STUDIO — App Settings panel + stitch/snapshot UI wiring (2026-09-23 follow-up)
+
+**Node reference read in full this pass:** `web/one_node_itda_studio.js` (App Settings modal —
+`openAppSettingsModal()`, confirms it's just Gallery Path + `mountLLMSettingsSection`, no
+per-project fields), `web/itda_studio/dom_build.js` (grepped for every toolbar button's
+`disabled` attribute — the authoritative list of what the node itself currently ships live vs.
+inert), and the matching handler functions in `web/itda_studio/itda_app_ported.js`
+(`splitSelected`/`stitchSelected`/`unstitchSelected`/`snapshot`/`sendToComfy`/
+`sendAllTimelineToComfy`/`aiDetectSelected`/`autoStitchSelected`, `bind()`'s click-wiring block).
+
+**Button-by-button disposition (per `dom_build.js`'s own `disabled: ""` markup):**
+- **Wired (genuine, active in the node):** ✂ `splitClip`, 🧵 `stitchClip`, 🪢 `unstitchClip`,
+  ▣ `snapshotTop`.
+- **Left unwired (disabled in the node itself, `dom_build.js` lines 157-159):** 🪄
+  `autoStitchClip` (Auto Stitch — the `stitchAnalyze`/`stitchBridge` API wrappers exist in
+  `api.ts` but have no live UI entry point in the node to port), 🎞 `addTransition`, ✨
+  `aiDetect` (Scene/Beat Detect — `sceneDetect`/`beatDetect` wrappers exist, same story).
+  Also `compareTop`/`overlayTop`/`wipeTop` (multi-clip preview compare modes) — disabled,
+  out of scope for this pass regardless.
+- **Left unwired (no button at all — `bind()` line ~1773 explicitly does NOT bind
+  `$('exportProject')`/`$('sendComfy')`, comment: "those two menu items were removed"):**
+  Send-to-ComfyUI. `sendToComfy`/`sendAllTimelineToComfy` are, in the node's own words, "dormant"
+  — defined but never wired to anything. The `sendToComfy` wrapper stays in `api.ts` for when/if
+  the node ever re-adds that button, but nothing in `view.ts` calls it.
+
+**Built:**
+- `src/tools/itda/core.ts` — extended `ItdaClip` with `kind: "stitched"` + `children?: ItdaClip[]`
+  (a stitch container has no `media_path` of its own, just its original children preserved
+  verbatim so UnStitch can restore them exactly). Added `selectedClipIds: Set<string>`
+  (multi-select — Stitch needs 2+ clips at once; `selectedClipId` stays the single "most
+  recently clicked" clip for Properties/split/snapshot, same split the node itself has between
+  `state.selectedClipId` and `selectedClips()`). New methods, each a structural port of the
+  matching function in `itda_app_ported.js`: `splitSelectedAtPlayhead()` (pure local edit, no
+  backend call — matches the node, which also splits client-side only),
+  `stitchSelected()`/`unstitchSelected()` (container clip on the lowest selected track, spanning
+  min-start..max-end — mirrors `stitchSelected()`'s `lane=Math.min(...)`), `snapshotCandidate()`
+  (picks the clip under the playhead, preferring the current selection, skipping audio/stitched
+  — mirrors `snapshotClipCandidate()`/`topVisualClip()`, "topmost" = highest track index since
+  tracks render top-to-bottom by index here).
+- `src/tools/itda/view.ts` — toolbar gained ✂/🧵/🪢/▣ icon buttons wired to the new core.ts
+  methods (✂ re-renders + re-selects the right half; 🧵 needs 2+ multi-selected clips or shows
+  a status hint; 🪢 restores a stitched clip's children and re-selects them; ▣ calls
+  `api.snapshotFrame` with the source frame computed from playhead - clip.start, shows the
+  result in the status bar — no `snapshotToast` popup like the node has, the shared status
+  line stands in for it). Clip `mousedown` now supports ctrl/shift-click additive multi-select
+  (`selectedClipIds`), clicking empty timeline/ruler space clears it. `renderClipEl` gives a
+  "stitched" clip a distinct color/border (🧵 prefix on its label) and skips the waveform
+  canvas (no `media_path` to probe). Added the "⚙ App Settings" toolbar button →
+  `settingsOverlay.show()`.
+- `src/tools/itda/settings.ts` (new) — `createItdaSettingsOverlay()`: a small modal (NOT the
+  multi-tab `minimax_h3/settings.ts` pattern — ITDA's own node keeps App Settings to exactly
+  Gallery Path + one LLM backend block, and this matches that scope on purpose rather than
+  over-building it) with a Gallery Path text field (`api.getAppSettings`/`saveAppSettings`,
+  already wired) and one `createLlmBackendGroup(...).makeBlock("text")` from
+  `shared/llmBackendPanel.ts` (ITDA has no per-role text/vision LLM split of its own — it
+  doesn't run a Brief/Vision pass — so a single generic block, unlike MiniMax H3's per-role
+  rows). LLM backend/model choice persists to its own `aos_itda_llm_settings_v1` localStorage
+  key (system-wide, separate from any per-project `ItdaState`); the OpenRouter key itself is
+  never stored client-side (`llmBackendPanel.ts` pushes it straight to the server `.env`).
+
+**tsc/build status:** `npx tsc --noEmit` clean for all `src/tools/itda/*` files (the one
+pre-existing, unrelated `TS2366` in `src/gallery/mounts.ts` remains, untouched). `npx vite
+build` succeeds (`dist/` deleted after).
+
+**Verified:** static build/typecheck only. **NOT** browser-verified this pass — the dev server
+already running in this environment's Browser pane (`localhost:8774`) has its `cwd` pinned to
+the main checkout (`C:\AI\AI_One_Studio`), not this worktree, so it was still serving the
+pre-this-pass bundle (confirmed: the toolbar screenshot showed neither the new ✂🧵🪢▣ buttons
+nor "⚙ App Settings") — and starting a second dev server on the same port from the worktree
+would conflict with whatever session owns that one. Split/Stitch/UnStitch/Snapshot/App Settings
+therefore still need an actual browser+backend smoke test (place 2+ clips, multi-select, Stitch,
+UnStitch, Split at playhead, Snapshot, open App Settings and Apply) before relying on them.
   session, same caveat node's own `98342b9` commit flagged for ITS first pass — the panel,
   graph shapes, and run-loop wiring are verified; a real render + `openCharSheetEditor` replace
   cycle still needs a live smoke test before relying on it in production.

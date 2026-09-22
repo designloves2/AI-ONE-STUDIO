@@ -8,6 +8,7 @@ import { ItdaState, type ItdaClip, type DragState } from "./core";
 import { createItdaGalleryOverlay } from "./galleryOverlay";
 import { openVideoGalleryPicker } from "./videoGalleryPicker";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
+import { createItdaSettingsOverlay } from "./settings";
 
 const TRACK_HEIGHT = 44;
 const RULER_HEIGHT = 22;
@@ -19,6 +20,10 @@ export function renderItda(container: HTMLElement) {
   const root = el("div", { style: { display: "flex", flexDirection: "column", height: "100%", padding: "10px", gap: "8px", boxSizing: "border-box" } });
   container.appendChild(root);
 
+  // ── App Settings (system-wide — Gallery Path + LLM backend/model) ────────
+  const settingsOverlay = createItdaSettingsOverlay();
+  root.appendChild(settingsOverlay.el);
+
   // ── toolbar ────────────────────────────────────────────────────────────
   const statusEl = el("span", { style: { color: C.muted, fontSize: "12px" } });
   const projectLabel = el("span", { style: { color: C.text, fontSize: "13px", fontWeight: "600" } });
@@ -29,9 +34,35 @@ export function renderItda(container: HTMLElement) {
       el("div", { style: { flex: "1" } }),
       mkBtn("+ Video Track", () => { state.addTrack("video"); renderTracks(); }),
       mkBtn("+ Audio Track", () => { state.addTrack("audio"); renderTracks(); }),
+      mkBtn("✂", () => {
+        if (state.splitSelectedAtPlayhead()) { renderTracks(); renderProps(); refreshStatus(); statusEl.textContent = "Split"; }
+      }, false, "Split — cut the selected clip at the playhead"),
+      mkBtn("🧵", () => {
+        const c = state.stitchSelected();
+        renderTracks(); renderProps(); refreshStatus();
+        statusEl.textContent = c ? "Stitched as layer container" : "Select 2+ clips (ctrl/shift-click) to Stitch";
+      }, false, "Stitch — combine 2+ selected clips into one layer container"),
+      mkBtn("🪢", () => {
+        const ok = state.unstitchSelected();
+        renderTracks(); renderProps(); refreshStatus();
+        statusEl.textContent = ok ? "UnStitched" : "Select a Stitched clip to UnStitch";
+      }, false, "UnStitch — restore a stitched clip's originals"),
+      mkBtn("▣", async () => {
+        const c = state.snapshotCandidate();
+        if (!c) { statusEl.textContent = "No clip under the playhead to snapshot"; return; }
+        statusEl.textContent = "Snapshotting…";
+        try {
+          const sourceFrame = Math.max(0, Math.round((c.source_in || 0) + (state.playhead - c.start)));
+          const res = await api.snapshotFrame(state.project, c.media_path, c.kind === "image" ? "image" : "video", sourceFrame, c.fps);
+          statusEl.textContent = res?.ok ? `Snapshot saved · F${sourceFrame}` : `Snapshot failed: ${(res as any)?.error || "unknown"}`;
+        } catch (err: any) {
+          statusEl.textContent = `Snapshot failed: ${err?.message || err}`;
+        }
+      }, false, "Snapshot — save the current frame (P)"),
       mkBtn("Save", async () => { await state.save(); refreshStatus(); }),
       mkBtn("Render…", () => openRenderModal(), true),
       mkBtn("Gallery", () => galleryOv.show(), false),
+      mkBtn("⚙ App Settings", () => settingsOverlay.show(), false, "System-wide settings — Gallery Path + LLM backend/model"),
       statusEl,
     ],
     "8px"
@@ -169,7 +200,8 @@ export function renderItda(container: HTMLElement) {
 
   function renderClipEl(clip: ItdaClip) {
     const w = Math.max(4, frameToPx(clip.duration));
-    const isSel = state.selectedClipId === clip.id;
+    const isSel = state.selectedClipIds.has(clip.id) || state.selectedClipId === clip.id;
+    const isStitched = clip.kind === "stitched";
     const clipEl = el(
       "div",
       {
@@ -179,8 +211,8 @@ export function renderItda(container: HTMLElement) {
           top: "2px",
           bottom: "2px",
           width: `${w}px`,
-          background: isSel ? BRAND : clip.kind === "audio" ? "#3a6" : "#37507a",
-          border: `1px solid ${isSel ? "#fff" : C.border}`,
+          background: isSel ? BRAND : isStitched ? "#7a4f1e" : clip.kind === "audio" ? "#3a6" : "#37507a",
+          border: `1px solid ${isSel ? "#fff" : isStitched ? "#c8842e" : C.border}`,
           borderRadius: "3px",
           overflow: "hidden",
           cursor: "grab",
@@ -190,13 +222,14 @@ export function renderItda(container: HTMLElement) {
           boxSizing: "border-box",
           userSelect: "none",
         },
-        text: clip.label || clip.media_path.split(/[\\/]/).pop(),
+        text: (isStitched ? "🧵 " : "") + (clip.label || clip.media_path.split(/[\\/]/).pop() || ""),
       },
       []
     );
 
-    // waveform canvas for audio-bearing clips
-    if (clip.kind === "audio" || clip.kind === "video") {
+    // waveform canvas for audio-bearing clips (a "stitched" container has no media_path of
+    // its own to probe)
+    if (!isStitched && (clip.kind === "audio" || clip.kind === "video")) {
       const canvas = el("canvas", { style: { position: "absolute", left: "0", bottom: "0", width: "100%", height: "60%", opacity: "0.55", pointerEvents: "none" } }) as HTMLCanvasElement;
       clipEl.appendChild(canvas);
       loadWaveform(clip, canvas, w);
@@ -209,6 +242,15 @@ export function renderItda(container: HTMLElement) {
 
     clipEl.addEventListener("mousedown", (e) => {
       e.stopPropagation();
+      // ctrl/shift-click adds to the multi-select (🧵 Stitch needs 2+); a plain click
+      // replaces the selection, matching the node's own click-vs-additive-click split.
+      const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+      if (additive) {
+        if (state.selectedClipIds.has(clip.id)) state.selectedClipIds.delete(clip.id);
+        else state.selectedClipIds.add(clip.id);
+      } else if (!state.selectedClipIds.has(clip.id)) {
+        state.selectedClipIds = new Set([clip.id]);
+      }
       state.selectedClipId = clip.id;
       renderTracks();
       renderProps();
@@ -296,6 +338,12 @@ export function renderItda(container: HTMLElement) {
       const rect = timelineInner.getBoundingClientRect();
       const x = e.clientX - rect.left;
       seekPlayhead(pxToFrame(x));
+      if (state.selectedClipIds.size || state.selectedClipId) {
+        state.selectedClipIds = new Set();
+        state.selectedClipId = null;
+        renderTracks();
+        renderProps();
+      }
     }
   });
   ruler.addEventListener("click", (e) => {
@@ -438,10 +486,11 @@ export function renderItda(container: HTMLElement) {
     overlay.remove();
   }
 
-  function mkBtn(text: string, onclick: () => void, primary = false) {
+  function mkBtn(text: string, onclick: () => void, primary = false, title?: string) {
     return el("button", {
       text,
       onclick,
+      ...(title ? { title } : {}),
       style: {
         background: primary ? BRAND : C.bg1,
         color: primary ? "#111" : C.text,

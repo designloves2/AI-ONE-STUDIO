@@ -31,6 +31,11 @@ export interface DragState {
   origSourceIn: number;
   origSourceOut: number;
   origDuration: number;
+  // scrollLeft of the timeline scroll container at drag-start — needed so the
+  // autoscroll-while-dragging-near-an-edge feature (view.ts) can fold its own
+  // scroll movement back into the drag delta, matching itda_app_ported.js's
+  // onClipPointer scrollDelta term.
+  startScrollLeft: number;
 }
 
 export const DEFAULT_FPS = 24;
@@ -66,6 +71,18 @@ export class ItdaState {
     for (const t of this.tracks) {
       const c = t.clips.find((c) => c.id === id);
       if (c) return { track: t, clip: c };
+    }
+    return null;
+  }
+
+  // Topmost video/image clip covering `frame` — later tracks occlude earlier
+  // ones (same "higher track wins" rule as the node's lane-priority preview
+  // compositor), used to drive the scrub/preview <video> element in view.ts.
+  clipAtFrame(frame: number): ItdaClip | null {
+    for (let i = this.tracks.length - 1; i >= 0; i--) {
+      for (const c of this.tracks[i].clips) {
+        if ((c.kind === "video" || c.kind === "image") && frame >= c.start && frame < c.start + c.duration) return c;
+      }
     }
     return null;
   }

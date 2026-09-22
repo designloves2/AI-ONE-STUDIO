@@ -436,6 +436,18 @@ not touched). `npx vite build` succeeds (dist/ deleted after).
 dev server was started against a live ComfyUI backend, so drag/trim/snap, waveform rendering,
 and an actual render round-trip through `/itda_studio_one/*` are all unverified in the browser.
 
+**2026-09-23 follow-up (4-item pass — waveform sizing, export/render contract, autoscroll,
+frame-accurate scrub):** `npx tsc --noEmit` clean (only the same pre-existing unrelated
+`src/gallery/mounts.ts` TS2366) and `npx vite build` clean (dist/ deleted after). Opened the
+running dev preview at `#itda` — tool boots, toolbar/media-bin/timeline render with no console
+errors from this pass's code (console shows only pre-existing `/itda_studio_one/*` 504s — no
+live ComfyUI backend reachable from this session — and unrelated dev-server WS-reconnect noise).
+No media was loaded in the reachable backend, so drag/trim/waveform-paint/scrub-against-a-real-
+video-element and an actual render-to-gallery round-trip are still **not** click-tested end to
+end — same backend-availability gap the initial pass hit. The 4 items were verified by direct
+node-source cross-reference instead (see the Deferred §5 entry below for exact line refs), which
+is what this pass was scoped to confirm.
+
 **Deferred (priority order for the next pass):**
 1. Browser+backend verification: start the dev preview, open `#itda`, confirm `/itda_studio_one/*`
    proxies correctly, place/drag/trim/snap a real clip, confirm waveform draws, attempt a real
@@ -450,14 +462,61 @@ and an actual render round-trip through `/itda_studio_one/*` are all unverified 
 4. System-level App Settings panel (`gallery_dir` + LLM backend/model) reusing
    `src/shared/llmBackendPanel.ts` / `src/shared/promptEditPopup.ts` — `api.ts` already has
    `getAppSettings`/`saveAppSettings` wired, just needs a UI panel.
-5. Read `export.py`, `media.py`, `itda_app_ported.js`, `dom_build.js`, `core_itda_studio.js`,
-   `itda_style.css` in full (not yet done) and cross-check `core.ts`'s clip/track model + the
-   waveform sizing/clamp constants in `view.ts` against the node's actual v0.2.8 hotfix values.
-6. Autoscroll-while-dragging (timeline scroll follows the pointer near an edge during move/trim)
-   — noted in the node reference as a recent addition, not ported.
-7. Frame-accurate video preview / scrub playback (only playhead position + transport buttons
-   exist now; no actual `<video>` element syncing to the timeline).
-8. ~~Scene detect / beat detect / stitch analyze+bridge / snapshot / send-to-comfy routes~~ —
+5. ~~Read `export.py`, `media.py`, `itda_app_ported.js`, `itda_style.css` in full and cross-check
+   `core.ts`'s clip/track model + the waveform sizing/clamp constants in `view.ts` against the
+   node's actual v0.2.8 hotfix values.~~ — **done 2026-09-23, 4-item pass:**
+   - **Waveform sizing** — `view.ts`'s canvas was a guess (fixed 60% height, flat opacity 0.55,
+     no peak normalization, simplistic per-bar sampling). Read `itda_style.css`'s v0.2.8 hotfix
+     (`.clip-bars{height:clamp(30px,58%,58px)}`, `.wf-canvas`) + `itda_app_ported.js`'s
+     `drawClipWaveform` (lines 310-390) and ported it node-for-node: bars track now sits in its
+     own `clamp(30px,58%,58px)` box (`rgba(0,0,0,.32)` bg), canvas painted at kind-specific
+     colors (`rgba(205,255,235,.92)` audio / `rgba(238,222,255,.92)` video) with **per-clip peak
+     normalization** (this clip's own loudest point in its trimmed source range scales to fill
+     the track height — the node's own comment explains why a flat multiplier doesn't work),
+     dpr-aware canvas sizing, and the exact 1px-bar + 1px-gap pitch (`nBars = min(round(cssW/2),
+     peaks.length)`, 2px min-height floor). Draw is deferred one `requestAnimationFrame` so the
+     bars box has real layout dimensions once actually attached to the DOM (`getBoundingClientRect`
+     is 0x0 the instant a freshly-created element is appended, before layout runs).
+   - **Export/render payload + content_end + gallery auto-register — verified correct, no drift.**
+     Read `export.py` (`export_timeline`, `RENDER_MODES = (video_audio, video_only, audio_only)`,
+     `content_end` auto-detect at line 260: `min(total_frames, max(start+length across clips))`)
+     and `media.py`/`gallery.py`/`server.py`'s `render_to_gallery` route in full. The route takes
+     only `{project, mode}` — web's `api.ts renderToGallery(project, mode)` posts exactly that,
+     already correct. `content_end`/render-length is entirely server-computed from the saved
+     project's clips (not a client-sent param) — `view.ts`'s render modal already reads
+     `state.contentEnd()` only for its own length *display* text, never sends it. Gallery
+     auto-registration is **fully automatic server-side**: `render_project_to_gallery`
+     (gallery.py) calls `export_timeline(..., out_dir=gallery_dir())` — `gallery_dir()`
+     (paths.py) defaults to `output/one_minimax_h3` — then writes the `metadata/<stem>.json`
+     sidecar itself (gallery.py line 136, matching H3's own `_meta_path` convention exactly, by
+     design — "이거 영상 랜더링해서 저장될때 메타 저장되야되... 나중에 우리 이거 미니맥스에
+     심을수 있어") in the same single call. No follow-up call needed or made. No code change
+     required for this item.
+   - **Autoscroll-while-dragging** — ported node-for-node from `itda_app_ported.js`
+     `onClipPointer` (lines 638-660): 36px edge zone, 22px `scrollLeft` step per `mousemove`
+     (no rAF ticker — relies on the pointer continuing to move at the edge, same as the node),
+     plus the `scrollDelta` compensation term (`DragState.startScrollLeft`, new field in
+     `core.ts`) so a clip's drag target keeps tracking the pointer correctly while the timeline
+     scrolls underneath a stationary cursor. Applies to both move-drag and both trim-drag modes
+     (`view.ts`'s shared `mousemove` handler).
+   - **Frame-accurate preview/scrub** — there was **no `<video>` preview element at all**
+     before this pass (ledger item 7 was accurate — only playhead position + transport buttons
+     existed). Added: a `previewVideo` element wired to `updatePreview()` (finds the topmost
+     video/image clip at the playhead via new `ItdaState.clipAtFrame()`, swaps `src` on clip
+     change), and a port of the node's `seekElementToFrame` (itda_app_ported.js lines 884-926) —
+     **single seek in flight per element**: a scrub/drag calls this on every `mousemove`, far
+     more often than the browser's decode pipeline can complete a seek; while one is still
+     resolving, the latest requested frame is remembered and jumped to once `'seeked'` fires
+     (or a 600ms safety timeout, for the small fraction of seeks that never fire the event) —
+     instead of queuing a visible backlog of stale seeks. Threshold kept at the node's tight
+     0.08s/~2-frame snap (the node's own 1.5s "trust native playback" relaxation only applies
+     while the video element is actively playing on its own — this port has no Play button yet,
+     so that branch doesn't apply). Wired into: `seekPlayhead()` (transport buttons, ruler
+     click), and a new ruler **mousedown-drag scrub** (`mousemove` while scrubbing calls
+     `seekPlayhead` continuously, not just on release — the node's own `scrub()`/`bind()`
+     behavior). Image clips show/hide the video element but have no seek (no `<video>`
+     semantics); audio-only frames hide the preview.
+6. ~~Scene detect / beat detect / stitch analyze+bridge / snapshot / send-to-comfy routes~~ —
    **done 2026-09-23**, `api.ts` now wraps all of them (see the api.ts entry above). Still need
    `view.ts` UI to actually call them (no stitch tool, no scene/beat auto-split UI, no snapshot
    button, no "Send to ComfyUI" action exist yet).

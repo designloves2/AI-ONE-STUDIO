@@ -250,6 +250,25 @@ export async function importGalleryItem(id: string, project: string) {
   return post(`${API}/gallery/import`, { id, project });
 }
 
+// ── cross-tool gallery import into the media bin (Input/Output/MiniMax H3 tabs of the
+// 4-tab video picker) — copies straight from ComfyUI's input/output/temp dirs into this
+// project's own media folder. NOT under /api/ — mirrors nodes.py's own
+// /itda_studio_one/media/from_gallery route exactly (one_node_itda_studio.js's importFromGallery).
+export async function importMediaFromGallery(
+  project: string,
+  filename: string,
+  subfolder = "",
+  type: "input" | "output" | "temp" = "output"
+): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const r = await fetch(`${BASE}/itda_studio_one/media/from_gallery`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project, filename, subfolder, type }),
+  });
+  return r.json();
+}
+
 // ── app settings (SYSTEM-level, not per-project) ────────────────────────────
 export interface ItdaAppSettings {
   gallery_dir?: string;

@@ -5,6 +5,9 @@ import { el, panel, row, label, clear } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import * as api from "./api";
 import { ItdaState, type ItdaClip, type DragState } from "./core";
+import { createItdaGalleryOverlay } from "./galleryOverlay";
+import { openVideoGalleryPicker } from "./videoGalleryPicker";
+import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 
 const TRACK_HEIGHT = 44;
 const RULER_HEIGHT = 22;
@@ -28,7 +31,7 @@ export function renderItda(container: HTMLElement) {
       mkBtn("+ Audio Track", () => { state.addTrack("audio"); renderTracks(); }),
       mkBtn("Save", async () => { await state.save(); refreshStatus(); }),
       mkBtn("Render…", () => openRenderModal(), true),
-      mkBtn("Gallery", () => openGalleryOverlay(container, state), false),
+      mkBtn("Gallery", () => galleryOv.show(), false),
       statusEl,
     ],
     "8px"
@@ -48,6 +51,13 @@ export function renderItda(container: HTMLElement) {
 
   const propsPanel = el("div", { style: { width: "220px", flexShrink: "0" } });
   mainRow.appendChild(propsPanel);
+
+  // ── real render gallery overlay (★ stitch mark, ⓘ info, ⬇ import, dblclick fullscreen) ──
+  const galleryOv = createItdaGalleryOverlay(root, {
+    getProject: () => state.project,
+    onImported: async () => { await state.refreshMedia(); renderMediaBin(); },
+    showStatus: (msg: string) => { statusEl.textContent = msg; },
+  });
 
   // playhead controls
   const playheadInfo = el("span", { style: { color: C.muted, fontSize: "12px" } });
@@ -311,6 +321,31 @@ export function renderItda(container: HTMLElement) {
             renderMediaBin();
           },
         }),
+        row(
+          [
+            mkBtn("🎞 Video (Gallery)", () => {
+              openVideoGalleryPicker(state.project, async () => {
+                await state.refreshMedia();
+                renderMediaBin();
+                statusEl.textContent = "Video added from gallery";
+              });
+            }),
+            mkBtn("🎵 Audio (Gallery)", () => {
+              openAudioGalleryPicker(async (inputFilename: string) => {
+                try {
+                  await api.importMediaFromGallery(state.project, inputFilename, "", "input");
+                } catch (e: any) {
+                  statusEl.textContent = `Audio import failed: ${e?.message || e}`;
+                  return;
+                }
+                await state.refreshMedia();
+                renderMediaBin();
+                statusEl.textContent = "Audio added from gallery";
+              }, "/minimax_h3_one");
+            }),
+          ],
+          "4px"
+        ),
         el(
           "div",
           { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "420px", overflowY: "auto" } },
@@ -430,31 +465,4 @@ export function renderItda(container: HTMLElement) {
     renderProps();
     refreshStatus();
   })();
-}
-
-// Deferred: full gallery overlay (galleryOverlay.ts, ported from ui_gallery_itda.js /
-// minimax_h3/galleryOverlay.ts pattern) + 4-tab video picker (ui_video_gallery_picker.js).
-// This stub opens a minimal list so Render→Gallery is end-to-end verifiable now; see
-// PORT_LEDGER.md "ITDA" section for the follow-up scope.
-function openGalleryOverlay(_container: HTMLElement, _state: ItdaState) {
-  const overlay = el("div", {
-    style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.7)", zIndex: "50", display: "flex", alignItems: "center", justifyContent: "center" },
-    onclick: (e: MouseEvent) => { if (e.target === overlay) overlay.remove(); },
-  });
-  const listHost = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", maxHeight: "60vh", overflowY: "auto" } });
-  const box = panel([label("ITDA Gallery (minimal — full picker deferred)"), listHost], { width: "480px" });
-  overlay.appendChild(box);
-  document.body.appendChild(overlay);
-  api.listGallery().then((res) => {
-    clear(listHost);
-    for (const item of res.items || []) {
-      listHost.appendChild(
-        el("div", {
-          text: item.path.split(/[\\/]/).pop(),
-          style: { fontSize: "12px", color: C.text, padding: "4px 6px", border: `1px solid ${C.border}`, borderRadius: "4px" },
-        })
-      );
-    }
-    if (!res.items?.length) listHost.appendChild(el("div", { text: "No renders yet.", style: { color: C.muted, fontSize: "12px" } }));
-  });
 }

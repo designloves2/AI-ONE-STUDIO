@@ -374,6 +374,81 @@ remembered-default fields from node `1ccf315`.
   — node's own reference workflow uses a fixed ratio per slot; not currently exposed in the web
   panel either.
 - No live end-to-end Character Sheet render (a real 124-frame H3 queue submission) was run this
+  session — see original entry below for what was verified.
+
+## ITDA ONE STUDIO — initial web port, timeline core (2026-09-23)
+
+**Node reference read in full:** `itda_studio_backend/server.py` (614 lines, full route
+table — confirms every `/itda_studio_one/api/*` route is registered on the SAME shared
+`PromptServer.instance.routes` every other tool uses, so no backend change was needed, only
+a dev-proxy prefix), `gallery.py`, `paths.py` (route lists/shapes only — `export.py`, `media.py`,
+`itda_app_ported.js`, `dom_build.js`, `core_itda_studio.js`, `one_node_itda_studio.js`,
+`ui_gallery_itda.js`, `ui_video_gallery_picker.js`, `itda_style.css` were **not** yet read in
+full — see Deferred below). Node commits referenced by the peer's brief (not independently
+re-verified this session): `fd84b9b`, `5c05fe9`, `4978706`, `20cc0fe`, `7631449` + uncommitted
+snap/render-mode/gallery-share work.
+
+**Web commit:** `5e0eaae` on branch `worktree-agent-ac65b4bef81b74a38` (pushed to origin; not
+yet merged to `master` — this session ran in a worktree, see git log for the exact diff).
+
+**Built:**
+- `vite.config.ts` — added `/itda_studio_one` to the dev-proxy `comfyPaths` list.
+- `src/tools/itda/api.ts` — wrappers for every route in server.py: project CRUD
+  (`init`/`project/:name` get+post/`projects`/`project/new`/`duplicate`/`rename`/`delete`),
+  media bin (`media/:project`, `media/upload`, `media/delete`, `probe`, `waveform`), render
+  (`render_to_gallery`, `export`, `prerender`), gallery (`gallery/list`/`delete`/`import`),
+  system `app_settings` get/post. NOT yet wrapped: `fonts`, `stitch_analyze`, `stitch_bridge`,
+  `scene_detect`, `beat_detect`, `snapshot`/`snapshot_frame`, `send_to_comfy`.
+- `src/tools/itda/core.ts` — `ItdaState`: `tracks: ItdaTrack[]` (each `{index, kind, clips}`),
+  `ItdaClip {id, media_path, kind, track, start, duration, source_in, source_out, fps, label}`.
+  `contentEnd()` = real max(clip.start+duration) across all tracks (not Total Frames — matches
+  export.py's auto-detected render length). `clampToTotalFrames()` trims clips that overrun
+  Total Frames. `snapMoveStart`/`snapEdge` ported structurally from `itda_app_ported.js`:
+  `snapCandidates()` collects 0/playhead/totalFrames + every OTHER clip's start/end across ALL
+  tracks (cross-track, not just the dragged clip's own track), `snapFrame()` picks nearest
+  within an 8px (→frames via `zoomPxPerFrame`) threshold.
+- `src/tools/itda/view.ts` — toolbar (+Video/Audio Track, Save, Render…, Gallery), multi-track
+  timeline (ruler with 1s ticks, drag clip from media bin onto a track, move-drag and both
+  trim-drag handles wired through `snapMoveStart`/`snapEdge`, playhead click-to-seek on ruler/
+  timeline), per-clip `<canvas>` waveform (1px bars, peak-normalized, calls `/api/waveform`,
+  cached per media path), Properties panel (Start/Duration/Track, First Frame/End Frame jump
+  buttons, Delete Clip), Render modal (3 buttons → `render_to_gallery` with
+  `video_audio`/`video_only`/`audio_only`), and a **minimal** gallery list (plain filename list,
+  not the card/lightbox design).
+- Registered as tool id `"itda"` in `src/shared/tools.ts` (video group, positioned after
+  `"music"` per instruction) and `src/main.ts`; `menu.ts` card description added.
+
+**tsc/build status:** `npx tsc --noEmit` clean for all `src/tools/itda/*` files (one pre-existing,
+unrelated `TS2366` in `src/gallery/mounts.ts` — present before this session's changes too,
+not touched). `npx vite build` succeeds (dist/ deleted after).
+
+**Verified:** static build/typecheck only. **NOT** browser/backend-verified this session — no
+dev server was started against a live ComfyUI backend, so drag/trim/snap, waveform rendering,
+and an actual render round-trip through `/itda_studio_one/*` are all unverified in the browser.
+
+**Deferred (priority order for the next pass):**
+1. Browser+backend verification: start the dev preview, open `#itda`, confirm `/itda_studio_one/*`
+   proxies correctly, place/drag/trim/snap a real clip, confirm waveform draws, attempt a real
+   render and check it lands in the shared `output/one_minimax_h3` gallery with a `metadata/<stem>.json`
+   sidecar (per `gallery.py`'s convention — **not yet cross-checked against `gallery.py`'s exact
+   sidecar field names**, read that file in full before wiring anything gallery-metadata-shaped).
+2. Gallery overlay — port `web/shared/ui_gallery_itda.js`'s card design (★ stitch mark, ⓘ info
+   popup, ⬇ import, double-click fullscreen) onto the `src/tools/minimax_h3/galleryOverlay.ts`
+   pattern, replacing the current plain-list stub in `view.ts`'s `openGalleryOverlay()`.
+3. 4-tab video gallery picker (`web/shared/ui_video_gallery_picker.js` — Input/Output/MiniMax H3/
+   ITDA Studio tabs, video-filtered) for loading a clip into the media bin from any tool's output.
+4. System-level App Settings panel (`gallery_dir` + LLM backend/model) reusing
+   `src/shared/llmBackendPanel.ts` / `src/shared/promptEditPopup.ts` — `api.ts` already has
+   `getAppSettings`/`saveAppSettings` wired, just needs a UI panel.
+5. Read `export.py`, `media.py`, `itda_app_ported.js`, `dom_build.js`, `core_itda_studio.js`,
+   `itda_style.css` in full (not yet done) and cross-check `core.ts`'s clip/track model + the
+   waveform sizing/clamp constants in `view.ts` against the node's actual v0.2.8 hotfix values.
+6. Autoscroll-while-dragging (timeline scroll follows the pointer near an edge during move/trim)
+   — noted in the node reference as a recent addition, not ported.
+7. Frame-accurate video preview / scrub playback (only playhead position + transport buttons
+   exist now; no actual `<video>` element syncing to the timeline).
+8. Scene detect / beat detect / stitch analyze+bridge / snapshot / send-to-comfy routes — wrapped
+   in neither `api.ts` nor `view.ts` yet.
   session, same caveat node's own `98342b9` commit flagged for ITS first pass — the panel,
   graph shapes, and run-loop wiring are verified; a real render + `openCharSheetEditor` replace
   cycle still needs a live smoke test before relying on it in production.

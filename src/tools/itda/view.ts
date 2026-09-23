@@ -189,18 +189,58 @@ export function renderItda(container: HTMLElement) {
   // "⚙ Project Settings" menu item; distinct from the system-wide App Settings). ──────
   const fpsInput = el("input", { type: "number", min: "1", step: "0.001", style: inputStyle() }) as HTMLInputElement;
   const totalFramesInput = el("input", { type: "number", min: "1", step: "1", style: inputStyle() }) as HTMLInputElement;
+  // 3rd field, was missing entirely — matches the node's select exactly (UI-only
+  // there too, no separate processing logic behind the value, so this is a
+  // store-only field here as well).
+  const framePolicySelect = el("select", { style: inputStyle() }, [
+    el("option", { value: "normalize", text: "Normalize to Project FPS" }),
+    el("option", { value: "drop", text: "Frame Drop" }),
+    el("option", { value: "interpolate", text: "Interpolation" }),
+  ]) as HTMLSelectElement;
   const projectSettingsOv = smallModal("⚙ Project Settings", [
     fieldRow("FPS", fpsInput),
     fieldRow("Total Frames", totalFramesInput),
+    fieldRow("Frame Policy", framePolicySelect),
   ], async () => {
     const fps = Number(fpsInput.value) || state.fps;
     const total = Math.max(1, Math.round(Number(totalFramesInput.value) || state.totalFrames));
-    state.fps = fps;
-    state.totalFrames = total;
+    // FPS change rescales every clip proportionally (matches itda_app_ported.js's
+    // showSettingsPopup Apply handler): ratio = newFps/oldFps applied to each clip's
+    // start/length/source_in/source_out so the same WALL-CLOCK timing is preserved
+    // across the fps change, not the same frame numbers. Below 16fps is clamped to
+    // 16 with a warning (too low to be a usable frame rate here); 60fps+ only warns,
+    // no clamp.
+    if (fps !== state.fps) {
+      let targetFps = fps;
+      if (targetFps < 16) {
+        statusEl.textContent = "FPS below 16 clamped to 16";
+        targetFps = 16;
+      } else if (targetFps >= 60) {
+        statusEl.textContent = `FPS ${targetFps} is very high — proceeding anyway`;
+      }
+      const ratio = targetFps / state.fps;
+      for (const t of state.tracks) {
+        for (const c of t.clips) {
+          c.start = Math.round(c.start * ratio);
+          c.duration = Math.max(1, Math.round(c.duration * ratio));
+          c.source_in = Math.round((c.source_in || 0) * ratio);
+          c.source_out = Math.round((c.source_out || c.duration) * ratio);
+        }
+      }
+      state.totalFrames = Math.round(state.totalFrames * ratio);
+      state.fps = targetFps;
+    } else {
+      state.totalFrames = total;
+    }
+    state.framePolicy = framePolicySelect.value as any;
     state.dirty = true;
     await state.save();
     renderRuler(); renderTracks(); refreshStatus();
-  }, () => { fpsInput.value = String(state.fps); totalFramesInput.value = String(state.totalFrames); });
+  }, () => {
+    fpsInput.value = String(state.fps);
+    totalFramesInput.value = String(state.totalFrames);
+    framePolicySelect.value = state.framePolicy;
+  });
 
   // ── 📁 Project… — list/open/new, wired to the real project CRUD routes in api.ts
   // (initProject/getProject/listProjects/newProject already existed server-side but had
@@ -635,7 +675,10 @@ export function renderItda(container: HTMLElement) {
       el("span", { text: "·" }),
       el("span", { text: `Snap: ${state.snap ? "ON" : "OFF"}`, style: { color: state.snap ? "#33e08a" : C.muted } }),
       el("span", { text: "·" }),
-      el("span", { text: `Total: ${state.contentEnd()}f / ${fmtTime(state.contentEnd())}` }),
+      // Total FRAMES (project length, same field the END marker/Project Settings
+      // modal edit) — was reading contentEnd() (last clip's end) instead, so dragging
+      // the END marker never visibly changed anything in the status bar.
+      el("span", { text: `Total: ${state.totalFrames}f / ${fmtTime(state.totalFrames)}` }),
       el("span", { text: "·" }),
       el("span", { text: `Loaded ${state.project}` }),
       el("div", { style: { flex: "1" } }),
@@ -752,6 +795,23 @@ export function renderItda(container: HTMLElement) {
         );
       }
     }
+    // Total Frames END marker — itda_app_ported.js's renderRuler() (~424-448):
+    // a vertical line + "END" label at the current totalFrames position, draggable to
+    // resize the project length directly from the ruler. Reads/writes the exact same
+    // state.totalFrames the "⚙ Project Settings" modal's Total Frames field does, so
+    // the two stay in sync automatically with no separate mechanism.
+    const endMarker = el("div", {
+      style: { position: "absolute", left: `${frameToPx(state.totalFrames)}px`, top: "0", bottom: "0", width: "2px", background: "#ffd25a", boxShadow: "0 0 0 1px rgba(0,0,0,0.35)", cursor: "ew-resize", zIndex: "4" },
+      title: "Drag to resize Total Frames",
+    }, [
+      el("span", { text: "END", style: { position: "absolute", top: "4px", left: "6px", color: "#ffd25a", fontSize: "10px", fontWeight: "900", letterSpacing: "0.03em", whiteSpace: "nowrap" } }),
+    ]);
+    endMarker.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      totalFramesDragging = true;
+    });
+    ruler.appendChild(endMarker);
   }
 
   function renderTracks() {
@@ -1104,6 +1164,27 @@ export function renderItda(container: HTMLElement) {
   });
   window.addEventListener("mouseup", () => {
     scrubbing = false;
+  });
+
+  // Total Frames END marker drag — see renderRuler()'s endMarker for the element
+  // itself. Clamp: lower bound is max(1, the actual last clip's end) so the project
+  // can't be shrunk shorter than what it already contains; upper bound is 1 hour
+  // (fps*3600), matching itda_app_ported.js's own clamp exactly.
+  let totalFramesDragging = false;
+  window.addEventListener("mousemove", (e) => {
+    if (!totalFramesDragging) return;
+    const rect = ruler.getBoundingClientRect();
+    const proposed = pxToFrame(e.clientX - rect.left);
+    const min = Math.max(1, state.contentEnd());
+    const max = Math.round(state.fps * 3600);
+    state.totalFrames = Math.max(min, Math.min(max, proposed));
+    state.dirty = true;
+    renderRuler();
+    renderTracks();
+    refreshStatus();
+  });
+  window.addEventListener("mouseup", () => {
+    totalFramesDragging = false;
   });
 
   // ── Media Bin — 2-up thumbnail card grid ────────────────────────────────────────

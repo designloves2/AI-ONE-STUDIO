@@ -76,6 +76,10 @@ export class ItdaState {
   project = "itda-project-1";
   fps = DEFAULT_FPS;
   totalFrames = DEFAULT_TOTAL_FRAMES;
+  // Project Settings' 3rd field (was missing entirely) — matches the node's own
+  // select exactly: it's UI-only there too (stored, no separate processing logic
+  // behind it in itda_app_ported.js), so this is a store-only field on web as well.
+  framePolicy: "normalize" | "drop" | "interpolate" = "normalize";
   // Default to 3 tracks, matching the original standalone/node port's fixed
   // LANE_COUNT=3 — full migration to a kind-agnostic lane model (any clip on any
   // lane) is a bigger structural change, deferred separately; this just restores

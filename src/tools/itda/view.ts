@@ -1202,6 +1202,7 @@ export function renderItda(container: HTMLElement) {
     // fill (#000/#0e0f13), not a diagonal gradient tile.
     const thumb = el("div", {
       style: {
+        position: "relative",
         aspectRatio: "1 / 1",
         background: "#000",
         display: "flex",
@@ -1209,9 +1210,16 @@ export function renderItda(container: HTMLElement) {
         justifyContent: "center",
         fontSize: "22px",
         color: "#4a5062",
+        overflow: "hidden",
       },
-      text: mediaKindIcon(kind),
     });
+    // real <span> child, not raw div.textContent — a plain `text:` prop set directly
+    // on `thumb` sat as a bare text node alongside the <img> once one was appended
+    // (both centered by the same flex row, side-by-side), which is the "icon next to
+    // the thumbnail" bug; `thumb.querySelector("span")` also could never find/remove
+    // it since it wasn't wrapped in an element at all.
+    const iconSpan = el("span", { text: mediaKindIcon(kind) });
+    thumb.appendChild(iconSpan);
     // media.py's make_video_thumbnail() generates a real frame-0 thumbnail server-side
     // for video (and image) media and returns it as `thumb_url` (already a full
     // "/itda_studio_one/api/file?path=..." route, just missing the BASE origin
@@ -1221,12 +1229,16 @@ export function renderItda(container: HTMLElement) {
     // API response and was simply never read.
     const thumbSrc = m.thumb_url ? api.resolveUrl(m.thumb_url) : kind === "image" ? api.mediaFileUrl(m.path, state.project) : null;
     if (thumbSrc) {
+      // object-fit:contain, not cover — matches the real reference (itda_style.css
+      // ".thumb img,.thumb video{object-fit:contain}") exactly; cover was silently
+      // cropping/stretching every thumbnail to fill the square instead of showing the
+      // whole frame letterboxed.
       const img = el("img", {
         src: thumbSrc,
-        style: { width: "100%", height: "100%", objectFit: "cover", display: "none" },
+        style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" },
         alt: "",
         onerror: (ev: Event) => { (ev.target as HTMLElement).style.display = "none"; },
-        onload: (ev: Event) => { (ev.target as HTMLElement).style.display = "block"; thumb.querySelector("span")?.remove(); },
+        onload: (ev: Event) => { (ev.target as HTMLElement).style.display = "block"; iconSpan.remove(); },
       }) as HTMLImageElement;
       thumb.appendChild(img);
     }

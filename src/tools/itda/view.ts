@@ -165,7 +165,9 @@ export function renderItda(container: HTMLElement) {
     "5px"
   );
   actionToolbar.style.cssText += `align-items:center;flex-wrap:wrap;flex-shrink:0;padding:6px 12px;background:${C.bg1};border-bottom:1px solid ${C.border};`;
-  root.appendChild(actionToolbar);
+  // NOTE: appended to timelinePanel below, not root — dom_build.js's actionRow lives
+  // in the `lowerPane` directly above the timeline, not under the header (fixed per
+  // user report: it was incorrectly sitting above Media Bin/Preview/Properties).
 
   const mainBody = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", padding: "8px", gap: "8px", boxSizing: "border-box" } });
   root.appendChild(mainBody);
@@ -384,6 +386,7 @@ export function renderItda(container: HTMLElement) {
   // ── lower pane: timeline ─────────────────────────────────────────────────────────
   const timelinePanel = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px", overflow: "hidden" } });
   mainBody.appendChild(timelinePanel);
+  timelinePanel.appendChild(actionToolbar);
 
   const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative" } });
   timelinePanel.appendChild(timelineScroll);
@@ -611,6 +614,7 @@ export function renderItda(container: HTMLElement) {
         },
       });
       head.append(
+        el("span", { text: `T${ti + 1}`, style: { color: C.text, fontSize: "10px", fontWeight: "700", marginBottom: "2px" } }),
         headBtn("👁", !hidden, hidden ? "Hidden — click to show" : "Visible — click to hide", () => {
           if (trackHidden.has(ti)) trackHidden.delete(ti); else trackHidden.add(ti);
           renderTracks();

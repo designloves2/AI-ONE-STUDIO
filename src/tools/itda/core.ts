@@ -64,7 +64,11 @@ export class ItdaState {
   project = "itda-project-1";
   fps = DEFAULT_FPS;
   totalFrames = DEFAULT_TOTAL_FRAMES;
-  tracks: ItdaTrack[] = [{ index: 0, kind: "video", clips: [] }, { index: 1, kind: "audio", clips: [] }];
+  // Default to 3 tracks, matching the original standalone/node port's fixed
+  // LANE_COUNT=3 — full migration to a kind-agnostic lane model (any clip on any
+  // lane) is a bigger structural change, deferred separately; this just restores
+  // the right DEFAULT COUNT so a fresh project looks like the reference (T1/T2/T3).
+  tracks: ItdaTrack[] = [{ index: 0, kind: "video", clips: [] }, { index: 1, kind: "audio", clips: [] }, { index: 2, kind: "video", clips: [] }];
   media: MediaItem[] = [];
   playhead = 0;
   selectedClipId: string | null = null;

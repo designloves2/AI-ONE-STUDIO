@@ -702,6 +702,66 @@ HTML/CSS port:
   introducing new hex values — `BRAND #7612DA` already matches the original's own `--accent`
   exactly, confirmed by direct comparison against `style.css`'s `:root`.
 
+## ITDA ONE STUDIO — full visual-fidelity rebuild (2026-09-23 fourth follow-up)
+
+User called the third-follow-up pass above "그만둔것 같아... 초보들 HTML로 장난친것 처럼" (looks
+abandoned mid-design, amateur HTML tinkering) — flat default `<button>`s, a plain text-list media
+bin, a bare label/value properties list, minimal transport/action rows. This pass rebuilt the
+whole visual layer of `src/tools/itda/view.ts` against two reference screenshots (the standalone
+ITDA project's real UI, and the TJ_NODE_STUDIO_ONE in-node port's header/toolbar chrome), keeping
+every existing functional path (snap/drag/trim/split/stitch/waveform/render/gallery/settings)
+untouched:
+
+- **Header** — purple gradient strip (`linear-gradient(90deg, BRAND, #4a0f96)`) with a live
+  status dot (green=saved, amber=dirty), project name, and real pill-styled buttons (ghost pills
+  for Settings/Gallery/Save, a solid white "▶ Render" pill) replacing the old bare-button row.
+- **Action toolbar** — new dedicated row (icon buttons for add-track/split/stitch/unstitch/
+  snapshot/delete, a Snap ON/OFF toggle pill, and a zoom slider) below the header, styled as
+  compact square icon buttons (`28×26px`, hover border→BRAND) instead of full-text buttons.
+- **Media Bin** — rebuilt as a 2-up thumbnail card grid: each card has a dark gradient
+  placeholder thumbnail (or a real `<img>` for image-kind media), a red circular ✕ delete badge
+  top-left, bold truncated name, and a `kind · fps · duration` metadata line; grid/list view
+  toggle icons, an item-count + Clear row, and a thumb-size slider footer. Upload/gallery-import
+  buttons moved into a 2-column grid (`+Video`/`+Audio`/`🎞 Video (Gallery)`/`🎵 Audio (Gallery)`).
+- **Preview panel** — real Single/Compare/Overlay/Wipe pill tabs (Compare/Overlay/Wipe rendered
+  disabled/dim since `core.ts` has no multi-source compare state — not faked as working),
+  fullscreen/pin icon glyphs top-right of the stage, and a rebuilt transport: 7 icon buttons
+  (⏮/⏪/◀/▶/▶/⏩/⏭), Loop/Mute/Scrub toggle pills, a volume slider+percentage, and a styled
+  `Frame N · MM:SS.mmm · FPS · Total` readout row.
+- **Clip Properties** — kept the existing `Clip`/`Timing` sectioned grid from the third
+  follow-up (still the correct scope per `ItdaClip` in `core.ts` — no Audio/Transition sections
+  since those fields don't exist on the data model), restyled inputs with a darker fill and a
+  BRAND focus-border, section headers colored BRAND instead of plain white, and a red-tinted
+  "Delete Clip" button.
+- **Timeline** — added per-track 👁/🔒 icon toggles pinned to the left edge of each track row
+  (👁 dims the track to 45% opacity when hidden — display-only, matches the reference's visual
+  intent; 🔒 actually disables drag/drop and clip-drag/trim on that track, a minimal real wire-up
+  since `core.ts` had no existing hide/lock state to build on — both are pure `view.ts`-local
+  `Set<number>` state, not persisted to the project). Ruler rebuilt as two label rows (seconds on
+  top, frame count below each major tick). Action-row buttons converted to icon-only. Added a
+  bottom status bar (`Project FPS: … · Snap: ON/OFF · Total: Nf / MM:SS.mmm · Loaded <project> ·
+  saved/unsaved`) replacing the old single status span.
+- Clip chips on the timeline now show a small two-line label (name + `Nf · inN` trim info) instead
+  of one plain text string, closer to the reference's per-clip info chip.
+
+**Verification:** `npx tsc --noEmit` clean for `src/tools/itda/**` (one pre-existing unrelated
+error in `src/gallery/mounts.ts` untouched); `npx vite build` succeeds (dist/ deleted after,
+unrelated `INEFFECTIVE_DYNAMIC_IMPORT` warning for `krea2/graphBuilder.ts` pre-existing). Screenshot
+at `http://localhost:8774/#itda` (shared dev server, already running) confirmed against the two
+reference images: header gradient/pill-button treatment, media-bin thumbnail-card grid with red
+delete badges, mode-tab row, icon-button transport with toggle pills, and the icon/status-bar
+timeline chrome all visually read as the intended design system rather than default HTML — a
+categorical improvement over the flagged "abandoned/amateur" state.
+
+**Known gap / follow-up:** partway through this pass the `image-to-ui` skill was invoked
+(mid-task) against a third reference (`4.webp`, same TJ-node-style target) requesting a
+measure→build→diff workflow (`probe.py` for exact geometry, `compare.py` for a numeric pixel-diff
+score, iterate to ≤1px/2-4% residual). That numeric measure/diff loop was **not** run in this
+pass — verification here was a direct visual screenshot comparison against the reference images,
+not pixel-measured. A follow-up pass should run `probe.py`/`compare.py` against `4.webp` and
+close any remaining geometry gaps (exact header height/padding, card grid gutter, icon sizes,
+font weights) it surfaces.
+
 | commit | tsc/build | browser verification |
 | --- | --- | --- |
 | `44eb471` | `npx tsc --noEmit` clean (no itda errors — 1 pre-existing unrelated error in `src/gallery/mounts.ts`); `npx vite build` clean, `dist/` deleted after | **Browser-verified against the live dev server** (`http://localhost:8774/#itda`, pinned to this checkout): screenshotted the new 26/49/25 layout with the "Preview" placeholder showing and the new grid-based Properties panel on an existing short clip; imported a fresh real clip via the gallery picker (Video (Gallery) → INPUT folder → picked a thumbnail → added to Media Bin); placed it on the timeline via a simulated HTML5 drag/drop onto a track (`dragstart`/`dragover`/`drop` with a real `DataTransfer`, since the browser tool's pointer-based drag doesn't trigger native DnD); selected the new clip (Properties panel correctly showed Name/Type/Track/Start/Length/Trim In/Trim Out for it); clicked "First Frame" to move the playhead onto the clip — **the preview stage correctly rendered the actual video frame**, filling the black stage the way the original's `.preview-stage video{object-fit:contain}` does. All existing functional logic (snap/drag/waveform/split/stitch/render/gallery) left untouched — only layout/rendering code in `view.ts` changed. |

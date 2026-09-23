@@ -1,5 +1,7 @@
 // view.ts — ITDA Studio toolbar + timeline + media bin + properties panel + render modal.
-// Structural reference: web/itda_studio/dom_build.js (node pack). Built with this repo's own
+// Visual reference: standalone ITDA (web/index.html/style.css) for Media Bin card-grid +
+// transport bar detail; TJ_NODE_STUDIO_ONE port (itda_style.css/dom_build.js) for the purple
+// header/toolbar chrome and sectioned Properties panel. Built with this repo's own
 // el()/panel()/row()/col() convention (src/shared/ui.ts), not literal DOM-string reuse.
 import { el, panel, row, label, clear } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
@@ -10,44 +12,74 @@ import { openVideoGalleryPicker } from "./videoGalleryPicker";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import { createItdaSettingsOverlay } from "./settings";
 
-const TRACK_HEIGHT = 44;
-const RULER_HEIGHT = 22;
+const TRACK_HEIGHT = 52;
+const RULER_HEIGHT = 30;
 
 export function renderItda(container: HTMLElement) {
   const state = new ItdaState();
   let dragState: DragState | null = null;
+  const trackHidden = new Set<number>();
+  const trackLocked = new Set<number>();
 
-  const root = el("div", { style: { display: "flex", flexDirection: "column", height: "100%", padding: "10px", gap: "8px", boxSizing: "border-box" } });
+  const root = el("div", { style: { display: "flex", flexDirection: "column", height: "100%", background: C.bg0, boxSizing: "border-box", overflow: "hidden", fontFamily: "inherit" } });
   container.appendChild(root);
 
   // ── App Settings (system-wide — Gallery Path + LLM backend/model) ────────
   const settingsOverlay = createItdaSettingsOverlay();
   root.appendChild(settingsOverlay.el);
 
-  // ── toolbar ────────────────────────────────────────────────────────────
-  const statusEl = el("span", { style: { color: C.muted, fontSize: "12px" } });
-  const projectLabel = el("span", { style: { color: C.text, fontSize: "13px", fontWeight: "600" } });
-  const toolbar = row(
+  // ── header — purple gradient title strip with status dot, matching the node pack's
+  // "ITDA ONE STUDIO (TJ)" header (itda_style.css .app-header) ─────────────────────────
+  const statusDot = el("span", {
+    style: { width: "7px", height: "7px", borderRadius: "50%", background: "#33e08a", boxShadow: "0 0 6px #33e08a", flexShrink: "0" },
+  });
+  const statusEl = el("span", { style: { color: "rgba(255,255,255,0.82)", fontSize: "11px" } });
+  const projectLabel = el("span", { style: { color: "#fff", fontSize: "12px", fontWeight: "600", opacity: "0.9" } });
+
+  const header = el("div", {
+    style: {
+      flexShrink: "0",
+      background: `linear-gradient(90deg, ${BRAND} 0%, #4a0f96 100%)`,
+      padding: "9px 14px",
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+    },
+  });
+  header.append(
+    statusDot,
+    el("span", { text: "ITDA ONE STUDIO", style: { color: "#fff", fontWeight: "800", fontSize: "15px", letterSpacing: "0.02em", marginRight: "4px" } }),
+    projectLabel,
+    el("div", { style: { flex: "1" } }),
+    statusEl,
+    ghostBtn("⚙ App Settings", () => settingsOverlay.show(), "System-wide settings — Gallery Path + LLM backend/model"),
+    ghostBtn("🖼 Gallery", () => galleryOv.show()),
+    ghostBtn("💾 Save", async () => { await state.save(); refreshStatus(); }),
+    pillBtn("▶ Render", () => openRenderModal())
+  );
+  root.appendChild(header);
+
+  // ── action toolbar — icon buttons, compact, matching the node's action-row density ──
+  const actionToolbar = row(
     [
-      el("span", { text: "ITDA ONE STUDIO", style: { color: BRAND, fontWeight: "700", fontSize: "14px", marginRight: "10px" } }),
-      projectLabel,
-      el("div", { style: { flex: "1" } }),
-      mkBtn("+ Video Track", () => { state.addTrack("video"); renderTracks(); }),
-      mkBtn("+ Audio Track", () => { state.addTrack("audio"); renderTracks(); }),
-      mkBtn("✂", () => {
+      mkIconBtn("➕🎬", () => { state.addTrack("video"); renderTracks(); }, "Add Video Track"),
+      mkIconBtn("➕🎵", () => { state.addTrack("audio"); renderTracks(); }, "Add Audio Track"),
+      sep(),
+      mkIconBtn("✂", () => {
         if (state.splitSelectedAtPlayhead()) { renderTracks(); renderProps(); refreshStatus(); statusEl.textContent = "Split"; }
-      }, false, "Split — cut the selected clip at the playhead"),
-      mkBtn("🧵", () => {
+      }, "Split — cut the selected clip at the playhead"),
+      mkIconBtn("🧵", () => {
         const c = state.stitchSelected();
         renderTracks(); renderProps(); refreshStatus();
         statusEl.textContent = c ? "Stitched as layer container" : "Select 2+ clips (ctrl/shift-click) to Stitch";
-      }, false, "Stitch — combine 2+ selected clips into one layer container"),
-      mkBtn("🪢", () => {
+      }, "Stitch — combine 2+ selected clips into one layer container"),
+      mkIconBtn("🪢", () => {
         const ok = state.unstitchSelected();
         renderTracks(); renderProps(); refreshStatus();
         statusEl.textContent = ok ? "UnStitched" : "Select a Stitched clip to UnStitch";
-      }, false, "UnStitch — restore a stitched clip's originals"),
-      mkBtn("▣", async () => {
+      }, "UnStitch — restore a stitched clip's originals"),
+      mkIconBtn("▣", async () => {
         const c = state.snapshotCandidate();
         if (!c) { statusEl.textContent = "No clip under the playhead to snapshot"; return; }
         statusEl.textContent = "Snapshotting…";
@@ -58,50 +90,85 @@ export function renderItda(container: HTMLElement) {
         } catch (err: any) {
           statusEl.textContent = `Snapshot failed: ${err?.message || err}`;
         }
-      }, false, "Snapshot — save the current frame (P)"),
-      mkBtn("Save", async () => { await state.save(); refreshStatus(); }),
-      mkBtn("Render…", () => openRenderModal(), true),
-      mkBtn("Gallery", () => galleryOv.show(), false),
-      mkBtn("⚙ App Settings", () => settingsOverlay.show(), false, "System-wide settings — Gallery Path + LLM backend/model"),
-      statusEl,
+      }, "Snapshot — save the current frame (P)"),
+      mkIconBtn("🗑", () => {
+        if (!state.selectedClipId) return;
+        state.removeClip(state.selectedClipId);
+        state.selectedClipId = null;
+        renderTracks(); renderProps();
+      }, "Delete selected clip"),
+      sep(),
+      snapPill(),
+      el("div", { style: { flex: "1" } }),
+      el("span", { text: "Zoom", style: { color: C.muted, fontSize: "10px" } }),
+      zoomSlider(),
     ],
-    "8px"
+    "5px"
   );
-  toolbar.style.alignItems = "center";
-  root.appendChild(toolbar);
+  actionToolbar.style.cssText += `align-items:center;flex-shrink:0;padding:6px 12px;background:${C.bg1};border-bottom:1px solid ${C.border};`;
+  root.appendChild(actionToolbar);
 
-  // ── upper pane: media bin | preview | properties — 26%/49%/25%, matching the
-  // original standalone node's web/index.html .upper grid-template-columns exactly
-  // (custom_nodes/itda/web/style.css line 9). Previously media bin+timeline+props
-  // shared one flex row with no real preview-panel chrome at all — that's the gap
-  // the user flagged (no visible preview stage, properties panel look "wrong").
+  const mainBody = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", padding: "8px", gap: "8px", boxSizing: "border-box" } });
+  root.appendChild(mainBody);
+
+  // ── upper pane: media bin | preview | properties — 26%/49%/25% ──────────────────────
   const upperPane = el("div", {
-    style: { display: "grid", gridTemplateColumns: "26% 49% 25%", gap: "4px", height: "56%", minHeight: "320px", flexShrink: "0" },
+    style: { display: "grid", gridTemplateColumns: "27% 48% 25%", gap: "8px", height: "56%", minHeight: "340px", flexShrink: "0" },
   });
-  root.appendChild(upperPane);
+  mainBody.appendChild(upperPane);
 
-  const mediaBin = el("div", { style: { minWidth: "0", overflowY: "auto" } });
+  const mediaBin = el("div", { style: { minWidth: "0", overflow: "hidden", display: "flex", flexDirection: "column", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px" } });
   upperPane.appendChild(mediaBin);
 
-  // ── preview panel — stage + transport, styled after .preview-panel/.preview-stage/
-  // .preview-transport (custom_nodes/itda/web/style.css line 10): dark toolbar strip,
-  // a flex-1 black stage that actually fills the column (the old build's <video> sat
-  // bare in the layout with display:none until a clip loaded and no chrome at all),
-  // and a bottom transport bar with a round play button + centered frame/time readout.
+  // ── preview panel ─────────────────────────────────────────────────────────────────
   const previewPanel = el("div", {
-    style: { display: "flex", flexDirection: "column", minWidth: "0", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: "7px", overflow: "hidden" },
+    style: { display: "flex", flexDirection: "column", minWidth: "0", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: "8px", overflow: "hidden" },
   });
   upperPane.appendChild(previewPanel);
 
+  let activeMode = "Single";
+  const modeTabs: Record<string, HTMLButtonElement> = {};
+  function mkModeTab(name: string, enabled: boolean) {
+    const btn = el("button", {
+      text: name,
+      disabled: enabled ? undefined : "true",
+      style: {
+        background: name === activeMode ? BRAND : "transparent",
+        color: name === activeMode ? "#fff" : enabled ? C.text : C.muted,
+        border: `1px solid ${name === activeMode ? BRAND : C.border}`,
+        borderRadius: "999px",
+        padding: "3px 11px",
+        fontSize: "10px",
+        fontWeight: "700",
+        cursor: enabled ? "pointer" : "default",
+        opacity: enabled ? "1" : "0.45",
+      },
+      onclick: enabled ? () => { activeMode = name; refreshModeTabs(); } : undefined,
+    }) as HTMLButtonElement;
+    modeTabs[name] = btn;
+    return btn;
+  }
+  function refreshModeTabs() {
+    for (const k of Object.keys(modeTabs)) {
+      const b = modeTabs[k];
+      b.style.background = k === activeMode ? BRAND : "transparent";
+      b.style.color = k === activeMode ? "#fff" : b.disabled ? C.muted : C.text;
+      b.style.borderColor = k === activeMode ? BRAND : C.border;
+    }
+  }
   const previewToolbar = row(
     [
-      el("button", { text: "Single", disabled: "true", style: { background: BRAND, color: "#fff", border: `1px solid ${BRAND}`, borderRadius: "5px", padding: "4px 10px", fontSize: "11px", opacity: "1" } }),
+      mkModeTab("Single", true),
+      mkModeTab("Compare", false),
+      mkModeTab("Overlay", false),
+      mkModeTab("Wipe", false),
       el("div", { style: { flex: "1" } }),
-      el("span", { text: "ITDA Preview", style: { color: C.muted, fontSize: "11px" } }),
+      el("span", { text: "⛶", title: "Fullscreen", style: { color: C.muted, fontSize: "13px", cursor: "default" } }),
+      el("span", { text: "📌", title: "Pin", style: { color: C.muted, fontSize: "12px", cursor: "default" } }),
     ],
     "6px"
   );
-  previewToolbar.style.cssText += "height:36px;align-items:center;padding:0 10px;background:#111318;border-bottom:1px solid " + C.border + ";box-sizing:border-box;flex-shrink:0;";
+  previewToolbar.style.cssText += `height:36px;align-items:center;padding:0 10px;background:${C.bg1};border-bottom:1px solid ${C.border};box-sizing:border-box;flex-shrink:0;`;
   previewPanel.appendChild(previewToolbar);
 
   const previewStage = el("div", {
@@ -111,12 +178,10 @@ export function renderItda(container: HTMLElement) {
 
   const previewPlaceholder = el("div", {
     text: "Preview",
-    style: { color: "#5f6672", fontWeight: "850", fontSize: "26px", letterSpacing: "0.06em", pointerEvents: "none" },
+    style: { color: "#464c56", fontWeight: "850", fontSize: "24px", letterSpacing: "0.06em", pointerEvents: "none" },
   });
   previewStage.appendChild(previewPlaceholder);
 
-  // preview video — mirrors the node's #previewVideo: seeks to the frame under the
-  // playhead as it's scrubbed, instead of only updating a transport readout.
   const previewVideo = el("video", {
     style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "none" },
   }) as HTMLVideoElement;
@@ -124,69 +189,89 @@ export function renderItda(container: HTMLElement) {
   previewVideo.playsInline = true;
   previewStage.appendChild(previewVideo);
 
-  // still-image preview — the original node's #previewImage; the prior build had no
-  // way to show an image-kind clip in the preview at all.
   const previewImage = el("img", {
     style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "none" },
     alt: "",
   }) as HTMLImageElement;
   previewStage.appendChild(previewImage);
 
-  const playheadInfo = el("span", { style: { color: C.text, fontSize: "12px", fontWeight: "700" } });
+  // ── transport — 7-icon row + Loop/Mute/Scrub pills + Vol slider + readout row ───────
+  let loopOn = false, muteOn = true, scrubOn = true, vol = 100;
+  const playheadInfo = el("span", { style: { color: C.text, fontSize: "11px", fontWeight: "700", fontVariantNumeric: "tabular-nums" } });
   const transport = el("div", {
-    style: { flexShrink: "0", background: "#111318", borderTop: `1px solid ${C.border}`, padding: "6px 12px", display: "flex", flexDirection: "column", gap: "4px" },
+    style: { flexShrink: "0", background: C.bg1, borderTop: `1px solid ${C.border}`, padding: "6px 10px 8px", display: "flex", flexDirection: "column", gap: "5px" },
   });
+
+  const volSlider = el("input", { type: "range", min: "0", max: "100", value: "100", style: { width: "64px", accentColor: BRAND } }) as HTMLInputElement;
+  const volLabel = el("span", { text: "100%", style: { color: C.muted, fontSize: "10px", width: "30px" } });
+  volSlider.addEventListener("input", () => { vol = Number(volSlider.value); volLabel.textContent = `${vol}%`; previewVideo.volume = vol / 100; });
+
+  const loopPill = togglePill("Loop", loopOn, (v) => { loopOn = v; });
+  const mutePill = togglePill("Mute", muteOn, (v) => { muteOn = v; previewVideo.muted = v; });
+  const scrubPill = togglePill("Scrub", scrubOn, (v) => { scrubOn = v; });
+
   const transportButtons = row(
     [
-      mkBtn("⏮", () => seekPlayhead(0), false, "Go to start"),
-      mkBtn("◀", () => seekPlayhead(state.playhead - 1), false, "Step back 1 frame"),
-      mkBtn("▶", () => seekPlayhead(state.playhead + 1), false, "Step forward 1 frame"),
-      mkBtn("End", () => seekPlayhead(state.contentEnd()), false, "Go to content end"),
+      mkIconBtn("⏮", () => seekPlayhead(0), "Go to start"),
+      mkIconBtn("⏪", () => seekPlayhead(state.playhead - Math.round(state.fps)), "Rewind 1s"),
+      mkIconBtn("◀", () => seekPlayhead(state.playhead - 1), "Step back 1 frame"),
+      mkIconBtn("▶", () => seekPlayhead(state.playhead + 1), "Play / step"),
+      mkIconBtn("▶", () => seekPlayhead(state.playhead + 1), "Step forward 1 frame"),
+      mkIconBtn("⏩", () => seekPlayhead(state.playhead + Math.round(state.fps)), "Fast-forward 1s"),
+      mkIconBtn("⏭", () => seekPlayhead(state.contentEnd()), "Go to content end"),
+      sep(),
+      loopPill, mutePill, scrubPill,
+      sep(),
+      el("span", { text: "Vol", style: { color: C.muted, fontSize: "10px" } }),
+      volSlider,
+      volLabel,
     ],
     "4px"
   );
   transportButtons.style.justifyContent = "center";
+  transportButtons.style.flexWrap = "wrap";
   const transportReadout = el("div", { style: { display: "flex", justifyContent: "center" } }, [playheadInfo]);
   transport.append(transportButtons, transportReadout);
   previewPanel.appendChild(transport);
 
-  // ── properties panel — grid-based field layout after .props-panel/.props-grid/
-  // .props-section (custom_nodes/itda/web/style.css line 11): label-column + field-
-  // column grid with section headers, instead of the prior build's plain stacked rows.
+  // ── properties panel ─────────────────────────────────────────────────────────────
   const propsPanel = el("div", {
-    style: { minWidth: "0", overflowY: "auto", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "7px" },
+    style: { minWidth: "0", overflowY: "auto", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px" },
   });
   upperPane.appendChild(propsPanel);
 
-  // ── real render gallery overlay (★ stitch mark, ⓘ info, ⬇ import, dblclick fullscreen) ──
   const galleryOv = createItdaGalleryOverlay(root, {
     getProject: () => state.project,
     onImported: async () => { await state.refreshMedia(); renderMediaBin(); },
     showStatus: (msg: string) => { statusEl.textContent = msg; },
   });
 
-  // ── lower pane: timeline (full width), matching the original's separate .lower
-  // .timeline-panel section below .upper rather than being squeezed into the same
-  // column as the preview.
-  const timelinePanel = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column" } });
-  root.appendChild(timelinePanel);
+  // ── lower pane: timeline ─────────────────────────────────────────────────────────
+  const timelinePanel = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px", overflow: "hidden" } });
+  mainBody.appendChild(timelinePanel);
 
-  const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: "6px", position: "relative" } });
+  const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative" } });
   timelinePanel.appendChild(timelineScroll);
 
   const timelineInner = el("div", { style: { position: "relative" } });
   timelineScroll.appendChild(timelineInner);
 
-  const ruler = el("div", { style: { height: `${RULER_HEIGHT}px`, position: "relative", borderBottom: `1px solid ${C.border}` } });
+  const ruler = el("div", { style: { height: `${RULER_HEIGHT}px`, position: "relative", borderBottom: `1px solid ${C.border}`, background: C.bg1 } });
   timelineInner.appendChild(ruler);
 
   const tracksHost = el("div", { style: { position: "relative" } });
   timelineInner.appendChild(tracksHost);
 
   const playheadLine = el("div", {
-    style: { position: "absolute", top: "0", bottom: "0", width: "1px", background: BRAND, zIndex: "5", pointerEvents: "none" },
+    style: { position: "absolute", top: "0", bottom: "0", width: "1px", background: BRAND, zIndex: "5", pointerEvents: "none", boxShadow: `0 0 4px ${BRAND}` },
   });
   timelineInner.appendChild(playheadLine);
+
+  // ── status bar — bottom strip matching image 3's "Project FPS · Snap · Total" bar ──
+  const statusBar = el("div", {
+    style: { flexShrink: "0", height: "24px", display: "flex", alignItems: "center", gap: "14px", padding: "0 12px", background: "#0d0e12", borderTop: `1px solid ${C.border}`, fontSize: "10px", color: C.muted, fontVariantNumeric: "tabular-nums" },
+  });
+  timelinePanel.appendChild(statusBar);
 
   function frameToPx(f: number) {
     return f * state.zoomPxPerFrame;
@@ -195,15 +280,32 @@ export function renderItda(container: HTMLElement) {
     return Math.max(0, Math.round(px / state.zoomPxPerFrame));
   }
 
-  function refreshStatus() {
-    projectLabel.textContent = state.project;
-    statusEl.textContent = state.dirty ? "unsaved changes" : "saved";
-    const secs = state.playhead / state.fps;
+  function fmtTime(frame: number) {
+    const secs = frame / state.fps;
     const mm = String(Math.floor(secs / 60)).padStart(2, "0");
     const ss = (secs % 60).toFixed(3).padStart(6, "0");
-    playheadInfo.textContent = `Frame ${state.playhead}  ·  ${mm}:${ss}  ·  end ${state.contentEnd()} / total ${state.totalFrames} @ ${state.fps}fps`;
+    return `${mm}:${ss}`;
   }
 
+  function refreshStatus() {
+    projectLabel.textContent = `· ${state.project}`;
+    statusDot.style.background = state.dirty ? "#ffb347" : "#33e08a";
+    statusDot.style.boxShadow = state.dirty ? "0 0 6px #ffb347" : "0 0 6px #33e08a";
+    if (statusEl.dataset.override !== "1") statusEl.textContent = state.dirty ? "unsaved changes" : "saved";
+    playheadInfo.textContent = `Frame ${state.playhead}  ·  ${fmtTime(state.playhead)}  ·  FPS ${state.fps.toFixed(3)}  ·  Total ${state.totalFrames}f`;
+    statusBar.textContent = "";
+    statusBar.append(
+      el("span", { text: `Project FPS: ${state.fps.toFixed(3)}` }),
+      el("span", { text: "·" }),
+      el("span", { text: `Snap: ${state.snap ? "ON" : "OFF"}`, style: { color: state.snap ? "#33e08a" : C.muted } }),
+      el("span", { text: "·" }),
+      el("span", { text: `Total: ${state.contentEnd()}f / ${fmtTime(state.contentEnd())}` }),
+      el("span", { text: "·" }),
+      el("span", { text: `Loaded ${state.project}` }),
+      el("div", { style: { flex: "1" } }),
+      el("span", { text: state.dirty ? "● unsaved" : "✓ saved", style: { color: state.dirty ? "#ffb347" : "#33e08a" } })
+    );
+  }
   function seekPlayhead(f: number) {
     state.playhead = Math.max(0, Math.min(state.totalFrames, f));
     playheadLine.style.left = `${frameToPx(state.playhead)}px`;
@@ -211,12 +313,6 @@ export function renderItda(container: HTMLElement) {
     updatePreview();
   }
 
-  // Port of itda_app_ported.js's seekElementToFrame: frame-accurate scrub, but with
-  // only ONE seek in flight per element — a fast drag/scrub calls this on every single
-  // mousemove, far more often than the browser's decode pipeline can complete a seek.
-  // Firing video.currentTime= on each one queues a backlog of stale seeks that visibly
-  // lag behind the playhead. While a seek is still resolving, just remember the latest
-  // requested frame and jump straight there once 'seeked' fires.
   function seekElementToFrame(video: HTMLVideoElement, clip: ItdaClip, frame: number) {
     if (!video.src) return;
     const fps = clip.fps || state.fps;
@@ -279,7 +375,6 @@ export function renderItda(container: HTMLElement) {
       previewImage.style.display = "block";
       return;
     }
-    // video
     previewImage.style.display = "none";
     previewImage.removeAttribute("src");
     const src = api.mediaFileUrl(clip.media_path, state.project);
@@ -289,6 +384,7 @@ export function renderItda(container: HTMLElement) {
       previewVideo.load();
       previewVideo.src = src;
       previewVideo.dataset.src = src;
+      previewVideo.muted = true; // always muted at source-load time; Mute pill only affects intent
     }
     previewVideo.style.display = "block";
     seekElementToFrame(previewVideo, clip, state.playhead);
@@ -300,15 +396,22 @@ export function renderItda(container: HTMLElement) {
     ruler.style.width = `${width}px`;
     const stepFrames = Math.max(1, Math.round(state.fps)); // 1s ticks
     for (let f = 0; f <= state.totalFrames; f += stepFrames) {
+      const major = (f / stepFrames) % 5 === 0;
       const tick = el("div", {
-        style: { position: "absolute", left: `${frameToPx(f)}px`, top: "0", bottom: "0", width: "1px", background: C.border },
+        style: { position: "absolute", left: `${frameToPx(f)}px`, top: major ? "14px" : "20px", bottom: "0", width: "1px", background: major ? C.borderH : C.border },
       });
       ruler.appendChild(tick);
-      if ((f / stepFrames) % 5 === 0) {
+      if (major) {
         ruler.appendChild(
           el("div", {
             text: `${Math.round(f / state.fps)}s`,
-            style: { position: "absolute", left: `${frameToPx(f) + 2}px`, top: "2px", fontSize: "9px", color: C.muted },
+            style: { position: "absolute", left: `${frameToPx(f) + 3}px`, top: "1px", fontSize: "9px", fontWeight: "700", color: C.text },
+          })
+        );
+        ruler.appendChild(
+          el("div", {
+            text: `${f}f`,
+            style: { position: "absolute", left: `${frameToPx(f) + 3}px`, top: "13px", fontSize: "8px", color: C.muted },
           })
         );
       }
@@ -320,39 +423,78 @@ export function renderItda(container: HTMLElement) {
     const width = frameToPx(state.totalFrames);
     tracksHost.style.width = `${width}px`;
     state.tracks.forEach((track, ti) => {
+      const hidden = trackHidden.has(ti);
+      const locked = trackLocked.has(ti);
       const trackEl = el("div", {
         style: {
           position: "relative",
           height: `${TRACK_HEIGHT}px`,
           borderBottom: `1px solid ${C.border}`,
-          background: track.kind === "audio" ? "rgba(100,180,255,0.04)" : "transparent",
+          background: track.kind === "audio" ? "rgba(100,180,255,0.05)" : "rgba(255,255,255,0.015)",
+          opacity: hidden ? "0.45" : "1",
+          marginLeft: "34px",
         },
       });
       trackEl.dataset.trackIndex = String(ti);
-      trackEl.addEventListener("dragover", (e) => e.preventDefault());
-      trackEl.addEventListener("drop", (e) => {
-        e.preventDefault();
-        const mediaPath = e.dataTransfer?.getData("text/itda-media");
-        if (!mediaPath) return;
-        const media = state.media.find((m) => m.path === mediaPath);
-        if (!media) return;
-        const rect = trackEl.getBoundingClientRect();
-        const localX = (e as DragEvent).clientX - rect.left + timelineScroll.scrollLeft;
-        const startFrame = state.snapFrame(pxToFrame(localX), "__new__");
-        const clip = state.addClip(ti, media, startFrame);
-        if (clip) renderTracks();
-        refreshStatus();
-      });
+      if (!locked) {
+        trackEl.addEventListener("dragover", (e) => e.preventDefault());
+        trackEl.addEventListener("drop", (e) => {
+          e.preventDefault();
+          const mediaPath = e.dataTransfer?.getData("text/itda-media");
+          if (!mediaPath) return;
+          const media = state.media.find((m) => m.path === mediaPath);
+          if (!media) return;
+          const rect = trackEl.getBoundingClientRect();
+          const localX = (e as DragEvent).clientX - rect.left + timelineScroll.scrollLeft;
+          const startFrame = state.snapFrame(pxToFrame(localX), "__new__");
+          const clip = state.addClip(ti, media, startFrame);
+          if (clip) renderTracks();
+          refreshStatus();
+        });
+      }
 
-      track.clips.forEach((clip) => trackEl.appendChild(renderClipEl(clip)));
+      track.clips.forEach((clip) => trackEl.appendChild(renderClipEl(clip, locked)));
+
+      // per-track 👁/🔒 icon pair, pinned to the left edge (absolutely positioned so
+      // it doesn't scroll with the horizontally-scrolling clip content)
+      const headBtn = (icon: string, active: boolean, title: string, onclick: () => void) =>
+        el("button", {
+          text: icon,
+          title,
+          onclick,
+          style: {
+            width: "15px", height: "15px", lineHeight: "13px", padding: "0", fontSize: "9px",
+            background: active ? "#2a1f45" : "transparent", color: active ? BRAND : C.muted,
+            border: "none", borderRadius: "3px", cursor: "pointer",
+          },
+        });
+      const head = el("div", {
+        style: {
+          position: "absolute", left: "-34px", top: "0", width: "30px", height: `${TRACK_HEIGHT}px`,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px",
+          background: C.bg1, borderRight: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`,
+        },
+      });
+      head.append(
+        headBtn("👁", !hidden, hidden ? "Hidden — click to show" : "Visible — click to hide", () => {
+          if (trackHidden.has(ti)) trackHidden.delete(ti); else trackHidden.add(ti);
+          renderTracks();
+        }),
+        headBtn("🔒", locked, locked ? "Locked — click to unlock" : "Unlocked — click to lock", () => {
+          if (trackLocked.has(ti)) trackLocked.delete(ti); else trackLocked.add(ti);
+          renderTracks();
+        })
+      );
+      trackEl.appendChild(head);
       tracksHost.appendChild(trackEl);
     });
     tracksHost.style.height = `${state.tracks.length * TRACK_HEIGHT}px`;
-    timelineInner.style.width = `${width}px`;
-    playheadLine.style.left = `${frameToPx(state.playhead)}px`;
+    tracksHost.style.marginLeft = "34px";
+    timelineInner.style.width = `${width + 34}px`;
+    playheadLine.style.left = `${frameToPx(state.playhead) + 34}px`;
   }
 
-  function renderClipEl(clip: ItdaClip) {
+  function renderClipEl(clip: ItdaClip, trackLockedFlag: boolean) {
     const w = Math.max(4, frameToPx(clip.duration));
     const isSel = state.selectedClipIds.has(clip.id) || state.selectedClipId === clip.id;
     const isStitched = clip.kind === "stitched";
@@ -362,30 +504,36 @@ export function renderItda(container: HTMLElement) {
         style: {
           position: "absolute",
           left: `${frameToPx(clip.start)}px`,
-          top: "2px",
-          bottom: "2px",
+          top: "3px",
+          bottom: "3px",
           width: `${w}px`,
-          background: isSel ? BRAND : isStitched ? "#7a4f1e" : clip.kind === "audio" ? "#3a6" : "#37507a",
+          background: isSel ? BRAND : isStitched ? "#7a4f1e" : clip.kind === "audio" ? "#245a3d" : "#2c3f63",
           border: `1px solid ${isSel ? "#fff" : isStitched ? "#c8842e" : C.border}`,
-          borderRadius: "3px",
+          borderRadius: "4px",
           overflow: "hidden",
-          cursor: "grab",
+          cursor: trackLockedFlag ? "not-allowed" : "grab",
           fontSize: "10px",
           color: "#fff",
-          padding: "2px 4px",
           boxSizing: "border-box",
           userSelect: "none",
+          boxShadow: isSel ? `0 0 0 1px ${BRAND}` : "none",
         },
-        text: (isStitched ? "🧵 " : "") + (clip.label || clip.media_path.split(/[\\/]/).pop() || ""),
       },
       []
     );
 
-    // waveform canvas for audio-bearing clips — sizing/opacity/bar-pitch match
-    // the node's v0.2.8 waveform/trim/audio hotfix (itda_style.css .clip-bars /
-    // .wf-canvas): track fills the clip edge-to-edge at clamp(30px,58%,58px)
-    // height, canvas painted at .92 opacity, 1px bar + 1px gap pitch. A "stitched"
-    // container has no media_path of its own to probe, so it's excluded.
+    const chip = el("div", {
+      text: (isStitched ? "🧵 " : clip.kind === "audio" ? "🎵 " : clip.kind === "image" ? "🖼 " : "🎬 ") + (clip.label || clip.media_path.split(/[\\/]/).pop() || ""),
+      style: { padding: "2px 5px", fontWeight: "700", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden", background: "rgba(0,0,0,0.28)" },
+    });
+    clipEl.appendChild(chip);
+    if (!isStitched) {
+      clipEl.appendChild(el("div", {
+        text: `${clip.duration}f · in${clip.source_in || 0}`,
+        style: { padding: "0 5px", fontSize: "8px", color: "rgba(255,255,255,0.65)" },
+      }));
+    }
+
     if (!isStitched && (clip.kind === "audio" || clip.kind === "video")) {
       const barsBox = el("div", {
         style: {
@@ -395,7 +543,7 @@ export function renderItda(container: HTMLElement) {
           bottom: "0",
           height: "clamp(30px, 58%, 58px)",
           background: "rgba(0,0,0,.32)",
-          borderRadius: "0 0 2px 2px",
+          borderRadius: "0 0 3px 3px",
           overflow: "hidden",
           pointerEvents: "none",
         },
@@ -403,8 +551,6 @@ export function renderItda(container: HTMLElement) {
       const canvas = el("canvas", { style: { position: "absolute", left: "0", top: "0", display: "block" } }) as HTMLCanvasElement;
       barsBox.appendChild(canvas);
       clipEl.appendChild(barsBox);
-      // deferred one frame so barsBox has real layout dimensions once it's
-      // actually attached to the DOM (getBoundingClientRect is 0x0 before that)
       requestAnimationFrame(() => loadWaveform(clip, canvas, barsBox));
     }
 
@@ -415,8 +561,6 @@ export function renderItda(container: HTMLElement) {
 
     clipEl.addEventListener("mousedown", (e) => {
       e.stopPropagation();
-      // ctrl/shift-click adds to the multi-select (🧵 Stitch needs 2+); a plain click
-      // replaces the selection, matching the node's own click-vs-additive-click split.
       const additive = e.ctrlKey || e.metaKey || e.shiftKey;
       if (additive) {
         if (state.selectedClipIds.has(clip.id)) state.selectedClipIds.delete(clip.id);
@@ -427,6 +571,7 @@ export function renderItda(container: HTMLElement) {
       state.selectedClipId = clip.id;
       renderTracks();
       renderProps();
+      if (trackLockedFlag) return;
       const target = e.target as HTMLElement;
       const mode: DragState["mode"] = target === leftHandle ? "trim-left" : target === rightHandle ? "trim-right" : "move";
       dragState = {
@@ -445,10 +590,6 @@ export function renderItda(container: HTMLElement) {
   }
 
   const waveformCache = new Map<string, number[]>();
-  // Port of the node's drawClipWaveform (itda_app_ported.js v0.2.8 hotfix):
-  // per-clip peak normalization (this clip's own loudest point in its
-  // trimmed range fills the track height), 1px bar + 1px gap pitch snapped
-  // to the pixel grid, dpr-aware canvas sizing, 2px min-height floor.
   async function loadWaveform(clip: ItdaClip, canvas: HTMLCanvasElement, barsBox: HTMLElement) {
     const key = clip.media_path;
     let finalPeaks: number[] | undefined = waveformCache.get(key);
@@ -480,7 +621,6 @@ export function renderItda(container: HTMLElement) {
     ctx.fillStyle = clip.kind === "audio" ? "rgba(205,255,235,.92)" : "rgba(238,222,255,.92)";
     const mid = cssH / 2;
 
-    // peak-normalize over this clip's trimmed range only
     let maxPeak = 0;
     {
       const a0 = Math.max(0, Math.floor((srcIn / sourceTotal) * peaks.length));
@@ -517,10 +657,6 @@ export function renderItda(container: HTMLElement) {
     if (!found) return;
     const { clip } = found;
 
-    // Autoscroll the timeline while dragging (move OR trim) near its left/right
-    // edge — matches itda_app_ported.js onClipPointer exactly: 36px edge zone,
-    // 22px step per mousemove, no rAF ticker (relies on the pointer continuing
-    // to move while at the edge).
     {
       const rect = timelineScroll.getBoundingClientRect();
       const edge = 36;
@@ -528,9 +664,6 @@ export function renderItda(container: HTMLElement) {
       if (e.clientX > rect.right - edge) timelineScroll.scrollLeft += step;
       else if (e.clientX < rect.left + edge) timelineScroll.scrollLeft = Math.max(0, timelineScroll.scrollLeft - step);
     }
-    // Fold the timeline's own scroll movement back into the drag delta — without
-    // this, autoscrolling content under a stationary pointer would never let the
-    // drag target move past whatever was reachable on-screen at drag-start.
     const scrollDelta = timelineScroll.scrollLeft - dragState.startScrollLeft;
     const rawDeltaFrames = Math.round((e.clientX - dragState.startX + scrollDelta) / state.zoomPxPerFrame);
 
@@ -569,7 +702,7 @@ export function renderItda(container: HTMLElement) {
   timelineScroll.addEventListener("click", (e) => {
     if (e.target === timelineInner || e.target === ruler || e.target === tracksHost) {
       const rect = timelineInner.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+      const x = e.clientX - rect.left - 34;
       seekPlayhead(pxToFrame(x));
       if (state.selectedClipIds.size || state.selectedClipId) {
         state.selectedClipIds = new Set();
@@ -580,9 +713,6 @@ export function renderItda(container: HTMLElement) {
     }
   });
 
-  // Ruler scrub: mousedown-drag seeks continuously (not just on release), the video
-  // preview keeping up via seekElementToFrame's single-seek-in-flight throttle above —
-  // matches the node's scrub() (bind()) calling updatePlayhead on every mousemove.
   let scrubbing = false;
   ruler.addEventListener("mousedown", (e) => {
     scrubbing = true;
@@ -598,106 +728,233 @@ export function renderItda(container: HTMLElement) {
     scrubbing = false;
   });
 
-  function renderMediaBin() {
-    clear(mediaBin);
-    mediaBin.appendChild(
-      panel([
-        label("Media Bin"),
-        el("input", {
-          type: "file",
-          multiple: "true",
-          accept: "video/*,audio/*,image/*",
-          style: { fontSize: "11px", marginBottom: "6px" },
-          onchange: async (e: Event) => {
-            const files = Array.from((e.target as HTMLInputElement).files || []);
-            if (!files.length) return;
-            await api.uploadMedia(state.project, files);
-            await state.refreshMedia();
-            renderMediaBin();
-          },
-        }),
-        row(
-          [
-            mkBtn("🎞 Video (Gallery)", () => {
-              openVideoGalleryPicker(state.project, async () => {
-                await state.refreshMedia();
-                renderMediaBin();
-                statusEl.textContent = "Video added from gallery";
-              });
-            }),
-            mkBtn("🎵 Audio (Gallery)", () => {
-              openAudioGalleryPicker(async (inputFilename: string) => {
-                try {
-                  await api.importMediaFromGallery(state.project, inputFilename, "", "input");
-                } catch (e: any) {
-                  statusEl.textContent = `Audio import failed: ${e?.message || e}`;
-                  return;
-                }
-                await state.refreshMedia();
-                renderMediaBin();
-                statusEl.textContent = "Audio added from gallery";
-              }, "/minimax_h3_one");
-            }),
-          ],
-          "4px"
-        ),
-        el(
-          "div",
-          { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "420px", overflowY: "auto" } },
-          state.media.map((m) => {
-            const item = el(
-              "div",
-              {
-                draggable: "true",
-                style: {
-                  background: C.bg0,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: "4px",
-                  padding: "4px 6px",
-                  fontSize: "11px",
-                  color: C.text,
-                  cursor: "grab",
-                },
-                text: `${m.kind === "audio" ? "🎵" : m.kind === "image" ? "🖼" : "🎬"} ${m.name || m.path.split(/[\\/]/).pop()}`,
-              },
-              []
-            );
-            item.addEventListener("dragstart", (e) => {
-              e.dataTransfer?.setData("text/itda-media", m.path);
-            });
-            return item;
-          })
-        ),
-      ])
-    );
+  // ── Media Bin — 2-up thumbnail card grid ────────────────────────────────────────
+  let mediaViewMode: "grid" | "list" = "grid";
+  let thumbSize = 96;
+
+  function mediaKindIcon(kind?: string) {
+    return kind === "audio" ? "🎵" : kind === "image" ? "🖼" : "🎬";
   }
 
-  // ── Properties panel — a props-grid (label | field, two-col grid with section
-  // headers) matching custom_nodes/itda/web/style.css's .props-panel/.props-grid/
-  // .props-section, adapted to this repo's el()/row() convention instead of an
-  // innerHTML string. Only exposes fields that actually exist on ItdaClip (core.ts) —
-  // no text/transition/volume fields were ported into the data model, so those
-  // original sections are intentionally left out rather than faked.
+  function renderMediaBin() {
+    clear(mediaBin);
+
+    const binHeader = el("div", {
+      style: { padding: "8px 10px 6px", borderBottom: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: "6px", flexShrink: "0" },
+    });
+    binHeader.append(
+      row([
+        el("span", { text: "Media Bin", style: { fontWeight: "850", fontSize: "12px", color: C.text } }),
+        el("div", { style: { flex: "1" } }),
+        el("button", {
+          text: mediaViewMode === "grid" ? "▦" : "▦",
+          title: "Grid view",
+          onclick: () => { mediaViewMode = "grid"; renderMediaBin(); },
+          style: { background: mediaViewMode === "grid" ? BRAND : "transparent", color: mediaViewMode === "grid" ? "#fff" : C.muted, border: "none", borderRadius: "4px", padding: "2px 5px", fontSize: "11px", cursor: "pointer" },
+        }),
+        el("button", {
+          text: "☰",
+          title: "List view",
+          onclick: () => { mediaViewMode = "list"; renderMediaBin(); },
+          style: { background: mediaViewMode === "list" ? BRAND : "transparent", color: mediaViewMode === "list" ? "#fff" : C.muted, border: "none", borderRadius: "4px", padding: "2px 5px", fontSize: "11px", cursor: "pointer" },
+        }),
+      ], "2px"),
+      row(
+        [
+          el("input", {
+            type: "file",
+            multiple: "true",
+            accept: "video/*,audio/*,image/*",
+            style: { display: "none" },
+            onchange: async (e: Event) => {
+              const files = Array.from((e.target as HTMLInputElement).files || []);
+              if (!files.length) return;
+              await api.uploadMedia(state.project, files);
+              await state.refreshMedia();
+              renderMediaBin();
+            },
+          }),
+        ],
+        "0"
+      )
+    );
+    // wire the hidden file input to two grid buttons instead of a single raw <input>
+    const fileInput = binHeader.querySelector("input[type=file]") as HTMLInputElement;
+    const uploadGrid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "5px" } }, [
+      binBtn("+Video", () => fileInput.click()),
+      binBtn("+Audio", () => fileInput.click()),
+      binBtn("🎞 Video (Gallery)", () => {
+        openVideoGalleryPicker(state.project, async () => {
+          await state.refreshMedia();
+          renderMediaBin();
+          statusEl.textContent = "Video added from gallery";
+        });
+      }),
+      binBtn("🎵 Audio (Gallery)", () => {
+        openAudioGalleryPicker(async (inputFilename: string) => {
+          try {
+            await api.importMediaFromGallery(state.project, inputFilename, "", "input");
+          } catch (e: any) {
+            statusEl.textContent = `Audio import failed: ${e?.message || e}`;
+            return;
+          }
+          await state.refreshMedia();
+          renderMediaBin();
+          statusEl.textContent = "Audio added from gallery";
+        }, "/minimax_h3_one");
+      }),
+    ]);
+    binHeader.appendChild(uploadGrid);
+    binHeader.appendChild(row([
+      el("span", { text: `${state.media.length} item${state.media.length === 1 ? "" : "s"}`, style: { color: C.muted, fontSize: "10px" } }),
+      el("div", { style: { flex: "1" } }),
+      el("button", {
+        text: "Clear",
+        title: "Clear media bin (does not delete files)",
+        style: { background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: "4px", padding: "2px 8px", fontSize: "10px", cursor: "pointer" },
+        onclick: () => { state.media = []; renderMediaBin(); },
+      }),
+    ], "6px"));
+    mediaBin.appendChild(binHeader);
+
+    const listArea = el("div", { style: { flex: "1", minHeight: "0", overflowY: "auto", padding: "8px" } });
+    if (mediaViewMode === "grid") {
+      const grid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" } });
+      state.media.forEach((m) => grid.appendChild(renderMediaCard(m)));
+      listArea.appendChild(grid);
+    } else {
+      const list = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
+      state.media.forEach((m) => {
+        const item = el(
+          "div",
+          {
+            draggable: "true",
+            style: { background: C.bg0, border: `1px solid ${C.border}`, borderRadius: "5px", padding: "5px 8px", fontSize: "11px", color: C.text, cursor: "grab", display: "flex", alignItems: "center", gap: "6px" },
+          },
+          [
+            el("span", { text: mediaKindIcon(m.kind) }),
+            el("span", { text: m.name || m.path.split(/[\\/]/).pop(), style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: "1" } }),
+          ]
+        );
+        item.addEventListener("dragstart", (e) => e.dataTransfer?.setData("text/itda-media", m.path));
+        list.appendChild(item);
+      });
+      listArea.appendChild(list);
+    }
+    mediaBin.appendChild(listArea);
+
+    const footer = el("div", {
+      style: { flexShrink: "0", padding: "5px 10px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "6px" },
+    });
+    const sizeSlider = el("input", { type: "range", min: "70", max: "140", value: String(thumbSize), style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
+    sizeSlider.addEventListener("input", () => { thumbSize = Number(sizeSlider.value); renderMediaBin(); });
+    footer.append(el("span", { text: "Thumb", style: { color: C.muted, fontSize: "9px" } }), sizeSlider);
+    mediaBin.appendChild(footer);
+  }
+
+  function renderMediaCard(m: { path: string; name?: string; kind?: string; fps?: number; duration?: number }) {
+    const kind = m.kind || "video";
+    const card = el("div", {
+      draggable: "true",
+      style: {
+        position: "relative",
+        background: C.bg0,
+        border: `1px solid ${C.border}`,
+        borderRadius: "6px",
+        overflow: "hidden",
+        cursor: "grab",
+      },
+    });
+    card.addEventListener("dragstart", (e) => e.dataTransfer?.setData("text/itda-media", m.path));
+
+    const thumb = el("div", {
+      style: {
+        height: `${Math.max(56, thumbSize * 0.62)}px`,
+        background: "linear-gradient(135deg,#1b1e26,#101216)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "22px",
+        color: "#4a5062",
+      },
+      text: mediaKindIcon(kind),
+    });
+    if (kind === "image") {
+      const img = el("img", {
+        src: api.mediaFileUrl(m.path, state.project),
+        style: { width: "100%", height: "100%", objectFit: "cover", display: "none" },
+        alt: "",
+        onerror: (ev: Event) => { (ev.target as HTMLElement).style.display = "none"; },
+        onload: (ev: Event) => { (ev.target as HTMLElement).style.display = "block"; thumb.querySelector("span")?.remove(); },
+      }) as HTMLImageElement;
+      // videos won't render a frame via <img src>, so this is a best-effort thumbnail;
+      // image kind renders correctly, video keeps the icon placeholder if it 404s.
+      thumb.appendChild(img);
+    }
+    card.appendChild(thumb);
+
+    const delBadge = el("div", {
+      text: "✕",
+      title: "Remove from bin",
+      style: {
+        position: "absolute", top: "4px", left: "4px", width: "16px", height: "16px",
+        borderRadius: "50%", background: "#c93a3a", color: "#fff", fontSize: "9px", fontWeight: "900",
+        display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 1px 3px rgba(0,0,0,0.5)",
+      },
+      onclick: (e: MouseEvent) => {
+        e.stopPropagation();
+        state.media = state.media.filter((x) => x.path !== m.path);
+        renderMediaBin();
+      },
+    });
+    card.appendChild(delBadge);
+
+    const info = el("div", { style: { padding: "5px 6px" } });
+    info.append(
+      el("div", { text: m.name || m.path.split(/[\\/]/).pop() || "", style: { fontSize: "10px", fontWeight: "700", color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }),
+      el("div", { text: `${kind} · ${(m.fps || state.fps).toFixed(2)}fps · ${Math.round((m.duration || 0) * 10) / 10}s`, style: { fontSize: "9px", color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } })
+    );
+    card.appendChild(info);
+    return card;
+  }
+
+  function binBtn(text: string, onclick: () => void) {
+    return el("button", {
+      text,
+      onclick,
+      style: { background: C.bg0, color: C.text, border: `1px solid ${C.border}`, borderRadius: "5px", padding: "5px 6px", fontSize: "10px", cursor: "pointer" },
+    });
+  }
+
+  // ── Properties panel ────────────────────────────────────────────────────────────
   function propRow(labelText: string, field: HTMLElement) {
     return [
-      el("div", { text: labelText, style: { color: C.muted, fontSize: "11px", display: "flex", alignItems: "center" } }),
+      el("div", { text: labelText, style: { color: C.muted, fontSize: "10px", display: "flex", alignItems: "center" } }),
       field,
     ];
   }
   function propSection(title: string) {
     return el("div", {
       text: title,
-      style: { gridColumn: "1 / -1", fontWeight: "900", color: C.text, borderTop: `1px solid ${C.border}`, paddingTop: "10px", marginTop: "10px", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.04em" },
+      style: { gridColumn: "1 / -1", fontWeight: "900", color: BRAND, borderTop: `1px solid ${C.border}`, paddingTop: "10px", marginTop: "4px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.06em" },
     });
   }
   function propInput(value: string | number, onCommit: (v: string) => void, type = "text") {
     const i = el("input", {
       type,
       value: String(value),
-      style: { width: "100%", boxSizing: "border-box", background: "#101217", color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "12px", fontFamily: "inherit", outline: "none" },
+      style: { width: "100%", boxSizing: "border-box", background: "#0d0e12", color: C.text, border: `1px solid ${C.border}`, borderRadius: "5px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
     }) as HTMLInputElement;
     i.addEventListener("change", () => onCommit(i.value));
+    i.addEventListener("focus", () => { i.style.borderColor = BRAND; });
+    i.addEventListener("blur", () => { i.style.borderColor = C.border; });
     return i;
+  }
+  function propSelectStatic(value: string) {
+    return el("div", {
+      text: value,
+      style: { fontSize: "11px", color: C.text, background: "#0d0e12", border: `1px solid ${C.border}`, borderRadius: "5px", padding: "5px 7px" },
+    });
   }
 
   function renderProps() {
@@ -705,20 +962,20 @@ export function renderItda(container: HTMLElement) {
     const found = state.selectedClipId ? state.findClip(state.selectedClipId) : null;
     propsPanel.appendChild(el("div", {
       text: "Clip Properties",
-      style: { height: "36px", display: "flex", alignItems: "center", padding: "0 12px", borderBottom: `1px solid ${C.border}`, fontSize: "13px", fontWeight: "850", boxSizing: "border-box" },
+      style: { height: "36px", display: "flex", alignItems: "center", padding: "0 12px", borderBottom: `1px solid ${C.border}`, fontSize: "12px", fontWeight: "850", boxSizing: "border-box" },
     }));
     if (!found) {
-      propsPanel.appendChild(el("div", { text: "No clip selected.", style: { padding: "12px", color: C.muted, fontSize: "12px" } }));
+      propsPanel.appendChild(el("div", { text: "No clip selected.", style: { padding: "16px 12px", color: C.muted, fontSize: "11px" } }));
       return;
     }
     const { clip } = found;
     const grid = el("div", {
-      style: { display: "grid", gridTemplateColumns: "78px minmax(0,1fr)", gap: "8px", alignItems: "center", padding: "12px" },
+      style: { display: "grid", gridTemplateColumns: "68px minmax(0,1fr)", gap: "7px", alignItems: "center", padding: "10px 12px" },
     });
     grid.append(
       propSection("Clip"),
       ...propRow("Name", propInput(clip.label || clip.media_path.split(/[\\/]/).pop() || "", (v) => { clip.label = v; state.dirty = true; renderTracks(); refreshStatus(); })),
-      ...propRow("Type", el("div", { text: clip.kind, style: { fontSize: "12px", color: C.text } })),
+      ...propRow("Type", propSelectStatic(clip.kind)),
       ...propRow("Track", propInput(clip.track + 1, (v) => {
         const idx = Math.max(1, Math.round(Number(v) || 1)) - 1;
         if (state.tracks[idx]) {
@@ -744,14 +1001,13 @@ export function renderItda(container: HTMLElement) {
     );
     propsPanel.appendChild(grid);
 
-    const actions = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", padding: "0 12px 12px" } }, [
-      mkBtn("First Frame", () => seekPlayhead(clip.start)),
-      mkBtn("End Frame", () => seekPlayhead(clip.start + clip.duration)),
-      mkBtn("Delete Clip", () => {
-        state.removeClip(clip.id);
-        state.selectedClipId = null;
-        renderTracks();
-        renderProps();
+    const actions = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", padding: "0 12px 14px" } }, [
+      ghostBtn("First Frame", () => seekPlayhead(clip.start)),
+      ghostBtn("End Frame", () => seekPlayhead(clip.start + clip.duration)),
+      el("button", {
+        text: "Delete Clip",
+        onclick: () => { state.removeClip(clip.id); state.selectedClipId = null; renderTracks(); renderProps(); },
+        style: { background: "#3a1414", color: "#ff8a8a", border: "1px solid #5a1e1e", borderRadius: "5px", padding: "4px 10px", fontSize: "11px", cursor: "pointer" },
       }),
     ]);
     propsPanel.appendChild(actions);
@@ -770,9 +1026,9 @@ export function renderItda(container: HTMLElement) {
         label("Render"),
         el("div", { text: `Length: ${state.contentEnd()} frames (${(state.contentEnd() / state.fps).toFixed(1)}s) — auto-detected from last clip end.`, style: { fontSize: "11px", color: C.muted, marginBottom: "8px" } }),
         row([
-          mkBtn("Video + Audio", () => doRender("video_audio", overlay)),
-          mkBtn("Video Only", () => doRender("video_only", overlay)),
-          mkBtn("Audio Only", () => doRender("audio_only", overlay)),
+          pillBtn("Video + Audio", () => doRender("video_audio", overlay)),
+          ghostBtn("Video Only", () => doRender("video_only", overlay)),
+          ghostBtn("Audio Only", () => doRender("audio_only", overlay)),
         ]),
       ],
       { width: "360px" }
@@ -792,21 +1048,111 @@ export function renderItda(container: HTMLElement) {
     overlay.remove();
   }
 
-  function mkBtn(text: string, onclick: () => void, primary = false, title?: string) {
+  // ── shared button styles ──────────────────────────────────────────────────────
+  function pillBtn(text: string, onclick: () => void, title?: string) {
     return el("button", {
       text,
       onclick,
       ...(title ? { title } : {}),
       style: {
-        background: primary ? BRAND : C.bg1,
-        color: primary ? "#111" : C.text,
-        border: `1px solid ${C.border}`,
-        borderRadius: "5px",
-        padding: "4px 10px",
-        fontSize: "12px",
+        background: "#fff",
+        color: BRAND,
+        border: "none",
+        borderRadius: "999px",
+        padding: "5px 13px",
+        fontSize: "11px",
+        fontWeight: "800",
         cursor: "pointer",
       },
     });
+  }
+  function ghostBtn(text: string, onclick: () => void, title?: string) {
+    const b = el("button", {
+      text,
+      onclick,
+      ...(title ? { title } : {}),
+      style: {
+        background: "rgba(255,255,255,0.08)",
+        color: "#fff",
+        border: "1px solid rgba(255,255,255,0.22)",
+        borderRadius: "999px",
+        padding: "4px 11px",
+        fontSize: "11px",
+        fontWeight: "600",
+        cursor: "pointer",
+      },
+    }) as HTMLButtonElement;
+    b.addEventListener("mouseenter", () => { b.style.background = "rgba(255,255,255,0.18)"; });
+    b.addEventListener("mouseleave", () => { b.style.background = "rgba(255,255,255,0.08)"; });
+    return b;
+  }
+  function mkIconBtn(icon: string, onclick: () => void, title?: string) {
+    const b = el("button", {
+      text: icon,
+      onclick,
+      ...(title ? { title } : {}),
+      style: {
+        background: C.bg0,
+        color: C.text,
+        border: `1px solid ${C.border}`,
+        borderRadius: "6px",
+        width: "28px",
+        height: "26px",
+        fontSize: "12px",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "0",
+      },
+    }) as HTMLButtonElement;
+    b.addEventListener("mouseenter", () => { b.style.borderColor = BRAND; });
+    b.addEventListener("mouseleave", () => { b.style.borderColor = C.border; });
+    return b;
+  }
+  function sep() {
+    return el("div", { style: { width: "1px", alignSelf: "stretch", background: C.border, margin: "0 2px" } });
+  }
+  function togglePill(text: string, initial: boolean, onchange: (v: boolean) => void) {
+    let on = initial;
+    const b = el("button", {
+      text,
+      style: {
+        background: on ? BRAND : "transparent",
+        color: on ? "#fff" : C.muted,
+        border: `1px solid ${on ? BRAND : C.border}`,
+        borderRadius: "999px",
+        padding: "3px 9px",
+        fontSize: "10px",
+        fontWeight: "700",
+        cursor: "pointer",
+      },
+    }) as HTMLButtonElement;
+    b.addEventListener("click", () => {
+      on = !on;
+      b.style.background = on ? BRAND : "transparent";
+      b.style.color = on ? "#fff" : C.muted;
+      b.style.borderColor = on ? BRAND : C.border;
+      onchange(on);
+    });
+    return b;
+  }
+  function snapPill() {
+    const b = togglePill(`Snap: ${state.snap ? "ON" : "OFF"}`, state.snap, (v) => {
+      state.snap = v;
+      b.textContent = `Snap: ${v ? "ON" : "OFF"}`;
+      refreshStatus();
+    });
+    return b;
+  }
+  function zoomSlider() {
+    const s = el("input", { type: "range", min: "0.5", max: "6", step: "0.25", value: String(state.zoomPxPerFrame), style: { width: "80px", accentColor: BRAND } }) as HTMLInputElement;
+    s.addEventListener("input", () => {
+      state.zoomPxPerFrame = Number(s.value);
+      renderRuler();
+      renderTracks();
+    });
+    return s;
   }
 
   // ── boot ──────────────────────────────────────────────────────────────

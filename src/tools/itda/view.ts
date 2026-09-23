@@ -849,7 +849,14 @@ export function renderItda(container: HTMLElement) {
   function renderTracks() {
     clear(tracksHost);
     const width = frameToPx(state.totalFrames);
-    tracksHost.style.width = `${width}px`;
+    // tracksHost itself carries no marginLeft (only each trackEl does, for its own
+    // T1/T2/T3 label gutter) — so tracksHost's own width must be width+34 to match
+    // the ruler's rendered extent (ruler: marginLeft 34 + its own width). Otherwise
+    // each auto-width trackEl fills to "just width" (its containing block minus its
+    // own 34px margin), ending 34px short of where the ruler/timelineInner actually
+    // end — exactly the "eye icon column pulled the track background out of sync
+    // with the ruler by the same 34px" bug just reported.
+    tracksHost.style.width = `${width + 34}px`;
     state.tracks.forEach((track, ti) => {
       const hidden = trackHidden.has(ti);
       const locked = trackLocked.has(ti);

@@ -1182,7 +1182,7 @@ export function renderItda(container: HTMLElement) {
     mediaBin.appendChild(footer);
   }
 
-  function renderMediaCard(m: { path: string; name?: string; kind?: string; fps?: number; duration?: number }) {
+  function renderMediaCard(m: { path: string; name?: string; kind?: string; fps?: number; duration?: number; thumb?: string; thumb_url?: string }) {
     const kind = m.kind || "video";
     const card = el("div", {
       draggable: "true",
@@ -1212,16 +1212,22 @@ export function renderItda(container: HTMLElement) {
       },
       text: mediaKindIcon(kind),
     });
-    if (kind === "image") {
+    // media.py's make_video_thumbnail() generates a real frame-0 thumbnail server-side
+    // for video (and image) media and returns it as `thumb_url` (already a full
+    // "/itda_studio_one/api/file?path=..." route, just missing the BASE origin
+    // prefix — api.resolveUrl() adds it). Previously only kind==="image" ever got an
+    // <img> at all, so video/audio cards (the overwhelming majority of real media)
+    // never showed anything but the bare icon placeholder — thumb_url existed on the
+    // API response and was simply never read.
+    const thumbSrc = m.thumb_url ? api.resolveUrl(m.thumb_url) : kind === "image" ? api.mediaFileUrl(m.path, state.project) : null;
+    if (thumbSrc) {
       const img = el("img", {
-        src: api.mediaFileUrl(m.path, state.project),
+        src: thumbSrc,
         style: { width: "100%", height: "100%", objectFit: "cover", display: "none" },
         alt: "",
         onerror: (ev: Event) => { (ev.target as HTMLElement).style.display = "none"; },
         onload: (ev: Event) => { (ev.target as HTMLElement).style.display = "block"; thumb.querySelector("span")?.remove(); },
       }) as HTMLImageElement;
-      // videos won't render a frame via <img src>, so this is a best-effort thumbnail;
-      // image kind renders correctly, video keeps the icon placeholder if it 404s.
       thumb.appendChild(img);
     }
     card.appendChild(thumb);
@@ -1530,9 +1536,12 @@ export function renderItda(container: HTMLElement) {
     });
     return s;
   }
-  // ↕ Vertical Track Zoom — matches dom_build.js's vZoom (min 44 / max 140).
+  // ↕ Vertical Track Zoom — range recentered around the current default (52px, which
+  // the user confirmed looks right) so it sits at the slider's visual midpoint (30..74,
+  // 52 exact center), same fix as the horizontal zoom slider — was min 44/max 140 with
+  // a default of 52, which put the handle at ~8% along the track.
   function vZoomSlider() {
-    const s = el("input", { type: "range", min: "44", max: "140", step: "1", value: String(state.trackHeight), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    const s = el("input", { type: "range", min: "30", max: "74", step: "1", value: String(state.trackHeight), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
       state.trackHeight = Number(s.value);
       renderTracks();

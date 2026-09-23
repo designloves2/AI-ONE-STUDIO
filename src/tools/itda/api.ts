@@ -33,6 +33,13 @@ export function mediaFileUrl(path: string, project: string): string {
   return `${BASE}${API}/file?path=${encodeURIComponent(path)}&project=${encodeURIComponent(project)}`;
 }
 
+// Several backend responses (media.py's thumb_url, gallery thumb/video URLs) return
+// their own server-relative "/itda_studio_one/api/..." route already built, just
+// missing the BASE origin prefix — this is that one shared prefix step.
+export function resolveUrl(u: string): string {
+  return u.startsWith("http") ? u : `${BASE}${u}`;
+}
+
 // ── project CRUD ────────────────────────────────────────────────────────────
 export interface ItdaProject {
   name: string;
@@ -75,6 +82,9 @@ export interface MediaItem {
   duration?: number;
   fps?: number;
   thumb?: string;
+  // real server-generated thumbnail — media.py's make_video_thumbnail() extracts
+  // frame 0 and returns this URL; media-bin cards never read it at all before.
+  thumb_url?: string;
   [key: string]: any;
 }
 

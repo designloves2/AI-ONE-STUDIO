@@ -70,18 +70,93 @@ export function renderItda(container: HTMLElement) {
   toolbar.style.alignItems = "center";
   root.appendChild(toolbar);
 
-  // ── main split: media bin | timeline+properties ──────────────────────────
-  const mainRow = el("div", { style: { flex: "1", minHeight: "0", display: "flex", gap: "8px" } });
-  root.appendChild(mainRow);
+  // ── upper pane: media bin | preview | properties — 26%/49%/25%, matching the
+  // original standalone node's web/index.html .upper grid-template-columns exactly
+  // (custom_nodes/itda/web/style.css line 9). Previously media bin+timeline+props
+  // shared one flex row with no real preview-panel chrome at all — that's the gap
+  // the user flagged (no visible preview stage, properties panel look "wrong").
+  const upperPane = el("div", {
+    style: { display: "grid", gridTemplateColumns: "26% 49% 25%", gap: "4px", height: "56%", minHeight: "320px", flexShrink: "0" },
+  });
+  root.appendChild(upperPane);
 
-  const mediaBin = el("div", { style: { width: "220px", flexShrink: "0", overflowY: "auto" } });
-  mainRow.appendChild(mediaBin);
+  const mediaBin = el("div", { style: { minWidth: "0", overflowY: "auto" } });
+  upperPane.appendChild(mediaBin);
 
-  const centerCol = el("div", { style: { flex: "1", minWidth: "0", display: "flex", flexDirection: "column", gap: "8px" } });
-  mainRow.appendChild(centerCol);
+  // ── preview panel — stage + transport, styled after .preview-panel/.preview-stage/
+  // .preview-transport (custom_nodes/itda/web/style.css line 10): dark toolbar strip,
+  // a flex-1 black stage that actually fills the column (the old build's <video> sat
+  // bare in the layout with display:none until a clip loaded and no chrome at all),
+  // and a bottom transport bar with a round play button + centered frame/time readout.
+  const previewPanel = el("div", {
+    style: { display: "flex", flexDirection: "column", minWidth: "0", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: "7px", overflow: "hidden" },
+  });
+  upperPane.appendChild(previewPanel);
 
-  const propsPanel = el("div", { style: { width: "220px", flexShrink: "0" } });
-  mainRow.appendChild(propsPanel);
+  const previewToolbar = row(
+    [
+      el("button", { text: "Single", disabled: "true", style: { background: BRAND, color: "#fff", border: `1px solid ${BRAND}`, borderRadius: "5px", padding: "4px 10px", fontSize: "11px", opacity: "1" } }),
+      el("div", { style: { flex: "1" } }),
+      el("span", { text: "ITDA Preview", style: { color: C.muted, fontSize: "11px" } }),
+    ],
+    "6px"
+  );
+  previewToolbar.style.cssText += "height:36px;align-items:center;padding:0 10px;background:#111318;border-bottom:1px solid " + C.border + ";box-sizing:border-box;flex-shrink:0;";
+  previewPanel.appendChild(previewToolbar);
+
+  const previewStage = el("div", {
+    style: { position: "relative", flex: "1", minHeight: "0", background: "#000", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  });
+  previewPanel.appendChild(previewStage);
+
+  const previewPlaceholder = el("div", {
+    text: "Preview",
+    style: { color: "#5f6672", fontWeight: "850", fontSize: "26px", letterSpacing: "0.06em", pointerEvents: "none" },
+  });
+  previewStage.appendChild(previewPlaceholder);
+
+  // preview video — mirrors the node's #previewVideo: seeks to the frame under the
+  // playhead as it's scrubbed, instead of only updating a transport readout.
+  const previewVideo = el("video", {
+    style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "none" },
+  }) as HTMLVideoElement;
+  previewVideo.muted = true;
+  previewVideo.playsInline = true;
+  previewStage.appendChild(previewVideo);
+
+  // still-image preview — the original node's #previewImage; the prior build had no
+  // way to show an image-kind clip in the preview at all.
+  const previewImage = el("img", {
+    style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", background: "#000", display: "none" },
+    alt: "",
+  }) as HTMLImageElement;
+  previewStage.appendChild(previewImage);
+
+  const playheadInfo = el("span", { style: { color: C.text, fontSize: "12px", fontWeight: "700" } });
+  const transport = el("div", {
+    style: { flexShrink: "0", background: "#111318", borderTop: `1px solid ${C.border}`, padding: "6px 12px", display: "flex", flexDirection: "column", gap: "4px" },
+  });
+  const transportButtons = row(
+    [
+      mkBtn("⏮", () => seekPlayhead(0), false, "Go to start"),
+      mkBtn("◀", () => seekPlayhead(state.playhead - 1), false, "Step back 1 frame"),
+      mkBtn("▶", () => seekPlayhead(state.playhead + 1), false, "Step forward 1 frame"),
+      mkBtn("End", () => seekPlayhead(state.contentEnd()), false, "Go to content end"),
+    ],
+    "4px"
+  );
+  transportButtons.style.justifyContent = "center";
+  const transportReadout = el("div", { style: { display: "flex", justifyContent: "center" } }, [playheadInfo]);
+  transport.append(transportButtons, transportReadout);
+  previewPanel.appendChild(transport);
+
+  // ── properties panel — grid-based field layout after .props-panel/.props-grid/
+  // .props-section (custom_nodes/itda/web/style.css line 11): label-column + field-
+  // column grid with section headers, instead of the prior build's plain stacked rows.
+  const propsPanel = el("div", {
+    style: { minWidth: "0", overflowY: "auto", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "7px" },
+  });
+  upperPane.appendChild(propsPanel);
 
   // ── real render gallery overlay (★ stitch mark, ⓘ info, ⬇ import, dblclick fullscreen) ──
   const galleryOv = createItdaGalleryOverlay(root, {
@@ -90,31 +165,14 @@ export function renderItda(container: HTMLElement) {
     showStatus: (msg: string) => { statusEl.textContent = msg; },
   });
 
-  // preview video — mirrors the node's #previewVideo: seeks to the frame under the
-  // playhead as it's scrubbed, instead of only updating a transport readout.
-  const previewVideo = el("video", {
-    style: { width: "100%", maxHeight: "220px", background: "#000", borderRadius: "6px", display: "none" },
-  }) as HTMLVideoElement;
-  previewVideo.muted = true;
-  previewVideo.playsInline = true;
-  centerCol.appendChild(previewVideo);
-
-  // playhead controls
-  const playheadInfo = el("span", { style: { color: C.muted, fontSize: "12px" } });
-  const transport = row(
-    [
-      mkBtn("⏮", () => seekPlayhead(0)),
-      mkBtn("◀", () => seekPlayhead(state.playhead - 1)),
-      mkBtn("▶", () => seekPlayhead(state.playhead + 1)),
-      mkBtn("End", () => seekPlayhead(state.contentEnd())),
-      playheadInfo,
-    ],
-    "4px"
-  );
-  centerCol.appendChild(transport);
+  // ── lower pane: timeline (full width), matching the original's separate .lower
+  // .timeline-panel section below .upper rather than being squeezed into the same
+  // column as the preview.
+  const timelinePanel = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column" } });
+  root.appendChild(timelinePanel);
 
   const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, border: `1px solid ${C.border}`, borderRadius: "6px", position: "relative" } });
-  centerCol.appendChild(timelineScroll);
+  timelinePanel.appendChild(timelineScroll);
 
   const timelineInner = el("div", { style: { position: "relative" } });
   timelineScroll.appendChild(timelineInner);
@@ -140,7 +198,10 @@ export function renderItda(container: HTMLElement) {
   function refreshStatus() {
     projectLabel.textContent = state.project;
     statusEl.textContent = state.dirty ? "unsaved changes" : "saved";
-    playheadInfo.textContent = `frame ${state.playhead} / end ${state.contentEnd()} / total ${state.totalFrames} @ ${state.fps}fps`;
+    const secs = state.playhead / state.fps;
+    const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+    const ss = (secs % 60).toFixed(3).padStart(6, "0");
+    playheadInfo.textContent = `Frame ${state.playhead}  ·  ${mm}:${ss}  ·  end ${state.contentEnd()} / total ${state.totalFrames} @ ${state.fps}fps`;
   }
 
   function seekPlayhead(f: number) {
@@ -195,16 +256,32 @@ export function renderItda(container: HTMLElement) {
 
   function updatePreview() {
     const clip = state.clipAtFrame(state.playhead);
-    if (!clip || clip.kind !== "video") {
-      if (clip && clip.kind === "image") {
-        // image clips have no seek/currentTime concept — just show a still frame slot
-        previewVideo.style.display = "none";
-      } else {
-        previewVideo.style.display = "none";
-        previewVideo.removeAttribute("src");
-      }
+    if (!clip || clip.kind === "audio" || clip.kind === "stitched") {
+      previewVideo.style.display = "none";
+      previewVideo.removeAttribute("src");
+      previewVideo.dataset.src = "";
+      previewImage.style.display = "none";
+      previewImage.removeAttribute("src");
+      previewPlaceholder.style.display = "block";
       return;
     }
+    previewPlaceholder.style.display = "none";
+    if (clip.kind === "image") {
+      previewVideo.style.display = "none";
+      previewVideo.pause();
+      previewVideo.removeAttribute("src");
+      previewVideo.dataset.src = "";
+      const src = api.mediaFileUrl(clip.media_path, state.project);
+      if (previewImage.dataset.src !== src) {
+        previewImage.src = src;
+        previewImage.dataset.src = src;
+      }
+      previewImage.style.display = "block";
+      return;
+    }
+    // video
+    previewImage.style.display = "none";
+    previewImage.removeAttribute("src");
     const src = api.mediaFileUrl(clip.media_path, state.project);
     if (previewVideo.dataset.src !== src) {
       previewVideo.pause();
@@ -595,30 +672,89 @@ export function renderItda(container: HTMLElement) {
     );
   }
 
+  // ── Properties panel — a props-grid (label | field, two-col grid with section
+  // headers) matching custom_nodes/itda/web/style.css's .props-panel/.props-grid/
+  // .props-section, adapted to this repo's el()/row() convention instead of an
+  // innerHTML string. Only exposes fields that actually exist on ItdaClip (core.ts) —
+  // no text/transition/volume fields were ported into the data model, so those
+  // original sections are intentionally left out rather than faked.
+  function propRow(labelText: string, field: HTMLElement) {
+    return [
+      el("div", { text: labelText, style: { color: C.muted, fontSize: "11px", display: "flex", alignItems: "center" } }),
+      field,
+    ];
+  }
+  function propSection(title: string) {
+    return el("div", {
+      text: title,
+      style: { gridColumn: "1 / -1", fontWeight: "900", color: C.text, borderTop: `1px solid ${C.border}`, paddingTop: "10px", marginTop: "10px", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.04em" },
+    });
+  }
+  function propInput(value: string | number, onCommit: (v: string) => void, type = "text") {
+    const i = el("input", {
+      type,
+      value: String(value),
+      style: { width: "100%", boxSizing: "border-box", background: "#101217", color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "12px", fontFamily: "inherit", outline: "none" },
+    }) as HTMLInputElement;
+    i.addEventListener("change", () => onCommit(i.value));
+    return i;
+  }
+
   function renderProps() {
     clear(propsPanel);
     const found = state.selectedClipId ? state.findClip(state.selectedClipId) : null;
+    propsPanel.appendChild(el("div", {
+      text: "Clip Properties",
+      style: { height: "36px", display: "flex", alignItems: "center", padding: "0 12px", borderBottom: `1px solid ${C.border}`, fontSize: "13px", fontWeight: "850", boxSizing: "border-box" },
+    }));
     if (!found) {
-      propsPanel.appendChild(panel([label("Properties"), el("div", { text: "No clip selected.", style: { color: C.muted, fontSize: "12px" } })]));
+      propsPanel.appendChild(el("div", { text: "No clip selected.", style: { padding: "12px", color: C.muted, fontSize: "12px" } }));
       return;
     }
     const { clip } = found;
-    propsPanel.appendChild(
-      panel([
-        label("Properties"),
-        row([el("span", { text: "Track", style: { color: C.muted, fontSize: "11px" } }), el("span", { text: String(clip.track), style: { fontSize: "11px" } })]),
-        row([el("span", { text: "Start", style: { color: C.muted, fontSize: "11px" } }), el("span", { text: String(clip.start), style: { fontSize: "11px" } })]),
-        row([el("span", { text: "Duration", style: { color: C.muted, fontSize: "11px" } }), el("span", { text: String(clip.duration), style: { fontSize: "11px" } })]),
-        mkBtn("First Frame", () => seekPlayhead(clip.start)),
-        mkBtn("End Frame", () => seekPlayhead(clip.start + clip.duration)),
-        mkBtn("Delete Clip", () => {
-          state.removeClip(clip.id);
-          state.selectedClipId = null;
-          renderTracks();
+    const grid = el("div", {
+      style: { display: "grid", gridTemplateColumns: "78px minmax(0,1fr)", gap: "8px", alignItems: "center", padding: "12px" },
+    });
+    grid.append(
+      propSection("Clip"),
+      ...propRow("Name", propInput(clip.label || clip.media_path.split(/[\\/]/).pop() || "", (v) => { clip.label = v; state.dirty = true; renderTracks(); refreshStatus(); })),
+      ...propRow("Type", el("div", { text: clip.kind, style: { fontSize: "12px", color: C.text } })),
+      ...propRow("Track", propInput(clip.track + 1, (v) => {
+        const idx = Math.max(1, Math.round(Number(v) || 1)) - 1;
+        if (state.tracks[idx]) {
+          const src = state.findClip(clip.id);
+          if (src) {
+            src.track.clips = src.track.clips.filter((c) => c.id !== clip.id);
+            clip.track = idx;
+            state.tracks[idx].clips.push(clip);
+            state.dirty = true;
+            renderTracks();
+            refreshStatus();
+          }
+        } else {
           renderProps();
-        }),
-      ])
+        }
+      }, "number")),
+
+      propSection("Timing"),
+      ...propRow("Start", propInput(clip.start, (v) => { clip.start = Math.max(0, Math.round(Number(v) || 0)); state.clampToTotalFrames(clip); state.dirty = true; renderTracks(); refreshStatus(); }, "number")),
+      ...propRow("Length", propInput(clip.duration, (v) => { clip.duration = Math.max(1, Math.round(Number(v) || 1)); clip.source_out = clip.source_in + clip.duration; state.clampToTotalFrames(clip); state.dirty = true; renderTracks(); refreshStatus(); }, "number")),
+      ...propRow("Trim In", propInput(clip.source_in || 0, (v) => { clip.source_in = Math.max(0, Math.round(Number(v) || 0)); state.dirty = true; refreshStatus(); }, "number")),
+      ...propRow("Trim Out", propInput(clip.source_out || clip.duration, (v) => { clip.source_out = Math.max(1, Math.round(Number(v) || 1)); state.dirty = true; refreshStatus(); }, "number"))
     );
+    propsPanel.appendChild(grid);
+
+    const actions = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", padding: "0 12px 12px" } }, [
+      mkBtn("First Frame", () => seekPlayhead(clip.start)),
+      mkBtn("End Frame", () => seekPlayhead(clip.start + clip.duration)),
+      mkBtn("Delete Clip", () => {
+        state.removeClip(clip.id);
+        state.selectedClipId = null;
+        renderTracks();
+        renderProps();
+      }),
+    ]);
+    propsPanel.appendChild(actions);
   }
 
   function openRenderModal() {

@@ -648,6 +648,64 @@ already had multi-select + checkbox-swap + bulk delete from an earlier pass — 
 label/visibility/ordering fix, not new functionality. Web-only "Send to MiniMax" (FL2VA/REF2VA)
 buttons, which have no node equivalent, were kept in every tool's gallery header.
 
+## ITDA ONE STUDIO — Preview panel + Properties panel UI-fidelity rework (2026-09-23 third follow-up)
+
+**Ground-truth source correction:** the original web port (rows above) was built referencing
+`ComfyUI-TJ_NODE_STUDIO_ONE`'s own in-pack `web/itda_studio/itda_app_ported.js`/`dom_build.js` —
+that pack's ITDA port is itself a **narrower downstream copy** of the real project (5 lanes → 3,
+video+audio only, in-node-widget instead of a popup, several features cut). It is NOT upstream
+truth. The actual authoritative source is the standalone project this was forked from:
+**`C:\AI\ComfyUI-Easy-Install\ComfyUI\custom_nodes\itda\web\`** (`index.html` / `style.css` /
+`app.js` / `itda_editor.js` / `itda_bridge.js` / `itda_preview_node.js`) — use this path for any
+future ITDA UI work, not the TJ_NODE_STUDIO_ONE pack's files.
+
+User flagged two concrete visual gaps after looking at the deployed site: **no preview panel at
+all** (the video/image preview area was effectively invisible) and **the Properties panel looked
+wrong** vs. the real ITDA editor. Read the real source's `index.html`/`style.css` in full
+(`.upper{grid-template-columns:26% 49% 25%}`, `.preview-panel`/`.preview-toolbar`/`.preview-stage`/
+`.preview-transport`, `.props-panel`/`.props-grid`/`.props-section`) and rebuilt `view.ts`'s
+layout to match, using this repo's own `el()`/`panel()`/`row()` convention rather than a literal
+HTML/CSS port:
+
+- **Root layout restructured** — previously `mediaBin`/`centerCol`/`propsPanel` were 3 items in
+  one flex row, and the *timeline lived stacked inside `centerCol` below the bare `<video>`* —
+  structurally wrong vs. the original, where the timeline is a separate full-width `.lower`
+  section below a 3-column `.upper` row. Now: `upperPane` (CSS grid, `26% 49% 25%`, `height:56%`,
+  `minHeight:320px`) holds media bin / preview panel / properties panel; `timelinePanel` is a
+  full-width sibling below it holding the existing timeline scroll/ruler/tracks unchanged.
+- **Preview panel built from scratch** — previously just a bare `<video>` element
+  (`display:none` until a clip loaded, no chrome, no placeholder, easy to miss entirely — this
+  was the literal cause of "no preview panel at all"). Now has real panel chrome matching the
+  original: a toolbar strip (`Single` mode pill + `ITDA Preview` label, matching
+  `.preview-toolbar`/`.mode-tabs`), a `previewStage` that actually fills the column
+  (`flex:1`, black background, `position:relative`) with a `"Preview"` placeholder text shown
+  whenever nothing is under the playhead (`.preview-stage #previewPlaceholder` in the original),
+  and a `previewImage` element added alongside the existing `previewVideo` — the prior build had
+  **no way to display an image-kind clip in the preview at all**, only video. `updatePreview()`
+  rewritten to branch cleanly across video/image/audio/stitched/empty and toggle
+  placeholder↔video↔image visibility, instead of the old two-way video/not-video branch. A
+  bottom transport bar (`Frame N · MM:SS.mmm · end/total` centered readout, matching
+  `.preview-transport`/`.transport-readout`/`.center-readout`) replaces the old bare inline row.
+- **Properties panel rebuilt as a real props-grid** — previously a flat stack of read-only
+  `row()`s (Track/Start/Duration as plain text) with 3 action buttons — visually nothing like the
+  original's two-column label|field grid with section headers. Now: `propSection()`/`propRow()`/
+  `propInput()` helpers build a `78px minmax(0,1fr)` grid with `Clip` (Name/Type/Track) and
+  `Timing` (Start/Length/Trim In/Trim Out) sections, editable inputs that commit on change and
+  redraw the timeline — matching `.props-grid`/`.props-section` structurally. **Deliberately
+  scoped to fields that actually exist on `ItdaClip` (`core.ts`)** — the original's Audio
+  (volume/solo/mute)/Transition/Text-Overlay sections reference clip fields (`volume`, `solo`,
+  `transition_type`, `text`, `font_family`, `x`/`y`/`size`/`color`, etc.) that were never ported
+  into the web data model; faking those fields would be new functionality, not a UI-fidelity fix,
+  so they're left out rather than added as dead inputs. Tracked here as a known gap if those
+  clip-level features are ever ported.
+- Colors/spacing reused the existing `BRAND`/`C` palette (`src/identity.ts`) rather than
+  introducing new hex values — `BRAND #7612DA` already matches the original's own `--accent`
+  exactly, confirmed by direct comparison against `style.css`'s `:root`.
+
+| commit | tsc/build | browser verification |
+| --- | --- | --- |
+| pending (see below) | `npx tsc --noEmit` clean (no itda errors — 1 pre-existing unrelated error in `src/gallery/mounts.ts`); `npx vite build` clean, `dist/` deleted after | **Browser-verified against the live dev server** (`http://localhost:8774/#itda`, pinned to this checkout): screenshotted the new 26/49/25 layout with the "Preview" placeholder showing and the new grid-based Properties panel on an existing short clip; imported a fresh real clip via the gallery picker (Video (Gallery) → INPUT folder → picked a thumbnail → added to Media Bin); placed it on the timeline via a simulated HTML5 drag/drop onto a track (`dragstart`/`dragover`/`drop` with a real `DataTransfer`, since the browser tool's pointer-based drag doesn't trigger native DnD); selected the new clip (Properties panel correctly showed Name/Type/Track/Start/Length/Trim In/Trim Out for it); clicked "First Frame" to move the playhead onto the clip — **the preview stage correctly rendered the actual video frame**, filling the black stage the way the original's `.preview-stage video{object-fit:contain}` does. All existing functional logic (snap/drag/waveform/split/stitch/render/gallery) left untouched — only layout/rendering code in `view.ts` changed. |
+
 Every commit above passed `npx tsc --noEmit` and `npx vite build` (dist/ deleted after) before
 being pushed. Browser verification (live ComfyUI backend via the dev preview) was done for Krea2
 in full and spot-checked on Z-Image + Klein (header buttons only, per the coordinator's "quick

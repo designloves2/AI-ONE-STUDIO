@@ -36,15 +36,18 @@ export function renderItda(container: HTMLElement) {
   const statusEl = el("span", { style: { color: "rgba(255,255,255,0.82)", fontSize: "11px" } });
   const projectLabel = el("span", { style: { color: "#fff", fontSize: "12px", fontWeight: "600", opacity: "0.9" } });
 
+  // measured: target header bg is flat near-black (#111219), NOT a purple gradient —
+  // probe.py on the reference (region 0,0,1217,40) reports BACKGROUND=#111219 at every
+  // x sample (left/mid/right); purple is reserved for accent chips (Render pill, active tab).
   const header = el("div", {
     style: {
       flexShrink: "0",
-      background: `linear-gradient(90deg, ${BRAND} 0%, #4a0f96 100%)`,
-      padding: "9px 14px",
+      background: "#111219",
+      padding: "8px 14px",
       display: "flex",
       alignItems: "center",
       gap: "10px",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+      borderBottom: `1px solid ${C.border}`,
     },
   });
   header.append(
@@ -819,7 +822,9 @@ export function renderItda(container: HTMLElement) {
 
     const listArea = el("div", { style: { flex: "1", minHeight: "0", overflowY: "auto", padding: "8px" } });
     if (mediaViewMode === "grid") {
-      const grid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" } });
+      // measured: target Media Bin cards are 3-up, narrow (83px in a ~300px-wide bin,
+      // ~11px gutter) with a near-square dark thumbnail, not 2-up wide gradient tiles.
+      const grid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" } });
       state.media.forEach((m) => grid.appendChild(renderMediaCard(m)));
       listArea.appendChild(grid);
     } else {
@@ -860,17 +865,20 @@ export function renderItda(container: HTMLElement) {
         position: "relative",
         background: C.bg0,
         border: `1px solid ${C.border}`,
-        borderRadius: "6px",
+        borderRadius: "9px",
         overflow: "hidden",
         cursor: "grab",
       },
     });
     card.addEventListener("dragstart", (e) => e.dataTransfer?.setData("text/itda-media", m.path));
 
+    // measured: target thumbnail is near-square (card w=83 vs thumb h~130 of a 164 total
+    // card height — i.e. the thumb dominates, info strip is a thin footer), flat near-black
+    // fill (#000/#0e0f13), not a diagonal gradient tile.
     const thumb = el("div", {
       style: {
-        height: `${Math.max(56, thumbSize * 0.62)}px`,
-        background: "linear-gradient(135deg,#1b1e26,#101216)",
+        aspectRatio: "1 / 1",
+        background: "#000",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

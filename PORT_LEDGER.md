@@ -762,6 +762,50 @@ not pixel-measured. A follow-up pass should run `probe.py`/`compare.py` against 
 close any remaining geometry gaps (exact header height/padding, card grid gutter, icon sizes,
 font weights) it surfaces.
 
+## ITDA ONE STUDIO — image-to-ui numeric measurement follow-up (2026-09-23 fifth follow-up)
+
+Closed the gap flagged above: ran the `image-to-ui` skill's `probe.py` against `4.webp`
+(1217×853) for the header, tabs row, Media Bin card grid, and Clip Properties panel, then
+compared the numbers against `src/tools/itda/view.ts`.
+
+**Measurement table (target `4.webp` vs. prior implementation):**
+
+| region | target (probe.py) | prior code | verdict |
+|---|---|---|---|
+| Header bg | flat `#111219` at x=0, x=550, x=1150 (no hue shift across the strip) | `linear-gradient(90deg, #7612DA, #4a0f96)` | **wrong** — no purple gradient exists in the reference; confirmed visually too (screenshot shows a plain dark bar) |
+| Header height | 39-40px, pill buttons `h=30` `radius~7-8px` `fill=#20232b`, one white icon button `w=39 fill=#fff` | `padding: 9px 14px` on ghost/pill buttons, similar height | close enough, left alone |
+| Media Bin cards | 3-up, `83×164` each, ~11px gutter (`104-93`), `radius~9px`, fill `#000`/`#0e0f13` (near-square dark thumbnail dominates, thin text footer) | 2-up grid, `radius:6px`, thumb height `= max(56, thumbSize*0.62)` px with a diagonal gradient fill | **wrong column count, wrong thumb shape/fill, wrong radius** |
+| Tabs row (Single/Compare/…) | wrapper box is `TRANSPARENT` (interior = page bg, no pill-strip fill) | wrapper has no background (row() default) | already matched |
+| Clip Properties panel | stacked field boxes `w~138-139` `h~20-22px` `radius 3-22px` `fill #16171d`, section rows `x=15`; purple pill `45×27 radius10 fill #6a5cff`, white pill `40×24 radius10 fill #fff`, gray pill `73×23 fill #4a5062` | sectioned grid with darker-fill inputs (`#0d0e12`), BRAND-colored section labels | structurally already close; not touched further this pass |
+
+**Fixes applied in `src/tools/itda/view.ts`:**
+- Header: `background` changed from the purple gradient to flat `#111219` with a `1px solid ${C.border}` bottom edge, matching all three x-sampled probe regions and the direct screenshot.
+- Media Bin grid: `gridTemplateColumns` changed from `"1fr 1fr"` to `"1fr 1fr 1fr"`, gap `8px → 6px`.
+- Media card: `borderRadius` `6px → 9px`; thumbnail switched from a fixed-height diagonal-gradient div (`height: max(56, thumbSize*0.62)`) to `aspectRatio: "1 / 1"` flat `#000` fill, matching the reference's near-square dark thumbnail proportion instead of a short wide gradient strip.
+
+**Verification:** `npx tsc --noEmit` — same single pre-existing unrelated error in
+`src/gallery/mounts.ts`, nothing new from this change. `npx vite build` succeeds (dist/ deleted
+after). Live screenshot at `http://localhost:8774/#itda` (dev server already running) confirms
+the header is now flat dark (no purple banding) and Media Bin cards render narrower/taller in a
+3-column layout.
+
+**Honest fidelity assessment — numeric pipeline was only partially practical:**
+`probe.py` ran cleanly and caught one real, otherwise-invisible-by-eye structural bug (the
+purple header gradient never existed in the target — a border-only/pill-fill situation the skill
+explicitly warns eyeballing gets wrong, just manifesting as a whole-region hue rather than a
+false-card). `compare.py`'s live-render pixel diff was **not** run: this ITDA view is one tool
+inside a larger multi-tool SPA (`http://localhost:8774/#itda`) and renders beneath the app's own
+top-level tool-switcher bar (`AI ONE STUDIO` / `Media Generator` row), which has no counterpart
+in `4.webp`'s tight crop — so `compare.py`'s same-size headless render would score a large,
+meaningless top-offset mismatch rather than a real one, and there is no clean crop/offset flag in
+`compare.py` for "skip the first N px of the live page." Rather than fabricate a misleading
+percentage, this pass relied on region-scoped `probe.py` numbers (table above) plus a direct
+screenshot comparison for structural correctness — real but not sub-pixel-verified fidelity.
+Remaining un-measured gaps: exact header button widths/paddings, Clip Properties field
+radii/spacing (the `3-22px` radius spread in the target suggests mixed input control types —
+text field vs. dropdown vs. toggle-pill — worth a future pass), and the timeline icon-toolbar row
+colors (`#272646`/`#2b2555` chromatic track-lane tint) which were not re-probed this round.
+
 | commit | tsc/build | browser verification |
 | --- | --- | --- |
 | `44eb471` | `npx tsc --noEmit` clean (no itda errors — 1 pre-existing unrelated error in `src/gallery/mounts.ts`); `npx vite build` clean, `dist/` deleted after | **Browser-verified against the live dev server** (`http://localhost:8774/#itda`, pinned to this checkout): screenshotted the new 26/49/25 layout with the "Preview" placeholder showing and the new grid-based Properties panel on an existing short clip; imported a fresh real clip via the gallery picker (Video (Gallery) → INPUT folder → picked a thumbnail → added to Media Bin); placed it on the timeline via a simulated HTML5 drag/drop onto a track (`dragstart`/`dragover`/`drop` with a real `DataTransfer`, since the browser tool's pointer-based drag doesn't trigger native DnD); selected the new clip (Properties panel correctly showed Name/Type/Track/Start/Length/Trim In/Trim Out for it); clicked "First Frame" to move the playhead onto the clip — **the preview stage correctly rendered the actual video frame**, filling the black stage the way the original's `.preview-stage video{object-fit:contain}` does. All existing functional logic (snap/drag/waveform/split/stitch/render/gallery) left untouched — only layout/rendering code in `view.ts` changed. |

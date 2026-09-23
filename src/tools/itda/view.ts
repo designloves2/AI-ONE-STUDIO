@@ -390,7 +390,7 @@ export function renderItda(container: HTMLElement) {
   let loopOn = false, muteOn = true, scrubOn = true, vol = 100;
   const playheadInfo = el("span", { style: { color: C.text, fontSize: "11px", fontWeight: "700", fontVariantNumeric: "tabular-nums" } });
   const transport = el("div", {
-    style: { flexShrink: "0", background: C.bg1, borderTop: `1px solid ${C.border}`, padding: "6px 10px 8px", display: "flex", flexDirection: "column", gap: "5px" },
+    style: { flexShrink: "0", background: C.bg1, borderTop: `1px solid ${C.border}`, padding: "6px 10px 8px", display: "flex", flexDirection: "column", gap: "5px", userSelect: "none" },
   });
 
   const volSlider = el("input", { type: "range", min: "0", max: "100", value: "100", style: { width: "64px", accentColor: BRAND } }) as HTMLInputElement;
@@ -545,7 +545,7 @@ export function renderItda(container: HTMLElement) {
     } catch { upperPane.style.height = "56%"; }
   }
 
-  const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative" } });
+  const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative", userSelect: "none" } });
   timelinePanel.appendChild(timelineScroll);
 
   const timelineInner = el("div", { style: { position: "relative" } });
@@ -865,6 +865,7 @@ export function renderItda(container: HTMLElement) {
 
     clipEl.addEventListener("mousedown", (e) => {
       e.stopPropagation();
+      e.preventDefault(); // same text-selection guard as the ruler scrub handler
       const additive = e.ctrlKey || e.metaKey || e.shiftKey;
       if (additive) {
         if (state.selectedClipIds.has(clip.id)) state.selectedClipIds.delete(clip.id);
@@ -891,6 +892,7 @@ export function renderItda(container: HTMLElement) {
         origSourceOut: clip.source_out,
         origDuration: clip.duration,
         startScrollLeft: timelineScroll.scrollLeft,
+        origTrackIndex: clip.track,
       };
     });
 
@@ -979,6 +981,20 @@ export function renderItda(container: HTMLElement) {
       const proposedStart = Math.max(0, dragState.origStart + rawDeltaFrames);
       clip.start = state.snapMoveStart(clip, proposedStart);
       state.clampToTotalFrames(clip);
+      // Cross-track move — port of itda_app_ported.js's laneFromClientY: which track
+      // the pointer is over right now, purely from its Y position over tracksHost.
+      const hostRect = tracksHost.getBoundingClientRect();
+      const relY = e.clientY - hostRect.top;
+      const targetTrackIndex = Math.max(0, Math.min(state.tracks.length - 1, Math.floor(relY / state.trackHeight)));
+      const before = state.findClip(clip.id)?.track;
+      if (before && before.index !== targetTrackIndex && state.moveClipToTrack(clip.id, targetTrackIndex)) {
+        // Track membership changed — the dragged element needs to be re-parented
+        // under the new track's DOM node, which direct style mutation alone can't
+        // do; a full renderTracks() only on an actual track-crossing (not every
+        // pixel) is cheap enough and keeps the rest of the drag on the fast path.
+        renderTracks();
+        dragEl = tracksHost.querySelector<HTMLElement>(`[data-clip-id="${CSS.escape(clip.id)}"]`);
+      }
     } else if (dragState.mode === "trim-left") {
       const proposedFrame = dragState.origStart + rawDeltaFrames;
       const snapped = state.snapEdge(clip, "left", proposedFrame);
@@ -1034,6 +1050,9 @@ export function renderItda(container: HTMLElement) {
 
   let scrubbing = false;
   ruler.addEventListener("mousedown", (e) => {
+    e.preventDefault(); // matches itda_style.css's user-select:none set — without this,
+    // a scrub-drag starts a native browser text-selection instead (every panel's text
+    // highlights blue), since mousedown+move over normal elements defaults to that.
     scrubbing = true;
     const rect = ruler.getBoundingClientRect();
     seekPlayhead(pxToFrame(e.clientX - rect.left));
@@ -1141,7 +1160,14 @@ export function renderItda(container: HTMLElement) {
     if (mediaViewMode === "grid") {
       // measured: target Media Bin cards are 3-up, narrow (83px in a ~300px-wide bin,
       // ~11px gutter) with a near-square dark thumbnail, not 2-up wide gradient tiles.
-      const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`, gap: "6px" } });
+      // itda_style.css's real rule is a FIXED 3-column grid (`.media-list{grid-
+      // template-columns:repeat(3,minmax(0,1fr))}`) — the size slider instead scales
+      // each `.thumb`'s own explicit width/height (`--thumb` CSS var), not the column
+      // count. The earlier auto-fill approach changed the number of columns as the
+      // slider moved, which only visually updates at each column-count threshold —
+      // reading exactly like "moves in hardcoded steps" even though the slider itself
+      // was continuous underneath.
+      const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "6px" } });
       mediaGridEl = grid;
       state.media.forEach((m) => grid.appendChild(renderMediaCard(m)));
       listArea.appendChild(grid);
@@ -1179,7 +1205,12 @@ export function renderItda(container: HTMLElement) {
     // own from the CSS change.
     sizeSlider.addEventListener("input", () => {
       thumbSize = Number(sizeSlider.value);
-      if (mediaGridEl) mediaGridEl.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
+      if (mediaGridEl) {
+        for (const t of mediaGridEl.querySelectorAll<HTMLElement>("[data-thumb]")) {
+          t.style.width = `${thumbSize}px`;
+          t.style.height = `${thumbSize}px`;
+        }
+      }
     });
     footer.append(el("span", { text: "Thumb", style: { color: C.muted, fontSize: "9px" } }), sizeSlider);
     mediaBin.appendChild(footer);
@@ -1206,7 +1237,9 @@ export function renderItda(container: HTMLElement) {
     const thumb = el("div", {
       style: {
         position: "relative",
-        aspectRatio: "1 / 1",
+        width: `${thumbSize}px`,
+        height: `${thumbSize}px`,
+        maxWidth: "100%",
         background: "#000",
         display: "flex",
         alignItems: "center",
@@ -1214,8 +1247,10 @@ export function renderItda(container: HTMLElement) {
         fontSize: "22px",
         color: "#4a5062",
         overflow: "hidden",
+        margin: "0 auto",
       },
     });
+    thumb.dataset.thumb = "1";
     // real <span> child, not raw div.textContent — a plain `text:` prop set directly
     // on `thumb` sat as a bare text node alongside the <img> once one was appended
     // (both centered by the same flex row, side-by-side), which is the "icon next to
@@ -1310,6 +1345,43 @@ export function renderItda(container: HTMLElement) {
       style: { fontSize: "11px", color: C.text, background: "#0d0e12", border: `1px solid ${C.border}`, borderRadius: "5px", padding: "5px 7px" },
     });
   }
+  // Small on/off switch for the Properties panel's Audio/Solo fields — same visual
+  // language as togglePill (the toolbar's Snap/Peak Match pills) but compact enough
+  // for a 1fr-wide grid cell.
+  function propToggle(initial: boolean, onchange: (v: boolean) => void) {
+    let on = initial;
+    const b = el("button", {
+      type: "button",
+      text: on ? "ON" : "OFF",
+      style: {
+        width: "48px", padding: "4px 0", fontSize: "10px", fontWeight: "700", borderRadius: "5px", cursor: "pointer",
+        background: on ? BRAND : "transparent", color: on ? "#fff" : C.muted, border: `1px solid ${on ? BRAND : C.border}`,
+      },
+    }) as HTMLButtonElement;
+    b.addEventListener("click", () => {
+      on = !on;
+      b.textContent = on ? "ON" : "OFF";
+      b.style.background = on ? BRAND : "transparent";
+      b.style.color = on ? "#fff" : C.muted;
+      b.style.borderColor = on ? BRAND : C.border;
+      onchange(on);
+    });
+    return b;
+  }
+  // Gain % — slider + number field together, matching the reference's "Gain %"
+  // row (a range input paired with its own numeric readout/entry field).
+  function propGainField(value: number, onCommit: (v: number) => void) {
+    const wrap = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
+    const slider = el("input", { type: "range", min: "0", max: "200", step: "1", value: String(value), style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
+    const num = el("input", {
+      type: "number", min: "0", max: "200", value: String(value),
+      style: { width: "48px", boxSizing: "border-box", background: "#0d0e12", color: C.text, border: `1px solid ${C.border}`, borderRadius: "5px", padding: "4px 5px", fontSize: "11px" },
+    }) as HTMLInputElement;
+    slider.addEventListener("input", () => { num.value = slider.value; onCommit(Number(slider.value)); });
+    num.addEventListener("change", () => { slider.value = num.value; onCommit(Number(num.value)); });
+    wrap.append(slider, num);
+    return wrap;
+  }
 
   function renderProps() {
     clear(propsPanel);
@@ -1353,11 +1425,22 @@ export function renderItda(container: HTMLElement) {
       ...propRow("Trim In", propInput(clip.source_in || 0, (v) => { clip.source_in = Math.max(0, Math.round(Number(v) || 0)); state.dirty = true; refreshStatus(); }, "number")),
       ...propRow("Trim Out", propInput(clip.source_out || clip.duration, (v) => { clip.source_out = Math.max(1, Math.round(Number(v) || 1)); state.dirty = true; refreshStatus(); }, "number"))
     );
+    // "Audio" section — 4.webp reference: Audio (mute) toggle / Solo toggle / Gain %
+    // slider+field. Was missing entirely; only meaningful for clips that carry sound.
+    if (clip.kind === "video" || clip.kind === "audio") {
+      grid.append(
+        propSection("Audio"),
+        ...propRow("Audio", propToggle(!clip.muted, (on) => { clip.muted = !on; state.dirty = true; refreshStatus(); })),
+        ...propRow("Solo", propToggle(!!clip.solo, (on) => { clip.solo = on; state.dirty = true; refreshStatus(); })),
+        ...propRow("Gain %", propGainField(clip.gain ?? 100, (v) => { clip.gain = Math.max(0, Math.min(200, Math.round(v))); state.dirty = true; refreshStatus(); }))
+      );
+    }
     propsPanel.appendChild(grid);
 
+    // First/End Frame moved OUT of Properties — dom_build.js's reference puts those
+    // as timeline-level jump buttons (⇤/⇥, "gotoTimelineStart"/"gotoTimelineEnd" in
+    // the action row, already wired there), not per-clip Properties actions.
     const actions = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", padding: "0 12px 14px" } }, [
-      ghostBtn("First Frame", () => seekPlayhead(clip.start)),
-      ghostBtn("End Frame", () => seekPlayhead(clip.start + clip.duration)),
       el("button", {
         text: "Delete Clip",
         onclick: () => { state.removeClip(clip.id); state.selectedClipId = null; renderTracks(); renderProps(); },
@@ -1593,14 +1676,40 @@ export function renderItda(container: HTMLElement) {
     });
     return b;
   }
-  // ↔ Horizontal Zoom — range chosen so the midpoint (1.5px/frame) shows ~30s of a
-  // 24fps timeline in a ~1000px-wide viewport (1000 / (1.5 * 24) ≈ 27.8s), and that
-  // midpoint is also the DEFAULT so the slider starts at 50% (confirmed as a real,
-  // separate requirement from the vertical-track-height one — both apply).
+  // ↔ Horizontal Zoom — exact 3-point spec: max zoom (slider 100%) shows 5s, 50% shows
+  // 15s, min zoom (slider 0%) shows 150s, in a ~1000px-wide viewport at 24fps. These
+  // 3 points are NOT linearly related (5→15 is ×3, 15→150 is ×10), so a plain linear
+  // slider can't hit all three — mapped as two exponential (geometric) segments
+  // instead, each exact at its own endpoints and continuous through the 50% midpoint.
+  // Inlined 1000 (assumed viewport px) rather than a module `const` — a `const` here
+  // sat in the temporal dead zone relative to hZoomSlider()'s call site earlier in
+  // the toolbar's construction (this function is hoisted, so hZoomSlider itself is
+  // callable early; the const it referenced was not yet initialized at that point).
+  function pxPerFrameForSeconds(sec: number) {
+    return 1000 / (sec * state.fps);
+  }
+  function zoomFromPercent(pct: number): number {
+    const pxMin = pxPerFrameForSeconds(150); // slider 0%
+    const pxMid = pxPerFrameForSeconds(15); // slider 50%
+    const pxMax = pxPerFrameForSeconds(5); // slider 100%
+    if (pct <= 50) {
+      const t = pct / 50;
+      return pxMin * Math.pow(pxMid / pxMin, t);
+    }
+    const t = (pct - 50) / 50;
+    return pxMid * Math.pow(pxMax / pxMid, t);
+  }
+  function percentFromZoom(z: number): number {
+    const pxMin = pxPerFrameForSeconds(150);
+    const pxMid = pxPerFrameForSeconds(15);
+    const pxMax = pxPerFrameForSeconds(5);
+    if (z <= pxMid) return 50 * (Math.log(Math.max(z, pxMin) / pxMin) / Math.log(pxMid / pxMin));
+    return 50 + 50 * (Math.log(Math.min(z, pxMax) / pxMid) / Math.log(pxMax / pxMid));
+  }
   function hZoomSlider() {
-    const s = el("input", { type: "range", min: "0.5", max: "2.5", step: "0.1", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    const s = el("input", { type: "range", min: "0", max: "100", step: "0.5", value: String(percentFromZoom(state.zoomPxPerFrame)), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
-      state.zoomPxPerFrame = Number(s.value);
+      state.zoomPxPerFrame = zoomFromPercent(Number(s.value));
       renderRuler();
       renderTracks();
     });

@@ -34,6 +34,14 @@ export interface ItdaClip {
   // byte-for-byte port (that node truly demuxes a combined video+audio source).
   linkedAudioClipId?: string;
   audioDetached?: boolean;
+  // ── Properties panel "Audio" section (4.webp reference) — per-clip mute/solo/gain.
+  // Audio playback/mixing itself isn't implemented in this port (see promptEdit-level
+  // TODOs elsewhere in this file for similarly-scoped structural gaps); these fields
+  // exist so the UI round-trips and Detach Audio can mute the source clip it split
+  // audio out of, matching the node's own detachAudio() behavior.
+  muted?: boolean;
+  solo?: boolean;
+  gain?: number; // 0-100, matches the node's Gain % field
 }
 
 export interface ItdaTrack {
@@ -55,6 +63,10 @@ export interface DragState {
   // scroll movement back into the drag delta, matching itda_app_ported.js's
   // onClipPointer scrollDelta term.
   startScrollLeft: number;
+  // cross-track move — which track the clip started on, so view.ts can compute a
+  // target track from the pointer's Y position (itda_app_ported.js's
+  // laneFromClientY) and call state.moveClipToTrack() when it changes.
+  origTrackIndex: number;
 }
 
 export const DEFAULT_FPS = 24;
@@ -76,9 +88,10 @@ export class ItdaState {
   // panel and single-clip actions (trim/split/snapshot) keep using selectedClipId, which
   // view.ts always sets to the most-recently-clicked clip.
   selectedClipIds: Set<string> = new Set();
-  // Matches hZoomSlider's range (min 0.5 / max 2.5) — 1.5 is the exact midpoint and
-  // shows ~30s of a 24fps timeline in a ~1000px-wide viewport at 50% zoom.
-  zoomPxPerFrame = 1.5;
+  // 50%-slider default per the exact spec (5s at max zoom / 15s at 50% / 150s at min
+  // zoom in a ~1000px viewport, hZoomSlider's exponential mapping in view.ts):
+  // 1000 / (15 * 24fps) ≈ 2.78px/frame.
+  zoomPxPerFrame = 1000 / (15 * 24);
   // ↕ Vertical Track Zoom — per-track lane height in px. User feedback: the initial
   // track height read as "too thin" on first open — bumped past even the node's own
   // 74px default (dom_build.js's DEFAULT_LANE_H) to 100px so a freshly-opened
@@ -120,6 +133,25 @@ export class ItdaState {
       if (c) return { track: t, clip: c };
     }
     return null;
+  }
+
+  // Cross-track move — structural port of itda_app_ported.js's laneFromClientY +
+  // the lane-reassignment branch of onClipPointer: moving a clip vertically during
+  // a drag removes it from its current track's clip array and appends it to the
+  // target track's, updating clip.track to match. No-op if the target is the same
+  // track or out of range.
+  moveClipToTrack(clipId: string, targetTrackIndex: number): boolean {
+    if (targetTrackIndex < 0 || targetTrackIndex >= this.tracks.length) return false;
+    const found = this.findClip(clipId);
+    if (!found) return false;
+    const { track: fromTrack, clip } = found;
+    const toTrack = this.tracks[targetTrackIndex];
+    if (fromTrack === toTrack) return false;
+    fromTrack.clips = fromTrack.clips.filter((c) => c.id !== clipId);
+    clip.track = targetTrackIndex;
+    toTrack.clips.push(clip);
+    this.dirty = true;
+    return true;
   }
 
   // Topmost video/image clip covering `frame` — later tracks occlude earlier
@@ -429,6 +461,11 @@ export class ItdaState {
     audioTrack.clips.push(audioClip);
     clip.audioDetached = true;
     clip.linkedAudioClipId = audioClip.id;
+    // Detaching means the original clip's own audio is now carried by the new
+    // sibling clip — the source video must be muted or its (undetached) audio would
+    // play a second time alongside the detached copy. Matches the node's own
+    // detachAudio() behavior; was previously missing entirely here.
+    clip.muted = true;
     this.dirty = true;
     return audioClip;
   }
@@ -455,6 +492,7 @@ export class ItdaState {
     this.removeClip(owner.linkedAudioClipId);
     owner.linkedAudioClipId = undefined;
     owner.audioDetached = undefined;
+    owner.muted = undefined; // reverse of detachAudio()'s mute — owner carries its own audio again
     this.selectedClipId = owner.id;
     this.selectedClipIds = new Set([owner.id]);
     this.dirty = true;

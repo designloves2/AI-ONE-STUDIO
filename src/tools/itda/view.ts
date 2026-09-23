@@ -33,7 +33,29 @@ export function renderItda(container: HTMLElement) {
     style: { width: "7px", height: "7px", borderRadius: "50%", background: "#33e08a", boxShadow: "0 0 6px #33e08a", flexShrink: "0" },
   });
   const statusEl = el("span", { style: { color: "rgba(255,255,255,0.82)", fontSize: "11px" } });
-  const projectLabel = el("span", { style: { color: "#fff", fontSize: "12px", fontWeight: "600", opacity: "0.9" } });
+  // editable project name — dom_build.js's `projectName` <input>, not a static label.
+  // Committing a rename calls api.renameProject then re-boots under the new name.
+  const projectNameInput = el("input", {
+    type: "text",
+    value: state.project,
+    spellcheck: "false",
+    style: {
+      background: "transparent", color: "#fff", fontSize: "12px", fontWeight: "600",
+      border: "1px solid transparent", borderRadius: "4px", padding: "3px 6px", width: "140px",
+    },
+    onfocus: (e: Event) => { (e.target as HTMLInputElement).style.borderColor = "rgba(255,255,255,0.22)"; (e.target as HTMLInputElement).style.background = "#0d0e12"; },
+    onblur: async (e: Event) => {
+      const input = e.target as HTMLInputElement;
+      input.style.borderColor = "transparent";
+      input.style.background = "transparent";
+      const next = input.value.trim();
+      if (!next || next === state.project) { input.value = state.project; return; }
+      try {
+        await api.renameProject(state.project, next);
+        await bootProject(next);
+      } catch { input.value = state.project; }
+    },
+  }) as HTMLInputElement;
 
   // measured: target header bg is flat near-black (#111219), NOT a purple gradient —
   // probe.py on the reference (region 0,0,1217,40) reports BACKGROUND=#111219 at every
@@ -64,19 +86,111 @@ export function renderItda(container: HTMLElement) {
     el("option", { value: "audio_only", text: "Audio Only" }),
   ]) as HTMLSelectElement;
 
+  // ── ☰ Menu dropdown — dom_build.js's `itdaMenuDropdown`: Project Settings / App
+  // Settings / Project… / Save, all folded under one menu button instead of 4 loose
+  // top-level buttons (App Settings/Gallery/Save were previously separate always-visible
+  // buttons — Gallery stays a top-level button per the reference's topbar, but the other
+  // 3 move into the menu). ──────────────────────────────────────────────────────────
+  const menuDropdown = el("div", {
+    style: {
+      display: "none", position: "absolute", top: "calc(100% + 4px)", left: "0",
+      background: "#16171d", border: `1px solid ${C.border}`, borderRadius: "8px",
+      minWidth: "170px", zIndex: "50", boxShadow: "0 8px 24px rgba(0,0,0,0.5)", overflow: "hidden",
+    },
+  });
+  function menuItem(text: string, onclick: () => void) {
+    return el("button", {
+      type: "button", text, onclick: () => { menuDropdown.style.display = "none"; onclick(); },
+      style: {
+        display: "block", width: "100%", textAlign: "left", background: "transparent", color: C.text,
+        border: "none", padding: "8px 12px", fontSize: "12px", cursor: "pointer",
+      },
+      onmouseenter: (e: Event) => { (e.target as HTMLElement).style.background = C.bg2; },
+      onmouseleave: (e: Event) => { (e.target as HTMLElement).style.background = "transparent"; },
+    });
+  }
+  menuDropdown.append(
+    menuItem("⚙ Project Settings", () => projectSettingsOv.show()),
+    menuItem("🖥 App Settings", () => settingsOverlay.show()),
+    menuItem("📁 Project…", () => projectListOv.show()),
+    menuItem("💾 Save", async () => { await state.save(); refreshStatus(); })
+  );
+  const menuWrap = el("div", { style: { position: "relative" } });
+  const menuBtn = ghostBtn("☰ Menu", () => {
+    menuDropdown.style.display = menuDropdown.style.display === "none" ? "block" : "none";
+  });
+  menuWrap.append(menuBtn, menuDropdown);
+  document.addEventListener("click", (e) => {
+    if (!menuWrap.contains(e.target as Node)) menuDropdown.style.display = "none";
+  });
+
+  const fullscreenBtn = ghostBtn("⛶", () => {
+    if (!document.fullscreenElement) root.requestFullscreen?.().catch(() => {});
+    else document.exitFullscreen?.();
+  }, "Fullscreen");
+
   header.append(
     statusDot,
     el("span", { text: "ITDA ONE STUDIO", style: { color: "#fff", fontWeight: "800", fontSize: "15px", letterSpacing: "0.02em", marginRight: "4px" } }),
-    projectLabel,
+    menuWrap,
+    projectNameInput,
     el("div", { style: { flex: "1" } }),
     statusEl,
-    ghostBtn("⚙ App Settings", () => settingsOverlay.show(), "System-wide settings — Gallery Path + LLM backend/model"),
     ghostBtn("🖼 Gallery", () => galleryOv.show()),
-    ghostBtn("💾 Save", async () => { await state.save(); refreshStatus(); }),
     renderModeSelect,
-    pillBtn("▶ Render", () => openRenderModal())
+    pillBtn("▶ Render", () => openRenderModal()),
+    fullscreenBtn
   );
   root.appendChild(header);
+
+  // ── ⚙ Project Settings — per-project FPS/Total Frames (dom_build.js's
+  // "⚙ Project Settings" menu item; distinct from the system-wide App Settings). ──────
+  const fpsInput = el("input", { type: "number", min: "1", step: "0.001", style: inputStyle() }) as HTMLInputElement;
+  const totalFramesInput = el("input", { type: "number", min: "1", step: "1", style: inputStyle() }) as HTMLInputElement;
+  const projectSettingsOv = smallModal("⚙ Project Settings", [
+    fieldRow("FPS", fpsInput),
+    fieldRow("Total Frames", totalFramesInput),
+  ], async () => {
+    const fps = Number(fpsInput.value) || state.fps;
+    const total = Math.max(1, Math.round(Number(totalFramesInput.value) || state.totalFrames));
+    state.fps = fps;
+    state.totalFrames = total;
+    state.dirty = true;
+    await state.save();
+    renderRuler(); renderTracks(); refreshStatus();
+  }, () => { fpsInput.value = String(state.fps); totalFramesInput.value = String(state.totalFrames); });
+
+  // ── 📁 Project… — list/open/new, wired to the real project CRUD routes in api.ts
+  // (initProject/getProject/listProjects/newProject already existed server-side but had
+  // no UI at all before this — state.project was permanently stuck at its default). ────
+  const projectListBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "260px", overflowY: "auto" } });
+  const newProjectNameInput = el("input", { type: "text", placeholder: "new-project-name", style: inputStyle() }) as HTMLInputElement;
+  const projectListOv = smallModal("📁 Project", [
+    el("div", { style: { display: "flex", gap: "6px" } }, [
+      newProjectNameInput,
+      el("button", {
+        type: "button", text: "+ New", style: pillStyle(),
+        onclick: async () => {
+          const name = newProjectNameInput.value.trim();
+          if (!name) return;
+          try { await api.newProject(name); await bootProject(name); projectListOv.hide(); } catch {}
+        },
+      }),
+    ]),
+    projectListBody,
+  ], null, async () => {
+    projectListBody.innerHTML = "";
+    try {
+      const res = await api.listProjects();
+      for (const item of res.items || []) {
+        projectListBody.appendChild(el("button", {
+          type: "button", text: item.name === state.project ? `● ${item.name}` : item.name,
+          style: { display: "block", width: "100%", textAlign: "left", background: item.name === state.project ? "#2a1f45" : "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", marginBottom: "2px" },
+          onclick: async () => { await bootProject(item.name); projectListOv.hide(); },
+        }));
+      }
+    } catch {}
+  });
 
   // ── action toolbar — icon buttons, compact, matching the node's action-row density ──
   // Order below mirrors dom_build.js's `actionRow` build exactly: Mark In/Out/Clear
@@ -426,7 +540,7 @@ export function renderItda(container: HTMLElement) {
   }
 
   function refreshStatus() {
-    projectLabel.textContent = `· ${state.project}`;
+    if (document.activeElement !== projectNameInput) projectNameInput.value = state.project;
     statusDot.style.background = state.dirty ? "#ffb347" : "#33e08a";
     statusDot.style.boxShadow = state.dirty ? "0 0 6px #ffb347" : "0 0 6px #33e08a";
     if (statusEl.dataset.override !== "1") statusEl.textContent = state.dirty ? "unsaved changes" : "saved";
@@ -870,6 +984,7 @@ export function renderItda(container: HTMLElement) {
   // ── Media Bin — 2-up thumbnail card grid ────────────────────────────────────────
   let mediaViewMode: "grid" | "list" = "grid";
   let thumbSize = 96;
+  let mediaGridEl: HTMLElement | null = null;
 
   function mediaKindIcon(kind?: string) {
     return kind === "audio" ? "🎵" : kind === "image" ? "🖼" : "🎬";
@@ -960,10 +1075,12 @@ export function renderItda(container: HTMLElement) {
     if (mediaViewMode === "grid") {
       // measured: target Media Bin cards are 3-up, narrow (83px in a ~300px-wide bin,
       // ~11px gutter) with a near-square dark thumbnail, not 2-up wide gradient tiles.
-      const grid = el("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" } });
+      const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`, gap: "6px" } });
+      mediaGridEl = grid;
       state.media.forEach((m) => grid.appendChild(renderMediaCard(m)));
       listArea.appendChild(grid);
     } else {
+      mediaGridEl = null;
       const list = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } });
       state.media.forEach((m) => {
         const item = el(
@@ -988,7 +1105,16 @@ export function renderItda(container: HTMLElement) {
       style: { flexShrink: "0", padding: "5px 10px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "6px" },
     });
     const sizeSlider = el("input", { type: "range", min: "70", max: "140", value: String(thumbSize), style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
-    sizeSlider.addEventListener("input", () => { thumbSize = Number(sizeSlider.value); renderMediaBin(); });
+    // Update the grid's own column width directly on every 'input' tick instead of
+    // calling renderMediaBin() — a full rebuild replaces this very <input> mid-drag,
+    // which kills the browser's native slider-drag gesture (felt like "doesn't move
+    // smoothly" / doesn't visibly resize, since the old slider node was destroyed
+    // while still being dragged). No rebuild needed at all: the grid reflows on its
+    // own from the CSS change.
+    sizeSlider.addEventListener("input", () => {
+      thumbSize = Number(sizeSlider.value);
+      if (mediaGridEl) mediaGridEl.style.gridTemplateColumns = `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`;
+    });
     footer.append(el("span", { text: "Thumb", style: { color: C.muted, fontSize: "9px" } }), sizeSlider);
     mediaBin.appendChild(footer);
   }
@@ -1231,6 +1357,42 @@ export function renderItda(container: HTMLElement) {
     b.addEventListener("mouseleave", () => { b.style.background = "rgba(255,255,255,0.08)"; });
     return b;
   }
+  function inputStyle() {
+    return { background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", width: "100%", boxSizing: "border-box" as const };
+  }
+  function pillStyle() {
+    return { background: BRAND, color: "#111", border: "none", borderRadius: "999px", padding: "6px 12px", fontSize: "12px", fontWeight: "700" as const, cursor: "pointer" as const, flexShrink: "0" as const };
+  }
+  function fieldRow(labelText: string, input: HTMLElement) {
+    return el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } }, [
+      el("span", { text: labelText, style: { color: C.muted, fontSize: "11px", fontWeight: "700" } }),
+      input,
+    ]);
+  }
+  // small centered modal, shared by Project Settings / Project… — matches the
+  // App Settings overlay's chrome (createItdaSettingsOverlay in settings.ts) but
+  // scoped to a single-card popup rather than a full-screen panel.
+  function smallModal(title: string, body: HTMLElement[], onApply: (() => void | Promise<void>) | null, onShow?: () => void | Promise<void>) {
+    const card = el("div", { style: { background: "#16171d", border: `1px solid ${C.border}`, borderRadius: "10px", padding: "16px", width: "320px", display: "flex", flexDirection: "column", gap: "10px" } });
+    const closeBtn = el("button", { type: "button", text: "✕", style: { background: "transparent", color: C.muted, border: "none", cursor: "pointer", fontSize: "13px" } });
+    const head = el("div", { style: { display: "flex", alignItems: "center" } }, [
+      el("span", { text: title, style: { color: C.text, fontWeight: "700", fontSize: "13px", flex: "1" } }),
+      closeBtn,
+    ]);
+    card.append(head, ...body);
+    if (onApply) {
+      const applyBtn = el("button", { type: "button", text: "Apply", style: { ...pillStyle(), width: "100%" }, onclick: async () => { await onApply(); ov.style.display = "none"; } });
+      card.appendChild(applyBtn);
+    }
+    const ov = el("div", { style: { display: "none", position: "fixed", inset: "0", zIndex: "9999", background: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" } }, [card]);
+    closeBtn.onclick = () => { ov.style.display = "none"; };
+    root.appendChild(ov);
+    return {
+      el: ov,
+      async show() { ov.style.display = "flex"; if (onShow) await onShow(); },
+      hide() { ov.style.display = "none"; },
+    };
+  }
   function mkIconBtn(icon: string, onclick: () => void, title?: string) {
     const b = el("button", {
       text: icon,
@@ -1318,16 +1480,24 @@ export function renderItda(container: HTMLElement) {
     });
   }
 
-  // ── boot ──────────────────────────────────────────────────────────────
-  (async () => {
+  // ── boot / project-switch — factored out so the ☰ Menu's "📁 Project…" list and
+  // "+ New" flow can re-run the exact same sequence for a different project name,
+  // not just at initial mount. ────────────────────────────────────────────────────
+  async function bootProject(name: string) {
+    state.project = name;
     await api.initProject(state.project);
     await state.loadProject(state.project);
     await state.refreshMedia();
+    state.selectedClipId = null;
+    state.selectedClipIds = new Set();
+    projectNameInput.value = state.project;
     renderRuler();
     renderTracks();
     renderMediaBin();
     renderProps();
     refreshStatus();
     updatePreview();
-  })();
+  }
+
+  (async () => { await bootProject(state.project); })();
 }

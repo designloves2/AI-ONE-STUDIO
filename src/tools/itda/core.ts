@@ -76,7 +76,10 @@ export class ItdaState {
   // panel and single-clip actions (trim/split/snapshot) keep using selectedClipId, which
   // view.ts always sets to the most-recently-clicked clip.
   selectedClipIds: Set<string> = new Set();
-  zoomPxPerFrame = 2;
+  // Matches hZoomSlider's range (min 0.5 / max 2.5) — 1.5 is the exact midpoint and
+  // shows ~30s of a 24fps timeline in a ~1000px-wide viewport, so a fresh project's
+  // zoom slider starts at 50% showing a sensible default window, not near one end.
+  zoomPxPerFrame = 1.5;
   // ↕ Vertical Track Zoom — per-track lane height in px. Node's vZoom range is
   // 44..140, default 74 (dom_build.js); web keeps its own 52px default look but the
   // slider now spans the node's real range.
@@ -108,12 +111,6 @@ export class ItdaState {
     let end = 0;
     for (const t of this.tracks) for (const c of t.clips) end = Math.max(end, c.start + c.duration);
     return end;
-  }
-
-  addTrack(kind: "video" | "audio") {
-    const index = this.tracks.length;
-    this.tracks.push({ index, kind, clips: [] });
-    this.dirty = true;
   }
 
   findClip(id: string): { track: ItdaTrack; clip: ItdaClip } | null {
@@ -474,6 +471,13 @@ export class ItdaState {
     this.totalFrames = p.total_frames || DEFAULT_TOTAL_FRAMES;
     if (Array.isArray(p.tracks) && p.tracks.length) {
       this.tracks = p.tracks as ItdaTrack[];
+    }
+    // Pad up to the reference's fixed LANE_COUNT=3 — a project saved before this
+    // default existed (or otherwise persisted with fewer lanes) should still show
+    // 3 tracks like a fresh one, not silently stay at whatever count it happened
+    // to have on disk.
+    while (this.tracks.length < 3) {
+      this.tracks.push({ index: this.tracks.length, kind: this.tracks.length % 2 === 1 ? "audio" : "video", clips: [] });
     }
     this.dirty = false;
   }

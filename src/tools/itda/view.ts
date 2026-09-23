@@ -17,6 +17,7 @@ const RULER_HEIGHT = 30;
 export function renderItda(container: HTMLElement) {
   const state = new ItdaState();
   let dragState: DragState | null = null;
+  let dragEl: HTMLElement | null = null;
   const trackHidden = new Set<number>();
   const trackLocked = new Set<number>();
 
@@ -193,16 +194,13 @@ export function renderItda(container: HTMLElement) {
   });
 
   // ── action toolbar — icon buttons, compact, matching the node's action-row density ──
-  // Order below mirrors dom_build.js's `actionRow` build exactly: Mark In/Out/Clear
-  // Range, Snap, Peak Match, Split, Stitch/UnStitch, Auto Stitch/Add Transition/AI
-  // Detect (disabled on the node itself — kept visually present, disabled, here
-  // too), Group/Ungroup, Detach/Merge Audio, Pre-render, Delete, then the
-  // gotoTimelineStart/End jump pair and the ↔/↕ zoom sliders pinned right.
+  // Order below mirrors dom_build.js's `actionRow` build EXACTLY — no button here that
+  // isn't in that file. "Add Video Track"/"Add Audio Track" were removed: dom_build.js
+  // has no such buttons at all (grepped, zero matches) — the reference uses a fixed
+  // LANE_COUNT=3, kind-agnostic lane model with no user-facing "add a track" action.
+  // That was a fabricated feature from an earlier pass, not a real mirror of the source.
   const actionToolbar = row(
     [
-      mkIconBtn("➕🎬", () => { state.addTrack("video"); renderTracks(); }, "Add Video Track"),
-      mkIconBtn("➕🎵", () => { state.addTrack("audio"); renderTracks(); }, "Add Audio Track"),
-      sep(),
       mkIconBtn("⏮", () => { state.markIn(); refreshStatus(); statusEl.textContent = `Mark In · F${state.playhead}`; }, "Mark In (I)"),
       mkIconBtn("⏭", () => { state.markOut(); refreshStatus(); statusEl.textContent = `Mark Out · F${state.playhead}`; }, "Mark Out (O)"),
       mkIconBtn("⊘", () => { state.clearRange(); refreshStatus(); statusEl.textContent = "Range cleared"; }, "Clear Range"),
@@ -283,12 +281,13 @@ export function renderItda(container: HTMLElement) {
   // in the `lowerPane` directly above the timeline, not under the header (fixed per
   // user report: it was incorrectly sitting above Media Bin/Preview/Properties).
 
-  const mainBody = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", padding: "8px", gap: "8px", boxSizing: "border-box" } });
+  const mainBody = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", padding: "8px", gap: "0", boxSizing: "border-box" } });
   root.appendChild(mainBody);
 
   // ── upper pane: media bin | preview | properties — 26%/49%/25% ──────────────────────
+  const UPPER_H_KEY = "aos_itda_upperH_v1";
   const upperPane = el("div", {
-    style: { display: "grid", gridTemplateColumns: "27% 48% 25%", gap: "8px", height: "56%", minHeight: "340px", flexShrink: "0" },
+    style: { display: "grid", gridTemplateColumns: "27% 48% 25%", gap: "8px", minHeight: "250px", flexShrink: "0", marginBottom: "8px" },
   });
   mainBody.appendChild(upperPane);
 
@@ -497,10 +496,51 @@ export function renderItda(container: HTMLElement) {
     showStatus: (msg: string) => { statusEl.textContent = msg; },
   });
 
+  // ── resize handle between upper pane and the timeline — matches dom_build.js's
+  // "resizeHandle"/.resize-handle (5px bar, row-resize cursor) + itda_app_ported.js's
+  // drag logic: a DELTA from the drag's own start Y/height, not an absolute
+  // page-position formula — the node's own comment explains why that distinction
+  // matters ("조절하려고 하면 그자리에서 조절되는게 아니고 다시 시작점으로 돌아가서
+  // 조절됨" — an absolute formula snaps the pane back to a start-position-derived
+  // height instead of continuing smoothly from wherever it already is). ──────────────
+  const resizeHandle = el("div", {
+    style: { height: "5px", flexShrink: "0", background: "#0b0c0e", borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, cursor: "row-resize" },
+  });
+  mainBody.appendChild(resizeHandle);
+
   // ── lower pane: timeline ─────────────────────────────────────────────────────────
   const timelinePanel = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "8px", overflow: "hidden" } });
   mainBody.appendChild(timelinePanel);
   timelinePanel.appendChild(actionToolbar);
+
+  {
+    let resizing = false;
+    let dragStartY = 0;
+    let dragStartUpperH = 0;
+    const applyUpperH = (h: number) => {
+      const clamped = Math.max(250, Math.min(mainBody.clientHeight - 210, h));
+      upperPane.style.height = `${clamped}px`;
+    };
+    resizeHandle.addEventListener("mousedown", (e) => {
+      resizing = true;
+      dragStartY = e.clientY;
+      dragStartUpperH = upperPane.offsetHeight;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!resizing) return;
+      applyUpperH(dragStartUpperH + (e.clientY - dragStartY));
+    });
+    window.addEventListener("mouseup", () => {
+      if (!resizing) return;
+      resizing = false;
+      try { localStorage.setItem(UPPER_H_KEY, String(parseInt(upperPane.style.height, 10) || "")); } catch {}
+    });
+    try {
+      const saved = Number(localStorage.getItem(UPPER_H_KEY));
+      if (saved) applyUpperH(saved);
+      else upperPane.style.height = "56%";
+    } catch { upperPane.style.height = "56%"; }
+  }
 
   const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative" } });
   timelinePanel.appendChild(timelineScroll);
@@ -508,7 +548,10 @@ export function renderItda(container: HTMLElement) {
   const timelineInner = el("div", { style: { position: "relative" } });
   timelineScroll.appendChild(timelineInner);
 
-  const ruler = el("div", { style: { height: `${RULER_HEIGHT}px`, position: "relative", borderBottom: `1px solid ${C.border}`, background: C.bg1 } });
+  // marginLeft:34px matches the per-track T1/T2/T3 label gutter (renderTracks' trackEl)
+  // — without it the "0s" tick sat over the label column instead of above the actual
+  // frame-0 clip position, misaligning every tick with the tracks below it.
+  const ruler = el("div", { style: { height: `${RULER_HEIGHT}px`, position: "relative", borderBottom: `1px solid ${C.border}`, background: C.bg1, marginLeft: "34px" } });
   timelineInner.appendChild(ruler);
 
   const tracksHost = el("div", { style: { position: "relative" } });
@@ -560,7 +603,7 @@ export function renderItda(container: HTMLElement) {
   }
   function seekPlayhead(f: number) {
     state.playhead = Math.max(0, Math.min(state.totalFrames, f));
-    playheadLine.style.left = `${frameToPx(state.playhead)}px`;
+    playheadLine.style.left = `${frameToPx(state.playhead) + 34}px`;
     refreshStatus();
     updatePreview();
   }
@@ -742,7 +785,11 @@ export function renderItda(container: HTMLElement) {
       tracksHost.appendChild(trackEl);
     });
     tracksHost.style.height = `${state.tracks.length * state.trackHeight}px`;
-    tracksHost.style.marginLeft = "34px";
+    // NOTE: no marginLeft here — each trackEl already carries its own 34px marginLeft
+    // (for its T1/T2/T3 label gutter, at left:-34px relative to itself); adding it
+    // AGAIN at the tracksHost level double-applied the offset, pushing the whole
+    // track area (and its labels) an extra 34px right and leaving a blank strip
+    // between the timeline's scroll edge and the T1 label — exactly what was reported.
     timelineInner.style.width = `${width + 34}px`;
     playheadLine.style.left = `${frameToPx(state.playhead) + 34}px`;
   }
@@ -774,6 +821,7 @@ export function renderItda(container: HTMLElement) {
       },
       []
     );
+    clipEl.dataset.clipId = clip.id;
 
     const chip = el("div", {
       text: (isStitched ? "🧵 " : clip.kind === "audio" ? "🎵 " : clip.kind === "image" ? "🖼 " : "🎬 ") + (clip.label || clip.media_path.split(/[\\/]/).pop() || ""),
@@ -827,6 +875,10 @@ export function renderItda(container: HTMLElement) {
       if (trackLockedFlag) return;
       const target = e.target as HTMLElement;
       const mode: DragState["mode"] = target === leftHandle ? "trim-left" : target === rightHandle ? "trim-right" : "move";
+      // renderTracks() above just replaced every clip <div> with a fresh one (same
+      // pattern that broke the thumbnail slider) — re-find THIS clip's new element so
+      // the drag can move it directly frame-by-frame without a full rebuild.
+      dragEl = tracksHost.querySelector<HTMLElement>(`[data-clip-id="${CSS.escape(clip.id)}"]`);
       dragState = {
         clipId: clip.id,
         mode,
@@ -942,12 +994,23 @@ export function renderItda(container: HTMLElement) {
       state.clampToTotalFrames(clip);
     }
     state.dirty = true;
-    renderTracks();
+    // Move the dragged element directly instead of calling renderTracks() on every
+    // single mousemove tick — a full rebuild (new DOM nodes, re-attached listeners,
+    // re-queued waveform loads) on every pixel of movement is what made dragging feel
+    // broken/unresponsive (same root cause as the thumbnail-slider bug fixed earlier).
+    // The full renderTracks() still runs once on mouseup to settle everything
+    // (waveform repaint, track-height/lock state, etc.) consistently.
+    if (dragEl) {
+      dragEl.style.left = `${frameToPx(clip.start)}px`;
+      dragEl.style.width = `${Math.max(4, frameToPx(clip.duration))}px`;
+    }
     refreshStatus();
   });
   window.addEventListener("mouseup", () => {
     if (dragState) {
       dragState = null;
+      dragEl = null;
+      renderTracks();
       renderProps();
     }
   });
@@ -1403,14 +1466,16 @@ export function renderItda(container: HTMLElement) {
         color: C.text,
         border: `1px solid ${C.border}`,
         borderRadius: "6px",
-        width: "28px",
+        minWidth: "28px",
         height: "26px",
         fontSize: "12px",
         cursor: "pointer",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "0",
+        padding: "0 4px",
+        whiteSpace: "nowrap",
+        flexShrink: "0",
       },
     }) as HTMLButtonElement;
     b.addEventListener("mouseenter", () => { b.style.borderColor = BRAND; });
@@ -1452,11 +1517,12 @@ export function renderItda(container: HTMLElement) {
     });
     return b;
   }
-  // ↔ Horizontal Zoom — matches dom_build.js's hZoom (min .5 / max 20 / step .5 /
-  // default 4); web keeps its own default zoomPxPerFrame so the timeline doesn't
-  // jump on first paint.
+  // ↔ Horizontal Zoom — range chosen so the midpoint (1.5px/frame) shows ~30s of a
+  // 24fps timeline in a ~1000px-wide viewport (1000 / (1.5 * 24) ≈ 27.8s ≈ 30s), and
+  // that midpoint is also the DEFAULT so the slider starts at 50% instead of near one
+  // end (previously min .5/max 20, default 2 — handle sat at ~8% on first load).
   function hZoomSlider() {
-    const s = el("input", { type: "range", min: "0.5", max: "20", step: "0.5", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    const s = el("input", { type: "range", min: "0.5", max: "2.5", step: "0.1", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
       state.zoomPxPerFrame = Number(s.value);
       renderRuler();

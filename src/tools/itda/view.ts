@@ -149,11 +149,25 @@ export function renderItda(container: HTMLElement) {
       onmouseleave: (e: Event) => { (e.target as HTMLElement).style.background = "transparent"; },
     });
   }
+  function menuSep() {
+    return el("div", { style: { height: "1px", margin: "3px 2px", background: C.border } });
+  }
+  // Exact order/grouping per the user's spec: Project Library first, then a
+  // separator, then New/Load/Save as one group, another separator, then the two
+  // Settings items. Matches dom_build.js's itdaMenuDropdown + .itda-menu-sep.
   menuDropdown.append(
+    menuItem("📁 Project Library…", () => projectListOv.show()),
+    menuSep(),
+    menuItem("＋ New Project", async () => {
+      const name = window.prompt("New project name:", "");
+      if (!name || !name.trim()) return;
+      try { await api.newProject(name.trim()); await bootProject(name.trim()); } catch {}
+    }),
+    menuItem("📂 Load Project", () => loadProjectOv.show()),
+    menuItem("💾 Save Project", async () => { await state.save(); refreshStatus(); }),
+    menuSep(),
     menuItem("⚙ Project Settings", () => projectSettingsOv.show()),
-    menuItem("🖥 App Settings", () => settingsOverlay.show()),
-    menuItem("📁 Project…", () => projectListOv.show()),
-    menuItem("💾 Save", async () => { await state.save(); refreshStatus(); })
+    menuItem("🖥 App Settings", () => settingsOverlay.show())
   );
   const menuWrap = el("div", { style: { position: "relative" } });
   const menuBtn = ghostBtn("☰ Menu", () => {
@@ -247,7 +261,7 @@ export function renderItda(container: HTMLElement) {
   // no UI at all before this — state.project was permanently stuck at its default). ────
   const projectListBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "260px", overflowY: "auto" } });
   const newProjectNameInput = el("input", { type: "text", placeholder: "new-project-name", style: inputStyle() }) as HTMLInputElement;
-  const projectListOv = smallModal("📁 Project", [
+  const projectListOv = smallModal("📁 Project Library", [
     el("div", { style: { display: "flex", gap: "6px" } }, [
       newProjectNameInput,
       el("button", {
@@ -269,6 +283,24 @@ export function renderItda(container: HTMLElement) {
           type: "button", text: item.name === state.project ? `● ${item.name}` : item.name,
           style: { display: "block", width: "100%", textAlign: "left", background: item.name === state.project ? "#2a1f45" : "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", marginBottom: "2px" },
           onclick: async () => { await bootProject(item.name); projectListOv.hide(); },
+        }));
+      }
+    } catch {}
+  });
+
+  // ── 📂 Load Project — one-click top-level shortcut: just a name list, click a row
+  // to switch (initProject via bootProject), no management (Duplicate/Rename/Delete
+  // stays exclusively in "📁 Project…", untouched by this addition).
+  const loadProjectBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "260px", overflowY: "auto" } });
+  const loadProjectOv = smallModal("📂 Load Project", [loadProjectBody], null, async () => {
+    loadProjectBody.innerHTML = "";
+    try {
+      const res = await api.listProjects();
+      for (const item of res.items || []) {
+        loadProjectBody.appendChild(el("button", {
+          type: "button", text: item.name === state.project ? `● ${item.name}` : item.name,
+          style: { display: "block", width: "100%", textAlign: "left", background: item.name === state.project ? "#2a1f45" : "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", marginBottom: "2px" },
+          onclick: async () => { await bootProject(item.name); loadProjectOv.hide(); },
         }));
       }
     } catch {}

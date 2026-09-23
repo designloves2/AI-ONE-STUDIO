@@ -12,7 +12,8 @@ import { openVideoGalleryPicker } from "./videoGalleryPicker";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import { createItdaSettingsOverlay } from "./settings";
 
-const RULER_HEIGHT = 30;
+// itda_style.css's real value (`.ruler{height:48px}`) — was 30, a guessed number.
+const RULER_HEIGHT = 48;
 
 export function renderItda(container: HTMLElement) {
   const state = new ItdaState();
@@ -1592,12 +1593,12 @@ export function renderItda(container: HTMLElement) {
     });
     return b;
   }
-  // ↔ Horizontal Zoom — reverted to dom_build.js's real hZoom range (min .5/max 20/
-  // step .5) after the user clarified the earlier "50%" complaint was about the
-  // vertical track height default, not this slider — the recentered 0.5..2.5 range
-  // was an unrequested change, not part of what was actually asked for.
+  // ↔ Horizontal Zoom — range chosen so the midpoint (1.5px/frame) shows ~30s of a
+  // 24fps timeline in a ~1000px-wide viewport (1000 / (1.5 * 24) ≈ 27.8s), and that
+  // midpoint is also the DEFAULT so the slider starts at 50% (confirmed as a real,
+  // separate requirement from the vertical-track-height one — both apply).
   function hZoomSlider() {
-    const s = el("input", { type: "range", min: "0.5", max: "20", step: "0.5", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    const s = el("input", { type: "range", min: "0.5", max: "2.5", step: "0.1", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
       state.zoomPxPerFrame = Number(s.value);
       renderRuler();

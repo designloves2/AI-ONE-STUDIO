@@ -76,9 +76,9 @@ export class ItdaState {
   // panel and single-clip actions (trim/split/snapshot) keep using selectedClipId, which
   // view.ts always sets to the most-recently-clicked clip.
   selectedClipIds: Set<string> = new Set();
-  // dom_build.js's own default (matches node exactly — reverted after an earlier,
-  // unrequested recentering).
-  zoomPxPerFrame = 2;
+  // Matches hZoomSlider's range (min 0.5 / max 2.5) — 1.5 is the exact midpoint and
+  // shows ~30s of a 24fps timeline in a ~1000px-wide viewport at 50% zoom.
+  zoomPxPerFrame = 1.5;
   // ↕ Vertical Track Zoom — per-track lane height in px. User feedback: the initial
   // track height read as "too thin" on first open — bumped past even the node's own
   // 74px default (dom_build.js's DEFAULT_LANE_H) to 100px so a freshly-opened

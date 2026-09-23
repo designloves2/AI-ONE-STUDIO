@@ -907,6 +907,74 @@ being pushed. Browser verification (live ComfyUI backend via the dev preview) wa
 in full and spot-checked on Z-Image + Klein (header buttons only, per the coordinator's "quick
 sanity check, not exhaustive" instruction) — the other 4 tools were verified via tsc/build only,
 not click-tested in the browser.
+
+## ITDA ONE STUDIO — Part 4: backend route contract + CSS value verification (2026-09-23, audit-only pass)
+
+Read in full this pass: `itda_studio_backend/server.py` (all ~35 routes, full request/response
+shape), `export.py` (`export_timeline`/`prerender_range`), `media.py` (`scan_media`/`ffprobe`/
+waveform/snapshot), `gallery.py` (manifest CRUD + shared-folder H3 scan), `paths.py`, and the
+web's `api.ts` in full plus targeted greps of `core.ts`/`view.ts` against `itda_style.css`
+(read via targeted `Select-String` extraction of every `.lane-label`/`.lane`/`.timeline`/
+`.ruler`/`.clip`/`.resize-handle` rule, not a full line-by-line read).
+
+**No new "declared-but-unused/backend-returns-but-undeclared" field bug found** — `api.ts`'s
+`MediaItem`/`ItdaGalleryItem`/`ItdaProject`/`ItdaAppSettings` interfaces all carry a `[key:
+string]: any` index signature, so every backend field not explicitly typed (media.py's `id`,
+`root`, `relative`, `size`, `mime`, `total_frames`, `width`, `height`, `thumb_path`,
+`probe_error`; gallery.py's `mode`, `has_video`, `has_audio`, `fps`, `total_frames`,
+`duration_sec`, `meta`) is still reachable at runtime, just not type-checked. The known
+`thumb_url` bug (commit `f79f2fa`/`6077764`) is fixed and stays fixed — declared on both
+`MediaItem` and `ItdaGalleryItem`. Every route in `server.py` was cross-checked against its
+`api.ts` wrapper (path, method, body field names, query params) — all match, including the
+less-obvious ones: `waveform`'s `{project,path,bars}`, `stitch_analyze`'s
+`{path_a,path_b,source_out_a,source_in_b,fps,window_sec}`, `stitch_bridge`'s
+`{path_a,frame_a,path_b,frame_b,fps,mode,num_frames}`, `send_to_comfy`'s
+`{source_in,source_out,fps,name,comfy_url,comfy_type}`, `snapshot_frame`'s
+`{path,kind,source_frame,source_fps}`, and `app_settings`'s `{gallery_dir}` patch shape.
+
+**Real CSS-value mismatch found:** `view.ts`'s `RULER_HEIGHT = 30` vs. `itda_style.css`'s actual
+`.ruler{height:48px;...}` rule (confirmed via direct extraction, not estimation) — the ruler is
+measurably 18px shorter than the reference. **Not fixed in this pass**: the coordinator flagged
+that multiple parallel audit agents are editing this same `view.ts` in the shared checkout
+concurrently (a `tsc` error already surfaced from a collision), so touching `view.ts` here was
+judged too likely to stomp another agent's in-flight edit. Left as a follow-up for whichever pass
+currently owns `view.ts`.
+
+**Lane-label gutter width — investigated, not changed.** The reference `.lane-label{width:148px;
+height:100%;...padding:10px;...}` plus `.lane-label .tools{margin-top:12px;...}` (final CSS pass)
+lays out each track's T1/T2/T3 label as a 148px-wide column: track name on top, then a `tools` row
+below it containing two 26×24px icon buttons (`.lane-tool`, confirmed in `itda_app_ported.js` line
+460: `<div class="lane-label"><div class="lane-name">T1</div><span class="tools">👁🔒</span></div>`).
+The web port (`view.ts` lines 732/770/790-795) uses a 34px `marginLeft` per track + an absolutely
+positioned 30px-wide `head` div holding the same three elements (`T{n}` label, 👁 button, 🔒
+button) but stacked vertically with 15×15px icon buttons instead of 26×24px, and no separate
+"tools" sub-row. **Functionally this is complete** — label, visibility toggle, and lock toggle all
+exist and work — it is a much more condensed layout than the 148px reference, not a missing
+feature. Per this project's standing convention that layout/proportion tuning is done manually by
+the user rather than auto-optimized by an agent, this was **not** resized to 148px; flagging here
+so the user can decide whether the condensed 34px gutter is the intended simplification or should
+be widened to match the reference's larger touch targets.
+
+**Other CSS values spot-checked and found correct** (matching the reference exactly): resize
+handle `height:5px`/`cursor:row-resize` (view.ts line 509 vs. CSS line 12), `border-radius:8px` on
+panel containers, clip color-by-kind gradients present for video/audio/image/text lanes. Thumbnail
+aspect-ratio/crop and media-bin thumbnail sizing were **not** re-verified in this pass — already
+fixed in commits `f79f2fa`/`6077764` earlier the same day, out of scope for this pass to re-audit
+given the time budget. Full byte-for-byte comparison of every remaining declaration in
+`itda_style.css` (colors beyond the ones above, clip-bars/waveform canvas styling, modal styling)
+was not completed — only the sections most likely to hide guessed-vs-measured drift (lane/track
+geometry, ruler, resize handle) were checked.
+
+| item | exists on web (yes/no) | verified working (yes/no/not-tested) | notes |
+|---|---|---|---|
+| Route/payload contract, all ~35 `server.py` routes vs `api.ts` | yes | yes (static cross-check) | No path/param/body-shape mismatches found. |
+| `MediaItem`/`ItdaGalleryItem` field coverage (thumb_url-class bug hunt) | yes | yes (static cross-check) | No new undeclared-but-returned fields found; all covered by `[key:string]:any`. Known thumb_url bug stays fixed. |
+| Ruler height (`RULER_HEIGHT` const vs `.ruler{height:48px}`) | no (wrong value: 30 vs 48) | not-tested | Not fixed this pass — concurrent-edit collision risk on `view.ts` per coordinator warning. |
+| Resize handle (`5px`, row-resize) | yes | yes | Matches `itda_style.css` exactly. |
+| Lane-label gutter width (148px reference vs 34px web) | yes (functionally — label+vis+lock all present) | not-tested visually | Deliberately not resized — layout/proportion tuning is manual per project convention; flagged for user decision. |
+| `.lane-tool` icon size (26×24px reference vs 15×15px web) | yes (smaller) | not-tested | Same gutter-width tradeoff as above. |
+| Thumbnail aspect-ratio/crop, media-bin sizing | yes | not re-verified this pass | Already fixed in `f79f2fa`/`6077764` same day; out of scope to re-audit here. |
+| Full `itda_style.css` byte-for-byte pass (colors, clip-bars, modals) | partial | not-tested | Only lane/track/ruler/resize-handle geometry sections checked; remainder unread this pass. |
 | **MiniMax vocal "wind/breath" artifact = model characteristic, not cfg** — spectrogram analysis: MiniMax audio VAE brick-walls at ~16.5 kHz and renders 5–12 kHz as broadband noise-haze (no harmonic structure) → sibilance/breath band reads as wind. Ace-Step (48 kHz, clean HF structure) doesn't. Mitigations, not cures: KSampler `cfg` **down** to 1.0–1.5 (high cfg + ConditioningZeroOut negative amplifies HF noise), `cfg_scale` **up** to 3–5, `steps` 50–80, and ideally swap the `..._pruned_int8_convrot` text encoder for a full fp16 build. | n/a | n/a | analysis 2026-09-06 | user | Informational — no code change. |
 | **Model list refresh** — Settings model dropdowns were fed by `ctx.models` / `ctx.llmModels`, fetched once at mount and cached forever → a model added on disk never appeared. `renderSettings()` now re-scans `/music_one/models` on every open (`settingsOv.show()` calls it) and nulls `ctx.llmModels`; new **↻ Refresh models** button in the Settings header force-re-scans while it's open. Backend `_scan()` already `os.walk`s live — no server cache to bust. Also: per-track cover-regen shows a spinner + BRAND sheen on that row's thumbnail (`.mmm-cover.regen`, `regenCoverFn` state); status line above the seed is now yellow `#ffcf3f` bold. | v1.24.x | `075b9d1` | **node-verified 2026-09-06** | user | Web twin: same stale-cache trap if it caches a model list across a settings panel. |
 | **Regenerate-cover: Auto vs Prompt** — `⋯ → Regenerate cover` now opens `regenCoverPopup(t)`: segmented **Auto ReGen / Prompt ReGen**, a prompt textarea (disabled+dimmed under Auto), `ReGenerate / Cancel`. Auto = LLM from title+lyrics; Prompt = the typed description goes through the `cover_prompt` LLM role into a Krea2 prompt. `coverImage(meta, opts)` gained `opts.brief` (`undefined`→compose-panel Cover Info, `""`→auto, string→that text). Cover Info button next to Title restyled → `.mmm-cinfo` (BRAND bg, white text, height matched to the input). | v1.24.x | `075b9d1` | **node-verified 2026-09-06** (Auto ReGen produced `K2_00008_.png`, applied to the row) | user | Web twin: mirror the Auto/Prompt choice if it adds per-track cover regen. |

@@ -1320,7 +1320,12 @@ export function renderItda(container: HTMLElement) {
       // slider moved, which only visually updates at each column-count threshold —
       // reading exactly like "moves in hardcoded steps" even though the slider itself
       // was continuous underneath.
-      const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: "6px" } });
+      // Column count itself switches at the same 116px threshold the node uses
+      // (renderMedia(): `(state.mediaThumb||104) >= 116 ? '2' : '3'`) — below 116px
+      // shows 3 columns, at/above it shows 2 (larger thumbs need more horizontal
+      // room per card). The old fixed-3 grid only let the individual thumb grow
+      // inside an unchanging 3-up layout, which is why it "only grew vertically."
+      const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(${thumbSize >= 116 ? 2 : 3}, minmax(0,1fr))`, gap: "6px" } });
       mediaGridEl = grid;
       state.media.forEach((m) => grid.appendChild(renderMediaCard(m)));
       listArea.appendChild(grid);
@@ -1349,7 +1354,9 @@ export function renderItda(container: HTMLElement) {
     const footer = el("div", {
       style: { flexShrink: "0", padding: "5px 10px", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: "6px" },
     });
-    const sizeSlider = el("input", { type: "range", min: "70", max: "140", value: String(thumbSize), style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
+    // range matches the reference exactly (72..160) so the 116px column-count
+    // threshold below sits at a sensible point along the real slider track.
+    const sizeSlider = el("input", { type: "range", min: "72", max: "160", value: String(thumbSize), style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
     // Update the grid's own column width directly on every 'input' tick instead of
     // calling renderMediaBin() — a full rebuild replaces this very <input> mid-drag,
     // which kills the browser's native slider-drag gesture (felt like "doesn't move
@@ -1359,6 +1366,10 @@ export function renderItda(container: HTMLElement) {
     sizeSlider.addEventListener("input", () => {
       thumbSize = Number(sizeSlider.value);
       if (mediaGridEl) {
+        // 116px threshold, same as the node's renderMedia(): 3 columns below it, 2
+        // at/above — this is the piece that was missing; the grid was stuck at a
+        // fixed 3 columns and only ever grew each thumbnail vertically inside it.
+        mediaGridEl.style.gridTemplateColumns = `repeat(${thumbSize >= 116 ? 2 : 3}, minmax(0,1fr))`;
         for (const t of mediaGridEl.querySelectorAll<HTMLElement>("[data-thumb]")) {
           t.style.width = `${thumbSize}px`;
           t.style.height = `${thumbSize}px`;

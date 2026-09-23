@@ -512,9 +512,13 @@ export class ItdaState {
     this.project = p.name || this.project;
     this.fps = p.fps || DEFAULT_FPS;
     this.totalFrames = p.total_frames || DEFAULT_TOTAL_FRAMES;
-    if (Array.isArray(p.tracks) && p.tracks.length) {
-      this.tracks = p.tracks as ItdaTrack[];
-    }
+    // Always replace, never conditionally keep the old array — a genuinely empty
+    // new/fresh project legitimately returns `tracks: []` (or omits it), and the
+    // previous "only overwrite if non-empty" guard left THIS project's in-memory
+    // tracks (and every clip on them) sitting there untouched across a project
+    // switch — reported as "찌꺼기 클립" (leftover clips) appearing in a brand new
+    // project that should have started completely empty.
+    this.tracks = Array.isArray(p.tracks) ? (p.tracks as ItdaTrack[]) : [];
     // Pad up to the reference's fixed LANE_COUNT=3 — a project saved before this
     // default existed (or otherwise persisted with fewer lanes) should still show
     // 3 tracks like a fresh one, not silently stay at whatever count it happened

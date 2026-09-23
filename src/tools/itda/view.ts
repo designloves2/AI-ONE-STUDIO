@@ -130,6 +130,8 @@ export function renderItda(container: HTMLElement) {
     else document.exitFullscreen?.();
   }, "Fullscreen");
 
+  const renderTopBtn = pillBtn("▶ Render", () => openRenderModal()) as HTMLButtonElement;
+
   header.append(
     statusDot,
     el("span", { text: "ITDA ONE STUDIO", style: { color: "#fff", fontWeight: "800", fontSize: "15px", letterSpacing: "0.02em", marginRight: "4px" } }),
@@ -139,7 +141,7 @@ export function renderItda(container: HTMLElement) {
     statusEl,
     ghostBtn("🖼 Gallery", () => galleryOv.show()),
     renderModeSelect,
-    pillBtn("▶ Render", () => openRenderModal()),
+    renderTopBtn,
     fullscreenBtn
   );
   root.appendChild(header);
@@ -1364,40 +1366,95 @@ export function renderItda(container: HTMLElement) {
     propsPanel.appendChild(actions);
   }
 
+  // Render — matches one_node_itda_studio.js's IDS.renderTop click handler EXACTLY: no
+  // confirm step (the node fires the whole timeline render on a single click, mode read
+  // straight from the header's renderMode <select>), a disabled button + overlapping
+  // "렌더링 중입니다..." progress modal with a live elapsed-time readout while it runs,
+  // then a "렌더링이 완료되었습니다..." completion modal with 🖼 Gallery / Close buttons
+  // (Gallery opens the render gallery overlay, same as the node's renderOpenGallery).
+  // An earlier version of this file inserted an extra Length/Mode "Confirm/Cancel" modal
+  // before rendering — that step does not exist in the node source; removed.
   function openRenderModal() {
+    doRender(renderModeSelect.value as "video_audio" | "video_only" | "audio_only");
+  }
+
+  async function doRender(mode: "video_audio" | "video_only" | "audio_only") {
+    const renderBtn = renderTopBtn;
+    const label0 = renderBtn.textContent || "▶ Render";
+    renderBtn.disabled = true;
+    renderBtn.textContent = "⏺ Rendering…";
+
     const overlay = el("div", {
       style: {
         position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "50",
         display: "flex", alignItems: "center", justifyContent: "center",
       },
-      onclick: (e: MouseEvent) => { if (e.target === overlay) overlay.remove(); },
     });
-    const modeNames: Record<string, string> = { video_audio: "Video + Audio", video_only: "Video Only", audio_only: "Audio Only" };
-    const box = panel(
-      [
-        label("Render"),
-        el("div", { text: `Length: ${state.contentEnd()} frames (${(state.contentEnd() / state.fps).toFixed(1)}s) — auto-detected from last clip end.`, style: { fontSize: "11px", color: C.muted, marginBottom: "4px" } }),
-        el("div", { text: `Mode: ${modeNames[renderModeSelect.value] || renderModeSelect.value} — set from the header's Render mode dropdown.`, style: { fontSize: "11px", color: C.muted, marginBottom: "10px" } }),
-        row([
-          pillBtn("Confirm", () => doRender(renderModeSelect.value as any, overlay)),
-          ghostBtn("Cancel", () => overlay.remove()),
-        ]),
-      ],
-      { width: "360px" }
-    );
+    const timerEl = el("div", { text: "0.0s", style: { fontSize: "11px", color: C.muted } });
+    const bodyEl = el("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" } }, [
+      el("div", { text: "렌더링 중입니다. 잠시만 기다려주세요.", style: { fontSize: "12px", color: C.text } }),
+      timerEl,
+    ]);
+    const box = panel([label("Render"), bodyEl], { width: "320px" });
     overlay.appendChild(box);
     document.body.appendChild(overlay);
-  }
 
-  async function doRender(mode: "video_audio" | "video_only" | "audio_only", overlay: HTMLElement) {
-    statusEl.textContent = "rendering…";
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      timerEl.textContent = `${((Date.now() - started) / 1000).toFixed(1)}s`;
+    }, 100);
+
     try {
-      const res = await state.render(mode);
-      statusEl.textContent = res?.ok ? "render complete → gallery" : `render failed: ${res?.error || "unknown"}`;
+      const res: any = await state.render(mode);
+      window.clearInterval(timer);
+      overlay.remove();
+      if (!res?.ok) throw new Error(res?.error || "render failed");
+      const filename = res.item?.filename || "";
+      statusEl.textContent = "Rendered to Gallery: " + filename;
+      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+      const doneOverlay = el("div", {
+        style: {
+          position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "50",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        },
+        onclick: (e: MouseEvent) => { if (e.target === doneOverlay) doneOverlay.remove(); },
+      });
+      const doneBox = panel(
+        [
+          label("Render"),
+          el("div", { text: "렌더링이 완료되었습니다. 갤러리에서 확인하세요.", style: { fontSize: "12px", color: C.text, marginBottom: "4px" } }),
+          el("div", { text: `${filename} — ${elapsed}s`, style: { fontSize: "10px", color: C.muted, marginBottom: "10px" } }),
+          row([
+            pillBtn("🖼 Gallery", () => { doneOverlay.remove(); galleryOv.show(); }),
+            ghostBtn("Close", () => doneOverlay.remove()),
+          ]),
+        ],
+        { width: "340px" }
+      );
+      doneOverlay.appendChild(doneBox);
+      document.body.appendChild(doneOverlay);
     } catch (err: any) {
-      statusEl.textContent = `render failed: ${err?.message || err}`;
+      window.clearInterval(timer);
+      overlay.remove();
+      const msg = err?.message || String(err);
+      statusEl.textContent = `Render failed: ${msg}`;
+      const errOverlay = el("div", {
+        style: {
+          position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "50",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        },
+        onclick: (e: MouseEvent) => { if (e.target === errOverlay) errOverlay.remove(); },
+      });
+      const errBox = panel(
+        [label("Render"), el("div", { text: `렌더링 실패: ${msg}`, style: { fontSize: "12px", color: "#ff8a8a" } })],
+        { width: "340px" }
+      );
+      errOverlay.appendChild(errBox);
+      document.body.appendChild(errOverlay);
+    } finally {
+      renderBtn.disabled = false;
+      renderBtn.textContent = label0;
     }
-    overlay.remove();
   }
 
   // ── shared button styles ──────────────────────────────────────────────────────
@@ -1535,12 +1592,12 @@ export function renderItda(container: HTMLElement) {
     });
     return b;
   }
-  // ↔ Horizontal Zoom — range chosen so the midpoint (1.5px/frame) shows ~30s of a
-  // 24fps timeline in a ~1000px-wide viewport (1000 / (1.5 * 24) ≈ 27.8s ≈ 30s), and
-  // that midpoint is also the DEFAULT so the slider starts at 50% instead of near one
-  // end (previously min .5/max 20, default 2 — handle sat at ~8% on first load).
+  // ↔ Horizontal Zoom — reverted to dom_build.js's real hZoom range (min .5/max 20/
+  // step .5) after the user clarified the earlier "50%" complaint was about the
+  // vertical track height default, not this slider — the recentered 0.5..2.5 range
+  // was an unrequested change, not part of what was actually asked for.
   function hZoomSlider() {
-    const s = el("input", { type: "range", min: "0.5", max: "2.5", step: "0.1", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    const s = el("input", { type: "range", min: "0.5", max: "20", step: "0.5", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
       state.zoomPxPerFrame = Number(s.value);
       renderRuler();
@@ -1548,12 +1605,11 @@ export function renderItda(container: HTMLElement) {
     });
     return s;
   }
-  // ↕ Vertical Track Zoom — range recentered around the current default (52px, which
-  // the user confirmed looks right) so it sits at the slider's visual midpoint (30..74,
-  // 52 exact center), same fix as the horizontal zoom slider — was min 44/max 140 with
-  // a default of 52, which put the handle at ~8% along the track.
+  // ↕ Vertical Track Zoom — dom_build.js's real vZoom range (min 44/max 140), reverted
+  // after an earlier unrequested recentering. Only the DEFAULT track height changed
+  // (see core.ts trackHeight=100) — the slider's own range matches the node exactly.
   function vZoomSlider() {
-    const s = el("input", { type: "range", min: "30", max: "74", step: "1", value: String(state.trackHeight), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    const s = el("input", { type: "range", min: "44", max: "140", step: "1", value: String(state.trackHeight), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
       state.trackHeight = Number(s.value);
       renderTracks();

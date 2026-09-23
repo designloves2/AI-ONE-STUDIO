@@ -76,14 +76,15 @@ export class ItdaState {
   // panel and single-clip actions (trim/split/snapshot) keep using selectedClipId, which
   // view.ts always sets to the most-recently-clicked clip.
   selectedClipIds: Set<string> = new Set();
-  // Matches hZoomSlider's range (min 0.5 / max 2.5) — 1.5 is the exact midpoint and
-  // shows ~30s of a 24fps timeline in a ~1000px-wide viewport, so a fresh project's
-  // zoom slider starts at 50% showing a sensible default window, not near one end.
-  zoomPxPerFrame = 1.5;
-  // ↕ Vertical Track Zoom — per-track lane height in px. Node's vZoom range is
-  // 44..140, default 74 (dom_build.js); web keeps its own 52px default look but the
-  // slider now spans the node's real range.
-  trackHeight = 52;
+  // dom_build.js's own default (matches node exactly — reverted after an earlier,
+  // unrequested recentering).
+  zoomPxPerFrame = 2;
+  // ↕ Vertical Track Zoom — per-track lane height in px. User feedback: the initial
+  // track height read as "too thin" on first open — bumped past even the node's own
+  // 74px default (dom_build.js's DEFAULT_LANE_H) to 100px so a freshly-opened
+  // timeline doesn't feel cramped; the vZoom slider (44..140) still lets it go back
+  // down to node's own default or smaller.
+  trackHeight = 100;
   snap = true;
   dirty = false;
   // ⏮/⏭ Mark In / Mark Out range (I/O keys on the node) — a play/pre-render range

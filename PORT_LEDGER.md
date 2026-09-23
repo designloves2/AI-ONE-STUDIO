@@ -810,6 +810,98 @@ colors (`#272646`/`#2b2555` chromatic track-lane tint) which were not re-probed 
 | --- | --- | --- |
 | `44eb471` | `npx tsc --noEmit` clean (no itda errors — 1 pre-existing unrelated error in `src/gallery/mounts.ts`); `npx vite build` clean, `dist/` deleted after | **Browser-verified against the live dev server** (`http://localhost:8774/#itda`, pinned to this checkout): screenshotted the new 26/49/25 layout with the "Preview" placeholder showing and the new grid-based Properties panel on an existing short clip; imported a fresh real clip via the gallery picker (Video (Gallery) → INPUT folder → picked a thumbnail → added to Media Bin); placed it on the timeline via a simulated HTML5 drag/drop onto a track (`dragstart`/`dragover`/`drop` with a real `DataTransfer`, since the browser tool's pointer-based drag doesn't trigger native DnD); selected the new clip (Properties panel correctly showed Name/Type/Track/Start/Length/Trim In/Trim Out for it); clicked "First Frame" to move the playhead onto the clip — **the preview stage correctly rendered the actual video frame**, filling the black stage the way the original's `.preview-stage video{object-fit:contain}` does. All existing functional logic (snap/drag/waveform/split/stitch/render/gallery) left untouched — only layout/rendering code in `view.ts` changed. |
 
+## ITDA ONE STUDIO — button-by-button audit fixes: toolbar completeness, transport semantics, snapshot location, render-mode dropdown (2026-09-23 sixth follow-up)
+
+A peer session's DOM-level audit (`read_page` on the live app vs. `dom_build.js`'s `actionRow`)
+found the timeline action row was missing ~12 of 18 node buttons, the preview transport had wrong
+(timeline-relative, second-based) semantics instead of the node's real (clip-relative,
+frame-based) ones, Snapshot was in the wrong panel, and the header lacked the node's render-mode
+`<select>`. Re-verified every claim against `dom_build.js` (full read) and
+`itda_app_ported.js` (full read of the `actionRow`/transport onclick wiring block, ~line 1780-1811,
+plus keyboard shortcuts ~1878-1921) before changing anything.
+
+1. **Timeline action row (`view.ts` `actionToolbar`)** — rebuilt in `dom_build.js`'s exact order:
+   Add Video/Audio Track (kept — see item 5 note below) → Mark In (⏮)/Mark Out (⏭)/Clear Range (⊘)
+   → Snap pill / Peak Match pill (〜) → Split/Stitch/UnStitch → Auto Stitch (🪄)/Add Transition
+   (🎞)/AI Detect (✨) **kept visually present but click-inert**, matching `disabled=""` on the
+   node itself (re-verified: `itda_app_ported.js` guards their onclick binds with
+   `if(autoStitchBtn2)`/etc. but the buttons ship disabled in `dom_build.js` regardless — dormant
+   on the node, dormant here) → Group (🔗)/Ungroup (⛓️‍💥) → Detach Audio (🔈⊘)/Merge Audio (🔈+) →
+   Pre-render (⏩) → Clip Delete (🗑) → gotoTimelineStart (⇤)/gotoTimelineEnd (⇥) → ↔ horizontal
+   zoom slider (now min .5/max 20/step .5, matching `hZoom` — was min .5/max 6/step .25) + NEW ↕
+   vertical zoom slider (min 44/max 140, matching `vZoom`; wired to a new `state.trackHeight`
+   field, `core.ts`, replacing the `TRACK_HEIGHT` constant `view.ts` used everywhere).
+   **Wired for real** (not placeholders): Mark In/Out/Clear Range → new `state.range` +
+   `markIn()`/`markOut()`/`clearRange()` in `core.ts`. Group/Ungroup → new `state.groupId` field
+   on `ItdaClip` + `groupSelected()`/`ungroupSelected()` (tags/clears a shared id on 2+ selected
+   clips — grouped-drag-as-a-unit is explicitly NOT ported, out of scope, noted in the code
+   comment). Detach/Merge Audio → new `state.linkedAudioClipId`/`audioDetached` fields +
+   `detachAudio()`/`mergeAudioBack()` — this web port's clips don't model an embedded audio track
+   separately from video (unlike the node, which truly demuxes), so "detach" creates a sibling
+   audio-kind clip on the nearest/new audio track and links the pair by id; "merge" removes it.
+   Documented as a structural approximation, not a byte-for-byte port, in both the doc comment and
+   here. Pre-render → genuinely wired to the **already-existing** `api.prerenderRange(project,
+   start, end)` (was unused before this pass) using the Mark In/Out range if set, else full
+   content length.
+2. **Snapshot relocated** — removed from the timeline action row, added to the preview panel's own
+   toolbar next to Fullscreen (`▣` / `⛶`), matching `dom_build.js`'s `snapshotTop` placement in
+   `.preview-toolbar` (not `.timeline-action-row`). Fullscreen button is now also real
+   (`previewStage.requestFullscreen()`) instead of a static unclickable `<span>`.
+3. **Transport semantics rewritten** (`view.ts` `transportButtons`) — was
+   start/-1s/-1f/play-guess/+1f/+1s/end (timeline-relative, second-based, and the "play" button
+   didn't actually play — it just stepped +1 frame, duplicating the button next to it). Now:
+   ◀| = `gotoSelectedStart()` (selected clip's own start, falls back to 0 if nothing selected) →
+   ◀◀ = step **-5 frames** → ◀ = step -1 frame → ▶ (main-play) = real Play/Pause toggle (new
+   `requestAnimationFrame` loop driven by `performance.now()` elapsed-time × fps, respects the
+   Loop pill, drives `previewVideo.play()/.pause()`, icon flips ▶↔❚❚ — there was no working
+   play loop before this pass at all) → ▶ = step +1 frame → ▶▶ = step **+5 frames** → |▶ =
+   `gotoSelectedEnd()` (selected clip's own end, falls back to content-end). Re-verified against
+   `itda_app_ported.js`'s `data-step="-5"/"1"/"5"` attributes and `$('gotoClipStart').onclick=
+   gotoSelectedStart` / `$('gotoClipEnd').onclick=gotoSelectedEnd` binding line.
+4. **Header render-mode dropdown** — added a `<select>` (Video + Audio / Video Only / Audio Only)
+   to the header, left of Render, matching `dom_build.js`'s `renderMode` topbar element.
+   **Decision** (read against `itda_app_ported.js`'s render flow, which just reads
+   `$('renderMode').value` and POSTs it — no separate mode-picker step in the node at all): the
+   header select now IS the single source of truth for mode; the old 3-button
+   (Video+Audio/Video Only/Audio Only) modal is simplified to a "Length: Nf (Ns) — Mode: <header
+   selection> → Confirm/Cancel" dialog, so there's exactly one place the mode lives, matching the
+   node instead of adding a redundant second picker.
+5. **Track/lane data model migration — NOT attempted this pass, deferred.** Read `core.ts`'s
+   dynamic `addTrack(kind)`/`tracks: ItdaTrack[]` model in full and re-confirmed
+   `itda_app_ported.js`'s `const LANE_COUNT = 3` fixed-lane model (any clip on any of 3 lanes, no
+   per-track "kind"). Migrating web's per-track-typed, dynamically-growable track array to a fixed
+   3-lane any-kind-clip array touches nearly every function in `core.ts` (`addClip`,
+   `clipAtFrame`, `snapMoveStart`/`snapEdge`/`otherClipEdges`, `stitchSelected`/`unstitchSelected`,
+   `findClip`, `applyProject`/`toProject`) plus every track-index assumption in `view.ts`
+   (`renderTracks`, the per-track 👁/🔒 header, drag/drop track targeting, the Properties panel's
+   Track field) and the already-shipped project-file JSON shape (`itda_studio_backend/project.py`
+   round-trip). This is real, working, verified drag/snap/trim/stitch/render code — rewriting its
+   underlying data shape in the same pass as 20+ other button-level changes, without a slower
+   dedicated pass to verify save/load round-trips and existing saved projects don't break, was
+   judged too risky per the task's own explicit stop condition. **Next steps for a dedicated
+   follow-up**: (a) confirm `itda_studio_backend/project.py`'s actual persisted track shape
+   (fixed-3 or dynamic — determines whether old saved projects need a migration path), (b) change
+   `ItdaState.tracks` to a fixed 3-entry array in the constructor with `addTrack`/"Add
+   Video/Audio Track" removed, (c) drop the `kind` field's use as a drop-target gate in
+   `renderTracks`'s dragover/drop handlers (any clip kind can go on any lane), (d) re-verify
+   snap/drag/trim/stitch/render end-to-end in the browser before merging, matching how this
+   session verified every other change above.
+
+`npx tsc --noEmit`: clean (no ITDA errors — 1 pre-existing unrelated error in
+`src/gallery/mounts.ts`, same as prior passes). `npx vite build`: clean, `dist/` deleted after.
+**Browser-verified** at `http://localhost:8774/#itda` (dev server pinned to this checkout):
+screenshotted the rebuilt header (render-mode `<select>` present, defaulted to "Video + Audio")
+and action row; `read_page` confirmed all 18 action-row buttons plus the 7 transport buttons exist
+with the correct titles/order (`Mark In (I)`, `Mark Out (O)`, `Clear Range`, `Snap: ON`, `Peak
+Match`, disabled-titled Auto Stitch/Transition/AI Detect, `Group`, `Ungroup`, `Detach Audio`,
+`Merge Audio`, `Pre-render`, `Clip Delete`, `Go to First/End Frame`, `Selected Clip Start/End`,
+`Step Back/Forward 5/1 Frame(s)`, `Play / Pause`); dragged a gallery-imported video clip onto the
+timeline (unsaved-changes indicator flipped, confirming `addClip` still works post-`trackHeight`
+change); no console errors. Did not exhaustively click-verify every new handler's success path
+(Group/Detach/Pre-render status-text branches) in the live browser this pass — logic was verified
+by reading the added `core.ts` code against the same test the existing split/stitch tests already
+pass (unit-level correctness, not a live click-through of each one).
+
 Every commit above passed `npx tsc --noEmit` and `npx vite build` (dist/ deleted after) before
 being pushed. Browser verification (live ComfyUI backend via the dev preview) was done for Krea2
 in full and spot-checked on Z-Image + Klein (header buttons only, per the coordinator's "quick

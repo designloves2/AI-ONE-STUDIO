@@ -12,7 +12,6 @@ import { openVideoGalleryPicker } from "./videoGalleryPicker";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import { createItdaSettingsOverlay } from "./settings";
 
-const TRACK_HEIGHT = 52;
 const RULER_HEIGHT = 30;
 
 export function renderItda(container: HTMLElement) {
@@ -50,6 +49,21 @@ export function renderItda(container: HTMLElement) {
       borderBottom: `1px solid ${C.border}`,
     },
   });
+  // Render mode — matches dom_build.js's header-level `renderMode` <select> (Video +
+  // Audio / Video Only / Audio Only), placed left of the Render button. Decision (per
+  // ITDA_GAPS item 4, read against itda_app_ported.js's render flow): the select IS
+  // the mode picker now — the old 3-button modal is simplified to a length + Confirm
+  // dialog that renders using whatever this header select is currently set to, so
+  // there's exactly one place the mode lives, matching the node.
+  const renderModeSelect = el("select", {
+    title: "Render mode",
+    style: { background: "#0d0e12", color: "#fff", border: "1px solid rgba(255,255,255,0.22)", borderRadius: "999px", padding: "4px 8px", fontSize: "11px", cursor: "pointer" },
+  }, [
+    el("option", { value: "video_audio", text: "Video + Audio" }),
+    el("option", { value: "video_only", text: "Video Only" }),
+    el("option", { value: "audio_only", text: "Audio Only" }),
+  ]) as HTMLSelectElement;
+
   header.append(
     statusDot,
     el("span", { text: "ITDA ONE STUDIO", style: { color: "#fff", fontWeight: "800", fontSize: "15px", letterSpacing: "0.02em", marginRight: "4px" } }),
@@ -59,15 +73,28 @@ export function renderItda(container: HTMLElement) {
     ghostBtn("⚙ App Settings", () => settingsOverlay.show(), "System-wide settings — Gallery Path + LLM backend/model"),
     ghostBtn("🖼 Gallery", () => galleryOv.show()),
     ghostBtn("💾 Save", async () => { await state.save(); refreshStatus(); }),
+    renderModeSelect,
     pillBtn("▶ Render", () => openRenderModal())
   );
   root.appendChild(header);
 
   // ── action toolbar — icon buttons, compact, matching the node's action-row density ──
+  // Order below mirrors dom_build.js's `actionRow` build exactly: Mark In/Out/Clear
+  // Range, Snap, Peak Match, Split, Stitch/UnStitch, Auto Stitch/Add Transition/AI
+  // Detect (disabled on the node itself — kept visually present, disabled, here
+  // too), Group/Ungroup, Detach/Merge Audio, Pre-render, Delete, then the
+  // gotoTimelineStart/End jump pair and the ↔/↕ zoom sliders pinned right.
   const actionToolbar = row(
     [
       mkIconBtn("➕🎬", () => { state.addTrack("video"); renderTracks(); }, "Add Video Track"),
       mkIconBtn("➕🎵", () => { state.addTrack("audio"); renderTracks(); }, "Add Audio Track"),
+      sep(),
+      mkIconBtn("⏮", () => { state.markIn(); refreshStatus(); statusEl.textContent = `Mark In · F${state.playhead}`; }, "Mark In (I)"),
+      mkIconBtn("⏭", () => { state.markOut(); refreshStatus(); statusEl.textContent = `Mark Out · F${state.playhead}`; }, "Mark Out (O)"),
+      mkIconBtn("⊘", () => { state.clearRange(); refreshStatus(); statusEl.textContent = "Range cleared"; }, "Clear Range"),
+      sep(),
+      snapPill(),
+      peakMatchPill(),
       sep(),
       mkIconBtn("✂", () => {
         if (state.splitSelectedAtPlayhead()) { renderTracks(); renderProps(); refreshStatus(); statusEl.textContent = "Split"; }
@@ -82,33 +109,62 @@ export function renderItda(container: HTMLElement) {
         renderTracks(); renderProps(); refreshStatus();
         statusEl.textContent = ok ? "UnStitched" : "Select a Stitched clip to UnStitch";
       }, "UnStitch — restore a stitched clip's originals"),
-      mkIconBtn("▣", async () => {
-        const c = state.snapshotCandidate();
-        if (!c) { statusEl.textContent = "No clip under the playhead to snapshot"; return; }
-        statusEl.textContent = "Snapshotting…";
+      // ── disabled on the node itself (itda_app_ported.js's autoStitchClip /
+      // addTransition / aiDetect buttons ship `disabled=""` in dom_build.js) — kept
+      // visually present here, non-interactive, to match that dormant state.
+      mkIconBtn("🪄", () => {}, "Auto Stitch — select 2 video clips (in time order) to analyze the best overlap cut point"),
+      mkIconBtn("🎞", () => {}, "Transition — select 2 adjacent video clips to insert a transition at the join"),
+      mkIconBtn("✨", () => {}, "AI Detect — Scene / Beat detection for the selected clip"),
+      sep(),
+      mkIconBtn("🔗", () => {
+        const ok = state.groupSelected();
+        renderProps(); refreshStatus();
+        statusEl.textContent = ok ? "Grouped" : "Select 2+ clips (ctrl/shift-click) to Group";
+      }, "Group"),
+      mkIconBtn("⛓️‍💥", () => {
+        const ok = state.ungroupSelected();
+        renderProps(); refreshStatus();
+        statusEl.textContent = ok ? "Ungrouped" : "Select a grouped clip to Ungroup";
+      }, "Ungroup"),
+      mkIconBtn("🔈⊘", () => {
+        const c = state.detachAudio();
+        renderTracks(); renderProps(); refreshStatus();
+        statusEl.textContent = c ? "Audio detached" : "Select a video clip to Detach Audio";
+      }, "Detach Audio"),
+      mkIconBtn("🔈+", () => {
+        const ok = state.mergeAudioBack();
+        renderTracks(); renderProps(); refreshStatus();
+        statusEl.textContent = ok ? "Audio merged back" : "Select a clip with detached audio to Merge Audio";
+      }, "Merge Audio"),
+      mkIconBtn("⏩", async () => {
+        const start = state.range.start ?? 0;
+        const end = state.range.end ?? state.contentEnd();
+        statusEl.textContent = "Pre-rendering…";
         try {
-          const sourceFrame = Math.max(0, Math.round((c.source_in || 0) + (state.playhead - c.start)));
-          const res = await api.snapshotFrame(state.project, c.media_path, c.kind === "image" ? "image" : "video", sourceFrame, c.fps);
-          statusEl.textContent = res?.ok ? `Snapshot saved · F${sourceFrame}` : `Snapshot failed: ${(res as any)?.error || "unknown"}`;
+          const res = await api.prerenderRange(state.project, start, end);
+          statusEl.textContent = (res as any)?.ok ? "Pre-render complete" : `Pre-render failed: ${(res as any)?.error || "unknown"}`;
         } catch (err: any) {
-          statusEl.textContent = `Snapshot failed: ${err?.message || err}`;
+          statusEl.textContent = `Pre-render failed: ${err?.message || err}`;
         }
-      }, "Snapshot — save the current frame (P)"),
+      }, "Pre-render"),
       mkIconBtn("🗑", () => {
         if (!state.selectedClipId) return;
         state.removeClip(state.selectedClipId);
         state.selectedClipId = null;
         renderTracks(); renderProps();
-      }, "Delete selected clip"),
+      }, "Clip Delete"),
       sep(),
-      snapPill(),
+      mkIconBtn("⇤", () => seekPlayhead(0), "Go to First Frame"),
+      mkIconBtn("⇥", () => seekPlayhead(state.contentEnd()), "Go to End Frame"),
       el("div", { style: { flex: "1" } }),
-      el("span", { text: "Zoom", style: { color: C.muted, fontSize: "10px" } }),
-      zoomSlider(),
+      el("span", { text: "↔", title: "Horizontal Zoom", style: { color: C.muted, fontSize: "11px" } }),
+      hZoomSlider(),
+      el("span", { text: "↕", title: "Vertical Track Zoom", style: { color: C.muted, fontSize: "11px" } }),
+      vZoomSlider(),
     ],
     "5px"
   );
-  actionToolbar.style.cssText += `align-items:center;flex-shrink:0;padding:6px 12px;background:${C.bg1};border-bottom:1px solid ${C.border};`;
+  actionToolbar.style.cssText += `align-items:center;flex-wrap:wrap;flex-shrink:0;padding:6px 12px;background:${C.bg1};border-bottom:1px solid ${C.border};`;
   root.appendChild(actionToolbar);
 
   const mainBody = el("div", { style: { flex: "1", minHeight: "0", display: "flex", flexDirection: "column", padding: "8px", gap: "8px", boxSizing: "border-box" } });
@@ -159,6 +215,20 @@ export function renderItda(container: HTMLElement) {
       b.style.borderColor = k === activeMode ? BRAND : C.border;
     }
   }
+  // Snapshot lives HERE (preview panel's own toolbar, next to fullscreen) per
+  // dom_build.js's `snapshotTop` — NOT in the timeline action row.
+  async function takeSnapshot() {
+    const c = state.snapshotCandidate();
+    if (!c) { statusEl.textContent = "No clip under the playhead to snapshot"; return; }
+    statusEl.textContent = "Snapshotting…";
+    try {
+      const sourceFrame = Math.max(0, Math.round((c.source_in || 0) + (state.playhead - c.start)));
+      const res = await api.snapshotFrame(state.project, c.media_path, c.kind === "image" ? "image" : "video", sourceFrame, c.fps);
+      statusEl.textContent = res?.ok ? `Snapshot saved · F${sourceFrame}` : `Snapshot failed: ${(res as any)?.error || "unknown"}`;
+    } catch (err: any) {
+      statusEl.textContent = `Snapshot failed: ${err?.message || err}`;
+    }
+  }
   const previewToolbar = row(
     [
       mkModeTab("Single", true),
@@ -166,8 +236,8 @@ export function renderItda(container: HTMLElement) {
       mkModeTab("Overlay", false),
       mkModeTab("Wipe", false),
       el("div", { style: { flex: "1" } }),
-      el("span", { text: "⛶", title: "Fullscreen", style: { color: C.muted, fontSize: "13px", cursor: "default" } }),
-      el("span", { text: "📌", title: "Pin", style: { color: C.muted, fontSize: "12px", cursor: "default" } }),
+      mkIconBtn("▣", () => takeSnapshot(), "Snapshot"),
+      mkIconBtn("⛶", () => { previewStage.requestFullscreen?.(); }, "Full Screen"),
     ],
     "6px"
   );
@@ -213,15 +283,77 @@ export function renderItda(container: HTMLElement) {
   const mutePill = togglePill("Mute", muteOn, (v) => { muteOn = v; previewVideo.muted = v; });
   const scrubPill = togglePill("Scrub", scrubOn, (v) => { scrubOn = v; });
 
+  // ── transport semantics — matches itda_app_ported.js's real handlers, not the
+  // earlier (wrong) timeline-relative/second-based guesses:
+  // ◀| / |▶ = SELECTED CLIP's own start/end (gotoSelectedStart/End), not the
+  // timeline's — the timeline-level ⇤/⇥ jump lives in the action row instead.
+  // ◀◀/▶▶ step ±5 frames (data-step="-5"/"5" in dom_build.js), not ±1s.
+  // ▶ (main-play) toggles Play/Pause; the lone ▶ after it steps +1 frame.
+  function selectedClipRange(): { start: number; end: number } | null {
+    if (!state.selectedClipId) return null;
+    const found = state.findClip(state.selectedClipId);
+    if (!found) return null;
+    return { start: found.clip.start, end: found.clip.start + found.clip.duration };
+  }
+  function gotoSelectedStart() {
+    const r = selectedClipRange();
+    seekPlayhead(r ? r.start : 0);
+  }
+  function gotoSelectedEnd() {
+    const r = selectedClipRange();
+    seekPlayhead(r ? r.end : state.contentEnd());
+  }
+  let playing = false;
+  let playRAF = 0;
+  let playStartFrame = 0;
+  let playStartedAt = 0;
+  const mainPlayBtn = mkIconBtn("▶", () => togglePlay(), "Play / Pause");
+  function stopPlay() {
+    playing = false;
+    mainPlayBtn.textContent = "▶";
+    if (playRAF) cancelAnimationFrame(playRAF);
+    previewVideo.pause();
+  }
+  function loopPlayStep() {
+    if (!playing) return;
+    const elapsed = (performance.now() - playStartedAt) / 1000;
+    let f = Math.round(playStartFrame + elapsed * state.fps);
+    const end = state.contentEnd();
+    if (f >= end) {
+      if (loopOn) {
+        playStartFrame = 0;
+        playStartedAt = performance.now();
+        f = 0;
+      } else {
+        seekPlayhead(end);
+        stopPlay();
+        return;
+      }
+    }
+    seekPlayhead(f);
+    playRAF = requestAnimationFrame(loopPlayStep);
+  }
+  function startPlay() {
+    playing = true;
+    playStartFrame = state.playhead;
+    playStartedAt = performance.now();
+    mainPlayBtn.textContent = "❚❚";
+    previewVideo.play?.().catch(() => {});
+    loopPlayStep();
+  }
+  function togglePlay() {
+    if (playing) stopPlay();
+    else startPlay();
+  }
   const transportButtons = row(
     [
-      mkIconBtn("⏮", () => seekPlayhead(0), "Go to start"),
-      mkIconBtn("⏪", () => seekPlayhead(state.playhead - Math.round(state.fps)), "Rewind 1s"),
-      mkIconBtn("◀", () => seekPlayhead(state.playhead - 1), "Step back 1 frame"),
-      mkIconBtn("▶", () => seekPlayhead(state.playhead + 1), "Play / step"),
-      mkIconBtn("▶", () => seekPlayhead(state.playhead + 1), "Step forward 1 frame"),
-      mkIconBtn("⏩", () => seekPlayhead(state.playhead + Math.round(state.fps)), "Fast-forward 1s"),
-      mkIconBtn("⏭", () => seekPlayhead(state.contentEnd()), "Go to content end"),
+      mkIconBtn("◀|", () => gotoSelectedStart(), "Selected Clip Start"),
+      mkIconBtn("◀◀", () => seekPlayhead(state.playhead - 5), "Step Back 5 Frames"),
+      mkIconBtn("◀", () => seekPlayhead(state.playhead - 1), "Step Back 1 Frame"),
+      mainPlayBtn,
+      mkIconBtn("▶", () => seekPlayhead(state.playhead + 1), "Step Forward 1 Frame"),
+      mkIconBtn("▶▶", () => seekPlayhead(state.playhead + 5), "Step Forward 5 Frames"),
+      mkIconBtn("|▶", () => gotoSelectedEnd(), "Selected Clip End"),
       sep(),
       loopPill, mutePill, scrubPill,
       sep(),
@@ -431,7 +563,7 @@ export function renderItda(container: HTMLElement) {
       const trackEl = el("div", {
         style: {
           position: "relative",
-          height: `${TRACK_HEIGHT}px`,
+          height: `${state.trackHeight}px`,
           borderBottom: `1px solid ${C.border}`,
           background: track.kind === "audio" ? "rgba(100,180,255,0.05)" : "rgba(255,255,255,0.015)",
           opacity: hidden ? "0.45" : "1",
@@ -473,7 +605,7 @@ export function renderItda(container: HTMLElement) {
         });
       const head = el("div", {
         style: {
-          position: "absolute", left: "-34px", top: "0", width: "30px", height: `${TRACK_HEIGHT}px`,
+          position: "absolute", left: "-34px", top: "0", width: "30px", height: `${state.trackHeight}px`,
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "3px",
           background: C.bg1, borderRight: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`,
         },
@@ -491,7 +623,7 @@ export function renderItda(container: HTMLElement) {
       trackEl.appendChild(head);
       tracksHost.appendChild(trackEl);
     });
-    tracksHost.style.height = `${state.tracks.length * TRACK_HEIGHT}px`;
+    tracksHost.style.height = `${state.tracks.length * state.trackHeight}px`;
     tracksHost.style.marginLeft = "34px";
     timelineInner.style.width = `${width + 34}px`;
     playheadLine.style.left = `${frameToPx(state.playhead) + 34}px`;
@@ -1029,14 +1161,15 @@ export function renderItda(container: HTMLElement) {
       },
       onclick: (e: MouseEvent) => { if (e.target === overlay) overlay.remove(); },
     });
+    const modeNames: Record<string, string> = { video_audio: "Video + Audio", video_only: "Video Only", audio_only: "Audio Only" };
     const box = panel(
       [
         label("Render"),
-        el("div", { text: `Length: ${state.contentEnd()} frames (${(state.contentEnd() / state.fps).toFixed(1)}s) — auto-detected from last clip end.`, style: { fontSize: "11px", color: C.muted, marginBottom: "8px" } }),
+        el("div", { text: `Length: ${state.contentEnd()} frames (${(state.contentEnd() / state.fps).toFixed(1)}s) — auto-detected from last clip end.`, style: { fontSize: "11px", color: C.muted, marginBottom: "4px" } }),
+        el("div", { text: `Mode: ${modeNames[renderModeSelect.value] || renderModeSelect.value} — set from the header's Render mode dropdown.`, style: { fontSize: "11px", color: C.muted, marginBottom: "10px" } }),
         row([
-          pillBtn("Video + Audio", () => doRender("video_audio", overlay)),
-          ghostBtn("Video Only", () => doRender("video_only", overlay)),
-          ghostBtn("Audio Only", () => doRender("audio_only", overlay)),
+          pillBtn("Confirm", () => doRender(renderModeSelect.value as any, overlay)),
+          ghostBtn("Cancel", () => overlay.remove()),
         ]),
       ],
       { width: "360px" }
@@ -1153,14 +1286,32 @@ export function renderItda(container: HTMLElement) {
     });
     return b;
   }
-  function zoomSlider() {
-    const s = el("input", { type: "range", min: "0.5", max: "6", step: "0.25", value: String(state.zoomPxPerFrame), style: { width: "80px", accentColor: BRAND } }) as HTMLInputElement;
+  // ↔ Horizontal Zoom — matches dom_build.js's hZoom (min .5 / max 20 / step .5 /
+  // default 4); web keeps its own default zoomPxPerFrame so the timeline doesn't
+  // jump on first paint.
+  function hZoomSlider() {
+    const s = el("input", { type: "range", min: "0.5", max: "20", step: "0.5", value: String(state.zoomPxPerFrame), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
     s.addEventListener("input", () => {
       state.zoomPxPerFrame = Number(s.value);
       renderRuler();
       renderTracks();
     });
     return s;
+  }
+  // ↕ Vertical Track Zoom — matches dom_build.js's vZoom (min 44 / max 140).
+  function vZoomSlider() {
+    const s = el("input", { type: "range", min: "44", max: "140", step: "1", value: String(state.trackHeight), style: { width: "70px", accentColor: BRAND } }) as HTMLInputElement;
+    s.addEventListener("input", () => {
+      state.trackHeight = Number(s.value);
+      renderTracks();
+    });
+    return s;
+  }
+  function peakMatchPill() {
+    return togglePill("Peak Match", state.peakSnap, (v) => {
+      state.peakSnap = v;
+      statusEl.textContent = `Peak Match ${v ? "ON" : "OFF"}`;
+    });
   }
 
   // ── boot ──────────────────────────────────────────────────────────────

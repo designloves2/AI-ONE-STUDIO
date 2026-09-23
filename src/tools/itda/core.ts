@@ -21,6 +21,19 @@ export interface ItdaClip {
   // mirrors itda_app_ported.js's stitchSelected()/unstitchSelected() (children carry
   // orig_start/orig_track instead of a source file).
   children?: ItdaClip[];
+  // ── 🔗 Group/⛓️‍💥 Ungroup — clips sharing a groupId move as a unit is NOT
+  // ported (out of scope for this pass — see PORT_LEDGER); groupId here only marks
+  // membership so the action row's Group/Ungroup buttons and the Properties panel
+  // can show/clear it. Real grouped-drag behavior is left for a follow-up pass.
+  groupId?: string;
+  // ── 🔈⊘ Detach Audio / 🔈+ Merge Audio — this web port's clips don't model an
+  // embedded audio track separately from the video, so "detach" here creates a
+  // sibling audio-kind clip (same media_path/start/duration) on the nearest audio
+  // track and links the two by id; "merge" removes the linked sibling. Structural
+  // approximation of detachAudio()/mergeAudioBack() in itda_app_ported.js, not a
+  // byte-for-byte port (that node truly demuxes a combined video+audio source).
+  linkedAudioClipId?: string;
+  audioDetached?: boolean;
 }
 
 export interface ItdaTrack {
@@ -60,8 +73,30 @@ export class ItdaState {
   // view.ts always sets to the most-recently-clicked clip.
   selectedClipIds: Set<string> = new Set();
   zoomPxPerFrame = 2;
+  // ↕ Vertical Track Zoom — per-track lane height in px. Node's vZoom range is
+  // 44..140, default 74 (dom_build.js); web keeps its own 52px default look but the
+  // slider now spans the node's real range.
+  trackHeight = 52;
   snap = true;
   dirty = false;
+  // ⏮/⏭ Mark In / Mark Out range (I/O keys on the node) — a play/pre-render range
+  // distinct from clip trim. Structural port of state.range in itda_app_ported.js.
+  range: { start: number | null; end: number | null } = { start: null, end: null };
+  // 〜 Peak Match — also snap clip edges to audio waveform peaks. Toggle state is
+  // ported; the actual peak/beat snap-candidate integration is not (tracked in
+  // PORT_LEDGER — snapMoveStart/snapEdge here only use other-clip edges, matching
+  // this web port's existing snap, same as the node's own documented gap).
+  peakSnap = false;
+
+  markIn() {
+    this.range = { ...this.range, start: this.playhead };
+  }
+  markOut() {
+    this.range = { ...this.range, end: this.playhead };
+  }
+  clearRange() {
+    this.range = { start: null, end: null };
+  }
 
   // Real last-clip end across all tracks — export/prerender length and the Properties panel's
   // "End Frame" jump both use this instead of stretching to Total Frames (export.py §content_end).
@@ -342,6 +377,86 @@ export class ItdaState {
       }
     }
     return best;
+  }
+
+  // ── 🔗 Group / ⛓️‍💥 Ungroup — tag 2+ selected clips with a shared groupId (or
+  // clear it off the selected group). See ItdaClip.groupId doc comment for scope.
+  groupSelected(): boolean {
+    const picked = [...this.selectedClipIds].map((id) => this.findClip(id)).filter(Boolean) as { track: ItdaTrack; clip: ItdaClip }[];
+    if (picked.length < 2) return false;
+    const gid = `group_${Date.now()}`;
+    for (const { clip } of picked) clip.groupId = gid;
+    this.dirty = true;
+    return true;
+  }
+
+  ungroupSelected(): boolean {
+    const picked = [...this.selectedClipIds].map((id) => this.findClip(id)).filter(Boolean) as { track: ItdaTrack; clip: ItdaClip }[];
+    const gids = new Set(picked.map((p) => p.clip.groupId).filter(Boolean));
+    if (!gids.size) return false;
+    for (const t of this.tracks) for (const c of t.clips) if (c.groupId && gids.has(c.groupId)) c.groupId = undefined;
+    this.dirty = true;
+    return true;
+  }
+
+  // ── 🔈⊘ Detach Audio — see ItdaClip.linkedAudioClipId doc comment: creates a
+  // sibling audio clip on the first audio track (adding one if none exists) instead
+  // of truly demuxing the source. No-op if the selected clip isn't video, or audio
+  // is already detached.
+  detachAudio(): ItdaClip | null {
+    if (!this.selectedClipId) return null;
+    const found = this.findClip(this.selectedClipId);
+    if (!found || found.clip.kind !== "video" || found.clip.audioDetached) return null;
+    const { clip } = found;
+    let audioTrack = this.tracks.find((t) => t.kind === "audio");
+    if (!audioTrack) {
+      audioTrack = { index: this.tracks.length, kind: "audio", clips: [] };
+      this.tracks.push(audioTrack);
+    }
+    const audioClip: ItdaClip = {
+      ...clip,
+      id: `clip_${Date.now()}_a`,
+      kind: "audio",
+      track: audioTrack.index,
+      groupId: undefined,
+      children: undefined,
+      linkedAudioClipId: undefined,
+      audioDetached: undefined,
+      label: `${clip.label || "audio"} (detached)`,
+    };
+    audioTrack.clips.push(audioClip);
+    clip.audioDetached = true;
+    clip.linkedAudioClipId = audioClip.id;
+    this.dirty = true;
+    return audioClip;
+  }
+
+  // ── 🔈+ Merge Audio — reverse of detachAudio(): removes the linked sibling audio
+  // clip it created and clears the flag on the original.
+  mergeAudioBack(): boolean {
+    if (!this.selectedClipId) return false;
+    const found = this.findClip(this.selectedClipId);
+    if (!found) return false;
+    const { clip } = found;
+    // Selection may be either the original video clip (has linkedAudioClipId) or
+    // the detached audio sibling itself — find the owner either way.
+    let owner = clip.kind === "video" && clip.linkedAudioClipId ? clip : null;
+    if (!owner) {
+      for (const t of this.tracks) {
+        for (const c of t.clips) {
+          if (c.linkedAudioClipId === clip.id) { owner = c; break; }
+        }
+        if (owner) break;
+      }
+    }
+    if (!owner || !owner.linkedAudioClipId) return false;
+    this.removeClip(owner.linkedAudioClipId);
+    owner.linkedAudioClipId = undefined;
+    owner.audioDetached = undefined;
+    this.selectedClipId = owner.id;
+    this.selectedClipIds = new Set([owner.id]);
+    this.dirty = true;
+    return true;
   }
 
   async loadProject(name: string) {

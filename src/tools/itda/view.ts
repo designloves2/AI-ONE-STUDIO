@@ -15,12 +15,50 @@ import { createItdaSettingsOverlay } from "./settings";
 // itda_style.css's real value (`.ruler{height:48px}`) — was 30, a guessed number.
 const RULER_HEIGHT = 48;
 
+// View-level prefs (zoom/track-height/snap/thumb-size/media-view-mode/hidden+locked
+// tracks) — client-side only, not part of the saved project JSON, same split
+// core_itda_studio.js's own defaultState() makes (pxPerFrame/laneHeight/snap/
+// mediaThumb/lockedLanes/hiddenLanes persisted via LS_KEY). None of this was wired
+// up at all before — every reload silently reset the zoom slider, track height,
+// thumbnail size, etc. back to their hardcoded defaults.
+const ITDA_VIEW_LS_KEY = "aos_itda_view_v1";
+interface ItdaViewPrefs {
+  zoomPxPerFrame?: number;
+  trackHeight?: number;
+  snap?: boolean;
+  thumbSize?: number;
+  mediaViewMode?: "grid" | "list";
+  hiddenTracks?: number[];
+  lockedTracks?: number[];
+}
+function loadViewPrefs(): ItdaViewPrefs {
+  try { return JSON.parse(localStorage.getItem(ITDA_VIEW_LS_KEY) || "{}"); } catch { return {}; }
+}
+function saveViewPrefs(p: ItdaViewPrefs) {
+  try { localStorage.setItem(ITDA_VIEW_LS_KEY, JSON.stringify(p)); } catch {}
+}
+
 export function renderItda(container: HTMLElement) {
   const state = new ItdaState();
+  const viewPrefs = loadViewPrefs();
+  if (viewPrefs.zoomPxPerFrame) state.zoomPxPerFrame = viewPrefs.zoomPxPerFrame;
+  if (viewPrefs.trackHeight) state.trackHeight = viewPrefs.trackHeight;
+  if (viewPrefs.snap != null) state.snap = viewPrefs.snap;
   let dragState: DragState | null = null;
   let dragEl: HTMLElement | null = null;
-  const trackHidden = new Set<number>();
-  const trackLocked = new Set<number>();
+  const trackHidden = new Set<number>(viewPrefs.hiddenTracks || []);
+  const trackLocked = new Set<number>(viewPrefs.lockedTracks || []);
+  function persistViewPrefs() {
+    saveViewPrefs({
+      zoomPxPerFrame: state.zoomPxPerFrame,
+      trackHeight: state.trackHeight,
+      snap: state.snap,
+      thumbSize,
+      mediaViewMode,
+      hiddenTracks: [...trackHidden],
+      lockedTracks: [...trackLocked],
+    });
+  }
 
   const root = el("div", { style: { display: "flex", flexDirection: "column", height: "100%", background: C.bg0, boxSizing: "border-box", overflow: "hidden", fontFamily: "inherit" } });
   container.appendChild(root);
@@ -778,10 +816,12 @@ export function renderItda(container: HTMLElement) {
         headBtn("👁", !hidden, hidden ? "Hidden — click to show" : "Visible — click to hide", () => {
           if (trackHidden.has(ti)) trackHidden.delete(ti); else trackHidden.add(ti);
           renderTracks();
+          persistViewPrefs();
         }),
         headBtn("🔒", locked, locked ? "Locked — click to unlock" : "Unlocked — click to lock", () => {
           if (trackLocked.has(ti)) trackLocked.delete(ti); else trackLocked.add(ti);
           renderTracks();
+          persistViewPrefs();
         })
       );
       trackEl.appendChild(head);
@@ -1067,8 +1107,8 @@ export function renderItda(container: HTMLElement) {
   });
 
   // ── Media Bin — 2-up thumbnail card grid ────────────────────────────────────────
-  let mediaViewMode: "grid" | "list" = "grid";
-  let thumbSize = 96;
+  let mediaViewMode: "grid" | "list" = viewPrefs.mediaViewMode || "grid";
+  let thumbSize = viewPrefs.thumbSize || 96;
   let mediaGridEl: HTMLElement | null = null;
 
   function mediaKindIcon(kind?: string) {
@@ -1088,13 +1128,13 @@ export function renderItda(container: HTMLElement) {
         el("button", {
           text: mediaViewMode === "grid" ? "▦" : "▦",
           title: "Grid view",
-          onclick: () => { mediaViewMode = "grid"; renderMediaBin(); },
+          onclick: () => { mediaViewMode = "grid"; renderMediaBin(); persistViewPrefs(); },
           style: { background: mediaViewMode === "grid" ? BRAND : "transparent", color: mediaViewMode === "grid" ? "#fff" : C.muted, border: "none", borderRadius: "4px", padding: "2px 5px", fontSize: "11px", cursor: "pointer" },
         }),
         el("button", {
           text: "☰",
           title: "List view",
-          onclick: () => { mediaViewMode = "list"; renderMediaBin(); },
+          onclick: () => { mediaViewMode = "list"; renderMediaBin(); persistViewPrefs(); },
           style: { background: mediaViewMode === "list" ? BRAND : "transparent", color: mediaViewMode === "list" ? "#fff" : C.muted, border: "none", borderRadius: "4px", padding: "2px 5px", fontSize: "11px", cursor: "pointer" },
         }),
       ], "2px"),
@@ -1211,6 +1251,7 @@ export function renderItda(container: HTMLElement) {
           t.style.height = `${thumbSize}px`;
         }
       }
+      persistViewPrefs();
     });
     footer.append(el("span", { text: "Thumb", style: { color: C.muted, fontSize: "9px" } }), sizeSlider);
     mediaBin.appendChild(footer);
@@ -1673,6 +1714,7 @@ export function renderItda(container: HTMLElement) {
       state.snap = v;
       b.textContent = `Snap: ${v ? "ON" : "OFF"}`;
       refreshStatus();
+      persistViewPrefs();
     });
     return b;
   }
@@ -1712,6 +1754,7 @@ export function renderItda(container: HTMLElement) {
       state.zoomPxPerFrame = zoomFromPercent(Number(s.value));
       renderRuler();
       renderTracks();
+      persistViewPrefs();
     });
     return s;
   }
@@ -1723,6 +1766,7 @@ export function renderItda(container: HTMLElement) {
     s.addEventListener("input", () => {
       state.trackHeight = Number(s.value);
       renderTracks();
+      persistViewPrefs();
     });
     return s;
   }

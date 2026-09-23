@@ -965,17 +965,49 @@ export function renderItda(container: HTMLElement) {
     );
     clipEl.dataset.clipId = clip.id;
 
-    const chip = el("div", {
-      text: (isStitched ? "🧵 " : clip.kind === "audio" ? "🎵 " : clip.kind === "image" ? "🖼 " : "🎬 ") + (clip.label || clip.media_path.split(/[\\/]/).pop() || ""),
-      style: { padding: "2px 5px", fontWeight: "700", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden", background: "rgba(0,0,0,0.28)" },
+    // ── clip-title — ONE row (itda_app_ported.js renderLanes ~466-486), not two
+    // stacked lines: a left group (thumb/icon + name) and a right group (sound
+    // on/off + trim/length), each its own flex container, with justify-content:
+    // space-between applied ONLY to the outer clip-title row — grouping left/right
+    // separately (rather than 4 flat children space-between'd) is deliberate,
+    // per the node's own prior bug: flattening them made the name drift away from
+    // the thumbnail as horizontal zoom increased.
+    const clipTitle = el("div", {
+      style: { display: "flex", alignItems: "center", justifyContent: "space-between", height: "16px", padding: "0 5px", background: "rgba(0,0,0,0.28)", gap: "4px", overflow: "hidden" },
     });
-    clipEl.appendChild(chip);
-    if (!isStitched) {
-      clipEl.appendChild(el("div", {
-        text: `${clip.duration}f · in${clip.source_in || 0}`,
-        style: { padding: "0 5px", fontSize: "8px", color: "rgba(255,255,255,0.65)" },
+    const titleLeft = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", minWidth: "0", flex: "1" } });
+    const media = state.media.find((m) => m.path === clip.media_path);
+    const clipIconGlyph = isStitched ? "◆" : clip.kind === "audio" ? "♫" : clip.kind === "image" ? "▧" : "▣";
+    if (!isStitched && media?.thumb_url) {
+      titleLeft.appendChild(el("img", {
+        src: api.resolveUrl(media.thumb_url),
+        style: { width: "14px", height: "14px", objectFit: "cover", borderRadius: "2px", flexShrink: "0" },
+        alt: "",
+        onerror: (ev: Event) => { (ev.target as HTMLElement).style.display = "none"; },
       }));
+    } else {
+      titleLeft.appendChild(el("span", { text: clipIconGlyph, style: { flexShrink: "0", fontSize: "10px" } }));
     }
+    const rawName = clip.label || clip.media_path.split(/[\\/]/).pop() || "";
+    titleLeft.appendChild(el("span", {
+      text: rawName.length > 24 ? rawName.slice(0, 24) + "…" : rawName,
+      style: { fontWeight: "700", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" },
+    }));
+    clipTitle.appendChild(titleLeft);
+
+    if (!isStitched) {
+      const titleRight = el("div", { style: { display: "flex", alignItems: "center", gap: "5px", flexShrink: "0" } });
+      if (clip.kind === "audio" || clip.kind === "video") {
+        const audioOn = !clip.muted;
+        titleRight.appendChild(el("span", { text: audioOn ? "🔊" : "🔇", style: { fontSize: "9px", opacity: audioOn ? "1" : "0.6" } }));
+      }
+      titleRight.appendChild(el("span", {
+        text: `${clip.source_in || 0}f to ${clip.source_out || clip.duration}f / ${fmtTime(clip.duration)}`,
+        style: { fontSize: "8px", color: "rgba(255,255,255,0.65)", whiteSpace: "nowrap" },
+      }));
+      clipTitle.appendChild(titleRight);
+    }
+    clipEl.appendChild(clipTitle);
 
     if (!isStitched && (clip.kind === "audio" || clip.kind === "video")) {
       const barsBox = el("div", {

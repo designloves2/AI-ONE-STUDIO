@@ -7,6 +7,7 @@ import { renderKrea2 } from "./tools/krea2/view";
 import { renderZImage } from "./tools/zimage/view";
 import { renderKlein } from "./tools/klein/view";
 import { renderQwen2511 } from "./tools/qwen2511/view";
+import { renderQwen21 } from "./tools/qwen21/view";
 import { renderSDXL } from "./tools/sdxl/view";
 import { renderAnima } from "./tools/anima/view";
 import { renderMusic } from "./tools/music/view";
@@ -19,6 +20,7 @@ registerTool("krea2", renderKrea2);
 registerTool("zimage", renderZImage);
 registerTool("klein", renderKlein);
 registerTool("qwen2511", renderQwen2511);
+registerTool("qwen21", renderQwen21);
 registerTool("sdxl", renderSDXL);
 registerTool("anima", renderAnima);
 

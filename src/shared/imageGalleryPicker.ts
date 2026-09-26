@@ -21,6 +21,7 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
   { id: "zimage", label: "Z-Image", api: "/z_image_turbo", subfolder: "one_z-image" },
   { id: "klein", label: "Flux2 Klein", api: "/flux_klein", subfolder: "one_flux2-klein" },
   { id: "qwen2511", label: "Qwen Image 2511", api: "/qwen2511_one", subfolder: "one_qwen2511" },
+  { id: "qwen21", label: "Qwen Image 2.1", api: "/qwenimage21_one", subfolder: "qwen21-one-tj" },
   { id: "sdxl", label: "SDXL", api: "/sdxl_one", subfolder: "one_sdxl" },
 ];
 

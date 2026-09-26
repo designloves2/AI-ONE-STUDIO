@@ -34,10 +34,22 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
   bar.appendChild(rowBreak);
 
   const nav = document.createElement("nav");
-  nav.className = "flex items-center gap-4";
+  // 데스크톱: 4개 카테고리 버튼 그대로. 모바일(<=767px)에서는 이 nav 자체를 숨기고
+  // 아래 mobileNav(버튼 하나 + 전체 도구 드롭다운 하나)로 완전히 대체한다 —
+  // "모바일에서는 메뉴가 4칸이 아니고 그냥 하나에 전부 드롭다운 형태로".
+  nav.className = "aos-topbar-nav-desktop flex items-center gap-4";
   navWrap.appendChild(nav);
 
-  const tabs = new Map<ToolId, HTMLButtonElement>();
+  const mobileNav = document.createElement("nav");
+  mobileNav.className = "aos-topbar-nav-mobile items-center";
+  navWrap.appendChild(mobileNav);
+
+  const tabs = new Map<ToolId, HTMLButtonElement[]>();
+  function registerTab(id: ToolId, btn: HTMLButtonElement) {
+    const arr = tabs.get(id) || [];
+    arr.push(btn);
+    tabs.set(id, arr);
+  }
 
   // 4개 카테고리를 전부 가로로 펼치는 대신, 카테고리당 하나의 ☰ 스타일 버튼 + 클릭 시
   // 펼쳐지는 드롭다운(서브메뉴)으로 변경 — 사용자 요청("가로로 펼쳐놓은게 아니고 서브메뉴식").
@@ -104,7 +116,7 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
         "px-3 h-9 text-left text-sm text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap";
       btn.addEventListener("click", () => { closeAllDropdowns(); goTo(tool.id); });
       dropdown.appendChild(btn);
-      tabs.set(tool.id, btn);
+      registerTab(tool.id, btn);
     }
 
     nav.appendChild(groupBtn);
@@ -116,16 +128,61 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
     }
   }
 
+  // ── 모바일: 버튼 하나("☰ Tools ▾") + 전체 도구를 그룹 헤더와 함께 한 드롭다운에 ──
+  const mobileBtn = document.createElement("button");
+  mobileBtn.textContent = "☰ Tools ▾";
+  mobileBtn.className =
+    "px-2 h-9 rounded-md text-sm font-bold text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap shrink-0";
+  mobileNav.appendChild(mobileBtn);
+
+  const mobileDropdown = document.createElement("div");
+  mobileDropdown.className =
+    "flex flex-col min-w-[200px] max-h-[70vh] overflow-y-auto rounded-md border border-border bg-bg1 shadow-lg py-1";
+  mobileDropdown.style.cssText = "display:none; position:fixed; z-index:1000;";
+  (mobileDropdown as any)._ownerBtn = mobileBtn;
+  openDropdowns.push(mobileDropdown);
+  document.body.appendChild(mobileDropdown);
+
+  mobileBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isOpen = mobileDropdown.style.display !== "none";
+    closeAllDropdowns();
+    if (!isOpen) {
+      const r = mobileBtn.getBoundingClientRect();
+      mobileDropdown.style.left = `${r.left}px`;
+      mobileDropdown.style.top = `${r.bottom + 4}px`;
+      mobileDropdown.style.display = "flex";
+    }
+  });
+
+  for (const group of groups) {
+    const hdr = document.createElement("div");
+    hdr.textContent = GROUP_LABELS[group];
+    hdr.className = "px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-muted";
+    mobileDropdown.appendChild(hdr);
+    for (const tool of TOOLS.filter((t) => t.group === group)) {
+      const btn = document.createElement("button");
+      btn.textContent = tool.label;
+      btn.className =
+        "px-3 h-9 text-left text-sm text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap";
+      btn.addEventListener("click", () => { closeAllDropdowns(); goTo(tool.id); });
+      mobileDropdown.appendChild(btn);
+      registerTab(tool.id, btn);
+    }
+  }
+
   function updateActive() {
     const active = toolFromHash(location.hash);
-    for (const [id, btn] of tabs) {
+    for (const [id, btns] of tabs) {
       const isActive = active?.id === id;
-      btn.classList.toggle("bg-bg3", isActive);
-      btn.classList.toggle("text-text", isActive);
-      btn.classList.toggle("border-brand", isActive);
-      btn.classList.toggle("text-muted", !isActive);
-      if (isActive) {
-        animate(btn, { opacity: [0.6, 1] }, { duration: 0.2 });
+      for (const btn of btns) {
+        btn.classList.toggle("bg-bg3", isActive);
+        btn.classList.toggle("text-text", isActive);
+        btn.classList.toggle("border-brand", isActive);
+        btn.classList.toggle("text-muted", !isActive);
+        if (isActive) {
+          animate(btn, { opacity: [0.6, 1] }, { duration: 0.2 });
+        }
       }
     }
     // 활성 도구가 속한 카테고리 버튼도 강조하고, 그 도구 이름을 버튼 라벨로 보여준다

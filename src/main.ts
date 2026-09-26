@@ -34,3 +34,25 @@ content.className = "flex-1 min-h-0 flex flex-col overflow-y-auto";
 app.appendChild(content);
 
 startRouter(content, renderLanding);
+
+// 모바일 가로모드 차단 — 터치 기기이면서 실제 화면이 휴대폰 크기(짧은 변 <=767px)일 때만
+// 세로모드로 돌리라는 전체 화면 안내를 띄운다. 데스크톱 창을 옆으로 늘리는 것과는 무관.
+function isMobileLandscapeBlocked(): boolean {
+  const isCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+  const isLandscape = window.innerWidth > window.innerHeight;
+  const shortSide = Math.min(window.innerWidth, window.innerHeight);
+  return isCoarsePointer && isLandscape && shortSide <= 767;
+}
+const orientationGuard = document.createElement("div");
+orientationGuard.className = "aos-orientation-guard";
+orientationGuard.innerHTML =
+  `<div class="icon">📱</div>` +
+  `<div style="font-size:16px;font-weight:700;">세로 모드로 회전해주세요</div>` +
+  `<div style="font-size:12px;max-width:320px;line-height:1.6;">이 앱은 모바일 가로 모드를 지원하지 않습니다. 기기를 세로로 돌려주세요.</div>`;
+document.body.appendChild(orientationGuard);
+function updateOrientationGuard() {
+  orientationGuard.classList.toggle("show", isMobileLandscapeBlocked());
+}
+window.addEventListener("resize", updateOrientationGuard);
+window.addEventListener("orientationchange", updateOrientationGuard);
+updateOrientationGuard();

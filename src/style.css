@@ -233,4 +233,62 @@ body {
   .aos-mmh3-sec-sampling { order: 2 !important; }
   .aos-mmh3-sec-preview { order: 3 !important; }
   .aos-mmh3-sec-output { order: 4 !important; }
+
+  /* 상단 메뉴: 데스크톱의 4칸 카테고리 드롭다운 대신, 모바일에서는 버튼 하나("☰ Tools ▾")에
+     전체 도구가 그룹 헤더와 함께 들어간 드롭다운 하나로 대체한다.
+     "모바일에서는 메뉴가 4칸이 아니고 그냥 하나에 전부 드롭다운 형태로" */
+  .aos-topbar-nav-desktop {
+    display: none !important;
+  }
+  .aos-topbar-nav-mobile {
+    display: flex !important;
+  }
+}
+@media (min-width: 768px) {
+  .aos-topbar-nav-mobile {
+    display: none !important;
+  }
+}
+
+/* ── 모바일 가로모드 차단 — 세로모드로 돌리라는 안내 오버레이 ────────────────
+   터치 기기(pointer:coarse)이면서 실제 화면 폭이 767px 이하인 기기(=휴대폰)가
+   가로로 눕혀졌을 때만 뜬다. 데스크톱 창을 옆으로 늘리는 것과는 무관 — 회전축
+   기준 짧은 변(가로모드에선 window.innerHeight)으로 판별한다(js에서 클래스 토글). */
+.aos-orientation-guard {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: #0b0b0b;
+  color: #dedede;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+}
+.aos-orientation-guard.show {
+  display: flex;
+}
+.aos-orientation-guard .icon {
+  font-size: 48px;
+  animation: aos-rotate-hint 1.6s ease-in-out infinite;
+}
+@keyframes aos-rotate-hint {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(90deg); }
+}
+
+/* ── ITDA는 모바일 미지원 — 안내 메시지만 보여주고 실제 도구는 마운트하지 않는다 ── */
+.aos-itda-mobile-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 32px;
+  text-align: center;
+  color: var(--color-muted);
 }

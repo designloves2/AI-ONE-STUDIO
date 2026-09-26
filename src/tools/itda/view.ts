@@ -30,6 +30,9 @@ interface ItdaViewPrefs {
   mediaViewMode?: "grid" | "list";
   hiddenTracks?: number[];
   lockedTracks?: number[];
+  // last project opened — was hardcoded to always boot into "itda-project-1"
+  // regardless of what the user actually worked on last session.
+  lastProject?: string;
 }
 function loadViewPrefs(): ItdaViewPrefs {
   try { return JSON.parse(localStorage.getItem(ITDA_VIEW_LS_KEY) || "{}"); } catch { return {}; }
@@ -44,6 +47,7 @@ export function renderItda(container: HTMLElement) {
   if (viewPrefs.zoomPxPerFrame) state.zoomPxPerFrame = viewPrefs.zoomPxPerFrame;
   if (viewPrefs.trackHeight) state.trackHeight = viewPrefs.trackHeight;
   if (viewPrefs.snap != null) state.snap = viewPrefs.snap;
+  if (viewPrefs.lastProject) state.project = viewPrefs.lastProject;
   let dragState: DragState | null = null;
   let dragEl: HTMLElement | null = null;
   const trackHidden = new Set<number>(viewPrefs.hiddenTracks || []);
@@ -57,6 +61,7 @@ export function renderItda(container: HTMLElement) {
       mediaViewMode,
       hiddenTracks: [...trackHidden],
       lockedTracks: [...trackLocked],
+      lastProject: state.project,
     });
   }
 
@@ -2026,6 +2031,9 @@ export function renderItda(container: HTMLElement) {
     renderProps();
     refreshStatus();
     updatePreview();
+    // remember this as the project to reopen next time, instead of always defaulting
+    // back to the hardcoded "itda-project-1" regardless of what was last used.
+    persistViewPrefs();
   }
 
   (async () => { await bootProject(state.project); })();

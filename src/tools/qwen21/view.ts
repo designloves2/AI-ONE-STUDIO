@@ -14,12 +14,13 @@ import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, 
 import * as api from "./api";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { imageSlot } from "../minimax_h3/imagesPanel";
-import { buildGraph } from "./graphBuilder";
+import { buildGraph, buildPoseExtractGraph, buildPoseGraph } from "./graphBuilder";
 import { queuePrompt, comfyApi } from "./comfyClient";
 import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
 import { createTemplateOverlay } from "./promptTools";
 import { openMaskDrawOverlay, type Stroke } from "./maskDraw";
+import { openPoseCropOverlay } from "./poseCrop";
 import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
 
 const LLM_LS_KEY = "tj_studio_one_llm_settings";
@@ -160,7 +161,13 @@ export function renderQwen21(root: HTMLElement) {
     if (state.mode === "edit") return state.editAnnotImage || state.editImage1 || "";
     if (state.mode === "inpaint") return (state.paintSubMode === "inpaint" ? state.inpaintAnnotImage || state.inpaintImage : state.inpaintImage) || "";
     if (state.mode === "upscale") return state.upscaleImage || "";
+    if (state.mode === "pose") return state.poseRenderImage || "";
     return "";
+  }
+  // POSE's compare "before" is the SAM3D pose-render (an OUTPUT-type saved image), not an
+  // input upload like every other mode's own source file.
+  function currentSourceType(): "input" | "output" {
+    return state.mode === "pose" ? "output" : "input";
   }
 
   // ── Compare view — clip-path 방식 ──────────────────────────────────────
@@ -208,7 +215,7 @@ export function renderQwen21(root: HTMLElement) {
     if (compareEnabled && state.mode !== "t2i" && !(state.mode === "i2i" && state.i2iSubMode === "ref2img") && srcFile) {
       placeholderTxt.style.display = "none";
       resultImg.style.display = "none";
-      compareViewEl = createCompareView(api.viewUrl(srcFile, "", "input"), resultURL);
+      compareViewEl = createCompareView(api.viewUrl(srcFile, "", currentSourceType()), resultURL);
       previewBox.appendChild(compareViewEl);
       resetZoom();
     } else {
@@ -830,6 +837,32 @@ export function renderQwen21(root: HTMLElement) {
         leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
         leftScroll.appendChild(panel([label("LoRA"), loraSection(() => state.loras)]));
       }
+    } else if (state.mode === "pose") {
+      const poseCard = imageUploadSlot(state.poseImageRaw, (name) => {
+        state.poseImageRaw = name; state.poseImage = null; state.poseCropBox = null; state.poseRenderImage = null;
+        persist(); cropStatus.textContent = ""; renderLeftPanel();
+      });
+      leftScroll.appendChild(panel([label("Image 1 — Pose Image"), poseCard]));
+
+      const cropBtn = button(state.poseImage ? "✂ Edit Crop" : "✂ Crop Pose Image (required)", () => {
+        if (!state.poseImageRaw) { warnTag.textContent = "Upload the pose image first."; return; }
+        const url = api.viewUrl(state.poseImageRaw, "", "input");
+        openPoseCropOverlay(wrap, url, { cropBox: state.poseCropBox, outW: state.poseOutW, outH: state.poseOutH, lockRatio: state.poseLockRatio }, (filename, cropBox, outW, outH, lockRatio) => {
+          state.poseImage = filename; state.poseCropBox = cropBox; state.poseOutW = outW; state.poseOutH = outH; state.poseLockRatio = lockRatio;
+          state.poseRenderImage = null; // 재크롭하면 이전 렌더는 무효
+          persist();
+          cropStatus.textContent = `Cropped to ${outW}×${outH}`;
+          renderLeftPanel();
+          restorePreviewForMode();
+        });
+      }, state.poseImage ? "primary" : "default");
+      const cropStatus = el("div", { text: state.poseImage ? `Cropped to ${state.poseOutW}×${state.poseOutH}` : "", style: { fontSize: "10px", color: C.muted } });
+      leftScroll.appendChild(panel([cropBtn, cropStatus]));
+
+      const charCard = imageUploadSlot(state.poseCharacterImage, (name) => { state.poseCharacterImage = name; persist(); });
+      leftScroll.appendChild(panel([label("Image 2 — Character Image"), charCard]));
+
+      leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
     } else if (state.mode === "upscale") {
       const card = imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); });
       leftScroll.appendChild(panel([label("Source Image"), card]));
@@ -904,6 +937,11 @@ export function renderQwen21(root: HTMLElement) {
       if (!state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
       if (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none") { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     }
+    if (state.mode === "pose") {
+      if (!state.poseImage) { warnTag.textContent = "Crop the pose image first (✂ Crop Pose Image)"; return; }
+      if (!state.poseCharacterImage) { warnTag.textContent = "Upload the character image (Image 2)"; return; }
+      if (!state.poseLoraModel || state.poseLoraModel === "none") { warnTag.textContent = "Select the VNCCS PoseStudio LoRA in ⚙ Settings"; return; }
+    }
     warnTag.textContent = "";
 
     if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
@@ -935,7 +973,23 @@ export function renderQwen21(root: HTMLElement) {
     }
 
     try {
-      const graph = buildGraph(state);
+      // POSE runs two sequential queued generations: Stage 1 (SAM3D pose extract) must
+      // finish and hand its output filename to Stage 2 (the actual Qwen generation) before
+      // Stage 2's graph can even be built — the shared single-getGraph()/queuePrompt() flow
+      // every other mode uses can't express that dependency, so POSE branches here instead.
+      if (state.mode === "pose") {
+        statusText.textContent = "Extracting pose…";
+        const extractResult = await queuePrompt(buildPoseExtractGraph(state));
+        const extractOut = Object.values(extractResult.byNode).find((o: any) => o.images?.length) as any;
+        const renderIm = extractOut?.images?.[0];
+        if (!renderIm) throw new Error("Pose extraction produced no image.");
+        state.poseRenderImage = renderIm.filename;
+        persist();
+        restorePreviewForMode(); // show the pose-render as the compare "before" while Stage 2 runs
+        statusText.textContent = "Queuing…";
+      }
+
+      const graph = state.mode === "pose" ? buildPoseGraph(state, state.poseRenderImage || "") : buildGraph(state);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {
           statusText.textContent = `Sampling ${v}/${m}`;
@@ -1003,11 +1057,18 @@ function createHelpOverlay() {
     <b>EDIT</b>: Image 1 is the main reference; Images 2–10 are extra references in a compact grid (drag to reorder). Each image can get its own hand-drawn ✏ annotation pointing at what to change — sent as an extra reference, not a mask.<br>
     <b>PAINT — Inpaint</b>: Draw directly on the Source Image to mark the area to change. No separate mask file — the marked-up image is sent as a second reference alongside the original.<br>
     <b>PAINT — Outpaint</b>: Expands the canvas (Up/Down/Left/Right) and fills the new border with Pad Color before asking the model to extend the scene into it.<br>
+    <b>POSE</b>: Copies the pose from Image 1 onto the character in Image 2, using the VNCCS PoseStudio LoRA (select it in ⚙ Settings first). Image 1 must be cropped (✂ Crop Pose Image, yellow box + handles) to the pose subject before Generate — the crop's own output size is what SAM3D Body extracts the pose at. The system prompt (editable/resettable in Settings) is automatically prepended to whatever you write in the PROMPT field.<br>
     <b>UPSCALE</b>: SeedVR2 upscaler — pick a DiT + VAE model pair from models/SEEDVR2/, independent of the Qwen model above.<br>
     <b>Auto Enhance</b>: when checked, Generate first runs Prompt Enhance on the current prompt and updates the PROMPT field before generating with it.<br>
     <b>Send to / Gallery</b>: Copies the current result into the next mode's Source/Image 1 slot, or browse this tool's own render history in 🖼 Gallery.
   `;
-  box.append(hdr, bodyEl);
+  const loraBlock = el("div", { style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "10px 12px" } });
+  loraBlock.appendChild(el("div", { text: "POSE — LoRA Download", style: { color: BRAND, fontSize: "12px", fontWeight: "700", marginBottom: "6px" } }));
+  loraBlock.appendChild(el("div", {
+    html: 'Download <b>VNCCS_QI2_PoseStudioV1.1.safetensors</b> and place it in <code>models/loras/</code>, then select it under ⚙ Settings → POSE — Pose Copy Settings.<br><a href="https://huggingface.co/MIUProject/VNCCS_PoseStudio_QI2.1/blob/main/VNCCS_QI2_PoseStudioV1.1.safetensors" target="_blank" rel="noopener" style="color:' + BRAND + '">huggingface.co/MIUProject/VNCCS_PoseStudio_QI2.1</a>',
+    style: { fontSize: "11.5px", lineHeight: "1.65", color: C.text },
+  }));
+  box.append(hdr, bodyEl, loraBlock);
   ov.appendChild(box);
   ov.addEventListener("click", (e) => { if (e.target === ov) ov.style.display = "none"; });
   return { el: ov, show() { ov.style.display = "flex"; }, hide() { ov.style.display = "none"; } };

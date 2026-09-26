@@ -6,7 +6,7 @@
 // (max_shift/base_shift)이고, QwenImage21Cache(device="auto", dtype="default" 필수)와
 // PathchSageAttentionKJ 토글이 있다.
 import type { Q21State, LoraEntry } from "./core";
-import { SUBFOLDER } from "./core";
+import { SUBFOLDER, POSE_SYSTEM_PROMPT_DEFAULT, POSE_SAM3D_MODEL_DEFAULT } from "./core";
 
 const P = "Q21";
 
@@ -286,6 +286,97 @@ export function buildUpscaleGraph(state: Q21State): Record<string, any> {
     "UP:run": { class_type: "SeedVR2VideoUpscaler", inputs: { image: ["UP:load", 0], dit: ["UP:dit", 0], vae: ["UP:vae", 0], seed: (state.seed ?? 42) % 4294967295, resolution: state.upscaleResolution ?? 2048, max_resolution: state.upscaleMaxResolution ?? 4096, batch_size: state.upscaleBatchSize ?? 1, uniform_batch_size: false, color_correction: state.upscaleColorCorrection || "lab", temporal_overlap: 0, prepend_frames: 0, input_noise_scale: state.upscaleInputNoiseScale ?? 0, latent_noise_scale: state.upscaleLatentNoiseScale ?? 0, offload_device: ditOffload, enable_debug: false } },
     "UP:save": { class_type: "SaveImage", inputs: { images: ["UP:run", 0], filename_prefix: `${folder}/Q21_up` } },
   };
+}
+
+// ── POSE (VNCCS PoseStudio LoRA) ────────────────────────────────────────────────
+// Phase 1: extract a SAM3D-Body render from the (already client-side cropped/resized) pose
+// image. Queued and awaited BEFORE the main generation (in view.ts's generate()) — its
+// result becomes <image1>. Mirrors the reference workflow's own node chain and parameter
+// values (method="gaussian" for Smooth, mesh/default/full_body for Render) 1:1.
+export function buildPoseExtractGraph(state: Q21State): Record<string, any> {
+  if (!state.poseImage) throw new Error("Crop the pose image first (✂ Crop Pose Image).");
+  const folder = state.saveSubfolder || SUBFOLDER;
+  const g: Record<string, any> = {};
+  g[`${P}:loadPose`] = { class_type: "LoadImage", inputs: { image: state.poseImage } };
+  g[`${P}:samLoader`] = { class_type: "SAM3DBody_Loader", inputs: { model_file: state.poseSamModel || POSE_SAM3D_MODEL_DEFAULT } };
+  g[`${P}:samPredict`] = {
+    class_type: "SAM3DBody_Predict",
+    inputs: { sam3d_body_model: [`${P}:samLoader`, 0], image: [`${P}:loadPose`, 0], run_hand_refinement: true, fov: 0, batch_size: 64 },
+  };
+  g[`${P}:samSmooth`] = {
+    class_type: "SAM3DBody_Smooth",
+    inputs: { mhr_pose_data: [`${P}:samPredict`, 0], strength: 1, method: "gaussian", window: 7, rotation_threshold_degrees: 15 },
+  };
+  g[`${P}:samRender`] = {
+    class_type: "SAM3DBody_Render",
+    inputs: {
+      pose_data: [`${P}:samSmooth`, 0], width: 0, height: 0,
+      render_style: "mesh", "render_style.shader": "default", "render_style.opacity": 1,
+      "render_style.person_palette_falloff": 0.6, "render_style.region": "full_body",
+    },
+  };
+  g[`${P}:samSave`] = { class_type: "SaveImage", inputs: { images: [`${P}:samRender`, 0], filename_prefix: `${folder}/Q21_pose_render` } };
+  return g;
+}
+
+// Phase 2: main generation. modelLink comes from the pose LoRA, not the general LoRA list
+// (Settings-configured, fixed) — the reference workflow has no ModelSamplingFlux for this
+// path, so this builds its own minimal base graph instead of reusing buildBaseGraph.
+function buildPoseBaseGraph(state: Q21State) {
+  const model = state.model || "";
+  const clip = state.textEncoder || "";
+  const vae = state.vae || "";
+  if (!model) throw new Error("No model selected. Configure in ⚙ Settings.");
+  if (!clip) throw new Error("No text encoder selected. Configure in ⚙ Settings.");
+  if (!vae) throw new Error("No VAE selected. Configure in ⚙ Settings.");
+  if (!state.poseLoraModel || state.poseLoraModel === "none") throw new Error("Select the VNCCS PoseStudio LoRA in ⚙ Settings.");
+
+  const g: Record<string, any> = {};
+  if (model.toLowerCase().endsWith(".gguf")) {
+    g[`${P}:unet`] = { class_type: "UnetLoaderGGUF", inputs: { unet_name: model } };
+  } else {
+    g[`${P}:unet`] = { class_type: "UNETLoader", inputs: { unet_name: model, weight_dtype: "default" } };
+  }
+  g[`${P}:clip`] = { class_type: "CLIPLoader", inputs: { clip_name: clip, type: "qwen_image", device: "default" } };
+  g[`${P}:vae`] = { class_type: "VAELoader", inputs: { vae_name: vae } };
+
+  g[`${P}:poseLora`] = {
+    class_type: "LoraLoaderModelOnly",
+    inputs: { model: [`${P}:unet`, 0], lora_name: state.poseLoraModel, strength_model: +(state.poseLoraStrength ?? 1) },
+  };
+  let modelOut: any = [`${P}:poseLora`, 0];
+
+  if (state.useCache !== false) {
+    g[`${P}:cache`] = { class_type: "QwenImage21Cache", inputs: { model: modelOut, device: "auto", dtype: "default" } };
+    modelOut = [`${P}:cache`, 0];
+  }
+  if (state.useSageAttention) {
+    g[`${P}:sage`] = { class_type: "PathchSageAttentionKJ", inputs: { model: modelOut, sage_attention: "auto" } };
+    modelOut = [`${P}:sage`, 0];
+  }
+  return { g, modelLink: modelOut, clipLink: [`${P}:clip`, 0], vaeLink: [`${P}:vae`, 0] };
+}
+
+export function buildPoseGraph(state: Q21State, poseRenderFilename: string): Record<string, any> {
+  if (!state.poseCharacterImage) throw new Error("Upload the character image (Image 2).");
+  if (!poseRenderFilename) throw new Error("Pose extraction failed — no render produced.");
+  const { g, modelLink, clipLink, vaeLink } = buildPoseBaseGraph(state);
+
+  const sysPrompt = (state.poseSystemPrompt || POSE_SYSTEM_PROMPT_DEFAULT).trim();
+  const userPrompt = buildPromptText(state, "pose");
+  const promptText = [sysPrompt, userPrompt].filter(Boolean).join(" ");
+
+  g[`${P}:loadPoseRender`] = { class_type: "LoadImage", inputs: { image: poseRenderFilename } };
+  g[`${P}:loadCharacter`] = { class_type: "LoadImage", inputs: { image: state.poseCharacterImage } };
+  const imageLinks = [
+    resizeToMp(g, `${P}:poseRenderMp`, [`${P}:loadPoseRender`, 0], state.refMaxMegapixels),
+    resizeToMp(g, `${P}:characterMp`, [`${P}:loadCharacter`, 0], state.refMaxMegapixels),
+  ];
+
+  const { posLink, negLink, latentLink } = addConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", state.resolution || state.width || 1024, imageLinks);
+  addKSampler(g, modelLink, latentLink, state, 1.0, posLink, negLink);
+  addDecodeAndSave(g, vaeLink, state);
+  return g;
 }
 
 export function buildGraph(state: Q21State): Record<string, any> {

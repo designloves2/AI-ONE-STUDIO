@@ -12,9 +12,15 @@ export const SUBFOLDER = "qwen21-one-tj";
 export const API = "/qwenimage21_one";
 export const LS_KEY = "qwenimage21_one_tj_state_v1";
 
-export type Q21Mode = "t2i" | "i2i" | "edit" | "inpaint" | "upscale";
+export type Q21Mode = "t2i" | "i2i" | "edit" | "inpaint" | "pose" | "upscale";
 export type I2ISubMode = "i2i" | "ref2img";
 export type PaintSubMode = "inpaint" | "outpaint";
+
+// POSE mode — VNCCS PoseStudio LoRA. Image 1 is a SAM3D-Body render of the pose image
+// (extracted server-side before the main generation), Image 2 is the character.
+export const POSE_SYSTEM_PROMPT_DEFAULT =
+  "replace the pose of <image 2> with the pose of <image 1>. keep the character of <image 2>.";
+export const POSE_SAM3D_MODEL_DEFAULT = "sam_3d_body_dinov3_bf16.safetensors";
 
 export interface LoraEntry {
   name: string;
@@ -32,6 +38,7 @@ const ALL_TARGETS: { mode: Q21Mode; label: string; field: string; subMode?: Pain
   { mode: "inpaint", label: "→ Inpaint", field: "inpaintImage", subMode: "inpaint" },
   { mode: "inpaint", label: "→ Outpaint", field: "inpaintImage", subMode: "outpaint" },
   { mode: "upscale", label: "→ Upscale", field: "upscaleImage" },
+  { mode: "pose", label: "→ Pose (Character)", field: "poseCharacterImage" },
 ];
 export const SEND_TO: Record<Q21Mode, typeof ALL_TARGETS> = {
   t2i: ALL_TARGETS,
@@ -39,6 +46,7 @@ export const SEND_TO: Record<Q21Mode, typeof ALL_TARGETS> = {
   edit: ALL_TARGETS.filter((t) => t.mode !== "edit"),
   inpaint: ALL_TARGETS.filter((t) => t.mode !== "inpaint"),
   upscale: ALL_TARGETS.filter((t) => t.mode !== "upscale"),
+  pose: ALL_TARGETS.filter((t) => t.mode !== "pose"),
 };
 
 export interface Q21State {
@@ -130,6 +138,26 @@ export interface Q21State {
 
   outputMode: string;
   saveSubfolder: string;
+
+  // POSE mode (VNCCS PoseStudio LoRA) — Image 1 is a SAM3D-Body render of the pose image
+  // (cropped/resized client-side, extracted server-side before generation), Image 2 is the
+  // character. poseImage is the CROPPED/RESIZED file actually sent to SAM3D; poseImageRaw is
+  // the original upload the crop tool re-opens on. poseRenderImage is the SAM3D render result
+  // (becomes <image1>, and the Compare view's "before").
+  poseImageRaw: string | null;
+  poseImage: string | null;
+  poseCropBox: { x: number; y: number; w: number; h: number } | null;
+  poseOutW: number;
+  poseOutH: number;
+  poseLockRatio: boolean;
+  poseRenderImage: string | null;
+  poseCharacterImage: string | null;
+
+  // Settings — VNCCS PoseStudio LoRA + SAM3D model file + editable/resettable system prompt.
+  poseLoraModel: string;
+  poseLoraStrength: number;
+  poseSamModel: string;
+  poseSystemPrompt: string;
 }
 
 export const SAMPLERS = ["euler", "euler_ancestral", "er_sde", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "heun", "dpm_pp_2m"];
@@ -157,6 +185,7 @@ export const MODES: { key: Q21Mode; label: string }[] = [
   { key: "i2i", label: "I2I" },
   { key: "edit", label: "EDIT" },
   { key: "inpaint", label: "PAINT" },
+  { key: "pose", label: "POSE" },
   { key: "upscale", label: "UPSCALE" },
 ];
 
@@ -265,6 +294,20 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
 
     outputMode: saved.outputMode || "save",
     saveSubfolder: saved.saveSubfolder || "",
+
+    poseImageRaw: saved.poseImageRaw || null,
+    poseImage: saved.poseImage || null,
+    poseCropBox: saved.poseCropBox || null,
+    poseOutW: saved.poseOutW || 1024,
+    poseOutH: saved.poseOutH || 1024,
+    poseLockRatio: saved.poseLockRatio ?? true,
+    poseRenderImage: saved.poseRenderImage || null,
+    poseCharacterImage: saved.poseCharacterImage || null,
+
+    poseLoraModel: saved.poseLoraModel || "none",
+    poseLoraStrength: saved.poseLoraStrength ?? 1,
+    poseSamModel: saved.poseSamModel || POSE_SAM3D_MODEL_DEFAULT,
+    poseSystemPrompt: saved.poseSystemPrompt ?? POSE_SYSTEM_PROMPT_DEFAULT,
   };
 }
 

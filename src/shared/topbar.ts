@@ -69,8 +69,12 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
   for (const group of groups) {
     const groupBtn = document.createElement("button");
     groupBtn.textContent = `${GROUP_LABELS[group]} ▾`;
+    // fixed width (not just min-width) so all 4 buttons stay evenly spaced regardless
+    // of label length — was sized to its own text, so "MiniMax H3" vs "Image Edit
+    // Generator" vs a long tool name (e.g. "Qwen Image 2511") each pushed the
+    // following buttons around by however much shorter/longer the label was.
     groupBtn.className =
-      "px-3 h-9 rounded-md text-sm font-bold text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap shrink-0";
+      "px-2 h-9 w-[190px] rounded-md text-sm font-bold text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap overflow-hidden text-ellipsis shrink-0";
     groupBtns.set(group, groupBtn);
 
     const dropdown = document.createElement("div");

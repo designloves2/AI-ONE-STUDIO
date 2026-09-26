@@ -46,7 +46,13 @@ export function openPoseCropOverlay(
   const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   hdr.appendChild(el("div", { text: "Crop the pose image — drag the yellow box/handles", style: { color: "#fff", fontSize: "13px", fontWeight: "700", flex: "1" } }));
   const cancelBtn = el("button", { type: "button", text: "Cancel", style: btnStyle() });
+  const applyBtn = el("button", {
+    type: "button", text: "✓ Apply Crop",
+    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "700" },
+  }) as HTMLButtonElement;
+  // 사용자 요청: Cancel / Apply Crop을 우측 상단(헤더)으로 이동 — 예전엔 하단 footer에 있었음.
   hdr.appendChild(cancelBtn);
+  hdr.appendChild(applyBtn);
   overlay.appendChild(hdr);
 
   const canvasWrap = el("div", { style: { flex: "1", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } });
@@ -58,17 +64,11 @@ export function openPoseCropOverlay(
   const hIn = el("input", { type: "number", step: "8", min: "64", style: sizeStyle }) as HTMLInputElement;
   const lockChk = el("input", { type: "checkbox" }) as HTMLInputElement;
   const lockLbl = el("label", { style: { display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: C.muted, cursor: "pointer", whiteSpace: "nowrap" } }, [lockChk, el("span", { text: "🔒 Lock ratio" })]);
-  const applyBtn = el("button", {
-    type: "button", text: "✓ Apply Crop",
-    style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "700" },
-  }) as HTMLButtonElement;
   footer.appendChild(el("span", { text: "Output W", style: { fontSize: "11px", color: C.muted } }));
   footer.appendChild(wIn);
   footer.appendChild(el("span", { text: "H", style: { fontSize: "11px", color: C.muted } }));
   footer.appendChild(hIn);
   footer.appendChild(lockLbl);
-  footer.appendChild(el("div", { style: { flex: "1" } }));
-  footer.appendChild(applyBtn);
   overlay.appendChild(footer);
 
   const img = new Image();

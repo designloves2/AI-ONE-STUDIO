@@ -1,6 +1,6 @@
 // topbar.ts — 상단 고정 메뉴바. 6개 도구를 탭으로 노출, 항상 화면에 보임.
 import { animate } from "motion";
-import { TOOLS, GROUP_LABELS, GROUP_ORDER, toolFromHash, type ToolId } from "./tools";
+import { TOOLS, GROUP_LABELS, GROUP_ORDER, toolFromHash, type ToolId, type ToolGroup } from "./tools";
 import { goTo } from "../router";
 import { createSystemMonitorWidget } from "./systemMonitorWidget";
 import { createConsoleLogOverlay } from "./consoleLogOverlay";
@@ -39,27 +39,71 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
 
   const tabs = new Map<ToolId, HTMLButtonElement>();
 
+  // 4개 카테고리를 전부 가로로 펼치는 대신, 카테고리당 하나의 ☰ 스타일 버튼 + 클릭 시
+  // 펼쳐지는 드롭다운(서브메뉴)으로 변경 — 사용자 요청("가로로 펼쳐놓은게 아니고 서브메뉴식").
+  // ITDA의 ☰ Menu 드롭다운과 동일한 상호작용 패턴(열기/바깥 클릭 시 닫힘)을 그대로 따름.
   const groups = GROUP_ORDER;
-  for (const group of groups) {
-    const groupEl = document.createElement("div");
-    groupEl.className = "flex items-center gap-1 whitespace-nowrap";
+  const groupBtns = new Map<ToolGroup, HTMLButtonElement>();
+  const openDropdowns: HTMLElement[] = [];
 
-    const label = document.createElement("span");
-    label.textContent = GROUP_LABELS[group] + " :";
-    label.className = "aos-topbar-group-label text-xs text-muted mr-1 shrink-0";
-    groupEl.appendChild(label);
+  function closeAllDropdowns() {
+    for (const dd of openDropdowns) dd.style.display = "none";
+  }
+  document.addEventListener("click", (e) => {
+    if (!(e.target instanceof Node)) return;
+    for (const dd of openDropdowns) {
+      const ownerBtn = (dd as any)._ownerBtn as HTMLElement | undefined;
+      if (!dd.contains(e.target) && !(ownerBtn && ownerBtn.contains(e.target))) dd.style.display = "none";
+    }
+  });
+  // navWrap scrolls horizontally (overflow-x-auto), which — per the CSS overflow spec
+  // — forces its OTHER axis to an implicit 'auto' too, clipping anything positioned
+  // absolute/relative to a nav child the instant it extends past that row's own
+  // height. That's why the dropdown only ever showed "inside the frame" instead of
+  // floating over the page. Fixed by appending every dropdown to <body> with
+  // position:fixed, coordinates computed from the trigger button's own rect at open
+  // time — same escape-the-clipping-ancestor approach as this app's other overlays.
+  window.addEventListener("scroll", closeAllDropdowns, true);
+  window.addEventListener("resize", closeAllDropdowns);
+
+  for (const group of groups) {
+    const groupBtn = document.createElement("button");
+    groupBtn.textContent = `${GROUP_LABELS[group]} ▾`;
+    groupBtn.className =
+      "px-3 h-9 rounded-md text-sm text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap shrink-0";
+    groupBtns.set(group, groupBtn);
+
+    const dropdown = document.createElement("div");
+    dropdown.className =
+      "flex flex-col min-w-[180px] rounded-md border border-border bg-bg1 shadow-lg py-1";
+    dropdown.style.cssText = "display:none; position:fixed; z-index:1000;";
+    (dropdown as any)._ownerBtn = groupBtn;
+    openDropdowns.push(dropdown);
+    document.body.appendChild(dropdown);
+
+    groupBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = dropdown.style.display !== "none";
+      closeAllDropdowns();
+      if (!isOpen) {
+        const r = groupBtn.getBoundingClientRect();
+        dropdown.style.left = `${r.left}px`;
+        dropdown.style.top = `${r.bottom + 4}px`;
+        dropdown.style.display = "flex";
+      }
+    });
 
     for (const tool of TOOLS.filter((t) => t.group === group)) {
       const btn = document.createElement("button");
       btn.textContent = tool.label;
       btn.className =
-        "px-3 h-9 rounded-md text-sm text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap";
-      btn.addEventListener("click", () => goTo(tool.id));
-      groupEl.appendChild(btn);
+        "px-3 h-9 text-left text-sm text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap";
+      btn.addEventListener("click", () => { closeAllDropdowns(); goTo(tool.id); });
+      dropdown.appendChild(btn);
       tabs.set(tool.id, btn);
     }
 
-    nav.appendChild(groupEl);
+    nav.appendChild(groupBtn);
 
     if (group !== groups[groups.length - 1]) {
       const divider = document.createElement("span");
@@ -79,6 +123,13 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
       if (isActive) {
         animate(btn, { opacity: [0.6, 1] }, { duration: 0.2 });
       }
+    }
+    // 활성 도구가 속한 카테고리 버튼도 강조 — 어느 서브메뉴 안에 있는지 한눈에 보이도록.
+    for (const [group, btn] of groupBtns) {
+      const isActiveGroup = active?.group === group;
+      btn.classList.toggle("text-text", isActiveGroup);
+      btn.classList.toggle("border-brand", isActiveGroup);
+      btn.classList.toggle("text-muted", !isActiveGroup);
     }
   }
 

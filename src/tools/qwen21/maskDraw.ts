@@ -1,8 +1,9 @@
 // maskDraw.ts — QWEN IMAGE 2.1 전용 드로잉/주석 도구.
 // 원본 근거: web/qwen21/ui_mask_draw.js (Edit/Inpaint 공용, 2511에는 없는 신규 컴포넌트).
-// pen/line/circle/rect 4개 툴 + 브러시 크기 슬라이더 + Undo/Clear. 커밋 시 스트로크를 원본
-// 이미지 위에 평평한 마젠타(#ff00c8)로 합성해 새 이미지로 업로드하고, 그 파일명은 "마스크"가
-// 아니라 그래프에 추가되는 레퍼런스 이미지 한 장으로 취급된다 (SetLatentNoiseMask 아님).
+// pen/line/circle/rect 4개 툴 + 브러시 크기 슬라이더 + Undo/Clear + 키보드 단축키 + 지우개
+// (오른쪽 클릭). 커밋 시 스트로크를 원본 이미지 위에 평평한 마젠타(#ff00c8)로 합성해 새
+// 이미지로 업로드하고, 그 파일명은 "마스크"가 아니라 그래프에 추가되는 레퍼런스 이미지
+// 한 장으로 취급된다 (SetLatentNoiseMask 아님).
 import { C, BRAND, el } from "./core";
 import { uploadAnnotationBlob } from "./api";
 
@@ -13,6 +14,7 @@ export interface Stroke {
   tool: StrokeTool;
   size: number;
   shift: boolean;
+  erase?: boolean;
   points: { x: number; y: number }[];
 }
 
@@ -53,41 +55,45 @@ export function openMaskDrawOverlay(
   hdr.appendChild(el("div", { text: "Draw over the area to change", style: { color: "#fff", fontSize: "13px", fontWeight: "700", flex: "1" } }));
 
   const toolbar = el("div", { style: { display: "flex", alignItems: "center", gap: "6px", flexShrink: "0", flexWrap: "wrap" } });
+  const TOOL_KEYS: Record<StrokeTool, string> = { pen: "P", line: "I", circle: "O", rect: "U" };
   const tools: StrokeTool[] = ["pen", "line", "circle", "rect"];
   let activeTool: StrokeTool = "pen";
   const toolBtns: Record<string, HTMLElement> = {};
+  function setTool(tool: StrokeTool) {
+    activeTool = tool;
+    tools.forEach((t) => (toolBtns[t].style.background = t === activeTool ? BRAND : C.bg2));
+  }
   tools.forEach((tool) => {
     const b = el("button", {
-      type: "button", text: tool,
+      type: "button", text: `${tool} (${TOOL_KEYS[tool]})`,
       style: {
         cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "4px 10px", borderRadius: "6px",
         background: tool === activeTool ? BRAND : C.bg2, color: "#fff", border: `1px solid ${C.border}`, textTransform: "capitalize",
       },
     });
-    b.addEventListener("click", () => {
-      activeTool = tool;
-      tools.forEach((t) => (toolBtns[t].style.background = t === activeTool ? BRAND : C.bg2));
-    });
+    b.addEventListener("click", () => setTool(tool));
     toolBtns[tool] = b;
     toolbar.appendChild(b);
   });
 
-  const sizeLabel = el("span", { text: "Brush", style: { color: C.muted, fontSize: "11px" } });
+  const sizeLabel = el("span", { text: "Brush ([/])", style: { color: C.muted, fontSize: "11px" } });
   const sizeSlider = el("input", { type: "range", min: "2", max: "60", value: "12", style: { width: "100px" } }) as HTMLInputElement;
   toolbar.appendChild(sizeLabel);
   toolbar.appendChild(sizeSlider);
 
-  const undoBtn = el("button", { type: "button", text: "↺ Undo", style: btnStyle() });
-  const clearBtn = el("button", { type: "button", text: "✕ Clear", style: btnStyle() });
+  const undoBtn = el("button", { type: "button", text: "↺ Undo (\\)", style: btnStyle() });
+  const clearBtn = el("button", { type: "button", text: "✕ Clear (⌫)", style: btnStyle() });
   toolbar.appendChild(undoBtn);
   toolbar.appendChild(clearBtn);
 
   const spacer = el("div", { style: { flex: "1" } });
-  const cancelBtn = el("button", { type: "button", text: "Cancel", style: btnStyle() });
+  const hint = el("span", { text: "Right-click drag: erase", style: { color: C.muted, fontSize: "10px" } });
+  const cancelBtn = el("button", { type: "button", text: "Cancel (Esc)", style: btnStyle() });
   const commitBtn = el("button", {
-    type: "button", text: "✓ Commit as reference",
+    type: "button", text: "✓ Commit as reference (Enter)",
     style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "700" },
   }) as HTMLButtonElement;
+  toolbar.appendChild(hint);
   toolbar.appendChild(spacer);
   toolbar.appendChild(cancelBtn);
   toolbar.appendChild(commitBtn);
@@ -128,12 +134,25 @@ export function openMaskDrawOverlay(
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
+    // Strokes are painted onto their own offscreen layer first, then composited under the
+    // photo onto drawCanvas — an eraser stroke (right-click) uses destination-out on THIS
+    // layer only, so it removes previously drawn marks without touching the photo itself
+    // (drawCanvas redraws the full image from scratch every frame, so erasing pixels
+    // directly on it would erase the photo, not just the annotation).
+    const annotCanvas = document.createElement("canvas");
+    annotCanvas.width = dispW;
+    annotCanvas.height = dispH;
+    const actx = annotCanvas.getContext("2d") as CanvasRenderingContext2D;
+    actx.lineCap = "round";
+    actx.lineJoin = "round";
+
     const strokes: Stroke[] = [];
     if (Array.isArray(initialStrokes) && initialStrokes.length) {
       strokes.push(...(JSON.parse(JSON.stringify(initialStrokes)) as Stroke[]));
     }
 
     function drawStroke(c: CanvasRenderingContext2D, s: Stroke) {
+      c.globalCompositeOperation = s.erase ? "destination-out" : "source-over";
       c.strokeStyle = HIGHLIGHT;
       c.fillStyle = HIGHLIGHT;
       c.lineWidth = s.size;
@@ -174,16 +193,18 @@ export function openMaskDrawOverlay(
       }
     }
     function redraw() {
+      actx.clearRect(0, 0, dispW, dispH);
+      strokes.forEach((s) => drawStroke(actx, s));
       ctx.clearRect(0, 0, dispW, dispH);
       ctx.drawImage(img, 0, 0, dispW, dispH);
-      strokes.forEach((s) => drawStroke(ctx, s));
+      ctx.drawImage(annotCanvas, 0, 0);
     }
-    function drawCursorRing(pos: { x: number; y: number } | null, size: number) {
+    function drawCursorRing(pos: { x: number; y: number } | null, size: number, erasing?: boolean) {
       cctx.clearRect(0, 0, dispW, dispH);
       if (!pos) return;
       cctx.beginPath();
       cctx.arc(pos.x, pos.y, Math.max(1, size / 2), 0, Math.PI * 2);
-      cctx.strokeStyle = "#ffffff";
+      cctx.strokeStyle = erasing ? "#ff4444" : "#ffffff";
       cctx.lineWidth = 1.5;
       cctx.stroke();
       cctx.beginPath();
@@ -204,13 +225,16 @@ export function openMaskDrawOverlay(
       const r = drawCanvas.getBoundingClientRect();
       return { x: (e.clientX - r.left) * (dispW / r.width), y: (e.clientY - r.top) * (dispH / r.height) };
     }
+    // 오른쪽 클릭 = 활성 툴과 무관하게 지우개, 왼쪽 클릭 = 기존과 동일하게 그리기.
+    drawCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
     drawCanvas.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 && e.button !== 2) return;
       drawCanvas.setPointerCapture(e.pointerId);
-      current = { tool: activeTool, size: +sizeSlider.value, shift: e.shiftKey, points: [toLocal(e)] };
+      current = { tool: activeTool, size: +sizeSlider.value, shift: e.shiftKey, erase: e.button === 2, points: [toLocal(e)] };
       strokes.push(current);
     });
     drawCanvas.addEventListener("pointermove", (e) => {
-      drawCursorRing(toLocal(e), +sizeSlider.value);
+      drawCursorRing(toLocal(e), +sizeSlider.value, !!current?.erase);
       if (!current) return;
       // shift는 pointerdown 때만이 아니라 매 move마다 읽는다 — 드래그 도중 누르거나 떼는
       // 경우(예: circle 기본 vs Shift 중심 원)를 즉시 반영하기 위함.
@@ -224,16 +248,22 @@ export function openMaskDrawOverlay(
     });
     drawCanvas.addEventListener("pointerleave", () => drawCursorRing(null, +sizeSlider.value));
 
-    undoBtn.addEventListener("click", () => {
+    function undo() {
       strokes.pop();
       redraw();
-    });
-    clearBtn.addEventListener("click", () => {
+    }
+    function clearAll() {
       strokes.length = 0;
       redraw();
-    });
+    }
+    function bumpBrush(delta: number) {
+      const min = +sizeSlider.min, max = +sizeSlider.max;
+      sizeSlider.value = String(Math.max(min, Math.min(max, +sizeSlider.value + delta)));
+    }
+    undoBtn.addEventListener("click", undo);
+    clearBtn.addEventListener("click", clearAll);
 
-    commitBtn.addEventListener("click", async () => {
+    async function commit() {
       commitBtn.disabled = true;
       commitBtn.textContent = "Uploading…";
       try {
@@ -246,18 +276,45 @@ export function openMaskDrawOverlay(
         const blob: Blob = await new Promise((res) => outCanvas.toBlob((b) => res(b as Blob), "image/png"));
         const filename = await uploadAnnotationBlob(blob, `q21_annot_${Date.now()}.png`);
         onCommit(filename, JSON.parse(JSON.stringify(strokes)));
-        overlay.remove();
+        closeOverlay();
       } catch (e: any) {
         alert("Upload failed: " + (e.message || e));
       } finally {
         commitBtn.disabled = false;
-        commitBtn.textContent = "✓ Commit as reference";
+        commitBtn.textContent = "✓ Commit as reference (Enter)";
       }
-    });
+    }
+    commitBtn.addEventListener("click", commit);
+
+    // ── 키보드 단축키 — Pen=P/Line=I/Circle=O/Rect=U, 브러시 [ - / ] +, Undo=\, Clear=⌫,
+    // Cancel=Esc, Commit=Enter. 브러시 슬라이더 자체에 포커스가 있을 땐 무시해서 화살표키로
+    // 슬라이더를 조작하는 기본 동작을 막지 않는다.
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.target === sizeSlider) return;
+      switch (e.key) {
+        case "p": case "P": setTool("pen"); break;
+        case "i": case "I": setTool("line"); break;
+        case "o": case "O": setTool("circle"); break;
+        case "u": case "U": setTool("rect"); break;
+        case "[": bumpBrush(-1); break;
+        case "]": bumpBrush(1); break;
+        case "\\": e.preventDefault(); undo(); break;
+        case "Backspace": e.preventDefault(); clearAll(); break;
+        case "Escape": e.preventDefault(); closeOverlay(); break;
+        case "Enter": e.preventDefault(); commit(); break;
+        default: return;
+      }
+    }
+    function closeOverlay() {
+      document.removeEventListener("keydown", onKeyDown);
+      overlay.remove();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    cancelBtn.onclick = closeOverlay;
   };
   img.src = sourceImageUrl;
 
-  cancelBtn.addEventListener("click", () => overlay.remove());
+  cancelBtn.addEventListener("click", () => overlay.remove()); // overridden once the image loads, to also drop the keydown listener
   root.appendChild(overlay);
   return overlay;
 }

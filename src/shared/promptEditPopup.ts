@@ -296,6 +296,26 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const backendGroup = createLlmBackendGroup(llm, saveLLM);
   const enhBackendBlock = backendGroup.makeBlock("text");
   const visionBackendBlock = backendGroup.makeBlock("vision");
+  // "Local GGUF" backend had no model picker at all in either role — createLlmBackendGroup's
+  // shared block leaves `localOnly` for the caller to fill (its own interface comment: "caller
+  // pushes its GGUF/GPU/ctx rows here"), same gap already found and fixed in ITDA's App
+  // Settings. Text role only needs the GGUF model; vision role also needs mmproj (multimodal
+  // projector), matching every other place this shared block is filled (e.g.
+  // krea2/promptTools.ts's ggufSelE/ggufSelI/mmprojSel).
+  const ggufSelText = mkSelect([llm.gguf_model || "Loading…"], llm.gguf_model || "", (v) => { llm.gguf_model = v; saveLLM(); ggufSelVision.value = v; });
+  const rowGgufText = fieldCol("GGUF Model", ggufSelText);
+  enhBackendBlock.localOnly.push(rowGgufText);
+  enhBackendBlock.el.insertBefore(rowGgufText, enhBackendBlock.el.firstChild!.nextSibling);
+  enhBackendBlock.syncFromState();
+
+  const ggufSelVision = mkSelect([llm.gguf_model || "Loading…"], llm.gguf_model || "", (v) => { llm.gguf_model = v; saveLLM(); ggufSelText.value = v; });
+  const mmprojSel = mkSelect([llm.mmproj_file || "none"], llm.mmproj_file || "none", (v) => { llm.mmproj_file = v; saveLLM(); });
+  const rowGgufVision = fieldCol("GGUF Model", ggufSelVision);
+  const rowMmproj = fieldCol("mmproj", mmprojSel);
+  visionBackendBlock.localOnly.push(rowGgufVision, rowMmproj);
+  visionBackendBlock.el.insertBefore(rowMmproj, visionBackendBlock.el.firstChild!.nextSibling);
+  visionBackendBlock.el.insertBefore(rowGgufVision, visionBackendBlock.el.firstChild!.nextSibling);
+  visionBackendBlock.syncFromState();
   const backendStrip = el("div", { style: { display: "none", flexDirection: "row", gap: "10px", flexShrink: "0" } });
   const backendToggleBtn = el("button", {
     type: "button", text: "▾ backend settings",
@@ -410,8 +430,11 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       if (!d.ok || d._notInstalled) { backendGroup.stripLocal(); } else { backendGroup.syncAll(); }
       backendGroup.fillAll(orModels, d.openrouter_key_hint || "");
       backendGroup.fillTextEncodersAll(d.text_encoders || [], d.clip_loader_types || []);
-      if (d.gguf?.length && !llm.gguf_model) { llm.gguf_model = d.gguf[0]; saveLLM(); }
-      if (d.mmproj?.length && (!llm.mmproj_file || llm.mmproj_file === "none")) { /* keep "none" default unless user picks one */ }
+      if (d.gguf?.length) {
+        [ggufSelText, ggufSelVision].forEach((sel) => populateSelect(sel, d.gguf, llm.gguf_model || d.gguf[0]));
+        if (!llm.gguf_model) { llm.gguf_model = d.gguf[0]; saveLLM(); }
+      }
+      if (d.mmproj?.length) populateSelect(mmprojSel, ["none", ...d.mmproj.filter((m: string) => m !== "none")], llm.mmproj_file || "none");
       if (d.vision_tasks?.length) populateSelect(vtSel, d.vision_tasks, llm.vision_task!);
       if (d.model_formats?.length) populateSelect(modelFmtSel, d.model_formats, llm.model_format!);
       if (d.aesthetics?.length) populateSelect(aestheticSel, d.aesthetics, llm.aesthetic!);

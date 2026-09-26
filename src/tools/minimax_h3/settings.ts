@@ -53,6 +53,16 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     style: { color: C.muted },
   });
   topRow.appendChild(packStatusText);
+  // Every other ONE STUDIO tool's Settings has a manual "↻ Refresh Models" button — this one
+  // never did, even though its 3 model tabs (H3/UpScale/FaceRefine Model) all read from the
+  // same modelData the node's own equivalent buttons refresh. Node peer added it to all 3
+  // tabs; one shared button here re-fetches + re-renders everything at once (refreshModels()
+  // already does both), same net effect without duplicating the button 3 times.
+  const refreshModelsBtn = button("↻ Refresh Models", async () => {
+    refreshModelsBtn.textContent = "Loading…";
+    try { await refreshModels(); } finally { refreshModelsBtn.textContent = "↻ Refresh Models"; }
+  });
+  topRow.appendChild(refreshModelsBtn);
   const saveAllBtn = button("💾 Save All", () => saveAll(), "primary");
   topRow.appendChild(saveAllBtn);
   topRow.appendChild(button("✕", () => (ov.style.display = "none"), "danger"));

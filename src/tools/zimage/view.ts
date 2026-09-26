@@ -318,6 +318,7 @@ export function renderZImage(root: HTMLElement) {
     saveLlm: () => saveLlmState(llmState),
     openSettings: () => settingsOv.show(),
     title: "🔍 Prompt Edit",
+    defaultModelFormat: "Z-Image & Lumina-2 (LLM text encoder)",
   });
   const templateOv = createTemplateOverlay(
     () => state.mode,

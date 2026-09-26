@@ -172,12 +172,15 @@ export function buildEditGraph(state: Q21State): Record<string, any> {
   const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
   const promptText = buildPromptText(state, "edit");
 
-  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.editImage1 } };
+  // Draw annotation is a flattened composite of the SAME image (original + magenta marks
+  // baked in) — it replaces that image's own slot, it is not a second reference image. Using
+  // both the raw original AND the annotated version as two separate images.image_N entries
+  // shifted every image index after it (a real bug: annotating Image 1 pushed the user's own
+  // Image 2 to <image3>, so a prompt referencing "<image2>" silently pointed at the
+  // annotation instead of their actual second upload). User: "이미지 1 + Draw annotation =
+  // 합쳐서 이미지 1이어야되... Draw annotation이 2번이 아니야."
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.editAnnotImage || state.editImage1 } };
   const imageLinks: any[] = [[`${P}:loadImg1`, 0]];
-  if (state.editAnnotImage) {
-    g[`${P}:loadAnnot1`] = { class_type: "LoadImage", inputs: { image: state.editAnnotImage } };
-    imageLinks.push([`${P}:loadAnnot1`, 0]);
-  }
 
   if (state.editImage2) {
     g[`${P}:loadImg2`] = { class_type: "LoadImage", inputs: { image: state.editImage2 } };
@@ -187,14 +190,9 @@ export function buildEditGraph(state: Q21State): Record<string, any> {
   (state.editRefImages || []).forEach((r, i) => {
     if (!r?.filename) return;
     const id = `${P}:editRef${i}`;
-    g[id] = { class_type: "LoadImage", inputs: { image: r.filename } };
-    imageLinks.push([id, 0]);
     const annot = state.editRefAnnotations?.[i];
-    if (annot) {
-      const aid = `${P}:editRefAnnot${i}`;
-      g[aid] = { class_type: "LoadImage", inputs: { image: annot } };
-      imageLinks.push([aid, 0]);
-    }
+    g[id] = { class_type: "LoadImage", inputs: { image: annot || r.filename } };
+    imageLinks.push([id, 0]);
   });
 
   const { posLink, negLink, latentLink } = addConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", state.width || 1024, imageLinks.slice(0, 10));
@@ -203,7 +201,11 @@ export function buildEditGraph(state: Q21State): Record<string, any> {
   return g;
 }
 
-// ── INPAINT — 마스크 파일 없음: 원본 + 드로잉 주석을 2번째 레퍼런스로 사용 ─────────
+// ── INPAINT — 마스크 파일 없음: 마킹된(annotated) 이미지 하나만 <image1>로 전송 ─────
+// 원본은 annotation으로 "대체"된다 — EDIT의 Image 1과 동일한 원칙(원본+마킹을 별도 두 장으로
+// 보내면 인덱스가 밀리는 버그가 있었다). 사용자 확정: "인페인트의 Draw mask 방식도 같은 방식
+// (병합)". 원본을 따로 보내지 않아도 되는 이유: 인페인트 자체가 "이 마킹된 이미지를 보고, 마킹된
+// 영역을 채워라"는 단일 이미지 컨디셔닝이라 원본 별도 참조가 필요 없다.
 export function buildInpaintGraph(state: Q21State): Record<string, any> {
   if (!state.inpaintImage) throw new Error("No source image for inpaint.");
   if (!state.inpaintAnnotImage) throw new Error("Draw on the image and commit the annotation first.");
@@ -211,12 +213,10 @@ export function buildInpaintGraph(state: Q21State): Record<string, any> {
   const { g, modelLink, clipLink, vaeLink } = buildBaseGraph(state);
   const promptText = buildPromptText(state, "inpaint");
 
-  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.inpaintImage } };
-  g[`${P}:loadAnnot`] = { class_type: "LoadImage", inputs: { image: state.inpaintAnnotImage } };
+  g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.inpaintAnnotImage } };
 
   const { posLink, negLink, latentLink } = addConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", state.width || 1024, [
     [`${P}:loadImg1`, 0],
-    [`${P}:loadAnnot`, 0],
   ]);
   // SetLatentNoiseMask 없음 — 노드가 직접 만든 latent에서 완전 denoise, 전부 이미지 컨디셔닝.
   addKSampler(g, modelLink, latentLink, state, state.inpaintDenoise ?? 0.85, posLink, negLink);

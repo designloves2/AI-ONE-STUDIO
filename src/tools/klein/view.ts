@@ -349,6 +349,7 @@ export function renderKlein(root: HTMLElement) {
     saveLlm: () => saveLlmState(llmState),
     openSettings: () => settingsOv.show(),
     title: "🔍 Prompt Edit",
+    defaultModelFormat: "Flux & Chroma (natural language)",
   });
   const templateOv = createTemplateOverlay(
     () => state.mode,

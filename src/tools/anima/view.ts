@@ -322,6 +322,7 @@ export function renderAnima(root: HTMLElement) {
     saveLlm: () => saveLlmState(llmState),
     openSettings: () => settingsOv.show(),
     title: "🔍 Prompt Edit",
+    defaultModelFormat: "Anima (anime illustration prose)",
   });
   const templateOv = createTemplateOverlay(
     () => state.mode,

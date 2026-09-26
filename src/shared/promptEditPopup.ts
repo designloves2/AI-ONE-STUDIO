@@ -43,6 +43,16 @@ export interface PromptEditPopupConfig {
   /** Opens the tool's own Settings overlay, scrolled/focused at the LLM section if possible. */
   openSettings?: () => void;
   title?: string; // header title text, default "Prompt Edit"
+  /**
+   * This tool's own Model Format preset (e.g. "Qwen Image 2.1 (T2I)"), applied once the real
+   * model_formats list arrives from the server — but only while the field is still empty or on
+   * the shared generic default ("Universal Natural Language"), never overwriting a value the
+   * user already deliberately changed. Setting this inside show() itself (before the async
+   * model list loads) would race the <select>'s real options never being there yet to match
+   * against — every per-tool default lives here instead, applied from loadModelsOnce()'s own
+   * populateSelect() call once the list is actually populated.
+   */
+  defaultModelFormat?: string;
 }
 
 export interface PromptEditPopupHandle {
@@ -436,7 +446,12 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       }
       if (d.mmproj?.length) populateSelect(mmprojSel, ["none", ...d.mmproj.filter((m: string) => m !== "none")], llm.mmproj_file || "none");
       if (d.vision_tasks?.length) populateSelect(vtSel, d.vision_tasks, llm.vision_task!);
-      if (d.model_formats?.length) populateSelect(modelFmtSel, d.model_formats, llm.model_format!);
+      if (d.model_formats?.length) {
+        const def = cfg.defaultModelFormat;
+        const shouldApplyDefault = def && d.model_formats.includes(def) && (!llm.model_format || llm.model_format === "Universal Natural Language");
+        if (shouldApplyDefault) { llm.model_format = def; saveLLM(); }
+        populateSelect(modelFmtSel, d.model_formats, llm.model_format!);
+      }
       if (d.aesthetics?.length) populateSelect(aestheticSel, d.aesthetics, llm.aesthetic!);
       refreshFooter();
     }).catch(() => {});

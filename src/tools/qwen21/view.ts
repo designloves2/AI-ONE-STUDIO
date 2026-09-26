@@ -343,21 +343,8 @@ export function renderQwen21(root: HTMLElement) {
     saveLlm: () => saveLlmState(llmState),
     openSettings: () => settingsOv.show(),
     title: "🔍 Prompt — Full Screen Edit",
+    defaultModelFormat: "Qwen Image 2.1 (T2I)",
   });
-  // Opening Prompt Edit auto-defaults Model Format to "Qwen Image 2.1 (T2I)" — but only when
-  // the field is still empty or on the shared generic default, never overwriting a value the
-  // user already deliberately changed. 원본: one_node_qwen21.js의 promptExpandOv.show 오버라이드.
-  const origPromptExpandShow = promptExpandOv.show.bind(promptExpandOv);
-  promptExpandOv.show = () => {
-    origPromptExpandShow();
-    if (!llmState.model_format || llmState.model_format === "Universal Natural Language") {
-      const sel = [...promptExpandOv.el.querySelectorAll("select")].find((s) => [...s.options].some((o) => o.value === "Qwen Image 2.1 (T2I)"));
-      if (sel && (sel.value === "Universal Natural Language" || !sel.value)) {
-        sel.value = "Qwen Image 2.1 (T2I)";
-        sel.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    }
-  };
   const templateOv = createTemplateOverlay(
     () => state.mode,
     (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }

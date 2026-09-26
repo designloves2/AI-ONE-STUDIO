@@ -98,6 +98,19 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
   suffixIn.addEventListener("input", () => (state.promptSuffix = suffixIn.value));
   ov.appendChild(panel([label("Prompt Suffix (auto-appended for quality boost)"), suffixIn]));
 
+  // Ref to Image / Edit 참조 이미지 자동 다운스케일 — 4K급 참조 이미지가 인코딩을 느리게
+  // 만들고 VRAM을 많이 먹는다는 지적으로 추가. 0 = 끔(업로드한 그대로 전송).
+  const refMpIn = el("input", { type: "number", step: "0.1", min: "0", placeholder: "0 = off", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit" } }) as HTMLInputElement;
+  refMpIn.value = state.refMaxMegapixels ? String(state.refMaxMegapixels) : "";
+  const refMpHint = el("div", { style: { fontSize: "10px", color: C.muted, marginTop: "-4px" } });
+  function updateRefMpHint() {
+    const mp = parseFloat(refMpIn.value) || 0;
+    refMpHint.textContent = mp > 0 ? `≈ ${Math.round(Math.sqrt(mp * 1e6))}×${Math.round(Math.sqrt(mp * 1e6))}px (1:1 기준, 비율 유지)` : "";
+  }
+  refMpIn.addEventListener("input", () => { state.refMaxMegapixels = parseFloat(refMpIn.value) || 0; updateRefMpHint(); });
+  updateRefMpHint();
+  ov.appendChild(panel([label("Reference Image Max Megapixels (Ref to Image / Edit, 0 = off)"), refMpIn, refMpHint]));
+
   function saveAll() {
     ctx.persist();
     saveConfig({
@@ -107,6 +120,7 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
       selected_vae: state.vae || "",
       negative_prompt: state.negativePrompt || "",
       prompt_suffix: state.promptSuffix || "",
+      ref_max_megapixels: state.refMaxMegapixels || 0,
     });
     saveAllBtn.textContent = "✓ Saved!";
     setTimeout(() => (saveAllBtn.textContent = "💾 Save All"), 1500);
@@ -122,6 +136,7 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
       if (cfg.negative_prompt && !state.negativePrompt) { state.negativePrompt = cfg.negative_prompt; negTA.value = cfg.negative_prompt; }
       if (cfg.prompt_suffix && !state.promptSuffix) { state.promptSuffix = cfg.prompt_suffix; suffixIn.value = cfg.prompt_suffix; }
       if (cfg.save_subfolder && !state.saveSubfolder) { state.saveSubfolder = cfg.save_subfolder; pathIn.value = cfg.save_subfolder; }
+      if (cfg.ref_max_megapixels && !state.refMaxMegapixels) { state.refMaxMegapixels = cfg.ref_max_megapixels; refMpIn.value = String(cfg.ref_max_megapixels); updateRefMpHint(); }
       ctx.persist();
       return getModels().then((d) => {
         rebuildModels(d);

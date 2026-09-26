@@ -51,6 +51,9 @@ export interface Q21State {
   promptsByMode: Record<string, string>;
   negativePrompt: string;
   promptSuffix: string;
+  // Ref to Image / Edit 참조 이미지 자동 다운스케일 — 0(기본)=끔, 업로드한 그대로 전송.
+  // 4K급 참조 이미지가 인코딩을 느리게 만들고 VRAM을 많이 먹는다는 지적으로 추가됨.
+  refMaxMegapixels: number;
 
   width: number;
   height: number;
@@ -188,6 +191,7 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
     promptsByMode: saved.promptsByMode ? { ...saved.promptsByMode } : {},
     negativePrompt: saved.negativePrompt || "",
     promptSuffix: saved.promptSuffix || "",
+    refMaxMegapixels: saved.refMaxMegapixels || 0,
 
     width: saved.width || 1024,
     height: saved.height || 1024,

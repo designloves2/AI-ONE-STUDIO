@@ -113,6 +113,16 @@ function addKSampler(g: Record<string, any>, modelLink: any, latentLink: any, st
   };
 }
 
+// Ref to Image / Edit 참조 이미지 자동 다운스케일 — 0(또는 미설정)이면 "업로드한 그대로 전송".
+// ImageScaleToTotalPixels은 ComfyUI 코어 노드라 별도 pack 가용성 체크가 필요 없다 (MiniMax H3의
+// resizeToMp와 동일한 패턴). 4K급 참조 이미지가 인코딩을 느리게 하고 VRAM을 많이 먹는다는
+// 지적으로 추가됨.
+function resizeToMp(g: Record<string, any>, key: string, imageLink: any, mp: number | undefined) {
+  if (!((mp ?? 0) > 0)) return imageLink;
+  g[key] = { class_type: "ImageScaleToTotalPixels", inputs: { image: imageLink, upscale_method: "lanczos", megapixels: mp, resolution_steps: 1 } };
+  return [key, 0];
+}
+
 function addDecodeAndSave(g: Record<string, any>, vaeLink: any, state: Q21State) {
   g[`${P}:decode`] = { class_type: "VAEDecode", inputs: { samples: [`${P}:sampler`, 0], vae: vaeLink } };
   g[`${P}:save`] = saveNode([`${P}:decode`, 0], state);
@@ -156,7 +166,7 @@ export function buildRefToImageGraph(state: Q21State): Record<string, any> {
   const imageLinks = refs.map((r, i) => {
     const id = `${P}:refImg${i}`;
     g[id] = { class_type: "LoadImage", inputs: { image: r.filename } };
-    return [id, 0];
+    return resizeToMp(g, `${P}:refImgMp${i}`, [id, 0], state.refMaxMegapixels);
   });
 
   g[`${P}:latent`] = { class_type: "EmptyLatentImage", inputs: { width: state.refWidth || 1024, height: state.refHeight || 1024, batch_size: 1 } };
@@ -180,11 +190,11 @@ export function buildEditGraph(state: Q21State): Record<string, any> {
   // annotation instead of their actual second upload). User: "이미지 1 + Draw annotation =
   // 합쳐서 이미지 1이어야되... Draw annotation이 2번이 아니야."
   g[`${P}:loadImg1`] = { class_type: "LoadImage", inputs: { image: state.editAnnotImage || state.editImage1 } };
-  const imageLinks: any[] = [[`${P}:loadImg1`, 0]];
+  const imageLinks: any[] = [resizeToMp(g, `${P}:loadImg1Mp`, [`${P}:loadImg1`, 0], state.refMaxMegapixels)];
 
   if (state.editImage2) {
     g[`${P}:loadImg2`] = { class_type: "LoadImage", inputs: { image: state.editImage2 } };
-    imageLinks.push([`${P}:loadImg2`, 0]);
+    imageLinks.push(resizeToMp(g, `${P}:loadImg2Mp`, [`${P}:loadImg2`, 0], state.refMaxMegapixels));
   }
 
   (state.editRefImages || []).forEach((r, i) => {
@@ -192,7 +202,7 @@ export function buildEditGraph(state: Q21State): Record<string, any> {
     const id = `${P}:editRef${i}`;
     const annot = state.editRefAnnotations?.[i];
     g[id] = { class_type: "LoadImage", inputs: { image: annot || r.filename } };
-    imageLinks.push([id, 0]);
+    imageLinks.push(resizeToMp(g, `${P}:editRefMp${i}`, [id, 0], state.refMaxMegapixels));
   });
 
   const { posLink, negLink, latentLink } = addConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", state.width || 1024, imageLinks.slice(0, 10));

@@ -114,7 +114,19 @@ export function renderQwen21(root: HTMLElement) {
   resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
   const zoomLockBtn = el("button", { type: "button", text: "🔓", title: "Scroll zoom on/off", style: { position: "absolute", top: "6px", right: "32px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
-  previewBox.append(placeholderTxt, resultImg, zoomLockBtn, clearBtn);
+  // "Generating…" overlay directly on the preview box, shown while sampling — was missing
+  // from the port (one_node_qwen21.js's own loadingOv+spinner, root.appendChild order shows
+  // it's a real distinct feature from the below-preview status/progress strip, not a
+  // duplicate of it). User: "프리뷰 화면에 이미지 생성중 일때의 메시지 기능 누락."
+  if (!document.getElementById("q21-spin-style")) {
+    const s = document.createElement("style"); s.id = "q21-spin-style";
+    s.textContent = "@keyframes q21v1-spin{to{transform:rotate(360deg)}}";
+    document.head.appendChild(s);
+  }
+  const loadingOv = el("div", { style: { position: "absolute", inset: "0", background: "rgba(0,0,0,0.5)", display: "none", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "12px", zIndex: "10" } });
+  const spinnerEl = el("div", { style: { width: "44px", height: "44px", border: `3px solid ${C.border}`, borderTop: `3px solid ${BRAND}`, borderRadius: "50%", animation: "q21v1-spin 0.8s linear infinite" } });
+  loadingOv.append(spinnerEl, el("div", { text: "Generating…", style: { color: C.text, fontSize: "12px" } }));
+  previewBox.append(placeholderTxt, resultImg, zoomLockBtn, clearBtn, loadingOv);
   rightPanel.appendChild(previewBox);
 
   // ── Zoom / Pan ──────────────────────────────────────────────────────────
@@ -918,6 +930,7 @@ export function renderQwen21(root: HTMLElement) {
     statusText.textContent = "Queuing…";
     progressInner.style.width = "0%";
     externalQueueBanner.style.display = "none";
+    loadingOv.style.display = "flex";
 
     if (state.autoEnhance && getModePrompt(state, state.mode).trim()) {
       statusText.textContent = "Enhancing…";
@@ -928,6 +941,7 @@ export function renderQwen21(root: HTMLElement) {
         samplingActive = false;
         genBtn.style.display = "block";
         stopBtn.style.display = "none";
+        loadingOv.style.display = "none";
         return;
       }
       statusText.textContent = "Queuing…";
@@ -959,6 +973,7 @@ export function renderQwen21(root: HTMLElement) {
       samplingActive = false;
       genBtn.style.display = "block";
       stopBtn.style.display = "none";
+      loadingOv.style.display = "none";
     }
   }
 
@@ -970,6 +985,7 @@ export function renderQwen21(root: HTMLElement) {
         samplingActive = false;
         genBtn.style.display = "block";
         stopBtn.style.display = "none";
+        loadingOv.style.display = "none";
         statusText.textContent = "Stopped";
       }
     }, 6000);

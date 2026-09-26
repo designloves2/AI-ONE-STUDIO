@@ -70,7 +70,7 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
     const groupBtn = document.createElement("button");
     groupBtn.textContent = `${GROUP_LABELS[group]} ▾`;
     groupBtn.className =
-      "px-3 h-9 rounded-md text-sm text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap shrink-0";
+      "px-3 h-9 rounded-md text-sm font-bold text-muted hover:text-text hover:bg-bg2 border border-transparent transition-colors whitespace-nowrap shrink-0";
     groupBtns.set(group, groupBtn);
 
     const dropdown = document.createElement("div");
@@ -124,12 +124,15 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
         animate(btn, { opacity: [0.6, 1] }, { duration: 0.2 });
       }
     }
-    // 활성 도구가 속한 카테고리 버튼도 강조 — 어느 서브메뉴 안에 있는지 한눈에 보이도록.
+    // 활성 도구가 속한 카테고리 버튼도 강조하고, 그 도구 이름을 버튼 라벨로 보여준다
+    // (선택 전에는 카테고리 이름만 — "Media Generator ▾" — 선택 후에는 어떤 도구인지
+    // 바로 보이도록 "MiniMax H3 ▾"로 바뀐다).
     for (const [group, btn] of groupBtns) {
       const isActiveGroup = active?.group === group;
       btn.classList.toggle("text-text", isActiveGroup);
       btn.classList.toggle("border-brand", isActiveGroup);
       btn.classList.toggle("text-muted", !isActiveGroup);
+      btn.textContent = `${isActiveGroup && active ? active.label : GROUP_LABELS[group]} ▾`;
     }
   }
 

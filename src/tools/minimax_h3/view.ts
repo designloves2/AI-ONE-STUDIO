@@ -3780,9 +3780,11 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   function renderLeft() {
     const isPP = state.generationMode === "postprocess";
+    const isImgGenPreviewable = state.generationMode === "imagegen" && state.imageGenMode !== "charsheet";
     seedRowPanel.style.display = isPP ? "none" : "";
     ppRowPanel.style.display = isPP ? "" : "none";
     ppPreviewBtn.style.display = isPP ? "" : "none";
+    imgPreviewBtn.style.display = isImgGenPreviewable ? "" : "none";
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
     if (state.generationMode === "facerefine") { renderFaceRefineLeft(); return; }
     if (state.generationMode === "imagegen") { renderImageGenLeft(); return; }
@@ -4721,6 +4723,19 @@ export function renderMinimaxH3(container: HTMLElement) {
   seedGenWrap.appendChild(ppRowPanel);
   seedGenWrap.appendChild(ppPreviewBtn);
   ppPreviewBtn.style.display = "none";
+
+  // Image Generator's own 👁 Preview — one_node_minimax_h3.js line 5226: same
+  // light-purple style as ppPreviewBtn, shown only for the t2i/ref2i sub-modes (not
+  // Character Sheet), calls runImageGen({final:false}). runImageGen already branched
+  // correctly on opts.final (preview vs real save+meta) — only this button itself was
+  // missing from the UI, so Image Generator only ever had a Generate button.
+  const imgPreviewBtn = el("button", {
+    type: "button", text: "👁 Preview",
+    style: { cursor: "pointer", width: "100%", padding: "10px", fontSize: "13px", fontWeight: "700", borderRadius: "6px", border: "none", background: "#e4d4fb", color: BRAND },
+  });
+  imgPreviewBtn.addEventListener("click", () => runImageGen({ final: false }));
+  seedGenWrap.appendChild(imgPreviewBtn);
+  imgPreviewBtn.style.display = "none";
 
   const genBtn = button("▶ Generate", null, "primary");
   genBtn.className = "flex-1 py-2.5 text-sm whitespace-nowrap";

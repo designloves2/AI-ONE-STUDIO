@@ -256,37 +256,106 @@ export function renderItda(container: HTMLElement) {
     framePolicySelect.value = state.framePolicy;
   });
 
-  // ── 📁 Project… — list/open/new, wired to the real project CRUD routes in api.ts
-  // (initProject/getProject/listProjects/newProject already existed server-side but had
-  // no UI at all before this — state.project was permanently stuck at its default). ────
-  const projectListBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "260px", overflowY: "auto" } });
-  const newProjectNameInput = el("input", { type: "text", placeholder: "new-project-name", style: inputStyle() }) as HTMLInputElement;
-  const projectListOv = smallModal("📁 Project Library", [
-    el("div", { style: { display: "flex", gap: "6px" } }, [
-      newProjectNameInput,
-      el("button", {
-        type: "button", text: "+ New", style: pillStyle(),
-        onclick: async () => {
-          const name = newProjectNameInput.value.trim();
-          if (!name) return;
-          try { await api.newProject(name); await bootProject(name); projectListOv.hide(); } catch {}
-        },
-      }),
-    ]),
-    projectListBody,
-  ], null, async () => {
+  // ── 📁 Project Library — EXACT structural port of itda_app_ported.js's
+  // showProjectPopup() (~1576-1606): clicking a row only SELECTS/highlights it (does
+  // NOT switch project immediately — that was this file's own earlier invention, not
+  // a real mirror of the source); footer holds the actual actions: +New Project /
+  // Open / Duplicate / Rename / Delete / Close, exactly matching the node's own
+  // 5-button + Close footer, each wired to the same routes ($('projectNew')/
+  // ('projectOpen')/('projectDuplicate')/('projectRename')/('projectDelete')).
+  let projectLibrarySelected = state.project;
+  const projectListBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "4px", maxHeight: "220px", overflowY: "auto" } });
+  function projectFooterBtn(text: string, onclick: () => void) {
+    return el("button", {
+      type: "button", text, onclick,
+      style: { background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 10px", fontSize: "11px", cursor: "pointer" },
+    });
+  }
+  function renderProjectLibraryList() {
     projectListBody.innerHTML = "";
+    projectListBody.appendChild(el("div", { text: "Projects are stored in ComfyUI/input/ITDA/projects.", style: { color: C.muted, fontSize: "10px", marginBottom: "4px" } }));
+  }
+  const projectListOv = smallModal("📁 Project Library", [projectListBody], null, async () => {
+    projectLibrarySelected = state.project;
+    await refreshProjectLibraryList();
+  });
+  async function refreshProjectLibraryList() {
+    renderProjectLibraryList();
     try {
       const res = await api.listProjects();
-      for (const item of res.items || []) {
+      const items = res.items || [];
+      if (!items.length) {
+        projectListBody.appendChild(el("div", { text: "No projects yet.", style: { color: C.muted, fontSize: "11px" } }));
+        return;
+      }
+      for (const item of items) {
         projectListBody.appendChild(el("button", {
-          type: "button", text: item.name === state.project ? `● ${item.name}` : item.name,
-          style: { display: "block", width: "100%", textAlign: "left", background: item.name === state.project ? "#2a1f45" : "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", marginBottom: "2px" },
-          onclick: async () => { await bootProject(item.name); projectListOv.hide(); },
+          type: "button", text: item.name,
+          style: { display: "block", width: "100%", textAlign: "left", background: item.name === projectLibrarySelected ? "#2a1f45" : "transparent", color: C.text, border: `1px solid ${item.name === projectLibrarySelected ? BRAND : C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", marginBottom: "2px" },
+          onclick: () => { projectLibrarySelected = item.name; refreshProjectLibraryList(); },
         }));
       }
     } catch {}
-  });
+  }
+  // rebuild the footer (smallModal's own Apply-button branch is unused — onApply
+  // is null above — this modal has its own custom action row).
+  (() => {
+    const modalCard = (projectListOv.el.firstChild as HTMLElement);
+    const footer = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", padding: "10px 16px 16px" } }, [
+      projectFooterBtn("+ New Project", async () => {
+        const name = window.prompt("New Project Name", "itda-project-1");
+        if (!name) return;
+        try { await api.newProject(name); projectListOv.hide(); await bootProject(name); } catch {}
+      }),
+      projectFooterBtn("Open", async () => {
+        if (!projectLibrarySelected) return;
+        projectListOv.hide();
+        await bootProject(projectLibrarySelected);
+      }),
+      projectFooterBtn("Duplicate", async () => {
+        if (!projectLibrarySelected) return;
+        const target = window.prompt("Duplicate Project Name", `${projectLibrarySelected}-copy`);
+        if (!target) return;
+        try {
+          await api.duplicateProject(projectLibrarySelected, target);
+          projectLibrarySelected = target;
+          await refreshProjectLibraryList();
+        } catch {}
+      }),
+      projectFooterBtn("Rename", async () => {
+        if (!projectLibrarySelected) return;
+        const target = window.prompt("Rename Project", projectLibrarySelected);
+        if (!target || target === projectLibrarySelected) return;
+        try {
+          await api.renameProject(projectLibrarySelected, target);
+          if (state.project === projectLibrarySelected) {
+            projectListOv.hide();
+            await bootProject(target);
+          } else {
+            projectLibrarySelected = target;
+            await refreshProjectLibraryList();
+          }
+        } catch {}
+      }),
+      projectFooterBtn("Delete", async () => {
+        if (!projectLibrarySelected) return;
+        const target = projectLibrarySelected;
+        if (!window.confirm(`Delete project "${target}"? Project file, media folder, and cache folder will be deleted.`)) return;
+        try {
+          await api.deleteProject(target);
+          if (state.project === target) {
+            projectListOv.hide();
+            await bootProject("itda-project-1");
+          } else {
+            projectLibrarySelected = state.project;
+            await refreshProjectLibraryList();
+          }
+        } catch {}
+      }),
+      projectFooterBtn("Close", () => projectListOv.hide()),
+    ]);
+    modalCard?.appendChild(footer);
+  })();
 
   // ── 📂 Load Project — one-click top-level shortcut: just a name list, click a row
   // to switch (initProject via bootProject), no management (Duplicate/Rename/Delete

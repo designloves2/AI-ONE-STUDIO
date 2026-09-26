@@ -56,7 +56,7 @@ const comfyPaths = [
   "/object_info", "/system_stats", "/embeddings", "/extensions", "/internal",
   "/manager", "/api", "/userdata",
   "/shared", "/tj_shared", "/tj_studio_one",
-  "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/sdxl_one",
+  "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/qwenimage21_one", "/sdxl_one",
   "/flux_klein", "/z_image_turbo", "/anima_one", "/music_one",
   "/itda_studio_one",
   // ComfyUI-H3-FaceRefine's own picker route - unprefixed (not under /minimax_h3_one/),

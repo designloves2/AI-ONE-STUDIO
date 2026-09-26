@@ -195,6 +195,9 @@ export function createTopbar(opts: { onBrand?: () => void } = {}): HTMLElement {
       btn.classList.toggle("text-muted", !isActiveGroup);
       btn.textContent = `${isActiveGroup && active ? active.label : GROUP_LABELS[group]} ▾`;
     }
+    // 모바일 버튼도 데스크톱 카테고리 버튼과 동일하게: 선택된 도구가 있으면 그 이름을,
+    // 없으면(랜딩 화면) "☰ Tools"를 보여준다.
+    mobileBtn.textContent = `${active ? active.label : "☰ Tools"} ▾`;
   }
 
   window.addEventListener("hashchange", updateActive);

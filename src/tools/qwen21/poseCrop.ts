@@ -62,15 +62,17 @@ export function cropAndUploadPoseImage(sourceImageUrl: string, cropBox: CropBox,
 }
 
 /**
- * 모달 크롭 오버레이를 `root` 위에 연다. onCommit(cropBox) — cropBox는 소스 이미지의 NATIVE
- * 픽셀 좌표. 호출자(mountPose)가 cropAndUploadPoseImage()로 실제 파일을 만들고, Output Size
- * 필드를 cropBox.w/h로 채우는 책임을 진다.
+ * 모달 크롭 오버레이를 `root` 위에 연다. onCommit(cropBox, ratioLabel) — cropBox는 소스
+ * 이미지의 NATIVE 픽셀 좌표, ratioLabel은 적용된 비율 프리셋 표시용 문자열(예: "2:3",
+ * ⇔/⇕로 뒤집었으면 "3:2") 또는 Free일 때 null. 호출자(mountPose)가
+ * cropAndUploadPoseImage()로 실제 파일을 만들고, Output Size 필드를 cropBox.w/h로 채우고,
+ * ratioLabel을 크기 텍스트 앞에 "Ratio 2:3" 식으로 보여주는 책임을 진다.
  */
 export function openPoseCropOverlay(
   root: HTMLElement,
   sourceImageUrl: string,
   initialCropBox: CropBox | null | undefined,
-  onCommit: (cropBox: CropBox) => void
+  onCommit: (cropBox: CropBox, ratioLabel: string | null) => void
 ): HTMLElement {
   const overlay = el("div", {
     style: {
@@ -132,6 +134,21 @@ export function openPoseCropOverlay(
     // 스위치(⇔/⇕)를 보여준다.
     let activeRatio: number | null = null;
     let pairLandscape: number | null = null, pairPortrait: number | null = null;
+    // 프리셋 키(예: "2:3") + 지금 landscape 방향인지 — Ratio 표시 텍스트("Ratio 2:3" 등)를
+    // mountPose 쪽에서 만들 수 있게 onCommit에 함께 전달한다.
+    let activeRatioBaseKey: string | null = null;
+    function flipLabel(key: string): string {
+      const [a, b] = key.split(":");
+      return `${b}:${a}`;
+    }
+    function currentRatioLabel(): string | null {
+      if (!activeRatioBaseKey) return null;
+      // 프리셋 키(예: "2:3")는 항상 w<h(세로/portrait) 쪽 — pairPortrait와 일치할 때 그대로,
+      // ⇔로 landscape(pairLandscape)로 뒤집혔으면 라벨도 뒤집는다. 쌍이 없는 프리셋(1:1)은
+      // 항상 그대로.
+      if (pairLandscape == null) return activeRatioBaseKey;
+      return activeRatio === pairPortrait ? activeRatioBaseKey : flipLabel(activeRatioBaseKey);
+    }
     const orientBar = el("div", { style: { position: "absolute", display: "none", gap: "4px", zIndex: "3" } });
     const wideBtn = el("button", { type: "button", text: "⇔", title: "Landscape (wide)", style: { width: "24px", height: "24px", borderRadius: "4px", border: "none", cursor: "pointer", fontSize: "13px" } });
     const tallBtn = el("button", { type: "button", text: "⇕", title: "Portrait (tall)", style: { width: "24px", height: "24px", borderRadius: "4px", border: "none", cursor: "pointer", fontSize: "13px" } });
@@ -166,10 +183,11 @@ export function openPoseCropOverlay(
       const preset = RATIO_PRESETS.find((p) => p.key === key);
       if (!preset) return;
       if (!preset.w || !preset.h) {
-        activeRatio = null; pairLandscape = pairPortrait = null;
+        activeRatio = null; pairLandscape = pairPortrait = null; activeRatioBaseKey = null;
         orientBar.style.display = "none";
         highlightRatioBtn("Free"); render(); return;
       }
+      activeRatioBaseKey = key;
       activeRatio = preset.w / preset.h;
       if (preset.pair) {
         pairLandscape = Math.max(preset.w, preset.h) / Math.min(preset.w, preset.h);
@@ -296,7 +314,7 @@ export function openPoseCropOverlay(
 
     applyBtn.onclick = () => {
       clampBox();
-      onCommit({ x: box.x, y: box.y, w: box.w, h: box.h });
+      onCommit({ x: box.x, y: box.y, w: box.w, h: box.h }, currentRatioLabel());
       overlay.remove();
     };
   };

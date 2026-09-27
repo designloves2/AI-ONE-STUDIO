@@ -147,6 +147,7 @@ export interface Q21State {
   poseImageRaw: string | null;
   poseImage: string | null;
   poseCropBox: { x: number; y: number; w: number; h: number } | null;
+  poseCropRatioLabel: string | null;
   poseOutW: number;
   poseOutH: number;
   poseLockRatio: boolean;
@@ -298,6 +299,7 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
     poseImageRaw: saved.poseImageRaw || null,
     poseImage: saved.poseImage || null,
     poseCropBox: saved.poseCropBox || null,
+    poseCropRatioLabel: saved.poseCropRatioLabel || null,
     poseOutW: saved.poseOutW || 1024,
     poseOutH: saved.poseOutH || 1024,
     poseLockRatio: saved.poseLockRatio ?? true,

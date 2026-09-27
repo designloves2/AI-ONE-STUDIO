@@ -871,8 +871,9 @@ export function renderQwen21(root: HTMLElement) {
       const cropBtn = button(state.poseCropBox ? "✂ Edit Crop" : "✂ Crop Pose Image (required)", () => {
         if (!state.poseImageRaw) { warnTag.textContent = "Upload the pose image first."; return; }
         const url = api.viewUrl(state.poseImageRaw, "", "input");
-        openPoseCropOverlay(wrap, url, state.poseCropBox, async (cropBox) => {
+        openPoseCropOverlay(wrap, url, state.poseCropBox, async (cropBox, ratioLabel) => {
           state.poseCropBox = cropBox;
+          state.poseCropRatioLabel = ratioLabel;
           // 새로 크롭한 영역은 Output Size를 크롭의 native 사이즈 그대로로 리셋(리사이즈 없음)
           // — 아래 필드에서 이 크롭의 비율에 고정된 채로 나중에 다시 조정 가능.
           state.poseOutW = Math.round(cropBox.w); state.poseOutH = Math.round(cropBox.h);
@@ -882,12 +883,17 @@ export function renderQwen21(root: HTMLElement) {
           await reuploadPoseImage();
         });
       }, state.poseCropBox ? "primary" : "default");
-      const cropSizeText = el("div", { text: state.poseCropBox ? `${Math.round(state.poseCropBox.w)}×${Math.round(state.poseCropBox.h)} → ${state.poseOutW}×${state.poseOutH}` : "", style: { color: C.text, fontSize: "11px", textAlign: "center" } });
+      function cropSizeLabel(): string {
+        if (!state.poseCropBox) return "";
+        const ratioPrefix = state.poseCropRatioLabel ? `Ratio ${state.poseCropRatioLabel}    ` : "";
+        return `${ratioPrefix}${Math.round(state.poseCropBox.w)}×${Math.round(state.poseCropBox.h)} → ${state.poseOutW}×${state.poseOutH}`;
+      }
+      const cropSizeText = el("div", { text: cropSizeLabel(), style: { color: C.text, fontSize: "11px", textAlign: "center" } });
       function updateCropLabel() {
         cropBtn.textContent = state.poseCropBox ? "✂ Edit Crop" : "✂ Crop Pose Image (required)";
         cropBtn.style.background = state.poseCropBox ? BRAND : C.bg2;
         cropBtn.style.color = state.poseCropBox ? "#fff" : C.text;
-        cropSizeText.textContent = state.poseCropBox ? `${Math.round(state.poseCropBox.w)}×${Math.round(state.poseCropBox.h)} → ${state.poseOutW}×${state.poseOutH}` : "";
+        cropSizeText.textContent = cropSizeLabel();
       }
       leftScroll.appendChild(panel([cropBtn, cropSizeText]));
 

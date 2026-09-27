@@ -19,6 +19,17 @@ export interface CropBox {
   h: number;
 }
 
+// 비율 프리셋 — "쌍(paired)"인 것들(2:3/3:4/4:5/9:16)은 박스 옆 ⇔/⇕ 스위치로 가로/세로
+// 전환 가능. 1:1과 Free는 쌍이 없음.
+const RATIO_PRESETS: { key: string; w: number | null; h: number | null; pair?: boolean }[] = [
+  { key: "1:1", w: 1, h: 1 },
+  { key: "2:3", w: 2, h: 3, pair: true },
+  { key: "3:4", w: 3, h: 4, pair: true },
+  { key: "4:5", w: 4, h: 5, pair: true },
+  { key: "9:16", w: 9, h: 16, pair: true },
+  { key: "Free", w: null, h: null },
+];
+
 function btnStyle() {
   return {
     cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "4px 10px",
@@ -79,6 +90,18 @@ export function openPoseCropOverlay(
   hdr.appendChild(applyBtn);
   overlay.appendChild(hdr);
 
+  // ── 비율 프리셋 툴바 ─────────────────────────────────────────────────────
+  const ratioBar = el("div", { style: { display: "flex", alignItems: "center", gap: "6px", flexShrink: "0", flexWrap: "wrap" } });
+  const ratioBtns: Record<string, HTMLElement> = {};
+  let setActiveRatio: (key: string) => void = () => {}; // img.onload에서 실제 구현으로 교체됨
+  RATIO_PRESETS.forEach((p) => {
+    const b = el("button", { type: "button", text: p.key, style: btnStyle() });
+    b.addEventListener("click", () => setActiveRatio(p.key));
+    ratioBtns[p.key] = b;
+    ratioBar.appendChild(b);
+  });
+  overlay.appendChild(ratioBar);
+
   const canvasWrap = el("div", { style: { flex: "1", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } });
   overlay.appendChild(canvasWrap);
 
@@ -104,6 +127,62 @@ export function openPoseCropOverlay(
     const boxEl = el("div", { style: { position: "absolute", border: `2px solid ${YELLOW}`, boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)", cursor: "move", boxSizing: "border-box" } });
     stage.appendChild(boxEl);
 
+    // ── 비율 고정 — 프리셋이 activeRatio(w/h)를 고정하면, 아래 자유 리사이즈 수식 대신
+    // 이 비율을 유지하는 리사이즈로 전환된다. "쌍"인 프리셋은 박스 옆에 가로/세로 전환
+    // 스위치(⇔/⇕)를 보여준다.
+    let activeRatio: number | null = null;
+    let pairLandscape: number | null = null, pairPortrait: number | null = null;
+    const orientBar = el("div", { style: { position: "absolute", display: "none", gap: "4px", zIndex: "3" } });
+    const wideBtn = el("button", { type: "button", text: "⇔", title: "Landscape (wide)", style: { width: "24px", height: "24px", borderRadius: "4px", border: "none", cursor: "pointer", fontSize: "13px" } });
+    const tallBtn = el("button", { type: "button", text: "⇕", title: "Portrait (tall)", style: { width: "24px", height: "24px", borderRadius: "4px", border: "none", cursor: "pointer", fontSize: "13px" } });
+    orientBar.appendChild(wideBtn);
+    orientBar.appendChild(tallBtn);
+    stage.appendChild(orientBar);
+    function highlightOrientBtns() {
+      const isWide = activeRatio === pairLandscape;
+      wideBtn.style.background = isWide ? BRAND : C.bg2; wideBtn.style.color = isWide ? "#fff" : C.text;
+      tallBtn.style.background = !isWide ? BRAND : C.bg2; tallBtn.style.color = !isWide ? "#fff" : C.text;
+    }
+    wideBtn.addEventListener("click", (e) => { e.stopPropagation(); if (pairLandscape) { activeRatio = pairLandscape; highlightOrientBtns(); resizeBoxToRatio(); } });
+    tallBtn.addEventListener("click", (e) => { e.stopPropagation(); if (pairPortrait) { activeRatio = pairPortrait; highlightOrientBtns(); resizeBoxToRatio(); } });
+
+    function highlightRatioBtn(key: string) {
+      Object.entries(ratioBtns).forEach(([k, b]) => {
+        b.style.background = k === key ? BRAND : C.bg2;
+        b.style.color = k === key ? "#fff" : C.text;
+      });
+    }
+    function resizeBoxToRatio() {
+      if (activeRatio) {
+        const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+        let newW = box.w, newH = newW / activeRatio;
+        if (newH > img.naturalHeight) { newH = img.naturalHeight; newW = newH * activeRatio; }
+        if (newW > img.naturalWidth) { newW = img.naturalWidth; newH = newW / activeRatio; }
+        box = { x: cx - newW / 2, y: cy - newH / 2, w: newW, h: newH };
+      }
+      render();
+    }
+    setActiveRatio = (key: string) => {
+      const preset = RATIO_PRESETS.find((p) => p.key === key);
+      if (!preset) return;
+      if (!preset.w || !preset.h) {
+        activeRatio = null; pairLandscape = pairPortrait = null;
+        orientBar.style.display = "none";
+        highlightRatioBtn("Free"); render(); return;
+      }
+      activeRatio = preset.w / preset.h;
+      if (preset.pair) {
+        pairLandscape = Math.max(preset.w, preset.h) / Math.min(preset.w, preset.h);
+        pairPortrait = Math.min(preset.w, preset.h) / Math.max(preset.w, preset.h);
+        orientBar.style.display = "flex"; highlightOrientBtns();
+      } else {
+        pairLandscape = pairPortrait = null; orientBar.style.display = "none";
+      }
+      highlightRatioBtn(key);
+      resizeBoxToRatio();
+    };
+    highlightRatioBtn("Free");
+
     const HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
     type Handle = (typeof HANDLES)[number];
     const handleEls: Record<Handle, HTMLElement> = {} as any;
@@ -117,6 +196,11 @@ export function openPoseCropOverlay(
     function clampBox() {
       box.w = Math.max(16, Math.min(box.w, img.naturalWidth));
       box.h = Math.max(16, Math.min(box.h, img.naturalHeight));
+      if (activeRatio) {
+        // 자유모드 클램프처럼 각 축을 독립적으로 재계산하면 이미지 경계 근처에서 비율이
+        // 어긋난다 — 면적 기준으로 클램프해서 W/H가 함께 줄어들며 비율이 정확히 유지되게 한다.
+        if (box.w / box.h > activeRatio) box.w = box.h * activeRatio; else box.h = box.w / activeRatio;
+      }
       box.x = Math.max(0, Math.min(box.x, img.naturalWidth - box.w));
       box.y = Math.max(0, Math.min(box.y, img.naturalHeight - box.h));
     }
@@ -133,6 +217,7 @@ export function openPoseCropOverlay(
         w: [dx - HANDLE_SIZE / 2, mid(dy, dy + dh)], e: [dx + dw - HANDLE_SIZE / 2, mid(dy, dy + dh)],
       };
       HANDLES.forEach((h) => { handleEls[h].style.left = `${pos[h][0]}px`; handleEls[h].style.top = `${pos[h][1]}px`; });
+      orientBar.style.left = `${dx + dw + 6}px`; orientBar.style.top = `${dy}px`;
     }
     render();
 
@@ -159,8 +244,36 @@ export function openPoseCropOverlay(
         // ...box }`처럼 스프레드하면 box.x가 마우스 시작 좌표를 조용히 덮어써서 드래그가
         // 마우스를 전혀 안 따라가는 버그가 생긴다(노드 쪽에서 실제로 겪은 버그).
         const start = { mx: e.clientX, my: e.clientY, x: box.x, y: box.y, w: box.w, h: box.h };
+        // 비율 고정 리사이즈용 고정 앵커(반대쪽 모서리/변) — 여기서부터 커지거나 작아져야
+        // 비율이 정확히 유지된다.
+        const anchor = {
+          x: h.includes("w") ? start.x + start.w : start.x,
+          y: h.includes("n") ? start.y + start.h : start.y,
+        };
         const move = (e2: PointerEvent) => {
           const ddx = (e2.clientX - start.mx) / toDisp, ddy = (e2.clientY - start.my) / toDisp;
+          if (activeRatio) {
+            // 앵커(반대쪽 모서리/변) 기준으로 리사이즈해야 비율이 정확히 유지된다. n/s
+            // 핸들은 세로 이동량만으로(너비는 비율로 유도), e/w는 가로 이동량만으로,
+            // 코너는 가로 이동량 기준. rawW/rawH는 자유모드와 동일하게 start.w±ddx /
+            // start.h±ddy 방식이어야 한다(그냥 |ddx|/|ddy|만 쓰면 박스의 원래 크기가
+            // 전혀 반영이 안 돼서 드래그할 때마다 작은 크기로 순간이동하는 버그가 생김
+            // — 노드 쪽에서 실제로 겪은 버그).
+            let newW: number, newH: number;
+            if (h === "n" || h === "s") {
+              const rawH = h.includes("n") ? start.h - ddy : start.h + ddy;
+              newH = Math.max(8, Math.abs(rawH)); newW = newH * activeRatio;
+              box = { x: anchor.x, y: rawH >= 0 ? anchor.y : anchor.y - newH, w: newW, h: newH };
+            } else {
+              const rawW = h.includes("w") ? start.w - ddx : start.w + ddx;
+              newW = Math.max(8, Math.abs(rawW)); newH = newW / activeRatio;
+              const x = rawW >= 0 ? anchor.x : anchor.x - newW;
+              const y = h.includes("n") ? anchor.y - newH : anchor.y;
+              box = { x, y, w: newW, h: newH };
+            }
+            render();
+            return;
+          }
           let { x, y, w, h: bh } = start;
           if (h.includes("e")) w = start.w + ddx;
           if (h.includes("s")) bh = start.h + ddy;

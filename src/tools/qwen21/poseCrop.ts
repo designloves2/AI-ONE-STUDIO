@@ -259,15 +259,22 @@ export function openPoseCropOverlay(
             // start.h±ddy 방식이어야 한다(그냥 |ddx|/|ddy|만 쓰면 박스의 원래 크기가
             // 전혀 반영이 안 돼서 드래그할 때마다 작은 크기로 순간이동하는 버그가 생김
             // — 노드 쪽에서 실제로 겪은 버그).
+            // 실제 버그였던 부분: x/y를 rawW/rawH의 부호로 판단하는 삼항연산(anchor 지나
+            // 반대편으로 넘어갔는지 감지하려던 것)이 n/w처럼 앵커가 "반대쪽"에 있는 핸들에서
+            // 방향이 뒤집혀 있었다 — 정상 드래그 범위에서도 박스가 앵커 반대편으로 순간이동
+            // 하는 원인이었다(사용자: "왼쪽 상단/위쪽 중앙/왼쪽 중앙... 위치가 어긋난다").
+            // 코너 분기의 y 공식(`h.includes("n") ? anchor.y - newH : anchor.y`, 부호 무관하게
+            // 핸들 방향만으로 직접 계산)은 원래도 맞았다 — x/n-s쪽도 같은 방식으로 통일.
             let newW: number, newH: number;
             if (h === "n" || h === "s") {
               const rawH = h.includes("n") ? start.h - ddy : start.h + ddy;
               newH = Math.max(8, Math.abs(rawH)); newW = newH * activeRatio;
-              box = { x: anchor.x, y: rawH >= 0 ? anchor.y : anchor.y - newH, w: newW, h: newH };
+              const y = h.includes("n") ? anchor.y - newH : anchor.y;
+              box = { x: anchor.x, y, w: newW, h: newH };
             } else {
               const rawW = h.includes("w") ? start.w - ddx : start.w + ddx;
               newW = Math.max(8, Math.abs(rawW)); newH = newW / activeRatio;
-              const x = rawW >= 0 ? anchor.x : anchor.x - newW;
+              const x = h.includes("w") ? anchor.x - newW : anchor.x;
               const y = h.includes("n") ? anchor.y - newH : anchor.y;
               box = { x, y, w: newW, h: newH };
             }

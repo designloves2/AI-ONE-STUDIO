@@ -1069,14 +1069,11 @@ function createHelpOverlay() {
     style: { fontSize: "11.5px", lineHeight: "1.65", color: C.text },
   }));
   const sam3dBlock = el("div", { style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "10px 12px" } });
-  sam3dBlock.appendChild(el("div", { text: "POSE — SAM3D Body Models", style: { color: BRAND, fontSize: "12px", fontWeight: "700", marginBottom: "6px" } }));
+  sam3dBlock.appendChild(el("div", { text: "POSE — SAM3D Body Model", style: { color: BRAND, fontSize: "12px", fontWeight: "700", marginBottom: "6px" } }));
   sam3dBlock.appendChild(el("div", {
     html:
-      'The pose-extraction stage needs these 4 models, each in its own ComfyUI models subfolder:<br>' +
-      '&bull; <code>checkpoints/</code> → <b>sam3.1_multiplex_fp16.safetensors</b> — <a href="https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors" target="_blank" rel="noopener" style="color:' + BRAND + '">download</a><br>' +
-      '&bull; <code>detection/</code> → <b>sam_3d_body_dinov3_bf16.safetensors</b> — <a href="https://huggingface.co/Comfy-Org/sam-3d-body/resolve/main/detection/sam_3d_body_dinov3_bf16.safetensors" target="_blank" rel="noopener" style="color:' + BRAND + '">download</a><br>' +
-      '&bull; <code>geometry_estimation/</code> → <b>moge_2_vitl_normal_fp16.safetensors</b> — <a href="https://huggingface.co/Comfy-Org/MoGe/resolve/main/geometry_estimation/moge_2_vitl_normal_fp16.safetensors" target="_blank" rel="noopener" style="color:' + BRAND + '">download</a><br>' +
-      '&bull; <code>diffusion_models/</code> → <b>rt_detr_v4-x-hgnet_fp32.safetensors</b> — <a href="https://huggingface.co/Comfy-Org/SDPose/resolve/main/diffusion_models/rt_detr_v4-x-hgnet_fp32.safetensors" target="_blank" rel="noopener" style="color:' + BRAND + '">download</a>',
+      'The pose-extraction stage (ComfyUI core\'s <code>comfy_extras.nodes_sam3d_body</code> — SAM3DBody_Loader/_Predict/_Smooth/_Render) needs just this one model:<br>' +
+      '&bull; <code>detection/</code> → <b>sam_3d_body_dinov3_bf16.safetensors</b> — <a href="https://huggingface.co/Comfy-Org/sam-3d-body/resolve/main/detection/sam_3d_body_dinov3_bf16.safetensors" target="_blank" rel="noopener" style="color:' + BRAND + '">download</a>',
     style: { fontSize: "11.5px", lineHeight: "1.65", color: C.text },
   }));
   box.append(hdr, bodyEl, loraBlock, sam3dBlock);

@@ -20,7 +20,7 @@ import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
 import { createTemplateOverlay } from "./promptTools";
 import { openMaskDrawOverlay, type Stroke } from "./maskDraw";
-import { openPoseCropOverlay } from "./poseCrop";
+import { openPoseCropOverlay, cropAndUploadPoseImage } from "./poseCrop";
 import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
 
 const LLM_LS_KEY = "tj_studio_one_llm_settings";
@@ -838,26 +838,99 @@ export function renderQwen21(root: HTMLElement) {
         leftScroll.appendChild(panel([label("LoRA"), loraSection(() => state.loras)]));
       }
     } else if (state.mode === "pose") {
+      let poseNaturalW = 0, poseNaturalH = 0;
+
+      // 썸네일 위에 노란 크롭 박스 라인을 겹쳐 표시 — 사용자: "로드된 이미지도 썸네일에도
+      // 설정한 크롭 영역(노란 박스 라인)이 표시되야 한다." imageUploadSlot의 img는 카드를
+      // 꽉 채우지 않고(object-fit 아님, max-width/height로 중앙 정렬) 렌더되므로, 노드처럼
+      // "contain-fit 비율 계산"이 아니라 img/card의 실제 getBoundingClientRect()를 직접
+      // 비교해서 오프셋/스케일을 구한다.
+      const cropOverlayBox = el("div", { style: { position: "absolute", border: "2px solid #ffd400", boxSizing: "border-box", pointerEvents: "none", display: "none" } });
+      function updateCropOverlayBox() {
+        const box = state.poseCropBox;
+        const imgEl = poseCard.querySelector("img") as HTMLImageElement | null;
+        if (!box || !poseNaturalW || !poseNaturalH || !imgEl || imgEl.style.display === "none") { cropOverlayBox.style.display = "none"; return; }
+        const cardRect = poseCard.getBoundingClientRect();
+        const imgRect = imgEl.getBoundingClientRect();
+        if (!imgRect.width || !imgRect.height) { cropOverlayBox.style.display = "none"; return; }
+        const scale = imgRect.width / poseNaturalW;
+        const offX = imgRect.left - cardRect.left, offY = imgRect.top - cardRect.top;
+        cropOverlayBox.style.left = `${offX + box.x * scale}px`;
+        cropOverlayBox.style.top = `${offY + box.y * scale}px`;
+        cropOverlayBox.style.width = `${box.w * scale}px`;
+        cropOverlayBox.style.height = `${box.h * scale}px`;
+        cropOverlayBox.style.display = "block";
+      }
+
       const poseCard = imageUploadSlot(state.poseImageRaw, (name) => {
         state.poseImageRaw = name; state.poseImage = null; state.poseCropBox = null; state.poseRenderImage = null;
-        persist(); cropStatus.textContent = ""; renderLeftPanel();
-      });
+        persist(); updateCropLabel(); updateCropOverlayBox();
+      }, (w, h) => { poseNaturalW = w; poseNaturalH = h; updateCropOverlayBox(); }, true);
+      poseCard.appendChild(cropOverlayBox);
       leftScroll.appendChild(panel([label("Image 1 — Pose Image"), poseCard]));
 
-      const cropBtn = button(state.poseImage ? "✂ Edit Crop" : "✂ Crop Pose Image (required)", () => {
+      // ── 크롭 버튼 + 별도 사이즈 텍스트("크롭 → 출력" 표시, 버튼 텍스트에 안 섞임) ──────
+      const cropBtn = button(state.poseCropBox ? "✂ Edit Crop" : "✂ Crop Pose Image (required)", () => {
         if (!state.poseImageRaw) { warnTag.textContent = "Upload the pose image first."; return; }
         const url = api.viewUrl(state.poseImageRaw, "", "input");
-        openPoseCropOverlay(wrap, url, { cropBox: state.poseCropBox, outW: state.poseOutW, outH: state.poseOutH, lockRatio: state.poseLockRatio }, (filename, cropBox, outW, outH, lockRatio) => {
-          state.poseImage = filename; state.poseCropBox = cropBox; state.poseOutW = outW; state.poseOutH = outH; state.poseLockRatio = lockRatio;
+        openPoseCropOverlay(wrap, url, state.poseCropBox, async (cropBox) => {
+          state.poseCropBox = cropBox;
+          // 새로 크롭한 영역은 Output Size를 크롭의 native 사이즈 그대로로 리셋(리사이즈 없음)
+          // — 아래 필드에서 이 크롭의 비율에 고정된 채로 나중에 다시 조정 가능.
+          state.poseOutW = Math.round(cropBox.w); state.poseOutH = Math.round(cropBox.h);
+          outWIn.value = String(state.poseOutW); outHIn.value = String(state.poseOutH);
           state.poseRenderImage = null; // 재크롭하면 이전 렌더는 무효
-          persist();
-          cropStatus.textContent = `Cropped to ${outW}×${outH}`;
-          renderLeftPanel();
-          restorePreviewForMode();
+          persist(); updateCropOverlayBox();
+          await reuploadPoseImage();
         });
-      }, state.poseImage ? "primary" : "default");
-      const cropStatus = el("div", { text: state.poseImage ? `Cropped to ${state.poseOutW}×${state.poseOutH}` : "", style: { fontSize: "10px", color: C.muted } });
-      leftScroll.appendChild(panel([cropBtn, cropStatus]));
+      }, state.poseCropBox ? "primary" : "default");
+      const cropSizeText = el("div", { text: state.poseCropBox ? `${Math.round(state.poseCropBox.w)}×${Math.round(state.poseCropBox.h)} → ${state.poseOutW}×${state.poseOutH}` : "", style: { color: C.text, fontSize: "11px", textAlign: "center" } });
+      function updateCropLabel() {
+        cropBtn.textContent = state.poseCropBox ? "✂ Edit Crop" : "✂ Crop Pose Image (required)";
+        cropBtn.style.background = state.poseCropBox ? BRAND : C.bg2;
+        cropBtn.style.color = state.poseCropBox ? "#fff" : C.text;
+        cropSizeText.textContent = state.poseCropBox ? `${Math.round(state.poseCropBox.w)}×${Math.round(state.poseCropBox.h)} → ${state.poseOutW}×${state.poseOutH}` : "";
+      }
+      leftScroll.appendChild(panel([cropBtn, cropSizeText]));
+
+      // ── Image Output Size — 크롭 자체의 비율(원본 이미지 비율 아님)에 고정되는
+      // 🔒 Lock ratio, I2I 사이즈 필드와 동일 UX. W나 H가 실제로 바뀔 때마다 원본에서
+      // 다시 크롭+리사이즈해서 poseImage 파일을 재생성한다.
+      const outWIn = el("input", { type: "number", step: "8", min: "64", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+      const outHIn = el("input", { type: "number", step: "8", min: "64", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+      outWIn.value = String(state.poseOutW || 0);
+      outHIn.value = String(state.poseOutH || 0);
+      const outLockChk = el("input", { type: "checkbox" }) as HTMLInputElement;
+      outLockChk.checked = state.poseLockRatio ?? true;
+      const outLockLbl = el("label", { style: { display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: C.muted, cursor: "pointer", whiteSpace: "nowrap" } }, [outLockChk, el("span", { text: "🔒 Lock ratio" })]);
+      outLockChk.addEventListener("change", () => { state.poseLockRatio = outLockChk.checked; persist(); });
+      const snap8 = (v: number) => Math.max(8, Math.round(v / 8) * 8);
+      function cropAspect() {
+        const b = state.poseCropBox;
+        return b ? b.w / b.h : (+outWIn.value / +outHIn.value || 1);
+      }
+      async function reuploadPoseImage() {
+        if (!state.poseImageRaw || !state.poseCropBox) return;
+        (cropBtn as HTMLButtonElement).disabled = true;
+        try {
+          const url = api.viewUrl(state.poseImageRaw, "", "input");
+          const filename = await cropAndUploadPoseImage(url, state.poseCropBox, state.poseOutW, state.poseOutH);
+          state.poseImage = filename; state.poseRenderImage = null; persist();
+          updateCropLabel();
+        } catch (e: any) { warnTag.textContent = "Crop failed: " + (e.message || e); }
+        finally { (cropBtn as HTMLButtonElement).disabled = false; }
+      }
+      outWIn.addEventListener("change", async () => {
+        state.poseOutW = snap8(+outWIn.value || 512); outWIn.value = String(state.poseOutW);
+        if (outLockChk.checked) { state.poseOutH = snap8(state.poseOutW / cropAspect()); outHIn.value = String(state.poseOutH); }
+        persist(); updateCropLabel(); await reuploadPoseImage();
+      });
+      outHIn.addEventListener("change", async () => {
+        state.poseOutH = snap8(+outHIn.value || 512); outHIn.value = String(state.poseOutH);
+        if (outLockChk.checked) { state.poseOutW = snap8(state.poseOutH * cropAspect()); outWIn.value = String(state.poseOutW); }
+        persist(); updateCropLabel(); await reuploadPoseImage();
+      });
+      leftScroll.appendChild(panel([label("Image Output Size"), row([col([label("W"), outWIn]), col([label("H"), outHIn])]), outLockLbl]));
 
       const charCard = imageUploadSlot(state.poseCharacterImage, (name) => { state.poseCharacterImage = name; persist(); });
       leftScroll.appendChild(panel([label("Image 2 — Character Image"), charCard]));

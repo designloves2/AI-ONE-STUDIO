@@ -1,9 +1,11 @@
 // poseCrop.ts — POSE mode's crop tool for Qwen Image 2.1 ONE STUDIO.
-// 원본 근거: web/qwen21/ui_pose_crop.js. 포즈 이미지는 SAM3D Body에 크롭/리사이즈된 크기 그대로
-// 전달된다(그래프에 별도 ImageCrop 노드 없음 — 크롭은 클라이언트 캔버스에서 합성 후 업로드,
-// maskDraw.ts와 동일한 "flatten → upload → LoadImage from filename" 패턴), 그래서 크롭 박스 +
-// 출력 W/H는 포즈 추출 전에 미리 정해져야 한다. 노란 박스 + 8개 드래그 핸들로 크롭 영역을
-// 표시하고, W/H 필드(🔒 Lock ratio — I2I의 사이즈 필드와 동일 패턴)로 최종 리사이즈 출력 크기를 정한다.
+// 원본 근거: web/qwen21/ui_pose_crop.js.
+//
+// 이 오버레이는 크롭 영역(노란 박스 + 8개 드래그 핸들)만 선택한다 — 자체 출력 사이즈 UI는
+// 없다. Output Size(W/H + 🔒 Lock ratio, 크롭 자체의 비율에 고정)는 왼쪽 패널의 크롭 버튼
+// 바로 아래에 있어서, 오버레이를 다시 열지 않고도 보고 편집할 수 있고, 영역을 다시 고르지
+// 않고도 출력 사이즈만 바꿀 수 있다. cropAndUploadPoseImage()가 실제 크롭+리사이즈+업로드를
+// 담당한다("방금 크롭을 적용" / "이후 Output Size 필드를 바꿈" 두 경우 모두 재사용).
 import { C, BRAND, el } from "./core";
 import { uploadAnnotationBlob } from "./api";
 
@@ -24,18 +26,41 @@ function btnStyle() {
   } as Partial<CSSStyleDeclaration>;
 }
 
+/** `cropBox`(sourceImageUrl 이미지의 native 픽셀)를 크롭해서 outW×outH로 리사이즈하고
+ * 업로드한 뒤 그 파일명으로 resolve한다. */
+export function cropAndUploadPoseImage(sourceImageUrl: string, cropBox: CropBox, outW: number, outH: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = async () => {
+      try {
+        const outCanvas = document.createElement("canvas");
+        outCanvas.width = Math.max(8, Math.round(outW));
+        outCanvas.height = Math.max(8, Math.round(outH));
+        const octx = outCanvas.getContext("2d") as CanvasRenderingContext2D;
+        octx.drawImage(img, cropBox.x, cropBox.y, cropBox.w, cropBox.h, 0, 0, outCanvas.width, outCanvas.height);
+        const blob: Blob = await new Promise((res) => outCanvas.toBlob((b) => res(b as Blob), "image/png"));
+        const filename = await uploadAnnotationBlob(blob, `q21_pose_crop_${Date.now()}.png`);
+        resolve(filename);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => reject(new Error("Failed to load the source image."));
+    img.src = sourceImageUrl;
+  });
+}
+
 /**
- * 모달 크롭 오버레이를 `root` 위에 연다. onCommit(filename, cropBox, outW, outH, lockRatio) —
- * cropBox는 소스 이미지의 NATIVE 픽셀 좌표라, 같은 이미지를 다시 열면 동일한 박스가 복원된다.
+ * 모달 크롭 오버레이를 `root` 위에 연다. onCommit(cropBox) — cropBox는 소스 이미지의 NATIVE
+ * 픽셀 좌표. 호출자(mountPose)가 cropAndUploadPoseImage()로 실제 파일을 만들고, Output Size
+ * 필드를 cropBox.w/h로 채우는 책임을 진다.
  */
 export function openPoseCropOverlay(
   root: HTMLElement,
   sourceImageUrl: string,
-  initial: { cropBox?: CropBox | null; outW?: number; outH?: number; lockRatio?: boolean } | undefined,
-  onCommit: (filename: string, cropBox: CropBox, outW: number, outH: number, lockRatio: boolean) => void
+  initialCropBox: CropBox | null | undefined,
+  onCommit: (cropBox: CropBox) => void
 ): HTMLElement {
-  const { cropBox: initialCropBox, outW: initialOutW, outH: initialOutH, lockRatio: initialLockRatio } = initial || {};
-
   const overlay = el("div", {
     style: {
       position: "absolute", inset: "0", zIndex: "9999", background: "rgba(11,11,11,0.97)",
@@ -50,7 +75,6 @@ export function openPoseCropOverlay(
     type: "button", text: "✓ Apply Crop",
     style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px", borderRadius: "6px", background: BRAND, color: "#fff", border: "none", fontWeight: "700" },
   }) as HTMLButtonElement;
-  // 사용자 요청: Cancel / Apply Crop을 우측 상단(헤더)으로 이동 — 예전엔 하단 footer에 있었음.
   hdr.appendChild(cancelBtn);
   hdr.appendChild(applyBtn);
   overlay.appendChild(hdr);
@@ -58,24 +82,13 @@ export function openPoseCropOverlay(
   const canvasWrap = el("div", { style: { flex: "1", position: "relative", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" } });
   overlay.appendChild(canvasWrap);
 
-  const footer = el("div", { style: { display: "flex", alignItems: "center", gap: "10px", flexShrink: "0", flexWrap: "wrap" } });
-  const sizeStyle = { width: "80px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "12px", fontFamily: "inherit", outline: "none" };
-  const wIn = el("input", { type: "number", step: "8", min: "64", style: sizeStyle }) as HTMLInputElement;
-  const hIn = el("input", { type: "number", step: "8", min: "64", style: sizeStyle }) as HTMLInputElement;
-  const lockChk = el("input", { type: "checkbox" }) as HTMLInputElement;
-  const lockLbl = el("label", { style: { display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: C.muted, cursor: "pointer", whiteSpace: "nowrap" } }, [lockChk, el("span", { text: "🔒 Lock ratio" })]);
-  footer.appendChild(el("span", { text: "Output W", style: { fontSize: "11px", color: C.muted } }));
-  footer.appendChild(wIn);
-  footer.appendChild(el("span", { text: "H", style: { fontSize: "11px", color: C.muted } }));
-  footer.appendChild(hIn);
-  footer.appendChild(lockLbl);
-  overlay.appendChild(footer);
-
   const img = new Image();
   img.onload = () => {
-    const maxW = canvasWrap.clientWidth || 640, maxH = canvasWrap.clientHeight || 480;
+    const maxW = canvasWrap.clientWidth || 640;
+    const maxH = canvasWrap.clientHeight || 480;
     const scale = Math.min(1, maxW / img.naturalWidth, maxH / img.naturalHeight);
-    const dispW = Math.round(img.naturalWidth * scale), dispH = Math.round(img.naturalHeight * scale);
+    const dispW = Math.round(img.naturalWidth * scale);
+    const dispH = Math.round(img.naturalHeight * scale);
     const toDisp = scale; // native -> display
 
     const stage = el("div", { style: { position: "relative", width: `${dispW}px`, height: `${dispH}px` } });
@@ -87,7 +100,6 @@ export function openPoseCropOverlay(
     let box: CropBox = initialCropBox && initialCropBox.w > 0 && initialCropBox.h > 0
       ? { ...initialCropBox }
       : { x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight };
-    let aspect = initialOutW && initialOutH ? initialOutW / initialOutH : box.w / box.h;
 
     const boxEl = el("div", { style: { position: "absolute", border: `2px solid ${YELLOW}`, boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)", cursor: "move", boxSizing: "border-box" } });
     stage.appendChild(boxEl);
@@ -143,9 +155,12 @@ export function openPoseCropOverlay(
       handleEls[h].addEventListener("pointerdown", (e) => {
         e.stopPropagation();
         (handleEls[h] as HTMLElement).setPointerCapture(e.pointerId);
-        const start = { sx: e.clientX, sy: e.clientY, ...box };
+        // mx/my로 이름 지음(x/y 아님) — box 자신이 x/y 키를 갖고 있어서, 만약 `{ x: e.clientX,
+        // ...box }`처럼 스프레드하면 box.x가 마우스 시작 좌표를 조용히 덮어써서 드래그가
+        // 마우스를 전혀 안 따라가는 버그가 생긴다(노드 쪽에서 실제로 겪은 버그).
+        const start = { mx: e.clientX, my: e.clientY, x: box.x, y: box.y, w: box.w, h: box.h };
         const move = (e2: PointerEvent) => {
-          const ddx = (e2.clientX - start.sx) / toDisp, ddy = (e2.clientY - start.sy) / toDisp;
+          const ddx = (e2.clientX - start.mx) / toDisp, ddy = (e2.clientY - start.my) / toDisp;
           let { x, y, w, h: bh } = start;
           if (h.includes("e")) w = start.w + ddx;
           if (h.includes("s")) bh = start.h + ddy;
@@ -159,41 +174,10 @@ export function openPoseCropOverlay(
       });
     });
 
-    // ── 출력 사이즈 필드 (🔒 Lock ratio — I2I 사이즈 필드와 동일 패턴) ──────────
-    const snap8 = (v: number) => Math.max(8, Math.round(v / 8) * 8);
-    wIn.value = String(initialOutW || Math.round(box.w));
-    hIn.value = String(initialOutH || Math.round(box.h));
-    lockChk.checked = initialLockRatio ?? true;
-    lockChk.addEventListener("change", () => { if (lockChk.checked) aspect = (+wIn.value || 1) / (+hIn.value || 1); });
-    wIn.addEventListener("change", () => {
-      wIn.value = String(snap8(+wIn.value || 512));
-      if (lockChk.checked) hIn.value = String(snap8(+wIn.value / aspect));
-    });
-    hIn.addEventListener("change", () => {
-      hIn.value = String(snap8(+hIn.value || 512));
-      if (lockChk.checked) wIn.value = String(snap8(+hIn.value * aspect));
-      else aspect = (+wIn.value || 1) / (+hIn.value || 1);
-    });
-
-    applyBtn.onclick = async () => {
-      applyBtn.disabled = true; applyBtn.textContent = "Uploading…";
-      try {
-        clampBox();
-        const outW = Math.max(8, Math.round(+wIn.value || box.w));
-        const outH = Math.max(8, Math.round(+hIn.value || box.h));
-        const outCanvas = document.createElement("canvas");
-        outCanvas.width = outW; outCanvas.height = outH;
-        const octx = outCanvas.getContext("2d") as CanvasRenderingContext2D;
-        octx.drawImage(img, box.x, box.y, box.w, box.h, 0, 0, outW, outH);
-        const blob: Blob = await new Promise((res) => outCanvas.toBlob((b) => res(b as Blob), "image/png"));
-        const filename = await uploadAnnotationBlob(blob, `q21_pose_crop_${Date.now()}.png`);
-        onCommit(filename, { x: box.x, y: box.y, w: box.w, h: box.h }, outW, outH, lockChk.checked);
-        overlay.remove();
-      } catch (e: any) {
-        alert("Upload failed: " + (e.message || e));
-      } finally {
-        applyBtn.disabled = false; applyBtn.textContent = "✓ Apply Crop";
-      }
+    applyBtn.onclick = () => {
+      clampBox();
+      onCommit({ x: box.x, y: box.y, w: box.w, h: box.h });
+      overlay.remove();
     };
   };
   img.src = sourceImageUrl;

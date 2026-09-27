@@ -193,7 +193,12 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const row2 = el("div", { style: { display: "flex", gap: "8px", alignItems: "flex-end" } });
   row2.append(fieldCol("Vision Task", vtSel), settingsBtn);
 
-  const modelFmtSel = mkSelect([llm.model_format!], llm.model_format!, (v) => { llm.model_format = v; saveLLM(); });
+  // "이 팝업 인스턴스에서 사용자가 실제로 건드렸는지"만 기준으로 기본값 적용 여부를
+  // 판단한다 — model_format은 모든 ONE STUDIO 도구가 공유하는 전역 localStorage 키라서,
+  // 전역값이 "Universal Natural Language"인지로 비교하면 다른 도구가 마지막으로 저장해둔
+  // 값이 남아있을 때 항상 실패해서 이 도구 고유의 기본값이 절대 안 먹혔다(실제 버그).
+  let modelFormatTouched = false;
+  const modelFmtSel = mkSelect([llm.model_format!], llm.model_format!, (v) => { llm.model_format = v; modelFormatTouched = true; saveLLM(); });
   const aestheticSel = mkSelect([llm.aesthetic!], llm.aesthetic!, (v) => { llm.aesthetic = v; saveLLM(); });
   const row3 = el("div", { style: { display: "flex", gap: "8px" } });
   row3.append(fieldCol("Model Format", modelFmtSel), fieldCol("Aesthetic", aestheticSel));
@@ -448,7 +453,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       if (d.vision_tasks?.length) populateSelect(vtSel, d.vision_tasks, llm.vision_task!);
       if (d.model_formats?.length) {
         const def = cfg.defaultModelFormat;
-        const shouldApplyDefault = def && d.model_formats.includes(def) && (!llm.model_format || llm.model_format === "Universal Natural Language");
+        const shouldApplyDefault = def && d.model_formats.includes(def) && !modelFormatTouched;
         if (shouldApplyDefault) { llm.model_format = def; saveLLM(); }
         populateSelect(modelFmtSel, d.model_formats, llm.model_format!);
       }

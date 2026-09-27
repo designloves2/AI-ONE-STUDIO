@@ -164,10 +164,8 @@ export function renderQwen21(root: HTMLElement) {
     if (state.mode === "pose") return state.poseRenderImage || "";
     return "";
   }
-  // POSE's compare "before" is the SAM3D pose-render (an OUTPUT-type saved image), not an
-  // input upload like every other mode's own source file.
   function currentSourceType(): "input" | "output" {
-    return state.mode === "pose" ? "output" : "input";
+    return "input";
   }
 
   // ── Compare view — clip-path 방식 ──────────────────────────────────────
@@ -1056,7 +1054,11 @@ export function renderQwen21(root: HTMLElement) {
         const extractOut = Object.values(extractResult.byNode).find((o: any) => o.images?.length) as any;
         const renderIm = extractOut?.images?.[0];
         if (!renderIm) throw new Error("Pose extraction produced no image.");
-        state.poseRenderImage = renderIm.filename;
+        // SAM3D의 렌더 결과는 output/ 폴더에 저장되는데, Stage 2의 LoadImage는 input/만
+        // 검증한다 — 그대로 넘기면 "Invalid image file" 검증 실패가 난다. 다른 곳의
+        // "결과를 다음 입력으로 재사용"(Send to) 플로우와 동일하게 input/으로 복사한
+        // 파일명을 써야 한다.
+        state.poseRenderImage = await api.copyOutputToInput(renderIm.filename, renderIm.subfolder || "", renderIm.type || "output");
         persist();
         restorePreviewForMode(); // show the pose-render as the compare "before" while Stage 2 runs
         statusText.textContent = "Queuing…";

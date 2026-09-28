@@ -1,0 +1,13 @@
+{
+  "name": "qwen21-headless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless QWEN IMAGE 2.1 T2I/I2I/Ref-to-Image/Edit/Pose image generator — extracted from AI-ONE-STUDIO's graphBuilder + ComfyUI client. Zero dependencies, Node 20+.",
+  "type": "module",
+  "bin": { "qwen21-headless": "./index.mjs" },
+  "main": "./index.mjs",
+  "exports": { ".": "./index.mjs" },
+  "scripts": { "help": "node index.mjs --help" },
+  "engines": { "node": ">=20" },
+  "files": ["index.mjs", "graph.mjs", "comfy.mjs", "core-helpers.mjs", "README.md"]
+}

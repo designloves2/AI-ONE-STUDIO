@@ -73,7 +73,7 @@ If the studio is reachable without Access, omit `headers`.
 
 | field | rule |
 |---|---|
-| `mode` | `ref2va` \| `fl2va` \| `l2va` \| `t2va` |
+| `mode` | `ref2va` \| `fl2va` \| `l2va` \| `t2va` (clip modes) \| `facerefine` \| `imagegen_t2i` \| `imagegen_ref2i` \| `charsheet` \| `imageupscale` — see §9 for the non-clip modes' own fields |
 | `preset` | preset name (below). Case / space / `_` / `-` insensitive. `null` → studio config defaults. |
 | `prompt` | the 3 H3 fields **or** a plain string. The prompt skill produces this; h3-headless just concatenates the 3 fields. |
 | `refImages` | absolute paths, in `<Picture 1>`, `<Picture 2>`, … order. `ref2va` only. Max 9. |
@@ -143,12 +143,35 @@ then the skill just calls it by name.
   `ftypisom` MP4 (~570 KB, 4.5 s clip).
 - `--help` runs with zero deps; unknown preset and unreachable host return the right `stage`.
 
-## 9. Not in scope (per the spec)
+## 9. Non-clip modes (added after the initial single-clip build)
 
-Single clip only — no clip relay / stitching, no gallery, no upscale / interpolate. Prompt
-authoring stays with the Hermes prompt skill; this consumes finished text.
+`h3-headless` now also covers 5 more `job.mode`s, ported node-for-node from
+`src/tools/minimax_h3/graphBuilder.ts`'s other graph builders:
 
-## 10. One repo-side change that shipped with this
+| `job.mode` | builder | fields (beyond `seed`/`aspect`/`megapixels`) |
+|---|---|---|
+| `facerefine` | `buildFaceRefineGraph` | `sourceFile` (required, a clip path), `prompt`, `faceDetector`, `refImages` |
+| `imagegen_t2i` / `imagegen_ref2i` | `buildImageGenGraph` | `prompt`, `refImages` (ref2i), `steps`, `turboOn`, `turboLora`, `final` |
+| `charsheet` | `buildCharacterSheetVideoGraph` + `buildCharacterSheetGridGraph` | `refImages` (required, 1-9), `prompt`, `deblur`, `rtx`, `frameIndices`, `cellWidth`/`cellHeight` |
+| `imageupscale` | `buildImageUpscaleGraph` | `inputFile` (required, a still image), `deblur`, `rtx` |
+
+`charsheet` is the one two-stage mode: it submits the 124-frame turnaround render first, waits
+for its output, calls `POST /minimax_h3_one/copy_to_input` to move that rendered video from
+ComfyUI's `output/` back into `input/`, then submits the grid-assembly graph against it. Both
+stages' outputs land in the one result's `outputs[]`.
+
+`--help` (`node index.mjs --help`) lists every mode's exact field set.
+
+## 10. Not in scope (per the spec)
+
+No clip relay / stitching, no gallery browsing. LTX 2.5 Upscale and the Postprocess mode family
+(Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize chained on an existing clip) were
+deliberately excluded — both are gallery/UI-adjacent post-processing features, not part of this
+headless port. (`buildClipGraph`'s own inline upscale step, including its `flashvsr` option,
+*is* in scope — that lives inside the generation graph itself, not the gallery post-process.)
+Prompt authoring stays with the Hermes prompt skill; this consumes finished text.
+
+## 11. One repo-side change that shipped with this
 
 `RECIPE_KEYS` in `src/tools/minimax_h3/core.ts` gained `unetFirstLast` / `unetReference`
 (commit `ba8b3b8`) so a **saved user preset can pin its model**. Backward-compatible: old

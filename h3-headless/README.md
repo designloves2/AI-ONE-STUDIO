@@ -1,8 +1,15 @@
 # h3-headless
 
-Headless **MiniMax H3 single-clip generator** — the graph-build + ComfyUI submit logic from
+Headless **MiniMax H3 generator** — the graph-build + ComfyUI submit logic from
 AI-ONE-STUDIO's `src/tools/minimax_h3/`, extracted to a **zero-dependency Node package**.
 No browser, no build step, no npm install. Copy this folder anywhere with Node 20+ and run it.
+
+Covers 6 `job.mode`s: the original single-clip video generator (`ref2va`/`fl2va`/`l2va`/`t2va`),
+`facerefine` (H3 Face Refine), `imagegen_t2i`/`imagegen_ref2i` (Image Generator stills),
+`charsheet` (Character Sheet turnaround + grid), and `imageupscale` (still-image Deblur/RTX VSR).
+Out of scope: LTX 2.5 Upscale and the Postprocess mode family (Deblur/Denoise/Upscale/Skin
+Retouch/Grain/Interpolate/Resize chained on an existing clip) — both are UI-adjacent gallery
+post-processing features, deliberately excluded from this port.
 
 ```
 node index.mjs --config comfy.json --job job.json [--dry-run] [--out ./result]
@@ -19,11 +26,11 @@ const result = await generate(jobSpec, comfyConfig);
 
 | file | what |
 |---|---|
-| `index.mjs` | CLI + `generate()` — the flow: config → preset → job → upload → `buildClipGraph` → `/prompt` → `/history` poll → `/view` download |
-| `graph.mjs` | `buildClipGraph` port (single clip; no relay / gallery / post-process) |
-| `comfy.mjs` | ComfyUI HTTP client — `/config`, `/models`, `/node_availability`, `/upload/image`, `/prompt`, `/history`, `/view`. Injects `comfy.json.headers` on every request. |
-| `presets.mjs` | preset resolution — backend `user_presets[]` first, then 6 built-in fallbacks |
-| `core-helpers.mjs` | `resolveResolution`, `alignFrameCount`, `defaultState`, `applyConfig`, `applyPreset`, gating rules — ported from `core.ts` |
+| `index.mjs` | CLI + `generate()` — dispatches on `job.mode` to one of 6 flows, each: config → job → upload → `buildXGraph` → `/prompt` → `/history` poll → `/view` download. `charsheet` submits twice (render, then grid-extract), copying the stage-1 output back into ComfyUI's `input/` via `/minimax_h3_one/copy_to_input` in between. |
+| `graph.mjs` | `buildClipGraph`, `buildFaceRefineGraph`, `buildImageGenGraph`, `buildCharacterSheetVideoGraph`, `buildCharacterSheetGridGraph`, `buildImageUpscaleGraph` — ported node-for-node from `graphBuilder.ts` |
+| `comfy.mjs` | ComfyUI HTTP client — `/config`, `/models`, `/node_availability`, `/upload/image`, `/prompt`, `/history`, `/view`. Injects `comfy.json.headers` on every request. Stays generic (shared verbatim by every other `*-headless/` folder) — the one MiniMax-H3-specific `copy_to_input` call lives in `index.mjs` instead, via the client's exposed `postJson`. |
+| `presets.mjs` | preset resolution — backend `user_presets[]` first, then 6 built-in fallbacks (clip modes only) |
+| `core-helpers.mjs` | `resolveResolution`, `computeRtxTarget`, `alignFrameCount`, `defaultState`, `applyConfig`, `applyPreset`, gating rules — ported from `core.ts` |
 
 ## `comfy.json`
 
@@ -108,7 +115,22 @@ Failures: `{ ok:false, error, stage }` — `stage` is one of
 `config | preset | auth | upload | submit | generate | interrupted | timeout | download | network`.
 Exit code is `0` on `ok:true`, `1` otherwise (`2` for a bad CLI invocation).
 
+## Other modes
+
+See `node index.mjs --help` for the full `job.json` field list per mode. Briefly:
+
+- **`facerefine`** — `job.sourceFile` (a rendered/uploaded clip), `job.prompt`, `job.faceDetector`,
+  optional `job.refImages`. Re-renders a small/distant face crop through H3 and stitches it back.
+- **`imagegen_t2i` / `imagegen_ref2i`** — a still image via the same H3 pipeline at 8 frames,
+  read back as one frame. `final:true` (default) adds the studio's second latent-upscale pass.
+- **`charsheet`** — `job.refImages` (1-9), `job.prompt`. Submits the 124-frame turnaround render,
+  then a second cheap grid-assembly graph against that output (ref photo + 8 picked frames, 3-col
+  grid). Both `outputs` (video + grid image) come back in one result.
+- **`imageupscale`** — `job.inputFile`, `job.deblur` and/or `job.rtx`. Deblur/RTX VSR on a still.
+
 ## Scope
 
-Single clip only. No clip relay / stitching, no gallery, no post-process (upscale / interpolate).
+No clip relay / stitching, no gallery browsing. No LTX 2.5 Upscale, no Postprocess mode family
+(Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize chained on an existing clip) — both
+are gallery/UI-adjacent post-processing features, excluded from this headless port by design.
 Prompt authoring is done upstream (the Hermes prompt skill); this takes finished text.

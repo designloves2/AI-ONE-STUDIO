@@ -6,7 +6,8 @@
 import {
   SUBFOLDER, FPS, resolveResolution, ONE_TAKE_OVERLAP_FRAMES,
   attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason,
-  PDD_NFE_CHOICES, pddFileForMode,
+  PDD_NFE_CHOICES, pddFileForMode, computeRtxTarget, CHARSHEET_FRAMES,
+  CHARSHEET_DEFAULT_FRAME_INDICES, BUILTIN_PRESETS, applyPreset,
 } from "./core-helpers.mjs";
 
 export const N = {
@@ -18,7 +19,8 @@ export const N = {
   preview: "MM:preview", cond: "MM:cond", freeClipVram: "MM:free_clip_vram",
   noise: "MM:noise", sampSel: "MM:sampler_sel", sched: "MM:scheduler", guider: "MM:guider", sampler: "MM:sampler",
   decode: "MM:decode", decodeA: "MM:decode_audio",
-  upModel: "MM:upscale_model", upApply: "MM:upscale", rtx: "MM:rtx", deblurR: "MM:deblur",
+  upModel: "MM:upscale_model", upApply: "MM:upscale", rtx: "MM:rtx", rtxCrop: "MM:rtx_crop",
+  fvsrPipe: "MM:flashvsr_pipe", fvsr: "MM:flashvsr", deblurR: "MM:deblur",
   video: "MM:video", save: "MM:save_video", videoRaw: "MM:video_raw", saveRaw: "MM:save_video_raw",
   lastF: "MM:last_frame", saveLF: "MM:save_last_frame", tailF: "MM:tail_frames", tailPrev: "MM:tail_preview",
   loadFirst: "MM:load_first", loadLast: "MM:load_last", loadFirstResize: "MM:load_first_resize", loadLastResize: "MM:load_last_resize",
@@ -241,6 +243,54 @@ function buildConditioning(g, state, promptText, width, height, frames, opts, av
   g[N.cond] = { class_type: "MiniMaxH3ImageToVideo", inputs };
 }
 
+// Builds an RTXVideoSuperResolution node (+ an optional ImageCrop ahead of it for the "wh"
+// size mode's forced crop) and returns the final image link plus a {method,...} descriptor.
+function buildRtxNode(g, ids, images, state, srcW, srcH) {
+  const t = computeRtxTarget(state, srcW, srcH);
+  if (t.crop) {
+    g[ids.crop] = { class_type: "ImageCrop", inputs: { image: images, width: t.crop.width, height: t.crop.height, x: t.crop.x, y: t.crop.y } };
+    images = [ids.crop, 0];
+  }
+  g[ids.rtx] = t.resizeType === "scale by multiplier"
+    ? { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": t.scale, quality: state.rtxQuality || "ULTRA" } }
+    : { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "target dimensions", "resize_type.width": t.width, "resize_type.height": t.height, quality: state.rtxQuality || "ULTRA" } };
+  const upscaleUsed = t.resizeType === "scale by multiplier"
+    ? { method: "rtx", scale: t.scale, quality: state.rtxQuality || "ULTRA" }
+    : { method: "rtx", width: t.width, height: t.height, quality: state.rtxQuality || "ULTRA" };
+  return { images: [ids.rtx, 0], upscaleUsed };
+}
+
+// FlashVSR VSR (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — the buildClipGraph inline upscale
+// mode's third option (alongside "model"/"rtx"). Only the 8 UI-exposed fields; everything
+// else is fixed at the shipped API workflow's own values.
+function buildFlashVSR(g, pipeId, nodeId, p, images) {
+  g[pipeId] = { class_type: "FlashVSRInitPipe", inputs: {
+    model: p.model || "FlashVSR-v1.1", mode: p.mode || "tiny", alt_vae: "none",
+    force_offload: true, precision: "bf16", device: "cuda:0", attention_mode: "sparse_sage_attention",
+  } };
+  g[nodeId] = { class_type: "FlashVSRNodeAdv", inputs: {
+    pipe: [pipeId, 0], frames: images,
+    scale: Math.min(4, Math.max(2, Math.round(p.scale ?? 2))),
+    color_fix: p.colorFix !== false, tiled_vae: true, tiled_dit: true,
+    tile_size: p.tileSize ?? 384, tile_overlap: p.tileOverlap ?? 32,
+    unload_dit: false, sparse_ratio: 2, kv_ratio: 3, local_range: 11, seed: p.seed ?? 42,
+  } };
+}
+function flashvsrUsed(p) {
+  return {
+    method: "flashvsr", model: p.model || "FlashVSR-v1.1", mode: p.mode || "tiny",
+    scale: p.scale ?? 2, colorFix: p.colorFix !== false,
+    tileSize: p.tileSize ?? 384, tileOverlap: p.tileOverlap ?? 32, seed: p.seed ?? 42,
+  };
+}
+function flashvsrParamsFromState(state) {
+  return {
+    model: state.flashvsrModel, mode: state.flashvsrMode, scale: state.flashvsrScale,
+    colorFix: state.flashvsrColorFix, tileSize: state.flashvsrTileSize,
+    tileOverlap: state.flashvsrTileOverlap, seed: state.flashvsrSeed,
+  };
+}
+
 /** Single-clip graph. opts: { nodeId, promptText, seed, firstFrame, lastFrame, refImages }. */
 export function buildClipGraph(state, avail, opts) {
   const { nodeId = "1", promptText, seed, firstFrame = null, lastFrame = null, refImages = null } = opts || {};
@@ -307,8 +357,11 @@ export function buildClipGraph(state, avail, opts) {
     g[N.upApply] = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: [N.upModel, 0], image: images } };
     images = [N.upApply, 0];
   } else if (up === "rtx" && has(avail, "RTXVideoSuperResolution")) {
-    g[N.rtx] = { class_type: "RTXVideoSuperResolution", inputs: { images, resize_type: "scale by multiplier", "resize_type.scale": state.rtxScale ?? 2.0, quality: state.rtxQuality || "ULTRA" } };
-    images = [N.rtx, 0];
+    const r = buildRtxNode(g, { crop: N.rtxCrop, rtx: N.rtx }, images, state, width, height);
+    images = r.images;
+  } else if (up === "flashvsr" && has(avail, "FlashVSRNodeAdv")) {
+    buildFlashVSR(g, N.fvsrPipe, N.fvsr, flashvsrParamsFromState(state), images);
+    images = [N.fvsr, 0];
   }
 
   g[N.video] = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: [N.decodeA, 0] } };
@@ -318,6 +371,504 @@ export function buildClipGraph(state, avail, opts) {
     graph: g,
     meta: { width, height, frames, steps, seed, samplerUsed, videoNode: N.save, turboEffective: turboEff },
   };
+}
+
+// Writes the final video-save step: VHS_VideoCombine's nvenc_h264-mp4 format when the pack is
+// installed, falling back to CreateVideo -> SaveVideo (ComfyUI core) otherwise. Used by the
+// new modes below (Face Refine / Character Sheet video); buildClipGraph above keeps its own
+// simpler inline SaveVideo, unchanged.
+function saveVideoNode(g, ids, images, audio, fps, filenamePrefix, avail, preview = false) {
+  if (has(avail, "VHS_VideoCombine")) {
+    g[ids.save] = { class_type: "VHS_VideoCombine", inputs: {
+      images, audio, frame_rate: fps, loop_count: 0, filename_prefix: filenamePrefix,
+      format: "video/nvenc_h264-mp4", pingpong: false, save_output: !preview,
+    } };
+  } else {
+    g[ids.video] = { class_type: "CreateVideo", inputs: { images, fps, audio } };
+    g[ids.save] = { class_type: "SaveVideo", inputs: { video: [ids.video, 0], filename_prefix: filenamePrefix, format: "auto", codec: "auto" } };
+  }
+}
+
+// Up to 3 user LoRA slots shared by Image Generator + Character Sheet (state.imgLoras) —
+// its own list, never the main render's state.loras.
+function buildImageLoraChain(g, state, modelLink) {
+  const loras = Array.isArray(state.imgLoras) ? state.imgLoras : [];
+  let link = modelLink;
+  loras.slice(0, 3).forEach((l, i) => {
+    if (!l || l.enabled === false || !l.name || l.name === "none") return;
+    g[`IMG:lora_${i}`] = { class_type: "LoraLoaderModelOnly", inputs: { lora_name: l.name, strength_model: l.strength ?? 1.0, model: link } };
+    link = [`IMG:lora_${i}`, 0];
+  });
+  return link;
+}
+
+/** Resolve a saved preset id ("s:<numeric id>" for a BUILTIN_PRESETS row, "u:<name>" for a
+ * user preset) the same way the web view's own preset dropdown names them. */
+function findPresetById(id, userPresets) {
+  if (!id) return null;
+  if (id.startsWith("u:")) {
+    const name = id.slice(2);
+    return (userPresets || []).find((p) => p.name === name) || null;
+  }
+  if (id.startsWith("s:")) {
+    const num = Number(id.slice(2));
+    return BUILTIN_PRESETS.find((p) => p.id === num) || null;
+  }
+  return null;
+}
+
+// ── H3 Face Refine (generationMode "facerefine") ────────────────────────────────────────────
+// Post-process an existing clip: detect/track a face, crop it to fill a canvas, re-render just
+// that crop through H3 as img2img (H3InjectVideoLatent), then stitch the refined crop back over
+// the original frames. Ported node-for-node from graphBuilder.ts buildFaceRefineGraph. Headless
+// drops only the live sampling preview (ModelPreviewOverrideKJ) — UI-only, out of scope.
+const FR = {
+  load: "FR:load", select: "FR:select", track: "FR:track", inject: "FR:inject",
+  denoise: "FR:denoise", stitch: "FR:stitch", video: "FR:video", save: "FR:save",
+  lora: (i) => `FR:lora${i}`,
+};
+
+/**
+ * opts: { nodeId, sourceFile, promptText, seed, refImages, confirmedPickOverride, userPresets }
+ */
+export function buildFaceRefineGraph(state, avail, opts) {
+  const { sourceFile, promptText, seed, refImages, confirmedPickOverride, userPresets } = opts || {};
+  if (!sourceFile) throw new Error("Face Refine: pick a source clip (already uploaded to ComfyUI's input/).");
+  if (!state.faceDetector || state.faceDetector === "none")
+    throw new Error("Face Refine: set a face detector (job.faceDetector / config faceDetector).");
+  const isManual = state.frSelect === "manual";
+  const confirmedPick = confirmedPickOverride ?? state.frConfirmedPick;
+  if (isManual && !String(confirmedPick || "").trim())
+    throw new Error("Face Refine: frSelect is 'manual' but no frConfirmedPick was given.");
+
+  const g = {};
+  const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+  const stem = state.filenamePrefix || "MMH3";
+  const cutMode = state.frCutDetection ? "auto (pyscenedetect)" : "none";
+
+  let imagesLink, audioLink, facePickLink = null;
+  if (isManual && has(avail, "H3FaceSelect")) {
+    g[FR.select] = { class_type: "H3FaceSelect", inputs: {
+      video: sourceFile, detector: state.faceDetector, confidence: state.frConfidence ?? 0.35,
+      select: "manual", select_index: 0, confirmed_pick: confirmedPick || "",
+      cut_detection: cutMode, cut_threshold: state.frCutThreshold ?? 3.0,
+      skip_first_frames: 0, frame_load_cap: 0, select_every_nth: 1,
+    } };
+    imagesLink = [FR.select, 0]; audioLink = [FR.select, 1]; facePickLink = [FR.select, 2];
+  } else {
+    g[FR.load] = { class_type: "VHS_LoadVideo", inputs: {
+      video: sourceFile, force_rate: 0, custom_width: 0, custom_height: 0,
+      frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1, format: "AnimateDiff",
+    } };
+    imagesLink = [FR.load, 0]; audioLink = [FR.load, 2];
+  }
+
+  const trackInputs = {
+    images: imagesLink, detector: state.faceDetector, confidence: state.frConfidence ?? 0.35,
+    crop_factor: state.frCropFactor ?? 2.5,
+    canvas_width: state.frCanvasWidth ?? 768, canvas_height: state.frCanvasHeight ?? 768,
+    canvas_mode: state.frCanvasMode || "auto_capped_768",
+    smooth_window: state.frSmoothWindow ?? 21, size_smooth_window: 51,
+    smooth_method: "gaussian", size_mode: "per_frame",
+    identity_track: state.frIdentityTrack !== false,
+    identity_threshold: state.frIdentityThreshold ?? 0.45,
+    fallback_detector: state.faceFallbackDetector || "none",
+  };
+  if (facePickLink) {
+    trackInputs.face_pick = facePickLink;
+  } else {
+    trackInputs.select = state.frSelect || "largest_face";
+    trackInputs.cut_detection = cutMode;
+    trackInputs.cut_threshold = state.frCutThreshold ?? 3.0;
+  }
+  if (state.frIdentityModel) trackInputs.identity_model = state.frIdentityModel;
+  g[FR.track] = { class_type: "H3FaceTrackCrop", inputs: trackInputs };
+  const canvasW = [FR.track, 4], canvasH = [FR.track, 5], frameCount = [FR.track, 6];
+  const cropsLink = [FR.track, 0], transformLink = [FR.track, 1];
+
+  const useCustomModel = !!state.frUseCustomModel;
+  const unetFile = useCustomModel ? state.frUnet : state.unetReference;
+  const clipFile = useCustomModel ? state.frClip : state.clipName;
+  if (useCustomModel && (!unetFile || unetFile === "none"))
+    throw new Error("Face Refine: set frUnet (or turn off frUseCustomModel).");
+  if (useCustomModel && (!clipFile || clipFile === "none"))
+    throw new Error("Face Refine: set frClip (or turn off frUseCustomModel).");
+  const refState = { ...state, generationMode: "reference", unetReference: unetFile };
+  if (state.frTurboOn) {
+    const preset = findPresetById(state.frTurboPreset, userPresets)
+      || (userPresets || []).find((p) => p.turbo && p.turbo !== "none")
+      || BUILTIN_PRESETS.find((p) => p.turbo && p.turbo !== "none")
+      || null;
+    if (preset) {
+      applyPreset(refState, preset);
+      refState.unetReference = unetFile;
+    } else {
+      refState.turboMode = "none";
+    }
+  } else {
+    refState.turboMode = "none";
+  }
+  const modelLink0 = buildModelChain(g, refState, avail);
+  g[N.clip] = String(clipFile || "").toLowerCase().endsWith(".gguf")
+    ? { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipFile, type: "minimax" } }
+    : { class_type: "CLIPLoader", inputs: { clip_name: clipFile, type: "minimax", device: "default" } };
+  g[N.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
+  g[N.vaeA] = { class_type: "VAELoader", inputs: { vae_name: state.vaeAudio } };
+
+  let modelLoraLink = modelLink0;
+  (state.frLoras || []).forEach((lora, i) => {
+    if (!lora?.name || lora.name === "none" || lora.enabled === false) return;
+    const s = parseFloat(String(lora.strength ?? 1.0));
+    if (!(s > 0)) return;
+    g[FR.lora(i)] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelLoraLink, lora_name: lora.name, strength_model: s } };
+    modelLoraLink = [FR.lora(i), 0];
+  });
+
+  // Headless: no live preview node (ModelPreviewOverrideKJ) — UI-only.
+  const modelLink = applySla(g, refState, avail, modelLoraLink);
+
+  buildConditioning(g, refState, String(promptText || "").trim(), canvasW, canvasH, frameCount,
+    { refImages: refImages ?? state.refImages }, avail);
+
+  g[FR.inject] = { class_type: "H3InjectVideoLatent", inputs: { av_latent: [N.cond, 1], images: cropsLink, vae: [N.vaeV, 0] } };
+
+  g[N.audioLock] = { class_type: "TJ_H3_AudioLock", inputs: {
+    av_latent: [FR.inject, 0], audio: audioLink, audio_vae: [N.vaeA, 0],
+    mode: "lock", strength: 0.5, fit: "pad_silence",
+    get_name_av_latent: "(none)", get_name_audio: "(none)", get_name_audio_vae: "(none)", auto_set: false,
+  } };
+
+  g[FR.denoise] = { class_type: "H3PerFrameDenoise", inputs: {
+    model: modelLink, av_latent: [N.audioLock, 0], transform: transformLink,
+    denoise_multiplier_small_face: state.frDenoiseMulSmall ?? 1.0,
+    denoise_multiplier_large_face: state.frDenoiseMulLarge ?? 0.35,
+    scale_mode: "absolute_px",
+    face_px_small: state.frFacePxSmall ?? 30.0, face_px_large: state.frFacePxLarge ?? 120.0,
+    gamma: 1.0, smooth_frames: 9,
+  } };
+  const denoisedModel = [FR.denoise, 2];
+
+  const turboMode = turboEffective(refState, avail);
+  const useTurboSampler = turboMode === "larryvrh" && has(avail, "MiniMaxH3TurboSampler");
+  const steps = turboMode === "none" ? Math.max(1, Math.round(state.frSteps ?? 8)) : effectiveSteps(refState, avail);
+
+  const useSeed = state.seedMode === "randomize" ? Math.floor(Math.random() * 1e15) : (seed ?? state.seed ?? 0);
+  g[N.noise] = { class_type: "RandomNoise", inputs: { noise_seed: useSeed } };
+  if (useTurboSampler) {
+    g[N.sampSel] = { class_type: "MiniMaxH3TurboSampler", inputs: {} };
+  } else if (turboMode === "pdd") {
+    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+  } else {
+    g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: state.frSampler || "euler" } };
+  }
+  g[N.sched] = { class_type: "BasicScheduler", inputs: { model: denoisedModel, scheduler: state.frScheduler || "simple", steps, denoise: state.frDenoise ?? 0.40 } };
+  let condLink = [N.cond, 0];
+  if (has(avail, "TJ_FreeTextEncoderVRAM")) {
+    g[N.freeClipVram] = { class_type: "TJ_FreeTextEncoderVRAM", inputs: { clip: [N.clip, 0], trigger: condLink } };
+    condLink = [N.freeClipVram, 0];
+  }
+  g[N.guider] = { class_type: "BasicGuider", inputs: { model: denoisedModel, conditioning: condLink } };
+  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: {
+    noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: [N.sched, 0], latent_image: [FR.denoise, 0],
+  } };
+  g[N.decode] = { class_type: "VAEDecode", inputs: { samples: [N.sampler, 0], vae: [N.vaeV, 0] } };
+
+  g[FR.stitch] = { class_type: "H3FaceStitch", inputs: {
+    base_images: imagesLink, refined_crops: [N.decode, 0], transform: transformLink,
+    paste_region: state.frPasteRegion || "face_only",
+    mask_dilation: 16, feather: state.frFeather ?? 6,
+    colour_match: state.frColourMatch ?? 1.0, blend: state.frBlend ?? 1.0,
+    undetected_frames: state.frUndetected || "fade_out",
+  } };
+
+  saveVideoNode(g, { video: FR.video, save: FR.save }, [FR.stitch, 0], [N.audioLock, 1], FPS, `${folder}/${stem}_FACEREFINE`, avail);
+
+  return {
+    graph: g,
+    meta: { faceRefine: true, source: sourceFile, select: state.frSelect, denoise: state.frDenoise ?? 0.40, steps, turboMode, seed: useSeed, videoNode: FR.save, lastFrameNode: null },
+  };
+}
+
+// ── Image Generator (generationMode "imagegen", subMode "t2i" | "ref2i") ───────────────────
+// Same H3 video pipeline run at a short fixed length (8 frames), read back as a single still.
+// A cheap first pass at preview resolution; final:true adds a second latent-upscale pass up to
+// finalRes. Ported node-for-node from graphBuilder.ts buildImageGenGraph.
+const IMG = {
+  unet: "IMG:unet", sage: "IMG:sage", memSage: "IMG:mem_sage", turboLora: "IMG:turbo_lora",
+  clip: "IMG:clip", vaeV: "IMG:vae_video", ref: (i) => `IMG:ref_image_${i}`, cond: "IMG:cond",
+  noise: "IMG:noise", sampSel1: "IMG:sampler_sel1", sched: "IMG:scheduler",
+  guider1: "IMG:guider1", sampler1: "IMG:sampler1",
+  sepAV: "IMG:sep_av", latentUp: "IMG:latent_up", concatAV: "IMG:concat_av",
+  sampSel2: "IMG:sampler_sel2", guider2: "IMG:guider2", sigmas2: "IMG:sigmas2", sampler2: "IMG:sampler2",
+  decode: "IMG:decode", frame: "IMG:frame", save: "IMG:save",
+};
+const IMG_PASS2_SIGMAS = "0.9035, 0.6316, 0.3158, 0.0000";
+const IMG_LENGTH = 8;
+
+/**
+ * opts: { subMode, final, refImages, refImageSize, prompt, seed, previewRes, finalRes,
+ *         filenamePrefix, steps, turboOn, turboLora, turboLoraStrength, savePreview }
+ */
+export function buildImageGenGraph(state, avail, opts) {
+  const { subMode, final, refImages, refImageSize, prompt, seed, previewRes, finalRes, filenamePrefix,
+    steps, turboOn, turboLora, turboLoraStrength, savePreview } = opts || {};
+  const refList = (refImages || []).filter(Boolean).slice(0, 9);
+  if (subMode === "ref2i" && !refList.length) throw new Error("Reference to Image needs at least one reference image.");
+  const g = {};
+
+  const unetName = subMode === "ref2i" ? state.unetReference : state.unetFirstLast;
+  if (!unetName || unetName === "none") throw new Error(`${subMode === "ref2i" ? "Reference" : "First/Last"} UNET is not set.`);
+  g[IMG.unet] = { class_type: "UNETLoader", inputs: { unet_name: unetName, weight_dtype: "default" } };
+  let model = [IMG.unet, 0];
+
+  if (has(avail, "PathchSageAttentionKJ")) {
+    g[IMG.sage] = { class_type: "PathchSageAttentionKJ", inputs: { sage_attention: "auto", allow_compile: true, model } };
+    model = [IMG.sage, 0];
+  }
+  if (has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
+    g[IMG.memSage] = { class_type: "MiniMaxH3MemoryEfficientSageAttentionPatch", inputs: { model } };
+    model = [IMG.memSage, 0];
+  }
+  model = buildImageLoraChain(g, state, model);
+
+  if (turboOn && turboLora && turboLora !== "none") {
+    g[IMG.turboLora] = { class_type: "LoraLoaderModelOnly", inputs: { model, lora_name: turboLora, strength_model: turboLoraStrength ?? 1.0 } };
+    model = [IMG.turboLora, 0];
+  }
+
+  g[IMG.clip] = { class_type: "CLIPLoader", inputs: { clip_name: state.clipName, type: "minimax", device: "default" } };
+  g[IMG.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
+
+  const condInputs = { clip: [IMG.clip, 0], vae: [IMG.vaeV, 0], prompt, width: previewRes.width, height: previewRes.height, length: IMG_LENGTH };
+  if (subMode === "ref2i") {
+    condInputs.ref_image_size = refImageSize || "max";
+    refList.forEach((name, i) => {
+      g[IMG.ref(i)] = { class_type: "LoadImage", inputs: { image: name } };
+      condInputs[`ref_images.ref_image_${i}`] = [IMG.ref(i), 0];
+    });
+    g[IMG.cond] = { class_type: "MiniMaxH3ReferenceToVideo", inputs: condInputs };
+  } else {
+    g[IMG.cond] = { class_type: "MiniMaxH3ImageToVideo", inputs: condInputs };
+  }
+
+  const stepCount = Math.max(1, Math.round(steps ?? 8));
+  g[IMG.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
+  g[IMG.sampSel1] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+  g[IMG.sched] = { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
+  g[IMG.guider1] = { class_type: "BasicGuider", inputs: { model, conditioning: [IMG.cond, 0] } };
+  g[IMG.sampler1] = { class_type: "SamplerCustomAdvanced", inputs: {
+    noise: [IMG.noise, 0], guider: [IMG.guider1, 0], sampler: [IMG.sampSel1, 0], sigmas: [IMG.sched, 0], latent_image: [IMG.cond, 1],
+  } };
+
+  let decodeSamples;
+  if (!final) {
+    decodeSamples = [IMG.sampler1, 0];
+  } else {
+    if (!has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("MinimaxH3LatentUpscaler3D is not installed.");
+    g[IMG.sepAV] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: [IMG.sampler1, 1] } };
+    g[IMG.latentUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
+      model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+      mode: "target dimensions", "mode.width": finalRes.width, "mode.height": finalRes.height,
+      align: 32, enable_temporal_chunking: true, force_unload: true, device: "cuda", precision: "fp16",
+      latent: [IMG.sepAV, 0],
+    } };
+    g[IMG.concatAV] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [IMG.latentUp, 0], audio_latent: [IMG.sepAV, 1] } };
+    g[IMG.sampSel2] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+    g[IMG.guider2] = { class_type: "BasicGuider", inputs: { model, conditioning: [IMG.cond, 0] } };
+    g[IMG.sigmas2] = turboOn
+      ? { class_type: "ManualSigmas", inputs: { sigmas: IMG_PASS2_SIGMAS } }
+      : { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
+    g[IMG.sampler2] = { class_type: "SamplerCustomAdvanced", inputs: {
+      noise: [IMG.noise, 0], guider: [IMG.guider2, 0], sampler: [IMG.sampSel2, 0], sigmas: [IMG.sigmas2, 0], latent_image: [IMG.concatAV, 0],
+    } };
+    decodeSamples = [IMG.sampler2, 0];
+  }
+
+  g[IMG.decode] = { class_type: "VAEDecode", inputs: { samples: decodeSamples, vae: [IMG.vaeV, 0] } };
+  g[IMG.frame] = { class_type: "ImageFromBatch", inputs: { batch_index: IMG_LENGTH, length: 1, image: [IMG.decode, 0] } };
+  g[IMG.save] = (final || savePreview)
+    ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [IMG.frame, 0] } }
+    : { class_type: "PreviewImage", inputs: { images: [IMG.frame, 0] } };
+
+  return { graph: g, saveNode: IMG.save };
+}
+
+// ── Character Sheet (imageGenMode "charsheet") — two separate graphs ───────────────────────
+// Stage 1 (buildCharacterSheetVideoGraph): the expensive H3 render — ref2va 124-frame
+// turnaround, saved as a plain video (no audio). Stage 2 (buildCharacterSheetGridGraph): the
+// cheap grid-assembly graph against the already-saved video — the caller re-runs only this one
+// to pick different frames. Ported node-for-node from graphBuilder.ts.
+const CS = {
+  unet: "CS:unet", sage: "CS:sage", memSage: "CS:mem_sage", shift: "CS:shift",
+  clip: "CS:clip", vaeV: "CS:vae_video", ref: (i) => `CS:ref_image_${i}`, cond: "CS:cond",
+  noise: "CS:noise", sampSel: "CS:sampler_sel", sched: "CS:scheduler", guider: "CS:guider", sampler: "CS:sampler",
+  sepAV: "CS:sep_av", latentUp: "CS:latent_up", concatAV: "CS:concat_av",
+  sampSel2: "CS:sampler_sel2", guider2: "CS:guider2", sigmas2: "CS:sigmas2", sampler2: "CS:sampler2",
+  decode: "CS:decode", deblur: "CS:deblur", rtxCrop: "CS:rtx_crop", rtx: "CS:rtx", rtxDown: "CS:rtx_downsize",
+  video: "CS:video", save: "CS:save",
+};
+const CS_PASS2_SIGMAS = "0.9035, 0.6316, 0.3158, 0.0000";
+
+/**
+ * opts: { refImages, refImageSize, prompt, deblur, rtx, rtxSupersample, useLatentUpscale,
+ *         firstPassRes, width, height, seed, filenamePrefix }
+ */
+export function buildCharacterSheetVideoGraph(state, avail, opts) {
+  const { refImages, refImageSize, prompt, deblur = "none", rtx = null, rtxSupersample = false,
+    useLatentUpscale = false, firstPassRes, width, height, seed, filenamePrefix } = opts || {};
+  const refList = (refImages || []).filter(Boolean).slice(0, 9);
+  if (!refList.length) throw new Error("Character Sheet needs at least one reference image.");
+  if (!state.unetReference || state.unetReference === "none") throw new Error("Reference UNET is not set.");
+  const g = {};
+
+  g[CS.unet] = { class_type: "UNETLoader", inputs: { unet_name: state.unetReference, weight_dtype: "default" } };
+  let model = [CS.unet, 0];
+  if (has(avail, "PathchSageAttentionKJ")) {
+    g[CS.sage] = { class_type: "PathchSageAttentionKJ", inputs: { sage_attention: "auto", allow_compile: false, model } };
+    model = [CS.sage, 0];
+  }
+  if (has(avail, "MiniMaxH3MemoryEfficientSageAttentionPatch")) {
+    g[CS.memSage] = { class_type: "MiniMaxH3MemoryEfficientSageAttentionPatch", inputs: { model } };
+    model = [CS.memSage, 0];
+  }
+  model = buildImageLoraChain(g, state, model);
+  g[CS.shift] = { class_type: "MiniMaxH3SigmaShift", inputs: { model, shift_video: 12, shift_audio: 3 } };
+  model = [CS.shift, 0];
+
+  g[CS.clip] = { class_type: "CLIPLoader", inputs: { clip_name: state.clipName, type: "minimax", device: "default" } };
+  g[CS.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
+
+  const passRes = useLatentUpscale && firstPassRes ? firstPassRes : { width, height };
+  const condInputs = { clip: [CS.clip, 0], vae: [CS.vaeV, 0], prompt, width: passRes.width, height: passRes.height, length: CHARSHEET_FRAMES, ref_image_size: refImageSize || "max" };
+  refList.forEach((name, i) => {
+    g[CS.ref(i)] = { class_type: "LoadImage", inputs: { image: name } };
+    condInputs[`ref_images.ref_image_${i}`] = [CS.ref(i), 0];
+  });
+  g[CS.cond] = { class_type: "MiniMaxH3ReferenceToVideo", inputs: condInputs };
+
+  g[CS.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
+  g[CS.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+  g[CS.sched] = { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: 8, denoise: 1, model } };
+  g[CS.guider] = { class_type: "BasicGuider", inputs: { model, conditioning: [CS.cond, 0] } };
+  g[CS.sampler] = { class_type: "SamplerCustomAdvanced", inputs: {
+    noise: [CS.noise, 0], guider: [CS.guider, 0], sampler: [CS.sampSel, 0], sigmas: [CS.sched, 0], latent_image: [CS.cond, 1],
+  } };
+
+  let decodeSamples = [CS.sampler, 0];
+  if (useLatentUpscale) {
+    if (!has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("MinimaxH3LatentUpscaler3D is not installed.");
+    g[CS.sepAV] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: [CS.sampler, 1] } };
+    g[CS.latentUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
+      model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+      mode: "target dimensions", "mode.width": width, "mode.height": height,
+      align: 32, enable_temporal_chunking: true, force_unload: true, device: "cuda", precision: "fp16",
+      latent: [CS.sepAV, 0],
+    } };
+    g[CS.concatAV] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [CS.latentUp, 0], audio_latent: [CS.sepAV, 1] } };
+    g[CS.sampSel2] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
+    g[CS.guider2] = { class_type: "BasicGuider", inputs: { model, conditioning: [CS.cond, 0] } };
+    g[CS.sigmas2] = { class_type: "ManualSigmas", inputs: { sigmas: CS_PASS2_SIGMAS } };
+    g[CS.sampler2] = { class_type: "SamplerCustomAdvanced", inputs: {
+      noise: [CS.noise, 0], guider: [CS.guider2, 0], sampler: [CS.sampSel2, 0], sigmas: [CS.sigmas2, 0], latent_image: [CS.concatAV, 0],
+    } };
+    decodeSamples = [CS.sampler2, 0];
+  }
+  g[CS.decode] = { class_type: "VAEDecode", inputs: { samples: decodeSamples, vae: [CS.vaeV, 0] } };
+  let images = [CS.decode, 0];
+
+  if (deblur && deblur !== "none") {
+    if (!has(avail, "TJ_RTXDeblur")) throw new Error("RTX Deblur (TJ_RTXDeblur) is not installed.");
+    g[CS.deblur] = { class_type: "TJ_RTXDeblur", inputs: { images, strength: deblur } };
+    images = [CS.deblur, 0];
+  }
+  if (rtx) {
+    if (!has(avail, "RTXVideoSuperResolution")) throw new Error("RTXVideoSuperResolution is not installed.");
+    const rtxState = { rtxSizeMode: "scale", rtxScale: rtx.rtxScale ?? 2.0, rtxQuality: rtx.rtxQuality || "ULTRA", rtxShort: 0, rtxLong: 0, rtxW: 0, rtxH: 0, rtxCropAnchor: "center" };
+    const r = buildRtxNode(g, { crop: CS.rtxCrop, rtx: CS.rtx }, images, rtxState, width, height);
+    images = r.images;
+    if (rtxSupersample) {
+      g[CS.rtxDown] = { class_type: "ImageScale", inputs: { image: images, upscale_method: "lanczos", width, height, crop: "center" } };
+      images = [CS.rtxDown, 0];
+    }
+  }
+
+  if (has(avail, "VHS_VideoCombine")) {
+    g[CS.save] = { class_type: "VHS_VideoCombine", inputs: { images, frame_rate: FPS, loop_count: 0, filename_prefix: filenamePrefix, format: "video/nvenc_h264-mp4", pingpong: false, save_output: true } };
+  } else {
+    g[CS.video] = { class_type: "CreateVideo", inputs: { images, fps: FPS } };
+    g[CS.save] = { class_type: "SaveVideo", inputs: { video: [CS.video, 0], filename_prefix: filenamePrefix, format: "auto", codec: "auto" } };
+  }
+  return { graph: g, saveNode: CS.save };
+}
+
+const CSG = {
+  load: "CSG:load", ref: "CSG:ref", refResize: "CSG:ref_resize",
+  frame: (i) => `CSG:frame_${i}`, frameSave: (i) => `CSG:frame_save_${i}`,
+  batch: "CSG:batch", grid: "CSG:grid", scaleMax: "CSG:scale_max", save: "CSG:save",
+};
+
+/**
+ * opts: { videoFile, refImage, frameIndices, cellWidth, cellHeight, maxDimension,
+ *         saveEachFrames, framesFilenamePrefix, filenamePrefix }
+ */
+export function buildCharacterSheetGridGraph(opts, avail) {
+  const { videoFile, refImage, frameIndices, cellWidth, cellHeight, maxDimension = 2048,
+    saveEachFrames = false, framesFilenamePrefix, filenamePrefix } = opts || {};
+  const indices = (frameIndices && frameIndices.length ? frameIndices : CHARSHEET_DEFAULT_FRAME_INDICES).slice(0, 8);
+  for (const n of ["BatchImagesNode", "ImageGrid", "ImageScaleToMaxDimension"]) {
+    if (!has(avail, n)) throw new Error(`${n} is not installed.`);
+  }
+  const g = {};
+
+  g[CSG.load] = { class_type: "VHS_LoadVideo", inputs: { video: videoFile, force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 } };
+  g[CSG.ref] = { class_type: "LoadImage", inputs: { image: refImage } };
+  g[CSG.refResize] = { class_type: "ImageScale", inputs: { image: [CSG.ref, 0], upscale_method: "lanczos", width: cellWidth, height: cellHeight, crop: "center" } };
+
+  const batchInputs = { "images.image0": [CSG.refResize, 0] };
+  indices.forEach((idx, i) => {
+    g[CSG.frame(i)] = { class_type: "ImageFromBatch", inputs: { batch_index: idx, length: 1, image: [CSG.load, 0] } };
+    batchInputs[`images.image${i + 1}`] = [CSG.frame(i), 0];
+    if (saveEachFrames) {
+      g[CSG.frameSave(i)] = { class_type: "SaveImage", inputs: { filename_prefix: `${framesFilenamePrefix}_shot${i + 1}`, images: [CSG.frame(i), 0] } };
+    }
+  });
+  g[CSG.batch] = { class_type: "BatchImagesNode", inputs: batchInputs };
+  g[CSG.grid] = { class_type: "ImageGrid", inputs: { columns: 3, cell_width: cellWidth, cell_height: cellHeight, padding: 8, images: [CSG.batch, 0] } };
+  g[CSG.scaleMax] = { class_type: "ImageScaleToMaxDimension", inputs: { upscale_method: "area", largest_size: maxDimension, image: [CSG.grid, 0] } };
+  g[CSG.save] = { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [CSG.scaleMax, 0] } };
+  return { graph: g, saveNode: CSG.save };
+}
+
+// ── Still-image upscale (Deblur + RTX VSR only — no FlashVSR path for stills in the source).
+// Same shape as the (excluded) video gallery upscaler but LoadImage/SaveImage instead of
+// VHS_LoadVideo/VHS_VideoCombine. Ported from graphBuilder.ts buildImageUpscaleGraph.
+const IMGPP = { load: "IMGPP:load", deblur: "IMGPP:deblur", rtxCrop: "IMGPP:rtx_crop", rtx: "IMGPP:rtx", save: "IMGPP:save" };
+
+/** opts: { inputFile, deblur, rtx: {rtxScale,rtxQuality,srcW,srcH}, folder, stem, saveSuffix } */
+export function buildImageUpscaleGraph(opts, avail) {
+  const { inputFile, deblur = "none", rtx = null, folder, stem, saveSuffix = "_post" } = opts || {};
+  const g = {};
+  g[IMGPP.load] = { class_type: "LoadImage", inputs: { image: inputFile } };
+  let image = [IMGPP.load, 0];
+  let used = false;
+
+  if (deblur && deblur !== "none") {
+    if (!has(avail, "TJ_RTXDeblur")) throw new Error("RTX Deblur (TJ_RTXDeblur) is not installed.");
+    g[IMGPP.deblur] = { class_type: "TJ_RTXDeblur", inputs: { images: image, strength: deblur } };
+    image = [IMGPP.deblur, 0];
+    used = true;
+  }
+  if (rtx) {
+    if (!has(avail, "RTXVideoSuperResolution")) throw new Error("RTXVideoSuperResolution is not installed.");
+    const rtxState = { rtxSizeMode: "scale", rtxScale: rtx.rtxScale ?? 2.0, rtxQuality: rtx.rtxQuality || "ULTRA", rtxShort: 0, rtxLong: 0, rtxW: 0, rtxH: 0, rtxCropAnchor: "center" };
+    const r = buildRtxNode(g, { crop: IMGPP.rtxCrop, rtx: IMGPP.rtx }, image, rtxState, rtx.srcW || 1024, rtx.srcH || 1024);
+    image = r.images;
+    used = true;
+  }
+  if (!used) throw new Error("Nothing to do — set deblur, rtx, or both.");
+
+  g[IMGPP.save] = { class_type: "SaveImage", inputs: { filename_prefix: `${folder}/${stem}${saveSuffix}`, images: image } };
+  return { graph: g, saveNode: IMGPP.save };
 }
 
 export { ONE_TAKE_OVERLAP_FRAMES };

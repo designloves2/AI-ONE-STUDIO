@@ -24,6 +24,41 @@ export const ASPECTS = [
   { label: "21:9 Cinema", w: 21, h: 9 },
 ];
 
+/** RTX VSR target-size math — "scale" | "short" | "long" | "wh" size modes. Ported verbatim
+ *  from core.ts computeRtxTarget(). srcW/srcH is whatever the RTX pass actually receives. */
+export function computeRtxTarget(state, srcW, srcH) {
+  const mode = state.rtxSizeMode || "scale";
+  const round8 = (v) => Math.max(8, Math.round(v / 8) * 8);
+  if (mode === "short" || mode === "long") {
+    const short = Math.min(srcW, srcH), long = Math.max(srcW, srcH);
+    const target = Math.max(8, Math.round(mode === "short" ? (state.rtxShort ?? 1080) : (state.rtxLong ?? 1920)));
+    const otherTarget = mode === "short" ? target * (long / short) : target * (short / long);
+    const isWSide = srcW <= srcH;
+    const width = mode === "short" ? (isWSide ? target : round8(otherTarget)) : (isWSide ? round8(otherTarget) : target);
+    const height = mode === "short" ? (isWSide ? round8(otherTarget) : target) : (isWSide ? target : round8(otherTarget));
+    return { resizeType: "target dimensions", width: round8(width), height: round8(height), crop: null };
+  }
+  if (mode === "wh") {
+    const width = round8(Math.max(8, Math.round(state.rtxW ?? 1920)));
+    const height = round8(Math.max(8, Math.round(state.rtxH ?? 1080)));
+    const targetAspect = width / height, srcAspect = srcW / srcH;
+    let cropW = srcW, cropH = srcH;
+    if (srcAspect > targetAspect) cropW = Math.round(srcH * targetAspect);
+    else if (srcAspect < targetAspect) cropH = Math.round(srcW / targetAspect);
+    const anchor = state.rtxCropAnchor || "center";
+    const x = anchor === "left" ? 0 : anchor === "right" ? srcW - cropW : Math.round((srcW - cropW) / 2);
+    const y = anchor === "top" ? 0 : anchor === "bottom" ? srcH - cropH : Math.round((srcH - cropH) / 2);
+    const crop = cropW < srcW || cropH < srcH ? { x, y, width: cropW, height: cropH } : null;
+    return { resizeType: "target dimensions", width, height, crop };
+  }
+  return { resizeType: "scale by multiplier", scale: state.rtxScale ?? 2.0, crop: null };
+}
+
+// Character Sheet's fixed frame count for the 8-shot turnaround (each [Shot N] marker in the
+// reference prompt template assumes this exact length) + its default grid frame picks.
+export const CHARSHEET_FRAMES = 124;
+export const CHARSHEET_DEFAULT_FRAME_INDICES = [7, 22, 37, 52, 67, 82, 107, 118];
+
 export function resolveResolution(aspectLabel, megapixels) {
   const a = ASPECTS.find((x) => x.label === aspectLabel) || ASPECTS[0];
   const mp = Math.max(0.1, megapixels || 1.0);
@@ -226,6 +261,44 @@ export function defaultState() {
     solSchedStrict: false, solSchedDensePercent: 0.0, solSchedThreshType: "diag",
     solSchedInt8Qk: false, solSchedInt8Pv: false, solSchedSinkConditioning: "exact_kv_and_rows",
     solSchedDenseBlocks: "",
+
+    // ── FlashVSR (shared upscaleMode "flashvsr" option on buildClipGraph, and the still-image
+    // gallery upscaler never uses it — only the video clip path does).
+    flashvsrModel: "FlashVSR-v1.1", flashvsrMode: "tiny", flashvsrScale: 2, flashvsrColorFix: true,
+    flashvsrTileSize: 384, flashvsrTileOverlap: 32, flashvsrSeed: 42, flashvsrSeedMode: "fixed",
+
+    // ── RTX VSR target-size fields (computeRtxTarget) — "scale" (default) never reads the rest.
+    rtxSizeMode: "scale", rtxShort: 1080, rtxLong: 1920, rtxW: 1920, rtxH: 1080, rtxCropAnchor: "center",
+
+    // ── Face Refine (generationMode "facerefine") ──────────────────────────────────────────
+    frSource: "", frSourceKind: "gallery", frSourceMeta: null, frPrompt: "",
+    frSelect: "largest_face", frSelectIndex: 0, frConfidence: 0.35, frConfirmedPick: "",
+    frChainPicks: [], frCutDetection: false, frCutThreshold: 3.0,
+    frIdentityTrack: true, frIdentityThreshold: 0.45, frIdentityModel: "insightface",
+    frCropFactor: 2.5, frCanvasMode: "auto_capped_768", frCanvasWidth: 768, frCanvasHeight: 768,
+    frSmoothWindow: 21,
+    frDenoise: 0.40, frDenoiseMulSmall: 1.0, frDenoiseMulLarge: 0.35,
+    frFacePxSmall: 30.0, frFacePxLarge: 120.0,
+    frSteps: 8, frSampler: "euler", frScheduler: "simple",
+    frPasteRegion: "face_only", frFeather: 6, frColourMatch: 1.0, frBlend: 1.0, frUndetected: "fade_out",
+    faceDetector: "", faceFallbackDetector: "none",
+    frUseCustomModel: false, frUnet: "", frClip: "",
+    frLoras: [],
+    frTurboOn: false, frTurboPreset: "",
+
+    // ── Image Generator (generationMode "imagegen") ────────────────────────────────────────
+    imageGenMode: "t2i",
+    imgLoras: [],
+    imgTurboLoraT2i: "none", imgTurboLoraRef2i: "none", imgTurboLoraStrength: 1.0,
+
+    // ── Character Sheet (imageGenMode "charsheet") ─────────────────────────────────────────
+    charSheetPrompt: "", charSheetSubjectName: "Character",
+    charSheetFrameIndices: CHARSHEET_DEFAULT_FRAME_INDICES.slice(),
+    charSheetDeblur: "none", charSheetRtxVsr: false, charSheetRtxSupersample: false,
+    charSheetUseLatentUpscale: false, charSheetFirstPassRatio: 0.36,
+    charSheetSaveEachFrames: false, charSheetMaxSize: 2048,
+    charSheetVideoFile: null, charSheetVideoOutput: null, charSheetRefImage: null,
+    charSheetCellW: 0, charSheetCellH: 0,
   };
 }
 

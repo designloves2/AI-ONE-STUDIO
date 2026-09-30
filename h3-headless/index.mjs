@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 import { makeClient, extractOutputs } from "./comfy.mjs";
 import {
@@ -22,9 +23,10 @@ import {
 } from "./graph.mjs";
 import { applyPresetByName } from "./presets.mjs";
 import {
-  FPS, defaultState, applyConfig, jobModeToGenerationMode,
-  alignFrameCount, composePrompt, randomSeed, resolveResolution,
+  FPS, SUBFOLDER, defaultState, applyConfig, jobModeToGenerationMode,
+  alignFrameCount, composePrompt, composeClipPrompt, randomSeed, resolveResolution,
   CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES,
+  ONE_TAKE_OVERLAP_FRAMES, framesToSeconds, oneTakeStitchedSeconds,
 } from "./core-helpers.mjs";
 
 const HELP = `h3-headless — MiniMax H3 generator (AI-ONE-STUDIO extract)
@@ -39,6 +41,9 @@ USAGE
 
 job.mode values
   ref2va | fl2va | l2va | t2va   the original single-clip video modes (buildClipGraph)
+  onetake                        One-Take — N clips chained via server-side latent continuity
+                                  (TJ_H3_LatentContinuation), one submit-wait-submit-wait
+                                  sequence per clip, then auto-stitched into one video
   facerefine                     H3 Face Refine — re-render a small/distant face per frame
   imagegen_t2i | imagegen_ref2i  Image Generator — single still (T2I / Reference to Image)
   charsheet                      Character Sheet — ref2va turnaround video + grid assembly
@@ -71,6 +76,24 @@ job.mode:"charsheet" fields
 
 job.mode:"imageupscale" fields
   inputFile (absolute path, uploaded as an image), deblur, rtx:{rtxScale,rtxQuality,srcW,srcH}
+
+job.mode:"onetake" fields
+  prompts           required array of per-clip prompt strings (one per clip; a shorter array
+                     reuses its last non-empty entry for the remaining clips — see README.md
+                     "Writing prompts for One-Take" for how to write these so clip N+1 reads as
+                     a continuation of clip N instead of a new shot)
+  clipCount          optional, default prompts.length
+  clipSeconds         per-clip duration in seconds (default: config's own default, ~8s)
+  clipMode            "ref2va" | "fl2va" | "t2va" (default "t2va") — same generation-mode
+                       meaning as the single-clip job.mode values, just naming which
+                       conditioning buildClipGraph uses for every clip in the chain
+  preset, model, unetFirstLast, unetReference, aspect, megapixels, seed, refImages, firstFrame,
+  lastFrame           same as the single-clip fields — firstFrame only applies to clip 0,
+                       lastFrame only to the final clip (mirrors the studio's own run loop)
+  seedPerClip          bool, default true — clip i's seed is (seed + i); false reuses one seed
+  promptHeader/promptFooter/promptSuffix   optional, prepended/appended to every clip's prompt
+  oneTakeLockAudio     bool, default false — lock_audio flag on TJ_H3_LatentContinuation
+  oneTakeAutoStitch    bool, default true — POST /stitch after the last clip finishes
 
 OUTPUT (stdout, JSON)
   ok:true  -> { promptId, outputs:[{type,filename,subfolder,url}], localFiles:[...], graphSubmitted }
@@ -118,6 +141,7 @@ export async function generate(job, comfyConfig, opts = {}) {
 
     const mode = String(job.mode || "t2va").toLowerCase();
     if (CLIP_MODES.has(mode)) return await runClip(job, state, cfg, avail, client, { dryRun, outDir, onPoll });
+    if (mode === "onetake") return await runOneTake(job, state, cfg, avail, client, { dryRun, outDir, onPoll });
     if (mode === "facerefine") return await runFaceRefine(job, state, avail, client, { dryRun, outDir, onPoll });
     if (mode === "imagegen_t2i" || mode === "imagegen_ref2i") return await runImageGen(job, state, avail, client, { dryRun, outDir, onPoll, subMode: mode === "imagegen_ref2i" ? "ref2i" : "t2i" });
     if (mode === "charsheet") return await runCharSheet(job, state, avail, client, { dryRun, outDir, onPoll });
@@ -184,6 +208,143 @@ async function runClip(job, state, cfg, avail, client, { dryRun, outDir, onPoll 
     frames: meta.frames, seed, steps: meta.steps, sampler: meta.samplerUsed, turboEffective: meta.turboEffective,
   };
   return submitAndCollect(client, graph, meta.videoNode, { dryRun, outDir, onPoll, base });
+}
+
+// ── onetake (N clips chained via server-side latent continuity, then auto-stitched) ────────
+// Mirrors view.ts's multi-clip run loop (the "onetake" branch): submit clip i, wait for it to
+// finish, then submit clip i+1 with prevCheckpointName = clip i's checkpointName. Nothing is
+// downloaded/re-uploaded between clips — TJ_H3_SaveLatentCheckpoint / TJ_H3_LoadLatentCheckpoint
+// key the continuation latent by name on the ComfyUI server itself.
+async function runOneTake(job, state, cfg, avail, client, { dryRun, outDir, onPoll }) {
+  state.generationMode = jobModeToGenerationMode(job.clipMode || job.generationMode || "t2va");
+  state.continuityMode = "onetake"; // forced — this mode IS one-take, the job never says it twice
+
+  let presetInfo = { source: "none", name: null };
+  if (job.preset != null && job.preset !== "") presetInfo = applyPresetByName(state, job.preset, cfg.user_presets);
+
+  if (job.megapixels != null) state.megapixels = Number(job.megapixels);
+  if (job.aspect) state.aspect = job.aspect;
+  if (job.clipSeconds != null) state.clipFrames = alignFrameCount(Number(job.clipSeconds) * FPS);
+  else if (job.clipFrames != null) state.clipFrames = alignFrameCount(Number(job.clipFrames));
+  const modelOverride = job.model || job.unet || null;
+  if (modelOverride) { state.unetFirstLast = modelOverride; state.unetReference = modelOverride; }
+  if (job.unetFirstLast) state.unetFirstLast = job.unetFirstLast;
+  if (job.unetReference) state.unetReference = job.unetReference;
+
+  if (job.oneTakeLockAudio != null) state.oneTakeLockAudio = !!job.oneTakeLockAudio;
+  const autoStitch = job.oneTakeAutoStitch !== false; // default true, same as defaultState()
+  if (job.seedPerClip != null) state.seedPerClip = !!job.seedPerClip;
+  if (job.promptHeader != null) state.promptHeader = job.promptHeader;
+  if (job.promptFooter != null) state.promptFooter = job.promptFooter;
+  if (job.promptSuffix != null) state.promptSuffix = job.promptSuffix;
+
+  const prompts = Array.isArray(job.prompts) ? job.prompts.map((p) => (typeof p === "string" ? p : composePrompt(p))) : [];
+  if (!prompts.length) throw tag(new Error("job.prompts (non-empty array) is required for mode 'onetake'"), "config");
+  state.prompts = prompts;
+  const clipCount = Math.max(1, Number(job.clipCount) || prompts.length);
+
+  const refPaths = Array.isArray(job.refImages) ? job.refImages : [];
+  const refImagesUploaded = [];
+  for (const p of refPaths) refImagesUploaded.push(await client.uploadImage(abspath(p)));
+  if (state.generationMode === "reference") {
+    state.refImages = refImagesUploaded;
+    state.refImagesMp = refImagesUploaded.map(() => 0);
+  }
+  const firstFrameUploaded = job.firstFrame ? await client.uploadImage(abspath(job.firstFrame)) : null;
+  const lastFrameUploaded = job.lastFrame ? await client.uploadImage(abspath(job.lastFrame)) : null;
+
+  const seedBase = job.seed == null ? randomSeed() : Number(job.seed);
+  const instanceId = "h3hl_" + randomUUID().replace(/-/g, "").slice(0, 12);
+
+  const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
+  const stem = state.filenamePrefix || "MMH3";
+
+  const clips = []; // { promptText, seed, dryRun ? graph : clip record }
+  const clipRecords = []; // { filename, subfolder } — fed straight into /stitch's clips[]
+  const outputsOut = [];
+  const localFiles = [];
+  const graphsSubmitted = [];
+  let prevCheckpointName = null;
+
+  for (let i = 0; i < clipCount; i++) {
+    const promptText = composeClipPrompt(state, i);
+    const seed = state.seedPerClip ? (seedBase + i) % Number.MAX_SAFE_INTEGER : seedBase;
+    const firstFrame = i === 0 ? firstFrameUploaded : null;
+    const lastFrame = i === clipCount - 1 ? lastFrameUploaded : null;
+    const checkpointName = `${instanceId}_${i}`;
+
+    const { graph, meta } = buildClipGraph(state, avail, {
+      nodeId: "1", promptText, seed, firstFrame, lastFrame,
+      refImages: state.generationMode === "reference" ? refImagesUploaded : null,
+      clipIndex: i,
+      prevCheckpointName: i === 0 ? null : prevCheckpointName,
+      checkpointName,
+    });
+    graphsSubmitted.push(graph);
+    clips.push({ i, promptText, seed, meta });
+
+    if (!dryRun) {
+      onPoll?.(`onetake clip ${i + 1}/${clipCount}`);
+      const { promptId, outputs } = await client.submitGraph(graph, { onPoll });
+      const files = extractOutputs(outputs, meta.videoNode);
+      if (!files.length) throw tag(new Error(`One-Take clip ${i + 1}/${clipCount} produced no video output`), "generate");
+      const vid = files[0];
+      clipRecords.push({ filename: vid.filename, subfolder: vid.subfolder || "" });
+      outputsOut.push({ ...vid, promptId, clipIndex: i, url: client.viewUrl(vid.filename, vid.subfolder, vid.fileType) });
+      if (outDir) localFiles.push(await client.downloadOutput({ filename: vid.filename, subfolder: vid.subfolder, type: vid.fileType }, abspath(outDir)));
+    }
+    // Checkpoint i is now saved server-side (TJ_H3_SaveLatentCheckpoint ran inside this clip's
+    // graph) — clip i+1's buildOneTake() call above will reference it as prevCheckpointName.
+    prevCheckpointName = checkpointName;
+  }
+
+  const base = {
+    mode: "onetake",
+    generationMode: state.generationMode,
+    preset: presetInfo,
+    model: { unetFirstLast: state.unetFirstLast, unetReference: state.unetReference, used: state.generationMode === "reference" ? state.unetReference : state.unetFirstLast },
+    clipCount, seedBase, seedPerClip: state.seedPerClip,
+    clipFrames: state.clipFrames, clipSeconds: framesToSeconds(state.clipFrames),
+    oneTakeLockAudio: state.oneTakeLockAudio, oneTakeAutoStitch: autoStitch,
+    prompts: clips.map((c) => ({ clipIndex: c.i, prompt: c.promptText, seed: c.seed })),
+  };
+
+  if (dryRun) {
+    return { ok: true, dryRun: true, ...base, graphSubmitted: graphsSubmitted };
+  }
+
+  let stitchedOutput = null;
+  if (autoStitch && clipCount > 1) {
+    const overlapSec = framesToSeconds(alignFrameCount(ONE_TAKE_OVERLAP_FRAMES));
+    try {
+      const stitched = await stitchClipsRemote(client, clipRecords, `${folder}/${stem}_full`, overlapSec);
+      const url = client.viewUrl(stitched.filename, stitched.subfolder || "", "output");
+      stitchedOutput = {
+        filename: stitched.filename, subfolder: stitched.subfolder || "", url,
+        overlapSeconds: overlapSec, durationSeconds: oneTakeStitchedSeconds(clipCount, state.clipFrames),
+      };
+      if (outDir) localFiles.push(await client.downloadOutput({ filename: stitched.filename, subfolder: stitched.subfolder || "", type: "output" }, abspath(outDir)));
+    } catch (e) {
+      // Mirrors view.ts: a failed stitch still leaves every per-clip file on disk/in outputs —
+      // report it but don't fail the whole job over it.
+      stitchedOutput = { error: e.message || String(e) };
+    }
+  }
+
+  return { ok: true, outputs: outputsOut, localFiles, stitchedOutput, ...base };
+}
+
+/** POST /minimax_h3_one/stitch — concatenates clipRecords (each clip's {filename,subfolder}
+ *  save output, in order) into one video, trimming `overlapSeconds` of latent-continuity
+ *  overlap from the seam between each pair. Mirrors src/tools/minimax_h3/api.ts stitchClips();
+ *  comfy.mjs stays generic (shared by every *-headless/ folder) so this One-Take-specific route
+ *  is called from here via the client's already-exposed postJson, not added to comfy.mjs. */
+async function stitchClipsRemote(client, clips, filenamePrefix, overlapSeconds) {
+  const d = await client.postJson("/minimax_h3_one/stitch", {
+    clips, filename_prefix: filenamePrefix, trim_seconds: null, overlap_seconds: overlapSeconds, override_audio: null,
+  });
+  if (!d.ok) { const err = new Error(d.error || "stitch failed"); err.stage = "generate"; throw err; }
+  return d;
 }
 
 // ── facerefine ───────────────────────────────────────────────────────────────────────────

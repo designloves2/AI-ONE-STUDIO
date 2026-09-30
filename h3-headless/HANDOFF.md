@@ -164,12 +164,68 @@ stages' outputs land in the one result's `outputs[]`.
 
 ## 10. Not in scope (per the spec)
 
-No clip relay / stitching, no gallery browsing. LTX 2.5 Upscale and the Postprocess mode family
-(Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize chained on an existing clip) were
-deliberately excluded — both are gallery/UI-adjacent post-processing features, not part of this
-headless port. (`buildClipGraph`'s own inline upscale step, including its `flashvsr` option,
-*is* in scope — that lives inside the generation graph itself, not the gallery post-process.)
-Prompt authoring stays with the Hermes prompt skill; this consumes finished text.
+No Last Frame Chain continuity (only One-Take is wired — see §12), no gallery browsing. LTX 2.5
+Upscale and the Postprocess mode family (Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/
+Resize chained on an existing clip) were deliberately excluded — both are gallery/UI-adjacent
+post-processing features, not part of this headless port. (`buildClipGraph`'s own inline upscale
+step, including its `flashvsr` option, *is* in scope — that lives inside the generation graph
+itself, not the gallery post-process.) Prompt authoring stays with the Hermes prompt skill (or
+the README's "Writing prompts for One-Take" section for multi-clip runs); this consumes
+finished text.
+
+## 12. `job.mode: "onetake"` — multi-clip continuous shot (added after §9)
+
+**Fixes the bug that motivated this section:** asking for "N clips as one continuous shot" via
+plain `ref2va`/`t2va` job files produced N *unrelated* clips — `buildClipGraph` never wired
+continuity, and `index.mjs` had no multi-clip loop at all. `onetake` is the fix: it chains N
+clips together via ComfyUI-server-side latent checkpoints (`TJ_H3_SaveLatentCheckpoint` /
+`TJ_H3_LoadLatentCheckpoint` / `TJ_H3_LatentContinuation`), submitting them **sequentially**
+(clip i+1's graph references clip i's saved checkpoint by name, so it must exist on the server
+first — no parallelism, no client-side file passing between clips), then auto-stitches all N
+into one final video via `POST /minimax_h3_one/stitch`.
+
+```json
+{
+  "mode": "onetake",
+  "clipMode": "t2va",
+  "clipSeconds": 10,
+  "prompts": [
+    "clip 1 prompt — sets the scene and starts the motion",
+    "clip 2 prompt — continues the SAME shot, describes what happens next",
+    "clip 3 prompt — continues further, no scene cuts, no scene restatement"
+  ],
+  "seed": null,
+  "oneTakeAutoStitch": true
+}
+```
+
+Key fields (full list: `node index.mjs --help`): `prompts` (array, required — per-clip; a
+shorter array reuses its last non-empty entry for later clips), `clipCount` (default
+`prompts.length`), `clipSeconds` (per-clip duration), `clipMode` (`t2va`/`fl2va`/`ref2va`,
+default `t2va`), `oneTakeLockAudio` (default `false`), `oneTakeAutoStitch` (default `true`),
+`seedPerClip` (default `true` — clip i's seed is `seed + i`), plus the usual `model`/`aspect`/
+`megapixels`/`preset`/`refImages`/`firstFrame`/`lastFrame` fields (first frame only applies to
+clip 0, last frame only to the final clip).
+
+**Result shape** adds two things beyond the single-clip contract: `outputs[]` has one entry per
+clip (each tagged `clipIndex`), and `stitchedOutput` carries the final concatenated video —
+`{ filename, subfolder, url, overlapSeconds, durationSeconds }`, or `{ error }` if the stitch
+call itself failed (the per-clip files are still valid and still in `outputs[]`/`localFiles[]`
+in that case — a stitch failure doesn't fail the whole job).
+
+**Prompt-writing note** (this was reported separately: the agent operating this CLI "doesn't
+know prompt-writing tips" for multi-clip continuity either — i.e. it wrote N independent scene
+descriptions instead of one continuing shot). See the README's "Writing prompts for One-Take"
+section before generating a `prompts[]` array — the short version: each entry after the first
+continues the ongoing shot ("she keeps walking, camera pulling back...") rather than starting a
+new one ("cut to...", "a new shot of...").
+
+**Verification (no live ComfyUI available for this change):** `node --check` on every touched
+file; `--help` prints the new mode and exits 0; a standalone script called `buildClipGraph`
+directly for 3 synthetic clips and confirmed clip 1's `TJ_H3_LoadLatentCheckpoint.checkpoint_name`
+equals clip 0's `TJ_H3_SaveLatentCheckpoint.checkpoint_name` (and clip 2 → clip 1, clip 0 has no
+load node) — i.e. the continuity chain is wired correctly end-to-end at the graph level. A real
+submit-wait-submit-wait run against a live ComfyUI + `/stitch` endpoint is still unverified.
 
 ## 11. One repo-side change that shipped with this
 

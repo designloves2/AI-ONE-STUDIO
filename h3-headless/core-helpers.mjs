@@ -99,6 +99,45 @@ export function randomSeed() {
   return Math.floor(Math.random() * 1e15);
 }
 
+/** Trigger words from enabled LoRA slots, joined for the prompt tail. Ported from core.ts
+ *  loraTriggers(). */
+export function loraTriggers(state) {
+  return (state.loras || [])
+    .filter((l) => l && l.enabled !== false && l.name && l.name !== "none" && l.triggerWord)
+    .map((l) => String(l.triggerWord).trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Composes one clip's full prompt: header + this clip's body (falling back to the nearest
+ *  earlier non-empty prompts[] entry when the array is shorter than the clip count — clip 5
+ *  with only 3 prompts given reuses prompts[2]) + footer + LoRA triggers + suffix. Ported
+ *  verbatim from core.ts composeClipPrompt() (state.prompts is a flat string[] here, not the
+ *  {text,firstFrame,enabled} PromptEntry[] the studio panel uses — headless jobs have no
+ *  per-clip first-frame override or enable toggle). */
+export function composeClipPrompt(state, i) {
+  const list = state.prompts || [];
+  let body = "";
+  for (let k = Math.min(i, list.length - 1); k >= 0; k--) {
+    const t = String(list[k] || "").trim();
+    if (t) { body = t; break; }
+  }
+  return [state.promptHeader, body, state.promptFooter, loraTriggers(state), state.promptSuffix]
+    .map((s) => (s || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Overlap-trimmed total duration for a stitched One-Take run — same formula as core.ts
+ *  clipPlan() (isOneTakeStitched / stitchedSeconds), kept in sync so a headless estimate
+ *  matches what the stitch endpoint actually produces. */
+export function oneTakeStitchedSeconds(clipCount, clipFrames) {
+  const clipSec = framesToSeconds(clipFrames || DEFAULT_FRAMES);
+  const actualSeconds = clipCount * clipSec;
+  const overlapSec = framesToSeconds(alignFrameCount(ONE_TAKE_OVERLAP_FRAMES));
+  return clipCount > 1 ? actualSeconds - (clipCount - 1) * overlapSec : actualSeconds;
+}
+
 export const ATTN_BACKENDS = [
   { key: "none", label: "None" },
   { key: "sage", label: "Sage", node: "PathchSageAttentionKJ" },

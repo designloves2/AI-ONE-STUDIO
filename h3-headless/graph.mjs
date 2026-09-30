@@ -1,10 +1,13 @@
 // graph.mjs — ported from src/tools/minimax_h3/graphBuilder.ts (buildClipGraph + helpers).
-// Types stripped; gallery/upscale/interpolate graphs dropped (out of scope). Single-clip
-// only: the headless always calls buildClipGraph with clipIndex 0, no continuity, no
-// last-frame save — so buildOneTake / saveOneTakeCheckpoint / buildAudioLock short-circuit.
+// Types stripped; gallery/upscale/interpolate graphs dropped (out of scope). buildClipGraph
+// supports both single-clip runs (clipIndex 0, no continuity) and One-Take multi-clip runs —
+// index.mjs's runOneTake() orchestration loop passes clipIndex/checkpointName/
+// prevCheckpointName across a submit-wait-submit-wait sequence; buildOneTake /
+// saveOneTakeCheckpoint / buildAudioLock only short-circuit when those opts are left at their
+// single-clip defaults.
 
 import {
-  SUBFOLDER, FPS, resolveResolution, ONE_TAKE_OVERLAP_FRAMES,
+  SUBFOLDER, FPS, resolveResolution, ONE_TAKE_OVERLAP_FRAMES, framesToSeconds,
   attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason,
   PDD_NFE_CHOICES, pddFileForMode, computeRtxTarget, CHARSHEET_FRAMES,
   CHARSHEET_DEFAULT_FRAME_INDICES, BUILTIN_PRESETS, applyPreset,
@@ -291,9 +294,79 @@ function flashvsrParamsFromState(state) {
   };
 }
 
-/** Single-clip graph. opts: { nodeId, promptText, seed, firstFrame, lastFrame, refImages }. */
+// Audio Lock — feeds a user-supplied audio track into the latent alongside the visual
+// conditioning so the render's audio track matches it instead of generating its own. Ported
+// verbatim from graphBuilder.ts buildAudioLock(). clipIndex offsets which slice of the source
+// file this clip locks onto (clip N starts at trimStart + N * clipSeconds).
+function buildAudioLock(g, state, avail, clipIndex, frames) {
+  if (!state.audioLock) return false;
+  if (!has(avail, "TJ_H3_AudioLock")) throw new Error("Audio lock needs the TJ_H3_AudioLock node — install the TJ_NODE pack, or switch the lock off.");
+  if (!state.lockAudioFile) throw new Error("Audio lock is on but no audio file is selected — pick one under Lock audio in the left panel.");
+
+  const clipSeconds = framesToSeconds(frames);
+  const trimStart = Math.max(0, state.audioLockTrimStart || 0);
+  const startSec = trimStart + clipIndex * clipSeconds;
+
+  g[N.lockAud] = { class_type: "LoadAudio", inputs: { audio: state.lockAudioFile } };
+  let audioLink = [N.lockAud, 0];
+
+  if (has(avail, "TrimAudioDuration")) {
+    g[N.lockAudTrim] = { class_type: "TrimAudioDuration", inputs: { audio: audioLink, start_index: startSec, duration: clipSeconds } };
+    audioLink = [N.lockAudTrim, 0];
+  }
+
+  g[N.audioLock] = {
+    class_type: "TJ_H3_AudioLock",
+    inputs: {
+      av_latent: [N.cond, 1],
+      audio: audioLink,
+      audio_vae: [N.vaeA, 0],
+      mode: state.audioLockMode || "lock",
+      strength: state.audioLockStrength ?? 0.5,
+      fit: state.audioLockFit || "pad_silence",
+      get_name_av_latent: "(none)",
+      get_name_audio: "(none)",
+      get_name_audio_vae: "(none)",
+      auto_set: false,
+    },
+  };
+  return true;
+}
+
+// One-Take continuity — chains this clip's latent onto the previous clip's saved checkpoint
+// (TJ_H3_LatentContinuation) so the sampler continues one unbroken shot instead of starting a
+// fresh one. Ported verbatim from graphBuilder.ts buildOneTake(). clipIndex 0 (or no previous
+// checkpoint yet) always renders as a fresh start — there is nothing to continue from.
+function buildOneTake(g, state, avail, clipIndex, prevCheckpointName, defaultLatent) {
+  if (state.continuityMode !== "onetake") return defaultLatent;
+  if (!has(avail, "TJ_H3_LatentContinuation")) throw new Error("One-Take needs the TJ_H3_LatentContinuation node — install/update the TJ_NODE pack, or switch Continuity to something else.");
+  if (clipIndex === 0 || !prevCheckpointName) return defaultLatent;
+  if (!has(avail, "TJ_H3_LoadLatentCheckpoint")) throw new Error("One-Take needs the TJ_H3_LoadLatentCheckpoint node — install/update the TJ_NODE pack.");
+
+  g[N.chkLoad] = { class_type: "TJ_H3_LoadLatentCheckpoint", inputs: { checkpoint_name: prevCheckpointName, strict: true } };
+  g[N.continuation] = {
+    class_type: "TJ_H3_LatentContinuation",
+    inputs: { overlap_frames: ONE_TAKE_OVERLAP_FRAMES, lock_audio: !!state.oneTakeLockAudio, prev_latent: [N.chkLoad, 0], target_latent: defaultLatent },
+  };
+  return [N.continuation, 0];
+}
+
+// Saves this clip's sampled latent under checkpointName so the NEXT clip's buildOneTake() can
+// load it — server-side state keyed by name, nothing downloaded/re-uploaded between clips.
+function saveOneTakeCheckpoint(g, state, avail, checkpointName) {
+  if (state.continuityMode !== "onetake" || !checkpointName) return;
+  if (!has(avail, "TJ_H3_SaveLatentCheckpoint")) return;
+  g[N.chkSave] = { class_type: "TJ_H3_SaveLatentCheckpoint", inputs: { latent: [N.sampler, 0], checkpoint_name: checkpointName } };
+}
+
+/** Single-clip graph. opts: { nodeId, promptText, seed, firstFrame, lastFrame, refImages,
+ *  clipIndex, prevCheckpointName, checkpointName }. One-Take continuity (clipIndex >= 1 with
+ *  state.continuityMode === "onetake") chains this clip's latent onto prevCheckpointName's
+ *  saved checkpoint, then (if checkpointName is set) saves this clip's own latent under it for
+ *  the next clip to chain onto. Single-clip callers simply omit clipIndex/checkpointName/
+ *  prevCheckpointName, which is exactly a clipIndex:0, no-continuity run. */
 export function buildClipGraph(state, avail, opts) {
-  const { nodeId = "1", promptText, seed, firstFrame = null, lastFrame = null, refImages = null } = opts || {};
+  const { nodeId = "1", promptText, seed, firstFrame = null, lastFrame = null, refImages = null, clipIndex = 0, prevCheckpointName = null, checkpointName = null } = opts || {};
 
   const frames = state.clipFrames || 192;
   const { width, height } = resolveResolution(state.aspect, state.megapixels);
@@ -336,9 +409,12 @@ export function buildClipGraph(state, avail, opts) {
   g[N.sched] = { class_type: "BasicScheduler", inputs: { model: modelLink, scheduler: state.scheduler || "simple", steps, denoise: state.denoise ?? 1.0 } };
   g[N.guider] = { class_type: "BasicGuider", inputs: { model: modelLink, conditioning: condLink } };
 
-  const latentImage = [N.cond, 1]; // single clip, no audio-lock, no one-take continuity
+  const lockAudio = buildAudioLock(g, state, avail, clipIndex, frames);
+  const preOneTakeLatent = lockAudio ? [N.audioLock, 0] : [N.cond, 1];
+  const latentImage = buildOneTake(g, state, avail, clipIndex, prevCheckpointName, preOneTakeLatent);
 
   g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: turboEff === "pdd" ? [N.pdd, 1] : [N.sched, 0], latent_image: latentImage } };
+  saveOneTakeCheckpoint(g, state, avail, checkpointName);
 
   g[N.decode] = { class_type: "VAEDecode", inputs: { samples: [N.sampler, 0], vae: [N.vaeV, 0] } };
   g[N.decodeA] = { class_type: "VAEDecodeAudio", inputs: { samples: [N.sampler, 0], vae: [N.vaeA, 0] } };
@@ -364,8 +440,10 @@ export function buildClipGraph(state, avail, opts) {
     images = [N.fvsr, 0];
   }
 
-  g[N.video] = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: [N.decodeA, 0] } };
-  g[N.save] = { class_type: "SaveVideo", inputs: { video: [N.video, 0], filename_prefix: `${folder}/${stem}_clip001`, format: "auto", codec: "auto" } };
+  const clipTag = String(clipIndex + 1).padStart(3, "0");
+  const audioOut = lockAudio ? [N.audioLock, 1] : [N.decodeA, 0];
+  g[N.video] = { class_type: "CreateVideo", inputs: { images, fps: FPS, audio: audioOut } };
+  g[N.save] = { class_type: "SaveVideo", inputs: { video: [N.video, 0], filename_prefix: `${folder}/${stem}_clip${clipTag}`, format: "auto", codec: "auto" } };
 
   return {
     graph: g,

@@ -330,17 +330,24 @@ export function renderMusic(container: HTMLElement) {
     const acts = el("div", { className: "mmm-acts" });
     acts.appendChild(el("button", { className: "mmm-ib", title: "Reuse settings", text: "↺", onclick: (e: Event) => { e.stopPropagation(); reuse(t); } }));
     acts.appendChild(el("button", { className: "mmm-ib", title: "Info", text: "ⓘ", onclick: (e: Event) => { e.stopPropagation(); showInfo(t); } }));
-    acts.appendChild(el("button", { className: "mmm-ib", title: "Download tagged MP3", text: "↓", onclick: async (e: Event) => {
+    acts.appendChild(el("button", { className: "mmm-ib", title: "Download", text: "↓", onclick: async (e: Event) => {
       e.stopPropagation();
       const btn = e.currentTarget as HTMLButtonElement; const old = btn.textContent; btn.textContent = "…"; btn.disabled = true;
       try {
         const url = `${API}/download?filename=${encodeURIComponent(t.filename)}&subfolder=${encodeURIComponent(t.subfolder || SUB())}`;
         const rr = await comfyApi.fetchApi(url);
         if (!rr.ok) throw new Error(await rr.text());
+        // The server now streams the tagged file as-is (no forced mp3 re-encode) — its real
+        // extension (flac/mp3/opus) lives in Content-Disposition, with t.filename's own
+        // extension as a fallback if that header is ever missing.
+        const cd = rr.headers.get("Content-Disposition") || "";
+        const cdMatch = /filename\*?=(?:UTF-8''|")?([^;"\r\n]+)/i.exec(cd);
+        const cdName = cdMatch ? decodeURIComponent(cdMatch[1].replace(/"$/, "")) : "";
+        const ext = (/\.[^./\\]+$/.exec(cdName) || /\.[^./\\]+$/.exec(t.filename) || [".mp3"])[0];
         const blob = await rr.blob();
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = (t.title || t.filename).replace(/[\\/:*?"<>|]/g, "_") + ".mp3";
+        a.download = (t.title || t.filename).replace(/[\\/:*?"<>|]/g, "_") + ext;
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       } catch (err) { statusEl.textContent = "Download failed: " + String(err).slice(0, 80); }

@@ -23,7 +23,7 @@ DOM 위젯으로 담겨 있던 6개의 생성 도구를 ComfyUI 캔버스 밖으
 연결해 브라우저에서 곧바로 생성·편집 작업을 할 수 있습니다. 각 도구의 기능과 파라미터는
 원본 노드와 1:1로 동일하며, 레이아웃만 웹 환경에 맞게 재구성했습니다.
 
-This site takes the 6 generation tools that used to live as DOM widgets inside the
+This site takes the generation tools that used to live as DOM widgets inside the
 [`ComfyUI-TJ_NODE_STUDIO_ONE`](https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE) custom
 node package and moves them outside the ComfyUI canvas into an independent web UI. No manual
 workflow wiring — it connects straight to an already-running ComfyUI server so you can generate
@@ -55,12 +55,14 @@ engine, and this project is just the frontend that calls it.**
 
 | 도구 / Tool | 대상 모델 / Target Model | 지원 모드 / Supported Modes |
 |---|---|---|
-| 🎬 **MiniMax H3** | MiniMax H3 영상+오디오 생성 모델<br><sub>MiniMax H3 video + audio model</sub> | Text / First-Last(FL2VA) / Reference(REF2VA) · 클립 릴레이 + 자동 합본 · 라이브 프리뷰<br><sub>clip relay + auto-stitch · live preview</sub> |
-| 🎵 **MusicMaker** | MiniMax Music 3 · Ace-Step 1.5 (음악 생성)<br><sub>MiniMax Music 3 · Ace-Step 1.5 music generation</sub> | Song / Instrumental · 가사·스타일 LLM(Local GGUF / OpenRouter / ComfyUI) · 생성 큐 · SUNO식 플레이리스트 + 앨범 커버(Krea2) · 태그된 MP3 다운로드<br><sub>lyrics/style LLM · generation queue · SUNO-style playlist + Krea2 album cover · tagged-MP3 download</sub> |
+| 🎬 **MiniMax H3** | MiniMax H3 영상+오디오 생성 모델<br><sub>MiniMax H3 video + audio model</sub> | Text / First-Last(FL2VA) / Reference(REF2VA) · One-Take 연속 생성 + 자동 합본 · Face Refine · LTX Upscale · Image Generator(T2I/Ref2I) · Character Sheet · Postprocess(Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize) · FlashVSR · 라이브 프리뷰<br><sub>One-Take continuity + auto-stitch · Face Refine · LTX Upscale · Image Generator · Character Sheet · Postprocess · FlashVSR · live preview</sub> |
+| 🎵 **MusicMaker** | MiniMax Music 3 · Ace-Step 1.5 · YuE2 (음악 생성)<br><sub>MiniMax Music 3 · Ace-Step 1.5 · YuE2 music generation</sub> | Song / Instrumental · 가사·스타일 LLM(Local GGUF / OpenRouter / ComfyUI) · 생성 큐 · SUNO식 플레이리스트(새로고침) + 앨범 커버(Krea2 / 복사·붙여넣기·업로드·갤러리) · YuE2 Melody Editor(피아노롤→ABC) · 생성 시 원본 파일에 태그 삽입(다운로드는 원본 그대로)<br><sub>lyrics/style LLM · generation queue · SUNO-style playlist (refresh) + album cover (Krea2 / copy·paste·upload·gallery) · YuE2 Melody Editor (piano roll → ABC) · tags embedded in the saved file at generation time (download serves the original)</sub> |
 | 🖼 **Krea 2** | Krea.ai 이미지 생성 모델<br><sub>Krea.ai image generation model</sub> | T2I · I2I · ControlNet(depth/canny) · Identity · Upscale(SeedVR2) |
 | 🖼 **Z-Image** | Z-Image Turbo | T2I · I2I · Inpaint · Outpaint · RE-BG · ControlNet · Face Redraw · Upscale |
 | 🖼 **Flux2 Klein** | Flux.2-Klein (9B / 4B) | T2I · I2I · Edit · Inpaint · Outpaint · Faceswap · Upscale |
 | 🖼 **Qwen Image 2511** | Qwen2.5-VL 기반 Image Edit 모델<br><sub>Qwen2.5-VL based Image Edit model</sub> | T2I · I2I · Edit(최대 5장<sub>up to 5 images</sub>) · Inpaint · Outpaint · Faceswap · Angle(3D 카메라 컨트롤<sub>3D camera control</sub>) · Upscale |
+| 🖼 **Qwen Image 2.1** | QWEN IMAGE 2.1 ONE STUDIO (TJ)<br><sub>QWEN IMAGE 2.1 ONE STUDIO (TJ)</sub> | T2I · I2I · Ref to Image · Edit(Draw annotation) · Inpaint · Outpaint · Upscale · POSE(캐릭터 포즈 전사, SAM3D Body → 생성)<br><sub>incl. POSE — 2-stage character pose transfer</sub> |
+| 🎞 **ITDA ONE STUDIO** | 3레인 영상/오디오 스티치 타임라인 (데스크톱 전용 — 모바일 차단)<br><sub>3-lane video/audio stitch timeline (desktop only — blocked on mobile)</sub> | Split / Stitch / UnStitch / Snapshot · Render |
 | 🖼 **SDXL** | SDXL Checkpoint / Separate UNet | T2I · I2I · Inpaint · Outpaint · Upscale(ESRGAN / Refiner / SeedVR2) |
 | 🖼 **Anima** (Beta) | Anima (2B, 애니메이션/일러스트 특화)<br><sub>Anima (2B params, anime/illustration-focused)</sub> | T2I · Inpainting · Any Control to Image · Depth Control to Image · TURBO(8-step) |
 
@@ -70,10 +72,10 @@ SDXL과 Anima는 **Beta** 그룹으로 분류되어 있습니다 — 원본 커�
 SDXL and Anima are grouped under **Beta** — they were added to the original custom node package
 more recently and haven't been battle-tested as thoroughly as the rest.
 
-이미지 도구 6종은 서로의 갤러리를 넘나들며 이미지를 골라 다른 도구의 소스 이미지로 보낼
+이미지 도구들은 서로의 갤러리를 넘나들며 이미지를 골라 다른 도구의 소스 이미지로 보낼
 수 있고, MiniMax H3의 First/Last Frame·Reference 슬롯으로도 곧바로 보낼 수 있습니다.
 
-The 6 image tools can browse each other's galleries and send an image straight into another
+The image tools can browse each other's galleries and send an image straight into another
 tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Reference slots.
 
 ## 상단바 도구 / Top Bar Utilities
@@ -144,7 +146,7 @@ This site can't do anything on its own. You need both of these first:
    `--enable-cors-header` flag).</sub>
 2. ComfyUI에 [`ComfyUI-TJ_NODE_STUDIO_ONE`](https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE)
    커스텀 노드 패키지와 그 의존 노드들이 설치되어 있어야 합니다. 이 사이트가 호출하는
-   `/qwen2511_one`, `/flux_klein`, `/krea2_one`, `/z_image_turbo`, `/sdxl_one`,
+   `/qwen2511_one`, `/qwenimage21_one`, `/flux_klein`, `/krea2_one`, `/z_image_turbo`, `/sdxl_one`,
    `/minimax_h3_one` 같은 API 경로는 전부 이 커스텀 노드 패키지가 ComfyUI 안에 등록하는
    백엔드 라우트이며, 모델 목록 조회부터 실제 생성, Settings 저장까지 전부 이 경로를 통해
    이루어집니다 — 즉 **이 커스텀 노드 없이는 이 사이트가 화면만 있고 아무 기능도 못 하는
@@ -152,7 +154,7 @@ This site can't do anything on its own. You need both of these first:
    <br><sub>ComfyUI must have the
    [`ComfyUI-TJ_NODE_STUDIO_ONE`](https://github.com/designloves2/ComfyUI-TJ_NODE_STUDIO_ONE)
    custom node package and its dependency nodes installed. Every API path this site calls —
-   `/qwen2511_one`, `/flux_klein`, `/krea2_one`, `/z_image_turbo`, `/sdxl_one`,
+   `/qwen2511_one`, `/qwenimage21_one`, `/flux_klein`, `/krea2_one`, `/z_image_turbo`, `/sdxl_one`,
    `/minimax_h3_one` — is a backend route this custom node package registers inside ComfyUI;
    model listing, actual generation, and even saving Settings all go through it. Without this
    custom node installed, **this site is an empty shell with a UI and no functionality.**</sub>
@@ -391,8 +393,16 @@ src/
     zimage/
     klein/
     qwen2511/
+    qwen21/               # QWEN IMAGE 2.1 (POSE 모드 포함) / incl. POSE mode
     sdxl/
+    anima/
+    music/                # MusicMaker (MiniMax Music 3 / Ace-Step / YuE2)
+    itda/                 # ITDA ONE STUDIO 타임라인 (데스크톱 전용) / timeline (desktop only)
 ```
+
+루트의 `*-headless/` 폴더들은 Hermes 렌더 큐 에이전트용 무의존 Node CLI입니다 — 개요는 [`HEADLESS_HANDOFF.md`](HEADLESS_HANDOFF.md), 작업용 스펙 문서는 [`docs/`](docs/).
+
+The root `*-headless/` folders are zero-dependency Node CLIs for the Hermes render-queue agent — see [`HEADLESS_HANDOFF.md`](HEADLESS_HANDOFF.md); working spec docs live in [`docs/`](docs/).
 
 각 도구 폴더는 `core.ts`(상태/상수) · `api.ts`(REST 호출) · `comfyClient.ts`(WebSocket)
 · `graphBuilder.ts`(ComfyUI 그래프 조립) · `settings.ts` · `galleryOverlay.ts` ·

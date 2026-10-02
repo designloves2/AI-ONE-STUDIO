@@ -3,6 +3,43 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.4.0] — 2026-10-03
+
+Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` (node → web, plus web-only items marked). See `PORT_LEDGER.md`.
+
+### Added
+- **QWEN IMAGE 2.1 ONE STUDIO (TJ)** — new tool (`src/tools/qwen21/`): T2I / I2I / Ref to Image /
+  Edit (Draw annotation) / Inpaint / Outpaint / Upscale, plus **POSE** mode (2-stage SAM3D-Body
+  extract → generate, interactive crop tool with aspect-ratio presets). Edit/Inpaint annotations
+  replace their own image slot (never a second image — that shifted `<imageN>` indices).
+- **ITDA ONE STUDIO** — 3-lane video/audio stitch timeline (desktop only; blocked on ≤767px).
+- **MiniMax H3**: Image Generator (T2I / Ref2I), Character Sheet, Postprocess (Deblur / Denoise /
+  Upscale / Skin Retouch / Grain / Interpolate / Resize + Compare range-trim), FlashVSR upscale,
+  Face Refine, LTX 2.5 Upscale, Prompt Write / Prompt Refine, Llama GGUF backend, RTX size modes.
+- **MusicMaker**: YuE2 as the 3rd engine (Text to Music / Cover Music); **Melody Editor**
+  (piano roll → ABC → `YuE2GenerateMusic` mode "melody", Web MIDI, MIDI import/export);
+  album-cover Copy / Paste / Upload / From Gallery (+ multi-select, square crop) and a pre-generation
+  custom cover; playlist ↻ refresh.
+- **Mobile**: single dropdown tool nav showing the active tool, landscape-orientation guard.
+- **Headless CLIs** (`*-headless/`, for the Hermes agent): new `qwen21-headless`; `h3-headless` gained
+  `onetake` (N clips chained via latent checkpoints + auto-stitch), `facerefine`, `imagegen_*`,
+  `charsheet`, `imageupscale` and the FlashVSR clip-upscale branch; `music-headless` gained `yue2`
+  (incl. optional own ABC melody) and file tagging via `save_meta`.
+
+### Changed
+- MusicMaker: tags (title/artist/album/comment/lyrics/seed/engine/cover) are embedded in the saved
+  original at generation/meta-edit time; the Download button now serves the original file and uses
+  its real extension (was a forced mp3 transcode).
+- Shared Prompt Edit popup: Local GGUF backend gets GGUF/mmproj pickers; per-tool Model Format
+  default applies reliably (per-instance `modelFormatTouched` flag).
+- ITDA App Settings: LLM Backend section removed (ITDA makes no LLM calls); reopens the last-used project.
+- Working spec docs moved to `docs/` (`HEADLESS_HANDOFF.md` stays at the root).
+
+### Fixed
+- POSE crop tool: ratio-locked drags from the n/w handles teleported the box.
+- POSE stage 2 "Invalid image file" (render now copied output → input first).
+- `/qwenimage21_one` was missing from the dev-server proxy list (models "none", settings not saved).
+
 ## [0.3.1] — 2026-09-11
 
 Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` v1.25.x (node → web). See `PORT_LEDGER.md`.

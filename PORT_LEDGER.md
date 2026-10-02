@@ -1110,3 +1110,20 @@ the node source exactly, with a small number of intentional, correctly-reasoned 
 mount points, single-call project-folder copy vs the node's global-input-then-copy 2-step) called out
 above rather than silently passed over.
 
+## Qwen 2.1 / MusicMaker tags + Melody Editor + covers / headless CLIs (2026-09-26 → 2026-10-03)
+
+Web-side catch-up rows; node hashes are only filled where the node commit is known from this
+session — "—" means the node-side hash was not recorded here (look it up in the node repo).
+
+| § | item | node | web | verified | origin | notes |
+|---|---|---|---|---|---|---|
+| 1 | QWEN IMAGE 2.1 ONE STUDIO (TJ) — T2I / I2I / Ref2I / Edit / Inpaint / Outpaint / Upscale | — | `713c056` … `8122fd0` | 2026-09-27 | node→web | `/qwenimage21_one` dev-proxy entry (`8053cd6`) was the root of "models none" + "settings don't save". Edit/Inpaint annotation must REPLACE its own slot (`821e823`) — found on web, same bug in node's graph_builder_qwen21.js, fixed there too. |
+| 2 | Qwen 2.1 POSE mode (SAM3D Body → generate), crop tool + ratio presets | — | `15caa80`, `a116f1c`, `a44fccf`, `8122fd0` | 2026-09-27 | node→web | Real bugs found on web, fixed both sides: stage-2 "Invalid image file" (`290aa7f`, render copied output→input), ratio-locked n/w-handle drag teleport (`81fc947`). |
+| 3 | Shared Prompt Edit popup: GGUF/mmproj pickers; per-tool Model Format default via `modelFormatTouched` | — | `ff737b9`, `290aa7f` | 2026-09-27 | web→node | Global localStorage comparison made the per-tool default never apply when another tool last wrote it. |
+| 4 | MusicMaker: tags embedded in the saved original (not only at download); Download serves the original with its real extension | `346d2bd` | `278d586` | 2026-10-02 | node→web | Web needed only the extension fix (Content-Disposition). `save_meta`/`update_meta` routes unchanged. |
+| 5 | MusicMaker Melody Editor (piano roll → ABC → YuE2 "melody" mode), cover Copy/Paste/Upload/Gallery + multi-select + crop, pre-generation `coverCustom`, playlist ↻ | `3938c4f` | `1270721` | 2026-10-03 | node→web | Browser-verified editor/menu/crop/refresh/graph; NOT verified: real upload/update_meta/gallery picker, MIDI hardware, MIDI file I/O, touch. Web-only: phone layout + "✋ Pan" tool. |
+| 6 | music-headless: YuE2 engine + `yue2MelodyAbc` + tagging via `save_meta` | `b5ff2cf` (hermes-job-json docs) | `eec3c71`, `7a40ecd` | 2026-10-02 | node→web | Offline graph builds only; no live server. |
+| 7 | h3-headless: One-Take (`onetake`), facerefine, imagegen_t2i/ref2i, charsheet, imageupscale, FlashVSR clip upscale | — | `7804e5e`, `0d7fa23` | 2026-09-30 | user | LTX Upscale + Postprocess family intentionally NOT ported. Original port was single-clip only, so Hermes rendered "7 one-take clips" as 7 independent videos. Offline smoke tests only. |
+| 8 | qwen21-headless (t2i/i2i/ref2i/edit/pose) | — | `d5a465c` | 2026-09-29 | user | POSE uses the input image uncropped; no paint/upscale. |
+| 9 | Mobile single-dropdown nav, landscape guard, ITDA blocked ≤767px | — | `869fd87`, `ff5b8f6` | 2026-09-26 | user | |
+| 10 | Docs: SPEC_*.md → `docs/`; README / HEADLESS_HANDOFF / CHANGELOG brought current | — | this commit | 2026-10-03 | user | |

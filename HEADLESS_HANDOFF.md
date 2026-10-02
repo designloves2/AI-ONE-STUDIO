@@ -10,7 +10,7 @@ server-side automation. Each runs standalone — copy the folder, `node index.mj
 
 | package | what | modes |
 |---|---|---|
-| `h3-headless/` | MiniMax H3 single-clip video | ref2va / fl2va / l2va / t2va |
+| `h3-headless/` | MiniMax H3 video / image | ref2va / fl2va / l2va / t2va, **onetake** (N clips chained + auto-stitch), facerefine, imagegen_t2i / imagegen_ref2i, charsheet, imageupscale (LTX Upscale + Postprocess family NOT ported) |
 | `krea2-headless/` | Krea2 image | t2i, i2i, identity-edit (+ optional ControlNet) |
 | `zimage-headless/` | Z-Image Turbo image | t2i, i2i |
 | `klein-headless/` | Flux2 Klein image | t2i, i2i, edit, inpaint, outpaint, faceswap |
@@ -31,7 +31,9 @@ cp -r AI-ONE-STUDIO/zimage-headless  ~/.hermes/skills/zimage-generate
 cp -r AI-ONE-STUDIO/klein-headless   ~/.hermes/skills/klein-generate
 cp -r AI-ONE-STUDIO/upscale-headless ~/.hermes/skills/upscale
 cp -r AI-ONE-STUDIO/music-headless   ~/.hermes/skills/music-generate
-# (h3-headless was delivered earlier)
+cp -r AI-ONE-STUDIO/qwen21-headless  ~/.hermes/skills/qwen21-generate
+# h3-headless was delivered earlier — RE-COPY IT: it gained onetake/facerefine/imagegen/charsheet/imageupscale
+# (and the flashvsr clip-upscale branch). Re-copy music-headless too (YuE2, tagging, melody ABC).
 ```
 
 ## Call
@@ -158,8 +160,9 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 ```
 
 - **`caption` and `lyrics` are finished text** — no LLM step here (prompt authoring stays with
-  the Hermes prompt skill). `instrumental:true` forces no vocals. Album cover is out of scope.
-- `engine` = `acestep` (default, cleaner 48 kHz) or `minimax`. Model files come from
+  the Hermes prompt skill). `instrumental:true` forces no vocals. Album cover generation is not built in — Hermes can do it with krea2-headless then `POST /music_one/update_meta {patch:{coverImage}}`.
+- `engine` = `acestep` (default, cleaner 48 kHz), `minimax`, or `yue2` (`yue2Mode` text2music | cover; cover needs `yue2CoverAudio` = local path; optional `yue2MelodyAbc`).
+- **Tags/meta:** after generation the CLI POSTs `/music_one/save_meta`, so the server writes the meta sidecar + ID3/FLAC tags into the saved file before `--out` downloads it (`tagged` / `tagError` in the result). Always pass `title`. Model files come from
   `GET /music_one/config` — omit `dit`/`aceUnet`/etc. normally.
 - Ace-Step reads `bpm`/`keyscale`/`timesignature` as structured inputs; MiniMax folds them
   into the caption text (it has no structured fields).
@@ -216,11 +219,11 @@ reachable without Access (e.g. `http://127.0.0.1:8188` on the same box).
 
 ## Not in scope
 
-Single output per call. No batching, no gallery, no post-processing chains, no clip relay.
+Single output per call (except h3 `onetake` / `charsheet`, which run their own multi-submit sequence). No batching, no gallery, no post-processing chains.
 Z-Image inpaint/rebg/controlnet/face-redraw are not ported (Krea2 t2i/i2i/identity and
 ControlNet are). Klein's SeedVR2 upscale mode is not ported (use `upscale-headless/`);
 its t2i/i2i/edit/inpaint/outpaint/faceswap are.
-MusicMaker's LLM (caption/lyric authoring), album cover, generation queue, and tagged-MP3
-export are not ported — music-headless takes finished caption + lyrics and returns the raw
+MusicMaker's LLM (caption/lyric authoring), built-in album cover generation, generation queue, and the Melody Editor UI
+are not ported (file tagging IS done, via save_meta) — music-headless takes finished caption + lyrics and returns the raw
 `SaveAudioAdvanced` file. Prompt authoring stays with the Hermes prompt skill — these
 consume finished text.

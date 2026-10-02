@@ -22,6 +22,7 @@ export function defaultState(saved = {}) {
     yue2Mode:       saved.yue2Mode === "cover" ? "cover" : "text2music",
     yue2AutoAbc:    saved.yue2AutoAbc    ?? true,
     yue2CoverAudio: saved.yue2CoverAudio || "",
+    yue2MelodyAbc:  saved.yue2MelodyAbc  || saved.abc || "",
     yue2RepetitionPenalty: saved.yue2RepetitionPenalty ?? 1.2,
 
     // MiniMax Music 3 models

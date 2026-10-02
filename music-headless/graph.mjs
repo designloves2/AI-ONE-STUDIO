@@ -245,6 +245,11 @@ function buildYue2Graph(state, opts) {
     }};
     abcLink = [`${P}:sheetsage`, 0];
     yueMode = "melody";
+  } else if (String(state.yue2MelodyAbc || "").trim()) {
+    // caller-supplied melody (the studio's Melody Editor output): the ABC string goes straight in,
+    // no YuE2GenerateABC sketch, mode "melody"
+    abcLink = String(state.yue2MelodyAbc);
+    yueMode = "melody";
   } else if (state.yue2AutoAbc !== false) {
     g[`${P}:abc`] = { class_type: "YuE2GenerateABC", inputs: {
       style: r.caption, lyrics: r.lyrics, seed: r.seed, clip, mode: "full",

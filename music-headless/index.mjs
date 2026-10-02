@@ -61,6 +61,8 @@ job.json
     "yue2Mode": "text2music" | "cover",     // default text2music
     "yue2Ckpt": "...",                      // omit -> studio config yue2_ckpt
     "yue2AutoAbc": true,                    // text2music: YuE2GenerateABC melody sketch first
+    "yue2MelodyAbc": "X:1\\nT:..\\nM:4/4\\nL:1/16\\nQ:1/4=120\\n...|]",  // text2music ONLY, optional: your own ABC melody
+    //   (alias "abc"). Skips the auto sketch and runs YuE2GenerateMusic in mode "melody" with this ABC.
     "yue2CoverAudio": "/abs/song.mp3",      // cover ONLY (required): local file, uploaded to input/ for you
     "yue2RepetitionPenalty": 1.2,
 
@@ -105,7 +107,7 @@ const JOB_KEYS = [
   "aceStages", "aceShift", "aceSamplerName", "aceScheduler",
   "format", "audioQuality", "saveSubfolder", "filenamePrefix",
   "dit", "clip", "dav", "aceUnet", "aceClip1", "aceClip2", "aceVae",
-  "yue2Ckpt", "yue2Mode", "yue2AutoAbc", "yue2RepetitionPenalty",
+  "yue2Ckpt", "yue2Mode", "yue2AutoAbc", "yue2RepetitionPenalty", "yue2MelodyAbc",
 ];
 
 export async function generate(job, comfyConfig, opts = {}) {

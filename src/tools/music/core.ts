@@ -128,6 +128,10 @@ export function defaultState(saved: any): any {
     yue2AutoAbc:   saved.yue2AutoAbc   ?? true,            // text2music: let YuE2GenerateABC sketch a melody plan first
     yue2CoverAudio: saved.yue2CoverAudio || "",            // cover: the uploaded source recording's filename
     yue2RepetitionPenalty: saved.yue2RepetitionPenalty ?? 1.2,
+    // Melody Editor (piano roll) — the user's own melody replaces the auto-sketched ABC plan
+    yue2UseMelody: saved.yue2UseMelody ?? false,
+    yue2Melody:    (saved.yue2Melody && Array.isArray(saved.yue2Melody.notes)) ? saved.yue2Melody : null,   // { notes, bpm, meter, key, bars }
+    yue2MelodyAbc: saved.yue2MelodyAbc || "",
 
     aceUnet:  saved.aceUnet  || "",
     aceClip1: saved.aceClip1 || "",
@@ -187,6 +191,7 @@ export function defaultState(saved: any): any {
 
     makeCover:  saved.makeCover  ?? true,
     coverBrief: saved.coverBrief || "",
+    coverCustom: saved.coverCustom || "", // filename (in <save folder>/covers) of a user-chosen cover — skips Krea2 generation
 
     loras: (Array.isArray(saved.loras) ? saved.loras : [])
       .filter((l: any) => l && l.name && l.name !== "none")
@@ -504,6 +509,7 @@ export function ensureMusicStyles() {
       .mmm-bar .mmm-nowwrap,.mmm-bar .mmm-vol{display:none}
       .mmm-grid2,.mmm-grid3{grid-template-columns:1fr 1fr}
       .mmm-lib-grid{grid-template-columns:1fr!important}
+      .mmm-pop .box{width:96%;padding:12px;box-sizing:border-box;max-height:96%;overflow:auto}
     }
   `;
   document.head.appendChild(s);

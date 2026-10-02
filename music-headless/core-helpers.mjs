@@ -15,7 +15,14 @@ export function randomSeed() {
 /** Music state the graph builder reads. `saved` = a job.json's fields already merged in. */
 export function defaultState(saved = {}) {
   return {
-    engine: saved.engine === "minimax" ? "minimax" : "acestep",
+    engine: ["minimax", "yue2"].includes(saved.engine) ? saved.engine : "acestep",
+
+    // YuE2 — one checkpoint (CheckpointLoaderSimple); text2music or cover
+    yue2Ckpt:       saved.yue2Ckpt       || "",
+    yue2Mode:       saved.yue2Mode === "cover" ? "cover" : "text2music",
+    yue2AutoAbc:    saved.yue2AutoAbc    ?? true,
+    yue2CoverAudio: saved.yue2CoverAudio || "",
+    yue2RepetitionPenalty: saved.yue2RepetitionPenalty ?? 1.2,
 
     // MiniMax Music 3 models
     dit:  saved.dit  || "",
@@ -40,8 +47,9 @@ export function defaultState(saved = {}) {
     timesignature: saved.timesignature || "4",
     language:      saved.language      || "en",
     cfgScaleAce:   saved.cfgScaleAce   ?? 2.5,
-    temperature:   saved.temperature   ?? 0.75,
-    topP:          saved.topP          ?? 0.9,
+    // YuE2 has its own sampling defaults (matching the graph builder's fallbacks)
+    temperature:   saved.temperature   ?? (saved.engine === "yue2" ? 1.0  : 0.75),
+    topP:          saved.topP          ?? (saved.engine === "yue2" ? 0.95 : 0.9),
     minP:          saved.minP          ?? 0,
     topKAce:       saved.topKAce       ?? 0,
     genAudioCodes: saved.genAudioCodes ?? true,
@@ -62,7 +70,7 @@ export function defaultState(saved = {}) {
     steps:     saved.steps     ?? 30,
     cfg:       saved.cfg       ?? 1.7,
     cfgScale:  saved.cfgScale  ?? 1.7,
-    topK:      saved.topK      ?? 50,
+    topK:      saved.topK      ?? (saved.engine === "yue2" ? 100 : 50),
     sampler:   saved.sampler   || "euler",
     scheduler: saved.scheduler || "simple",
     seed:      saved.seed      ?? 0,
@@ -92,6 +100,7 @@ export function applyConfig(state, cfg = {}, job = {}) {
   fill("dit", cfg.dit);
   fill("clip", cfg.clip);
   fill("dav", cfg.dav);
+  fill("yue2Ckpt", cfg.yue2_ckpt);
   fill("aceUnet", cfg.ace_unet);
   fill("aceClip1", cfg.ace_clip1);
   fill("aceClip2", cfg.ace_clip2);
@@ -99,7 +108,14 @@ export function applyConfig(state, cfg = {}, job = {}) {
   fill("aceSamplerName", cfg.ace_sampler_name);
   fill("aceScheduler", cfg.ace_scheduler);
   if (job.aceShift == null && cfg.ace_shift != null) state.aceShift = cfg.ace_shift;
-  if (job.engine == null && cfg.engine) state.engine = cfg.engine === "minimax" ? "minimax" : "acestep";
+  if (job.engine == null && cfg.engine) {
+    state.engine = ["minimax", "yue2"].includes(cfg.engine) ? cfg.engine : "acestep";
+    if (state.engine === "yue2") {
+      if (job.temperature == null) state.temperature = 1.0;
+      if (job.topP == null) state.topP = 0.95;
+      if (job.topK == null) state.topK = 100;
+    }
+  }
   if (!state.saveSubfolder && cfg.save_subfolder && cfg.save_subfolder !== SUBFOLDER) state.saveSubfolder = cfg.save_subfolder;
   if (job.steps == null && cfg.steps != null) state.steps = cfg.steps;
   if (job.cfg == null && cfg.cfg != null) state.cfg = cfg.cfg;

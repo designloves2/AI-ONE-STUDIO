@@ -32,7 +32,7 @@ USAGE
 
 job.json
   {
-    "engine": "acestep" | "minimax",        // default: from studio config, else acestep
+    "engine": "acestep" | "minimax" | "yue2",  // default: from studio config, else acestep
     "caption": "moody synthwave, midnight drive, female vocal",  // REQUIRED — finished style text
     "lyrics": "[Verse]\\n...\\n[Chorus]\\n...",   // finished lyrics; omit for instrumental
     "instrumental": false,                   // true -> no vocals, lyrics forced empty
@@ -57,13 +57,21 @@ job.json
     "format": "flac" | "mp3" | "opus", "audioQuality": "V0",
     "saveSubfolder": "one_music", "filenamePrefix": "MMM",
 
+    // YuE2  (temperature/topP/topK default to 1.0 / 0.95 / 100 for this engine)
+    "yue2Mode": "text2music" | "cover",     // default text2music
+    "yue2Ckpt": "...",                      // omit -> studio config yue2_ckpt
+    "yue2AutoAbc": true,                    // text2music: YuE2GenerateABC melody sketch first
+    "yue2CoverAudio": "/abs/song.mp3",      // cover ONLY (required): local file, uploaded to input/ for you
+    "yue2RepetitionPenalty": 1.2,
+
     // model overrides — omit normally, taken from GET /music_one/config
     "dit": "...", "clip": "...", "dav": "...",
     "aceUnet": "...", "aceClip1": "...", "aceClip2": "...", "aceVae": "..."
   }
 
 OUTPUT (stdout JSON)
-  ok:true  -> { promptId, outputs:[{type:"audio",filename,subfolder,url}], localFiles:[...], meta, graphSubmitted }
+  ok:true  -> { promptId, outputs:[{type:"audio",filename,subfolder,url}], localFiles:[...], tagged, tagError?, meta, graphSubmitted }
+              (tagged:true = the server wrote ID3/FLAC tags into the saved file via /music_one/save_meta)
   ok:false -> { error, stage }   stage: config|auth|submit|generate|interrupted|timeout|download|network
 `;
 
@@ -97,6 +105,7 @@ const JOB_KEYS = [
   "aceStages", "aceShift", "aceSamplerName", "aceScheduler",
   "format", "audioQuality", "saveSubfolder", "filenamePrefix",
   "dit", "clip", "dav", "aceUnet", "aceClip1", "aceClip2", "aceVae",
+  "yue2Ckpt", "yue2Mode", "yue2AutoAbc", "yue2RepetitionPenalty",
 ];
 
 export async function generate(job, comfyConfig, opts = {}) {
@@ -112,6 +121,14 @@ export async function generate(job, comfyConfig, opts = {}) {
     applyConfig(state, cfg, job);
     for (const k of JOB_KEYS) if (job[k] != null) state[k] = job[k];
     if (state.instrumental) state.lyrics = "";
+
+    // YuE2 cover: the source recording is a local absolute path — upload it into input/ first
+    // (the graph's LoadAudio wants the stored name). Skipped on --dry-run (no side effects).
+    if (state.engine === "yue2" && state.yue2Mode === "cover") {
+      const src = job.yue2CoverAudio;
+      if (!src) throw tag(new Error("engine yue2 + yue2Mode cover requires job.yue2CoverAudio (absolute path)."), "config");
+      state.yue2CoverAudio = dryRun ? String(src) : await client.uploadImage(abspath(src));
+    }
 
     const seed = job.seed == null ? randomSeed() : Number(job.seed);
     state.seed = seed;
@@ -134,12 +151,25 @@ export async function generate(job, comfyConfig, opts = {}) {
     const files = extractOutputs(outputs, saveNode);
     const outputsOut = files.map((f) => ({ ...f, url: client.viewUrl(f.filename, f.subfolder, f.fileType) }));
 
+    // Tag the saved original (ID3/FLAC tags: title/artist/album/comment/lyrics/seed/engine) the
+    // same way the studio does — POST /music_one/save_meta makes the server write them in place
+    // (ffmpeg -c:a copy), so the file downloaded below already carries them. Non-fatal.
+    let tagged = false, tagError;
+    if (files[0]) {
+      try {
+        const tagMeta = { ...meta, title: state.title || String(state.caption).replace(/\s+/g, " ").trim().slice(0, 60) };
+        const tr = await client.postJson(`${API}/save_meta`, { filename: files[0].filename, subfolder: files[0].subfolder || "", meta: tagMeta });
+        tagged = tr?.ok !== false;
+        if (!tagged) tagError = tr?.error || "save_meta failed";
+      } catch (e) { tagError = e.message || String(e); }
+    }
+
     let localFiles = [];
     if (outDir) {
       for (const f of files) localFiles.push(await client.downloadOutput({ filename: f.filename, subfolder: f.subfolder, type: f.fileType }, abspath(outDir)));
     }
 
-    return { ok: true, promptId, outputs: outputsOut, localFiles, ...base };
+    return { ok: true, promptId, outputs: outputsOut, localFiles, tagged, ...(tagError ? { tagError } : {}), ...base };
   } catch (e) {
     return { ok: false, error: e.message || String(e), stage: e.stage || "unknown" };
   }

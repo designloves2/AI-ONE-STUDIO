@@ -5,7 +5,7 @@
 // Every request carries comfyConfig.headers (Cloudflare Access service token, etc.).
 // A 401/403 anywhere throws an Error tagged `.stage = "auth"`.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -60,6 +60,24 @@ export function makeClient(comfyConfig, { apiPrefix = "" } = {}) {
     return `${baseUrl}/view?${q.toString()}`;
   }
 
+  /** Upload a local file (image or audio) into ComfyUI's input/ folder. Returns the stored filename. */
+  async function uploadImage(absPath) {
+    const buf = await readFile(absPath);
+    const fd = new FormData();
+    fd.append("image", new Blob([buf]), basename(absPath));
+    fd.append("subfolder", "");
+    fd.append("type", "input");
+    fd.append("overwrite", "false");
+    const r = await req("/upload/image", { method: "POST", body: fd });
+    if (!r.ok) {
+      const err = new Error(`upload failed for ${absPath} -> ${r.status}`);
+      err.stage = "upload";
+      throw err;
+    }
+    const d = await r.json();
+    return d.subfolder ? `${d.subfolder}/${d.name}` : d.name;
+  }
+
   async function submitGraph(graph, { pollMs = 900, onPoll } = {}) {
     const data = await postJson("/prompt", { prompt: graph, client_id: clientId });
     if (data.error) {
@@ -112,7 +130,7 @@ export function makeClient(comfyConfig, { apiPrefix = "" } = {}) {
     return dest;
   }
 
-  return { baseUrl, clientId, req, getJson, postJson, cfg, models, viewUrl, submitGraph, downloadOutput };
+  return { baseUrl, clientId, req, getJson, postJson, uploadImage, cfg, models, viewUrl, submitGraph, downloadOutput };
 }
 
 /** Pull the audio outputs out of a SaveAudioAdvanced node result. */

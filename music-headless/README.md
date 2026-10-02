@@ -61,7 +61,16 @@ Instrumental:
 
 | field | applies | notes |
 |---|---|---|
-| `engine` | both | `acestep` (default) or `minimax` |
+| `engine` | all | `acestep` (default), `minimax`, or `yue2` |
+| `yue2Mode` | yue2 | `text2music` (default) or `cover` |
+| `yue2Ckpt` | yue2 | checkpoint name (omit -> studio config `yue2_ckpt`) |
+| `yue2AutoAbc` | yue2 text2music | default `true` — `YuE2GenerateABC` melody sketch before generation |
+| `yue2CoverAudio` | yue2 cover (required) | absolute local path of the source recording; the CLI uploads it to ComfyUI `input/` and runs SheetSage2 melody transcription |
+| `yue2RepetitionPenalty` | yue2 | default `1.2`. `temperature`/`topP`/`topK` also apply, with YuE2 defaults `1.0` / `0.95` / `100` |
+
+**File tags:** after generation the CLI calls `POST /music_one/save_meta`, so the server embeds
+ID3/FLAC tags (title, artist, album, comment, lyrics, seed, engine) in the saved file *before* it is
+downloaded via `--out`. Result has `tagged:true` (or `tagError` if tagging failed — the audio is still valid).
 | `caption` | both | **required** — finished style text |
 | `lyrics` | both | finished lyrics with `[Verse]`/`[Chorus]` tags; omit for instrumental |
 | `instrumental` | both | `true` forces lyrics empty |

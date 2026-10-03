@@ -350,7 +350,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   // image stays in normal flow sized by aspect-ratio (not absolutely positioned).
   const grid = el("div", { style: {
     flex: "1", overflowY: "auto", display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))", gap: "10px", alignContent: "start",
+    gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))", gridAutoRows: "min-content", gap: "10px", alignContent: "start",
     paddingRight: "4px",
   } });
   const hint = el("div", { text: "No images yet.", style: { color: C.muted, fontSize: "12px", textAlign: "center", padding: "30px 0", display: "none" } });

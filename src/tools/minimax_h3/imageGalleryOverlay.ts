@@ -12,8 +12,8 @@
 // only — Interpolate/Resize/Stitch are video-only concepts and dropped entirely).
 import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
-import { button, el, clear, thumbSrc } from "../../shared/ui";
-import { createCacheButton, thumbFallback } from "../../shared/thumbCache";
+import { button, el, clear } from "../../shared/ui";
+import { createCacheButton, applyThumb } from "../../shared/thumbCache";
 import { C, BRAND } from "../../identity";
 import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
 import { queuePrompt } from "./comfyClient";
@@ -365,9 +365,9 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     } });
 
     const thumbWrap = el("div", { style: { position: "relative", width: "100%", overflow: "hidden", borderRadius: "7px 7px 0 0" } });
-    const img = el("img", { loading: "lazy", decoding: "async", src: thumbSrc(imageURL(v)),
+    const img = el("img", {
       style: { width: "100%", aspectRatio: "1 / 1", objectFit: "contain", background: "#000", display: "block" } });
-    thumbFallback(img as HTMLImageElement, imageURL(v));
+    applyThumb(img as HTMLImageElement, imageURL(v));
     thumbWrap.appendChild(img);
     attachSensitiveToggle(thumbWrap, img, key);
 

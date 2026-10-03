@@ -2,8 +2,8 @@
 // 원본 근거: web/klein/ui_gallery_klein.js — PAINT 모드는 subMode(inpaint/outpaint)에 따라
 // 별도 Send-to 타깃 2개(→ Inpaint / → Outpaint)로 노출된다.
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
-import { confirmDialog, thumbSrc } from "../../shared/ui";
-import { createCacheButton, thumbFallback } from "../../shared/thumbCache";
+import { confirmDialog } from "../../shared/ui";
+import { createCacheButton, applyThumb } from "../../shared/thumbCache";
 import { sendImagesToMinimax } from "../../shared/minimaxSend";
 import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
@@ -199,8 +199,8 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     const url = outputViewUrl(img.filename, img.subfolder || "", img.mtime);
     const k = keyOf(img);
     const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
-    const im = el("img", { src: thumbSrc(url), loading: "lazy", decoding: "async", style: { width: "100%", height: "auto", display: "block" } });
-    thumbFallback(im as HTMLImageElement, url);
+    const im = el("img", { style: { width: "100%", height: "auto", display: "block" } });
+    applyThumb(im as HTMLImageElement, url);
     im.addEventListener("click", () => { if (selectMode) { toggleSel(k, cell); } else { openViewer(img, idx); } });
 
     if (selectMode) {

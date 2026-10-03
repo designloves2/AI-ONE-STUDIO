@@ -452,7 +452,7 @@ export function applyMobileCollapsibleLayout(body: HTMLElement, leftPanel: HTMLE
 
 /** Grid-card thumbnail source: maps a `/view?filename&subfolder&type` URL to the shared
  *  `/tj_shared/thumb` route (a 384px webp cached on disk — see thumbCache.ts). Pair with
- *  thumbFallback() so an error falls back to the full-size file. Anything that isn't an
+ *  applyThumb() (thumbCache.ts) so an error falls back to the full-size file. Anything that isn't an
  *  input/output /view URL is returned unchanged. */
 export function thumbSrc(url: string): string {
   const i = url.indexOf("/view?");

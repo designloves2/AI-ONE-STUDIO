@@ -21,6 +21,7 @@ import { melodySeconds } from "./melodyCore";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { attachSensitiveToggle, mediaKey } from "../../shared/sensitiveMedia";
+import { sameOriginSrc } from "../../shared/sameOriginImage";
 
 const UNIQUE_ID = "music_web";
 
@@ -1471,7 +1472,7 @@ export function renderMusic(container: HTMLElement) {
       root.appendChild(ov);
       img.onload = () => { nat = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 }; z = 1; ox = (STAGE - nat.w * fit()) / 2; oy = (STAGE - nat.h * fit()) / 2; ready = true; okBtn.disabled = false; place(); };
       img.onerror = () => { err.textContent = "Could not read this image."; };
-      img.src = srcUrl;
+      sameOriginSrc(srcUrl).then((s) => { img.src = s; }, () => { img.src = srcUrl; });
     });
   }
 

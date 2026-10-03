@@ -6,6 +6,7 @@
 // 한 장으로 취급된다 (SetLatentNoiseMask 아님).
 import { C, BRAND, el } from "./core";
 import { uploadAnnotationBlob } from "./api";
+import { sameOriginSrc } from "../../shared/sameOriginImage";
 
 const HIGHLIGHT = "#ff00c8";
 
@@ -312,7 +313,7 @@ export function openMaskDrawOverlay(
     document.addEventListener("keydown", onKeyDown);
     cancelBtn.onclick = closeOverlay;
   };
-  img.src = sourceImageUrl;
+  sameOriginSrc(sourceImageUrl).then((s) => { img.src = s; }, () => { img.src = sourceImageUrl; });
 
   cancelBtn.addEventListener("click", () => overlay.remove()); // overridden once the image loads, to also drop the keydown listener
   root.appendChild(overlay);

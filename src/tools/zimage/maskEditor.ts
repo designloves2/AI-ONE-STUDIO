@@ -5,6 +5,7 @@
 import type { ZImageState } from "./core";
 import { C, el } from "./core";
 import { uploadImage, viewUrl } from "./api";
+import { sameOriginSrc } from "../../shared/sameOriginImage";
 
 const DISP_W = 402; // 450px 좌측 패널 - panel 패딩
 
@@ -185,7 +186,8 @@ export function createMaskEditor(state: ZImageState, persist: () => void) {
           render();
         };
         mImg.onerror = () => render();
-        mImg.src = viewUrl(state.inpaintMaskImage, "", "input", Date.now());
+        const mImgUrl = viewUrl(state.inpaintMaskImage, "", "input", Date.now());
+        sameOriginSrc(mImgUrl).then((s) => { mImg.src = s; }, () => { mImg.src = mImgUrl; });
       } else {
         render();
       }
@@ -193,7 +195,8 @@ export function createMaskEditor(state: ZImageState, persist: () => void) {
       requestAnimationFrame(updateCursor);
     };
     img.onerror = () => {};
-    img.src = viewUrl(filename, "", "input", Date.now());
+    const imgUrl = viewUrl(filename, "", "input", Date.now());
+    sameOriginSrc(imgUrl).then((s) => { img.src = s; }, () => { img.src = imgUrl; });
   }
 
   async function autoSaveIfNeeded(): Promise<boolean> {

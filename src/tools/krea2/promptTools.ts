@@ -8,6 +8,7 @@ import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
 import { getTemplates, saveTemplates } from "../../shared/promptTemplatesApi";
 import { createLlmBackendGroup, fetchOrModels } from "../../shared/llmBackendPanel";
 import { comfyApi } from "./comfyClient";
+import { sameOriginSrc } from "../../shared/sameOriginImage";
 
 // ── LLM 설정 (탭/기기 전역 공유 — llm_panel.js와 동일 localStorage 키) ──────────
 const LLM_LS_KEY = "tj_studio_one_llm_settings";
@@ -165,7 +166,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
         dropZone.style.border = "2px solid #3a7a3a";
         resolve();
       };
-      img.src = src;
+      sameOriginSrc(src).then((s) => { img.src = s; }, () => { img.src = src; });
     });
   }
   function loadImageFile(file: File) {

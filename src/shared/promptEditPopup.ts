@@ -9,6 +9,7 @@
 import { el } from "./ui";
 import { C, BRAND } from "../identity";
 import { createLlmBackendGroup, type LlmBackendState } from "./llmBackendPanel";
+import { sameOriginSrc } from "./sameOriginImage";
 
 // Per-prompt options (vision task / model format / aesthetic / extra instructions / seed) live
 // on the same localStorage-backed object as the backend fields — matches node's single
@@ -158,7 +159,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
         syncButtons();
         resolve();
       };
-      img.src = src;
+      sameOriginSrc(src).then((s) => { img.src = s; }, () => { img.src = src; });
     });
   }
   function loadImageFile(file: File) {

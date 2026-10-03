@@ -8,6 +8,7 @@
 // 담당한다("방금 크롭을 적용" / "이후 Output Size 필드를 바꿈" 두 경우 모두 재사용).
 import { C, BRAND, el } from "./core";
 import { uploadAnnotationBlob } from "./api";
+import { sameOriginSrc } from "../../shared/sameOriginImage";
 
 const YELLOW = "#ffd400";
 const HANDLE_SIZE = 12;
@@ -57,7 +58,7 @@ export function cropAndUploadPoseImage(sourceImageUrl: string, cropBox: CropBox,
       }
     };
     img.onerror = () => reject(new Error("Failed to load the source image."));
-    img.src = sourceImageUrl;
+    sameOriginSrc(sourceImageUrl).then((s) => { img.src = s; }, () => { img.src = sourceImageUrl; });
   });
 }
 
@@ -318,7 +319,7 @@ export function openPoseCropOverlay(
       overlay.remove();
     };
   };
-  img.src = sourceImageUrl;
+  sameOriginSrc(sourceImageUrl).then((s) => { img.src = s; }, () => { img.src = sourceImageUrl; });
 
   cancelBtn.onclick = () => overlay.remove();
   root.appendChild(overlay);

@@ -449,3 +449,11 @@ export function applyMobileCollapsibleLayout(body: HTMLElement, leftPanel: HTMLE
 
   leftPanel.insertBefore(collapsibleHeader("Settings", leftScroll, true), leftScroll);
 }
+
+/** Grid-card thumbnail source: ComfyUI's /view re-encodes to webp when given `preview=webp;<q>`
+ *  (~20x smaller than the source PNG). Without it a 60-card page pulled ~40 MB of full-size PNGs,
+ *  which is invisible on localhost but made galleries nearly blank through a tunnel. Full-size
+ *  `/view` URLs stay in use for lightboxes and for picking. */
+export function thumbSrc(url: string): string {
+  return url + (url.includes("?") ? "&" : "?") + "preview=webp;70";
+}

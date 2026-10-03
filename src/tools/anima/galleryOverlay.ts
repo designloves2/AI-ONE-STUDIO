@@ -1,7 +1,7 @@
 // galleryOverlay.ts — Anima 이미지 갤러리 오버레이. Z-Image와 동일 패턴, SEND_TARGETS만 다름.
 // 원본 근거: web/anima/ui_gallery_anima.js
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
-import { confirmDialog } from "../../shared/ui";
+import { confirmDialog, thumbSrc } from "../../shared/ui";
 import { sendImagesToMinimax } from "../../shared/minimaxSend";
 import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
@@ -193,7 +193,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     const url = outputViewUrl(img.filename, img.subfolder || "", img.mtime);
     const k = keyOf(img);
     const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
-    const im = el("img", { src: url, style: { width: "100%", height: "auto", display: "block" } });
+    const im = el("img", { src: thumbSrc(url), loading: "lazy", decoding: "async", style: { width: "100%", height: "auto", display: "block" } });
     im.addEventListener("click", () => { if (selectMode) { toggleSel(k, cell); } else { openViewer(img, idx); } });
 
     if (selectMode) {

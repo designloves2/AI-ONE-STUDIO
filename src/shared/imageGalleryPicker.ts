@@ -3,7 +3,7 @@
 // "갤러리 선택" 방식으로 쓰인다. 이미지를 고르면 해당 도구의 copy_to_input으로 ComfyUI
 // 전역 input 폴더에 복사한 뒤(파일명이 유니크해짐) 그 파일명을 콜백으로 돌려준다.
 import { C, BRAND } from "../identity";
-import { el, clear } from "./ui";
+import { el, clear, thumbSrc } from "./ui";
 import { getComfyBase } from "./comfyBase";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "./sensitiveMedia";
 
@@ -253,7 +253,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     const imgs = data.images || [];
     imgs.forEach((img) => {
       const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
-      const im = el("img", { src: viewUrl(img, tool), style: { width: "100%", height: "auto", display: "block" } });
+      const im = el("img", { src: thumbSrc(viewUrl(img, tool)), loading: "lazy", decoding: "async", style: { width: "100%", height: "auto", display: "block" } });
       cell.appendChild(im);
       // 눈가리기 — this picker had no blur handling at all (unlike every tool's own gallery
       // grid), so a hidden reference image was fully visible + pickable here. Blur the tile

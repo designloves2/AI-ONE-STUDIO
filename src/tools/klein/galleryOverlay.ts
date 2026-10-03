@@ -5,7 +5,7 @@ import { C, el, clear, BRAND, SUBFOLDER } from "./core";
 import { confirmDialog } from "../../shared/ui";
 import { createCacheButton, applyThumb } from "../../shared/thumbCache";
 import { sendImagesToMinimax } from "../../shared/minimaxSend";
-import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
+import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive, wireRevealButton } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
 
@@ -45,9 +45,11 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
   const sendRefBtn = btn("→ REF2VA", () => sendSelectedToMinimax("reference"));
   sendRefBtn.style.display = "none";
   const cacheBtn = createCacheButton(() => ({ root: "output", subfolder: state.saveSubfolder || SUBFOLDER, recursive: true }), () => reset());
+  const revealBtn = btn("👁 Show", () => {});
+  wireRevealButton(revealBtn);
   const refreshBtn = btn("↻ Reload", () => reset());
   const closeBtn = btn("✕ Close", () => (ov.style.display = "none"), "danger");
-  topRow.append(deleteSelBtn, selectModeBtn, favBtn, sendFLBtn, sendRefBtn, cacheBtn, refreshBtn, closeBtn);
+  topRow.append(deleteSelBtn, selectModeBtn, favBtn, sendFLBtn, sendRefBtn, cacheBtn, revealBtn, refreshBtn, closeBtn);
   ov.appendChild(topRow);
 
   let favOnly = false, offset = 0, total = 0, loading = false;

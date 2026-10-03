@@ -95,6 +95,18 @@ function safeSet(k: string, v: string) {
   try { localStorage.setItem(k, v); } catch {}
 }
 
+/** Header button that peeks at every hidden item at once; clicking again re-hides them
+ *  (session-only, shared by every open gallery/picker — mirrors the node's wireRevealButton). */
+export function wireRevealButton(button: HTMLButtonElement) {
+  const sync = () => {
+    button.textContent = revealAll ? "🙈 Hide" : "👁 Show";
+    button.title = revealAll ? "Hide the hidden items again" : "Temporarily show every hidden item";
+  };
+  button.addEventListener("click", () => setRevealAll(!revealAll));
+  painters.add({ render: sync, alive: () => button.isConnected });
+  sync();
+}
+
 export function isRevealAll(): boolean {
   return revealAll;
 }

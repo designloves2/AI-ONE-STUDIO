@@ -6,7 +6,7 @@ import { C, BRAND } from "../identity";
 import { el, clear } from "./ui";
 import { createCacheButton, applyThumb } from "./thumbCache";
 import { getComfyBase } from "./comfyBase";
-import { attachSensitiveToggle, mediaKey, isBlurred } from "./sensitiveMedia";
+import { attachSensitiveToggle, mediaKey, isBlurred, wireRevealButton } from "./sensitiveMedia";
 
 const BASE = getComfyBase();
 
@@ -150,6 +150,9 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     : { root: "output" as const, subfolder: activeTool.subfolder, recursive: true }
   ), () => reloadGrid());
   topRow.appendChild(cacheBtn);
+  const revealBtn = el("button", { type: "button", text: "👁 Show", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "5px 10px", borderRadius: "6px", border: `1px solid ${C.border}`, background: "#2a2a3a", color: "#fff" } }) as HTMLButtonElement;
+  wireRevealButton(revealBtn);
+  topRow.appendChild(revealBtn);
   topRow.appendChild(closeBtn);
 
   const toolBar = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", flexShrink: "0" } });

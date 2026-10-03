@@ -35,7 +35,7 @@ import {
 import { queuePrompt, type QueueResult } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph, buildResizeGraph } from "./graphBuilder";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
-import { makeSensitiveControl, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
+import { makeSensitiveControl, mediaKey, isBlurred, isSensitive, setSensitive, wireRevealButton } from "../../shared/sensitiveMedia";
 
 // A single-shot post-process (upscale/deblur/interpolate) queues its ComfyUI job, then does the
 // meta write + cleanup client-side. If the tab is reloaded or iOS-discarded in between, the job
@@ -387,7 +387,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   upscaleBtn.addEventListener("click", () => { if (!postRunning) { rebuildUpscaleModels(); setMode(mode === "upscale" ? null : "upscale"); } });
   interpBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "rife" ? null : "rife"); });
   resizeBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "resize" ? null : "resize"); });
-  hdr.append(deleteSelBtn, filterSel, stitchBtn, upscaleBtn, interpBtn, resizeBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  const revealBtn = button("👁 Show", () => {});
+  wireRevealButton(revealBtn);
+  hdr.append(deleteSelBtn, filterSel, stitchBtn, upscaleBtn, interpBtn, resizeBtn, revealBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const stitchBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg", style: { background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
   const stitchInfo = el("div", { class: "flex-1 text-[10.5px]", style: { color: C.text } });

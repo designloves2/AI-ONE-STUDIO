@@ -18,7 +18,7 @@ import { C, BRAND } from "../../identity";
 import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
 import { queuePrompt } from "./comfyClient";
 import { buildImageUpscaleGraph } from "./graphBuilder";
-import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle } from "../../shared/sensitiveMedia";
+import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "../../shared/sensitiveMedia";
 
 // Named aspect ratios a real render is actually likely to land on — same table the video
 // gallery's own card badge uses.
@@ -213,6 +213,8 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
   } });
   refreshBtn.addEventListener("click", () => refresh());
+  const revealBtn = button("👁 Show", () => {});
+  wireRevealButton(revealBtn);
   const cacheBtn = createCacheButton(() => ({ root: "output", subfolder: imgFolder(state), recursive: true }), () => refresh());
   const folderBtn = el("button", { type: "button", text: "📂 Open folder", style: {
     cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "5px 11px",
@@ -255,7 +257,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   }
   postBtn.addEventListener("click", () => setPostMode(!postMode));
 
-  hdr.append(bulkDeleteBtn, selectBtn, filterSel, postBtn, cacheBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  hdr.append(bulkDeleteBtn, selectBtn, filterSel, postBtn, cacheBtn, revealBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const barStyle: Record<string, string> = {
     display: "none", flexShrink: "0", alignItems: "center", gap: "8px", flexWrap: "wrap",

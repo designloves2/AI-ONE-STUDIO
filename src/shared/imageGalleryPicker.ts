@@ -4,6 +4,7 @@
 // 전역 input 폴더에 복사한 뒤(파일명이 유니크해짐) 그 파일명을 콜백으로 돌려준다.
 import { C, BRAND } from "../identity";
 import { el, clear, thumbSrc } from "./ui";
+import { createCacheButton, thumbFallback } from "./thumbCache";
 import { getComfyBase } from "./comfyBase";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "./sensitiveMedia";
 
@@ -143,6 +144,12 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   topRow.appendChild(el("div", { text: "🖼 Pick an image from the gallery", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
   const closeBtn = el("button", { type: "button", text: "✕", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "5px 10px", borderRadius: "6px", border: "none", background: "#c0392b", color: "#fff" } });
   closeBtn.addEventListener("click", () => close());
+  const cacheBtn = createCacheButton(() => (
+    activeTool.id === INPUT_TOOL.id ? { root: "input" as const, subfolder: activeFolder, recursive: false }
+    : activeTool.id === OUTPUT_TOOL.id ? { root: "output" as const, subfolder: activeFolder, recursive: false }
+    : { root: "output" as const, subfolder: activeTool.subfolder, recursive: true }
+  ), () => reloadGrid());
+  topRow.appendChild(cacheBtn);
   topRow.appendChild(closeBtn);
 
   const toolBar = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap", flexShrink: "0" } });
@@ -254,6 +261,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
     imgs.forEach((img) => {
       const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
       const im = el("img", { src: thumbSrc(viewUrl(img, tool)), loading: "lazy", decoding: "async", style: { width: "100%", height: "auto", display: "block" } });
+      thumbFallback(im as HTMLImageElement, viewUrl(img, tool));
       cell.appendChild(im);
       // 눈가리기 — this picker had no blur handling at all (unlike every tool's own gallery
       // grid), so a hidden reference image was fully visible + pickable here. Blur the tile

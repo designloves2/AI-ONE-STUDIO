@@ -13,6 +13,7 @@
 import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
 import { button, el, clear, thumbSrc } from "../../shared/ui";
+import { createCacheButton, thumbFallback } from "../../shared/thumbCache";
 import { C, BRAND } from "../../identity";
 import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
 import { queuePrompt } from "./comfyClient";
@@ -212,6 +213,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
   } });
   refreshBtn.addEventListener("click", () => refresh());
+  const cacheBtn = createCacheButton(() => ({ root: "output", subfolder: imgFolder(state), recursive: true }), () => refresh());
   const folderBtn = el("button", { type: "button", text: "📂 Open folder", style: {
     cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "5px 11px",
     borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
@@ -253,7 +255,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   }
   postBtn.addEventListener("click", () => setPostMode(!postMode));
 
-  hdr.append(bulkDeleteBtn, selectBtn, filterSel, postBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  hdr.append(bulkDeleteBtn, selectBtn, filterSel, postBtn, cacheBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const barStyle: Record<string, string> = {
     display: "none", flexShrink: "0", alignItems: "center", gap: "8px", flexWrap: "wrap",
@@ -365,6 +367,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     const thumbWrap = el("div", { style: { position: "relative", width: "100%", overflow: "hidden", borderRadius: "7px 7px 0 0" } });
     const img = el("img", { loading: "lazy", decoding: "async", src: thumbSrc(imageURL(v)),
       style: { width: "100%", aspectRatio: "1 / 1", objectFit: "contain", background: "#000", display: "block" } });
+    thumbFallback(img as HTMLImageElement, imageURL(v));
     thumbWrap.appendChild(img);
     attachSensitiveToggle(thumbWrap, img, key);
 

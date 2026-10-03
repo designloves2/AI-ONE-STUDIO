@@ -3,6 +3,7 @@
 // (멀티선택 삭제, Reuse/Copy) 를 이미지 버전으로 반영.
 import { C, el, clear, BRAND, SUBFOLDER } from "./core";
 import { confirmDialog, thumbSrc } from "../../shared/ui";
+import { createCacheButton, thumbFallback } from "../../shared/thumbCache";
 import { sendImagesToMinimax } from "../../shared/minimaxSend";
 import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
@@ -45,9 +46,10 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
   sendFLBtn.style.display = "none";
   const sendRefBtn = btn("→ REF2VA", () => sendSelectedToMinimax("reference"));
   sendRefBtn.style.display = "none";
+  const cacheBtn = createCacheButton(() => ({ root: "output", subfolder: state.saveSubfolder || SUBFOLDER, recursive: true }), () => reset());
   const refreshBtn = btn("↻ Reload", () => reset());
   const closeBtn = btn("✕ Close", () => (ov.style.display = "none"), "danger");
-  topRow.append(deleteSelBtn, selectModeBtn, favBtn, sendFLBtn, sendRefBtn, refreshBtn, closeBtn);
+  topRow.append(deleteSelBtn, selectModeBtn, favBtn, sendFLBtn, sendRefBtn, cacheBtn, refreshBtn, closeBtn);
   ov.appendChild(topRow);
 
   let favOnly = false, offset = 0, total = 0, loading = false;
@@ -203,6 +205,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
     const k = keyOf(img);
     const cell = el("div", { style: { position: "relative", borderRadius: "4px", overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg2, cursor: "pointer" } });
     const im = el("img", { src: thumbSrc(url), loading: "lazy", decoding: "async", style: { width: "100%", height: "auto", display: "block" } });
+    thumbFallback(im as HTMLImageElement, url);
     im.addEventListener("click", () => { if (selectMode) { toggleSel(k, cell); } else { openViewer(img, idx); } });
 
     if (selectMode) {

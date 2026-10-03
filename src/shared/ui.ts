@@ -450,10 +450,18 @@ export function applyMobileCollapsibleLayout(body: HTMLElement, leftPanel: HTMLE
   leftPanel.insertBefore(collapsibleHeader("Settings", leftScroll, true), leftScroll);
 }
 
-/** Grid-card thumbnail source: ComfyUI's /view re-encodes to webp when given `preview=webp;<q>`
- *  (~20x smaller than the source PNG). Without it a 60-card page pulled ~40 MB of full-size PNGs,
- *  which is invisible on localhost but made galleries nearly blank through a tunnel. Full-size
- *  `/view` URLs stay in use for lightboxes and for picking. */
+/** Grid-card thumbnail source: maps a `/view?filename&subfolder&type` URL to the shared
+ *  `/tj_shared/thumb` route (a 384px webp cached on disk — see thumbCache.ts). Pair with
+ *  thumbFallback() so an error falls back to the full-size file. Anything that isn't an
+ *  input/output /view URL is returned unchanged. */
 export function thumbSrc(url: string): string {
-  return url + (url.includes("?") ? "&" : "?") + "preview=webp;70";
+  const i = url.indexOf("/view?");
+  if (i < 0) return url;
+  const p = new URLSearchParams(url.slice(i + 6));
+  const root = p.get("type") || "output";
+  if (root !== "input" && root !== "output") return url;
+  const q = new URLSearchParams({ root, filename: p.get("filename") || "", subfolder: p.get("subfolder") || "" });
+  const t = p.get("t");
+  if (t) q.set("t", t);
+  return `${url.slice(0, i)}/tj_shared/thumb?${q.toString()}`;
 }

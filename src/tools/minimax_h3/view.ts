@@ -136,7 +136,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     const det = el("details", {}) as HTMLDetailsElement;
     det.open = accordionOpen[key] === true; // default collapsed
     const sum = el("summary", { style: { cursor: "pointer", fontSize: "11px", color: C.text, fontWeight: "700", userSelect: "none" } });
-    sum.append(el("span", { text: title }), el("span", { text: `  —  ${summary}`, style: { color: C.muted, fontWeight: "400", textTransform: "none" } }));
+    sum.append(el("span", { text: title }), el("span", { text: `  —  ${summary}`, "data-summary-for": key, style: { color: C.muted, fontWeight: "400", textTransform: "none" } }));
     const bodyWrap = el("div", { style: { marginTop: "6px" } });
     if (det.open) bodyWrap.append(...bodyThunk().filter((b): b is Node => !!b));
     det.addEventListener("toggle", () => {
@@ -2115,6 +2115,23 @@ export function renderMinimaxH3(container: HTMLElement) {
   // ── Pipeline axis detail fields (SPEC_MINIMAX_H3_PIPELINE_AXES.md Part 3) ────────────────
   const n = (v: number, set: (v: number) => void, step = 0.05) => numberField(v, (x) => { set(x); persist(); }, step);
 
+  // Bottom 'Steps' panel state + Turbo accordion summary, refreshed in place so typing a Turbo step
+  // count never re-renders the panel (that would drop focus and jump the scroll to the top).
+  let baseStepsRefs: { input: HTMLInputElement; hint: HTMLElement } | null = null;
+  function syncTurboDependents() {
+    const eff = turboEffective(state, ctx.availability);
+    const turboActive = eff !== "none";
+    if (baseStepsRefs) {
+      baseStepsRefs.input.disabled = turboActive;
+      baseStepsRefs.input.style.opacity = turboActive ? "0.4" : "";
+      baseStepsRefs.hint.textContent = turboActive
+        ? `Turbo is on — ${effectiveSteps(state, ctx.availability)} steps from the Turbo section are used instead.`
+        : "Used as-is.";
+    }
+    const sumEl = leftPanel.querySelector('[data-summary-for="turbo"]');
+    if (sumEl) sumEl.textContent = `  —  ${turboSummary()}`;
+  }
+
   function turboSummary() {
     if (state.turboMode === "none") return "Off";
     const eff = turboEffective(state, ctx.availability);
@@ -2137,14 +2154,14 @@ export function renderMinimaxH3(container: HTMLElement) {
           col([label("Turbo strength"), n(state.turboLoraStrength ?? 1.0, (v) => (state.turboLoraStrength = v))]),
           col([label("Low VRAM"), checkboxRow("low_vram", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; persist(); })]),
         ]),
-        col([label("Turbo steps"), n(state.turboSteps ?? 4, (v) => (state.turboSteps = Math.max(1, Math.round(v))), 1)]),
+        col([label("Turbo steps"), n(state.turboSteps ?? 4, (v) => { state.turboSteps = Math.max(1, Math.round(v)); syncTurboDependents(); }, 1)]),
         el("div", { text: "Uses the dedicated MiniMaxH3TurboLoRA node + this step count. The LoRA file itself is set in ⚙ Settings → Models.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         ...(turboLoraSet() ? [] : [el("div", { text: "⚠ No turbo LoRA file selected in ⚙ Settings → Models — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
     if (state.turboMode === "lightx2v") {
       return [
-        col([label("Steps"), n(state.slaTurboSteps ?? 6, (v) => (state.slaTurboSteps = Math.max(1, Math.round(v))), 1)]),
+        col([label("Steps"), n(state.slaTurboSteps ?? 6, (v) => { state.slaTurboSteps = Math.max(1, Math.round(v)); syncTurboDependents(); }, 1)]),
         el("div", {
           text: "This is a regular LoRA, not a dedicated node — add the SLA-turbo LoRA file itself in the LoRA section below. Selecting this here just locks Attention to SLA (required — the LoRA gives no speedup without it).",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
@@ -2165,7 +2182,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         col([label(`Turbo LoRA (Reference)${isRef ? " ●" : ""}`),
           searchableSelect(pddOpts, state.pddFileReference || "none", (v) => { state.pddFileReference = v; rememberImgConfig({ pdd_file_reference: v }); renderLeft(); }).el]),
         row([
-          col([label("steps"), numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); renderLeft(); }, 1)]),
+          col([label("steps"), numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); syncTurboDependents(); }, 1)]),
           col([label("lora strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         ]),
         ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No Turbo LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
@@ -3859,7 +3876,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     return out;
   }
 
+  // Every left-panel re-render rebuilds its children, which resets the scroll container to the top.
+  // Keep the user's place (select changes / toggles re-render; typing in number fields must not).
   function renderLeft() {
+    const top = leftPanel.scrollTop;
+    renderLeftImpl();
+    if (top) leftPanel.scrollTop = top;
+  }
+
+  function renderLeftImpl() {
     const isPP = state.generationMode === "postprocess";
     const isImgGenPreviewable = state.generationMode === "imagegen" && state.imageGenMode !== "charsheet";
     seedRowPanel.style.display = isPP ? "none" : "";
@@ -4267,23 +4292,23 @@ export function renderMinimaxH3(container: HTMLElement) {
     // Turbo's own step count lives in the Turbo accordion next to its LoRA/strength instead.
     leftPanel.appendChild(
       (() => {
+        // Only editable when no Turbo is in effect (None, or a Turbo mode that fell back to none
+        // because its LoRA isn't set) — otherwise the Turbo section's own step count is what runs.
         const eff = turboEffective(state, ctx.availability);
-        const turboActive = eff === "larryvrh" || eff === "lightx2v";
+        const turboActive = eff !== "none";
         const stepsInput = numberField(state.steps ?? 20, (v) => { state.steps = Math.max(1, Math.round(v)); persist(); }, 1);
+        const stepsHint = el("div", {
+          text: turboActive
+            ? `Turbo is on — ${effectiveSteps(state, ctx.availability)} steps from the Turbo section are used instead.`
+            : "Used as-is.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
+        });
         if (turboActive) {
           (stepsInput as HTMLInputElement).disabled = true;
           stepsInput.style.opacity = "0.4";
         }
-        return panel([
-          label("Steps"),
-          stepsInput,
-          el("div", {
-            text: turboActive
-              ? `Turbo is on — ${effectiveSteps(state, ctx.availability)} steps from the Turbo section are used instead.`
-              : "Used as-is.",
-            style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
-          }),
-        ]);
+        baseStepsRefs = { input: stepsInput as HTMLInputElement, hint: stepsHint };
+        return panel([label("Steps"), stepsInput, stepsHint]);
       })()
     );
 

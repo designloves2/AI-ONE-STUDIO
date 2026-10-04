@@ -20,7 +20,7 @@ import { makeClient, extractOutputs } from "./comfy.mjs";
 import { buildMusicGraph } from "./graph.mjs";
 import { API, defaultState, applyConfig, randomSeed } from "./core-helpers.mjs";
 
-const HELP = `music-headless — MusicMaker MiniMax Music 3 / Ace-Step 1.5 (AI-ONE-STUDIO extract)
+const HELP = `music-headless — MusicMaker MiniMax Music 3 / Ace-Step 1.5 / YuE2 (AI-ONE-STUDIO extract)
 
 USAGE
   node index.mjs --config <comfy.json> --job <job.json> [--dry-run] [--out <dir>]

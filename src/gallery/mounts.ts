@@ -25,6 +25,9 @@ import { createSettingsOverlay as kleinSettings } from "../tools/klein/settings"
 import * as qwenCore from "../tools/qwen2511/core";
 import { createGalleryOverlay as qwenGallery } from "../tools/qwen2511/galleryOverlay";
 import { createSettingsOverlay as qwenSettings } from "../tools/qwen2511/settings";
+import * as q21Core from "../tools/qwen21/core";
+import { createGalleryOverlay as q21Gallery } from "../tools/qwen21/galleryOverlay";
+import { createSettingsOverlay as q21Settings } from "../tools/qwen21/settings";
 import * as sdxlCore from "../tools/sdxl/core";
 import { createGalleryOverlay as sdxlGallery } from "../tools/sdxl/galleryOverlay";
 import { createSettingsOverlay as sdxlSettings } from "../tools/sdxl/settings";
@@ -111,6 +114,21 @@ function imageMount(
   return wrap(gallery, settings);
 }
 
+/** A tool with nothing to browse here: show a short note instead of failing to mount. */
+function noGalleryMount(message: string): GalleryMount {
+  const box = document.createElement("div");
+  box.className = "aos-gallery-page-mount";
+  box.style.cssText = "position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:24px;text-align:center;color:#9aa0a6;font-size:14px";
+  box.textContent = message;
+  return {
+    el: box,
+    show() { box.style.display = "flex"; },
+    hide() { box.style.display = "none"; },
+    refresh() {},
+    toggleSettings() { return false; },
+  };
+}
+
 function h3Mount(): GalleryMount {
   const hash = "#minimax_h3";
   const state = h3Core.defaultState(h3Core.loadState());
@@ -194,11 +212,15 @@ export function createGalleryMount(id: ToolId): GalleryMount {
       return imageMount(kleinCore as any, "#klein", kleinGallery as any, kleinSettings as any, sendTo4Paint);
     case "qwen2511":
       return imageMount(qwenCore as any, "#qwen2511", qwenGallery as any, qwenSettings as any, sendTo4Paint);
+    case "qwen21":
+      return imageMount(q21Core as any, "#qwen21", q21Gallery as any, q21Settings as any, sendTo4Plain);
     case "sdxl":
       return imageMount(sdxlCore as any, "#sdxl", sdxlGallery as any, sdxlSettings as any, sendTo4Plain);
     case "minimax_h3":
       return h3Mount();
     case "music":
       return createMusicGalleryMount();
+    case "itda":
+      return noGalleryMount("ITDA ONE STUDIO has no image/video gallery — it works on projects, not generated files.");
   }
 }

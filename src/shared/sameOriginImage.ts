@@ -6,6 +6,7 @@
 // do (credentials: "include") and hand back a same-origin blob: URL. Same-origin / blob / data URLs
 // (localhost dev, already-local images) pass through untouched.
 const cache = new Map<string, string>();
+const CACHE_MAX = 24; // each entry is a full-size image held in memory
 
 export async function sameOriginSrc(url: string): Promise<string> {
   if (!url || url.startsWith("blob:") || url.startsWith("data:")) return url;
@@ -18,5 +19,10 @@ export async function sameOriginSrc(url: string): Promise<string> {
   if (!r.ok) throw new Error(`image fetch failed (${r.status})`);
   const obj = URL.createObjectURL(await r.blob());
   cache.set(abs.href, obj);
+  if (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value as string;
+    URL.revokeObjectURL(cache.get(oldest)!);
+    cache.delete(oldest);
+  }
   return obj;
 }

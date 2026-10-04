@@ -15,6 +15,7 @@ import { getComfyBase } from "./comfyBase";
 // to the full-size file.
 const BATCH_CHUNK = 30;
 const memo = new Map<string, string>();
+const MEMO_MAX = 800; // ~15 KB per entry; oldest dropped first so a long browsing session can't grow without bound
 type Pending = { im: HTMLImageElement; key: string; item: { root: string; filename: string; subfolder: string }; single: string; full: string };
 let queue: Pending[] = [];
 let scheduled = false;
@@ -44,7 +45,7 @@ async function flush() {
       if (!d || !Array.isArray(d.thumbs)) { chunk.forEach(useSingle); return; }
       chunk.forEach((p, i) => {
         const uri = d.thumbs[i];
-        if (typeof uri === "string" && uri.startsWith("data:")) { memo.set(p.key, uri); p.im.src = uri; }
+        if (typeof uri === "string" && uri.startsWith("data:")) { memo.set(p.key, uri); if (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value as string); p.im.src = uri; }
         else useSingle(p);
       });
     } catch { chunk.forEach(useSingle); }

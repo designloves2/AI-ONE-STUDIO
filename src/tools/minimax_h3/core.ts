@@ -407,6 +407,10 @@ export interface MinimaxState {
   // pipeline's turboLora/turboLoraReference split — different base models need different
   // turbo LoRAs), and the 2nd pass keeps the reference workflow's fixed 3-step schedule.
   imgSteps: number;
+  // "basic" = the 8-frame clip latent read back as a still (preview pass, then latent upscale
+  // + 2nd pass); "fizgig" = ComfyUI-Fizgig-H3-Still's one-frame latent + its own decode, a
+  // single pass at the resolution being rendered.
+  imgLatentMode: "basic" | "fizgig";
   imgTurboOn: boolean;
   imgTurboLoraT2i: string;
   imgTurboLoraRef2i: string;
@@ -1856,6 +1860,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     imgSaveSubfolder: saved.imgSaveSubfolder || "",
     imgPreviewSaveToGallery: !!saved.imgPreviewSaveToGallery,
     imgSteps: saved.imgSteps ?? 8,
+    imgLatentMode: saved.imgLatentMode === "fizgig" ? "fizgig" : "basic",
     imgTurboOn: !!saved.imgTurboOn,
     imgTurboLoraT2i: saved.imgTurboLoraT2i || "none",
     imgTurboLoraRef2i: saved.imgTurboLoraRef2i || "none",

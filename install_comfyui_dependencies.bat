@@ -244,11 +244,12 @@ set REPOS[14]=https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
 set REPOS[15]=https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3
 set REPOS[16]=https://github.com/crystian/ComfyUI-Crystools
 set REPOS[17]=https://github.com/duckyshell/ComfyUI-MiniMaxH3-FirstBlockCache
-rem Saganaki22/ComfyUI-sol-attn - MiniMaxH3ScheduledSolAttentionPatch, the "SolAttn
+rem sol-attn (designloves2 mirror - the original Saganaki22/ComfyUI-sol-attn was deleted
+rem from GitHub) - MiniMaxH3ScheduledSolAttentionPatch, the "SolAttn
 rem (Saganaki22, scheduled)" H3 attention-forward option. Distinct from kijai's
 rem ComfyUI-SolAttn_triton above (that one backs "SolAttn (kijai)" / SolAttnPatch,
 rem also used by the LTX 2.5 Upscale graph) - both packs are needed, not either/or.
-set REPOS[18]=https://github.com/Saganaki22/ComfyUI-sol-attn
+set REPOS[18]=https://github.com/designloves2/ComfyUI-sol-attn
 set REPOS[19]=https://github.com/designloves2/ComfyUI-TJ_NODE
 set REPOS[20]=https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes
 rem RIFEInterpolation - the gallery's "Interpolate a finished clip" post-process.
@@ -266,8 +267,11 @@ rem Ace-Step 1.5 engine defaults to. SOFT dependency: without it only that one s
 rem - pick a core sampler (euler / dpmpp_2m / heun) in MusicMaker Settings instead. The
 rem Ace-Step 1.5 / MiniMax Music 3 encode + latent + sampler-select nodes are ComfyUI core.
 set REPOS[24]=https://github.com/jeankassio/JK-AceStep-Nodes
+rem Fizgig H3 Still - MiniMax H3 Image Generator's "Use Fizgig Latent" option (a true
+rem one-frame latent + a decode that does not band a lone frame). No extra dependencies.
+set REPOS[25]=https://github.com/shootthesound/ComfyUI-Fizgig-H3-Still
 
-set COUNT=25
+set COUNT=26
 
 rem ComfyUI Manager names some packs' folders after their pyproject "name", not
 rem the repo. Clone under that name so a later Manager install/update doesn't drop
@@ -288,7 +292,7 @@ echo.
 
 rem The whole loop body lives in a called subroutine instead of a nested
 rem parenthesized for/if block, so "do" only ever runs a single command.
-for /L %%i in (0,1,24) do call :InstallRepo %%i
+for /L %%i in (0,1,25) do call :InstallRepo %%i
 goto AFTER_REPOS
 
 :InstallRepo
@@ -298,7 +302,7 @@ for %%F in (!URL!) do set "FOLDER=%%~nxF"
 if defined ALT[%IDX%] set "FOLDER=!ALT[%IDX%]!"
 
 echo ------------------------------------------------------------------------
-echo [%IDX%/24] !FOLDER!
+echo [%IDX%/25] !FOLDER!
 echo         !URL!
 
 if exist "!FOLDER!" goto REPO_SKIP
@@ -320,6 +324,14 @@ rem requirements install below - pip install is idempotent, so it's cheap/
 rem instant when everything's already satisfied.
 echo [UPDATE] Already cloned - checking for updates...
 pushd "!FOLDER!"
+rem Saganaki22/ComfyUI-sol-attn was deleted from GitHub. Existing checkouts still point
+rem at it, so their pull fails - repoint them at the mirror before pulling.
+set "ORIGIN="
+for /f "delims=" %%U in ('git remote get-url origin 2^>nul') do set "ORIGIN=%%U"
+echo !ORIGIN! | findstr /i "Saganaki22/ComfyUI-sol-attn" >nul && (
+    echo [FIX] origin was the deleted Saganaki22 repo - now https://github.com/designloves2/ComfyUI-sol-attn
+    git remote set-url origin https://github.com/designloves2/ComfyUI-sol-attn
+)
 git pull --ff-only
 popd
 goto REPO_PIP

@@ -248,6 +248,9 @@ export const MMH3_OPTIONAL_NODES = [
   // (image/animation category) — NOT ComfyUI-Frame-Interpolation's RIFE VFI, a different node
   // with a different interface (source_fps/target_fps pair vs an integer multiplier).
   "RIFEInterpolation",
+  // Image Generator's "Use Fizgig Latent" option — shootthesound/ComfyUI-Fizgig-H3-Still
+  // (true one-frame H3 latent + a decode that doesn't band a lone frame)
+  "FizgigH3StillLatent", "FizgigH3StillDecode",
   "UpscaleModelLoader",
   "ImageUpscaleWithModel",
   // video/audio save via VHS's nvenc_h264-mp4 format (real GPU encoding) — falls back to core

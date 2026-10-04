@@ -3375,6 +3375,24 @@ export function renderMinimaxH3(container: HTMLElement) {
 
     leftPanel.appendChild(panel([mountImgLoraPanel()]));
 
+    // Latent — T2I/Ref2I only (same as the node). Basic = 8-frame clip latent read back as a
+    // still; Fizgig = ComfyUI-Fizgig-H3-Still's one-frame latent + its own decode, one pass.
+    if (subMode === "t2i" || subMode === "ref2i") {
+      const fizgigOn = state.imgLatentMode === "fizgig";
+      leftPanel.appendChild(panel([
+        label("Latent"),
+        row([col([label("Latent"), select(
+          [{ value: "basic", label: "Use Basic Latent" }, { value: "fizgig", label: "Use Fizgig Latent" }],
+          fizgigOn ? "fizgig" : "basic",
+          (v) => { state.imgLatentMode = v === "fizgig" ? "fizgig" : "basic"; persist(); renderLeft(); })])]),
+        el("div", {
+          text: fizgigOn
+            ? "Fizgig: a true single-frame latent and a decode that avoids the banding of the stock VAE Decode. One pass at the resolution being rendered \u2014 Preview renders at the Preview MP size, Generate at Final MP (no latent upscale or 2nd pass). Sharpest from about 3 MP up. Needs the ComfyUI-Fizgig-H3-Still pack."
+            : "Basic: the 8-frame clip latent read back as a still \u2014 a cheap preview pass, then a latent upscale and a 2nd pass at the final resolution.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ]));
+    }
+
     const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";
     const turboOn = !!state.imgTurboOn;
     leftPanel.appendChild(panel([
@@ -3517,6 +3535,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         steps: state.imgSteps ?? 8,
         turboOn: !!state.imgTurboOn, turboLora: (state as any)[turboKey], turboLoraStrength: state.imgTurboLoraStrength ?? 1.0,
         savePreview: !!state.imgPreviewSaveToGallery,
+        latentMode: state.imgLatentMode,
       });
       const res = await queuePrompt(built.graph, {
         onProgress: (v: number, m: number) => setStatus(`Image Generator — ${Math.round((v / (m || 1)) * 100)}%`),
@@ -3534,7 +3553,9 @@ export function renderMinimaxH3(container: HTMLElement) {
           imgLoras: state.imgLoras || [], subMode,
           refImages: subMode === "ref2i" ? (state.imgRefImages || []) : [],
           refImageSize: state.imgRefImageSize || "max", seed,
-          imgSteps: state.imgSteps ?? 8, imgTurboOn: !!state.imgTurboOn,
+          imgSteps: state.imgSteps ?? 8,
+          imgLatentMode: state.imgLatentMode === "fizgig" ? "fizgig" : "basic",
+          imgTurboOn: !!state.imgTurboOn,
           imgTurboLora: state.imgTurboOn ? ((state as any)[turboKey] || null) : null,
           imgTurboLoraStrength: state.imgTurboLoraStrength ?? 1.0,
         }).catch(() => {});
@@ -5730,6 +5751,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (Array.isArray(meta.refImages)) state.imgRefImages = meta.refImages.slice();
     if (meta.refImageSize) state.imgRefImageSize = meta.refImageSize;
     if (meta.imgSteps != null) state.imgSteps = meta.imgSteps;
+    state.imgLatentMode = meta.imgLatentMode === "fizgig" ? "fizgig" : "basic";
     if (meta.imgTurboOn != null) state.imgTurboOn = !!meta.imgTurboOn;
     if (meta.imgTurboLora) {
       const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";

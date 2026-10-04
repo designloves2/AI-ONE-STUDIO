@@ -1,12 +1,12 @@
 // promptTools.ts — SDXL 프롬프트 보조 기능: 확장 편집(Edit/Enhance LLM/Image→Prompt 탭) +
 // 프롬프트 템플릿 오버레이. 원본 근거: web/sdxl/one_node_sdxl.js — shared/llm_panel.js의
-// attachLLMPanel과 klein/ui_prompt_templates.js를 pool="tag"로 가져다 쓴다.
-// 템플릿은 도구별 config가 아니라 공용 풀(/shared/prompt_templates?pool=tag)에 저장한다 —
-// SDXL은 태그/가중치 방식 프롬프트라 nl 풀(Klein/Krea2/Z-Image/Qwen2511/Anima)과 완전히 분리된다.
+// attachLLMPanel과 klein/ui_prompt_templates.js를 pool="sdxl"로 가져다 쓴다.
+// 템플릿은 도구별 config가 아니라 공용 풀(/shared/prompt_templates?pool=sdxl)에 저장한다 —
+// 도구마다 자기 풀을 가진다(노드 7ec5ad9). 옛 공유 풀 nl/tag는 더 이상 쓰지 않는다. UI는 shared/promptTemplateOverlay.ts.
 // SPEC_PROMPT_TEMPLATE_SYNC.md 참고.
-import { C, el, clear, BRAND } from "./core";
-import { button, label as uiLabel, row, confirmDialog } from "../../shared/ui";
-import { getTemplates, saveTemplates } from "../../shared/promptTemplatesApi";
+import { C, el, BRAND } from "./core";
+import { button } from "../../shared/ui";
+import { createTemplateOverlay as createSharedTemplateOverlay } from "../../shared/promptTemplateOverlay";
 import { createLlmBackendGroup, fetchOrModels } from "../../shared/llmBackendPanel";
 import { comfyApi } from "./comfyClient";
 import { sameOriginSrc } from "../../shared/sameOriginImage";
@@ -301,81 +301,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
 }
 
 // SDXL은 태그/가중치 방식 프롬프트라 자연어 도구들의 내장(BUILT_IN) 카테고리가 안 맞는다 —
-// 커스텀 템플릿만 저장/적용하는 단순 목록형 오버레이. pool="tag"로 nl 풀과 완전히 분리.
-export function createTemplateOverlay(_getMode: () => string, onApply: (prompt: string) => void) {
-  const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "10001", background: "rgba(0,0,0,0.85)", display: "none", alignItems: "center", justifyContent: "center" } });
-  const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(700px, 92vw)", maxHeight: "85vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" } });
-
-  const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
-  hdr.append(el("div", { text: "📋 Prompt Templates", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
-  const addBtn = button("+ New", () => startEdit(null));
-  hdr.append(addBtn, button("✕", () => (ov.style.display = "none"), "danger"));
-  box.appendChild(hdr);
-  ov.appendChild(box);
-  ov.addEventListener("click", (e) => { if (e.target === ov) ov.style.display = "none"; });
-
-  let customTemplates: { name: string; prompt: string }[] = [];
-  const listEl = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
-  box.appendChild(listEl);
-
-  function renderCustom() {
-    clear(listEl);
-    if (!customTemplates.length) {
-      listEl.appendChild(el("div", { text: "No saved templates. Add one with + New.", style: { color: C.muted, fontSize: "12px", padding: "16px 0" } }));
-      return;
-    }
-    customTemplates.forEach((t, i) => {
-      const card = el("div", { style: { background: C.bg2, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "8px 10px", display: "flex", alignItems: "flex-start", gap: "8px" } });
-      const info = el("div", { style: { flex: "1", minWidth: "0" } });
-      info.append(
-        el("div", { text: t.name, style: { color: C.text, fontSize: "12px", fontWeight: "600", marginBottom: "3px" } }),
-        el("div", { text: t.prompt.slice(0, 100) + (t.prompt.length > 100 ? "…" : ""), style: { color: C.muted, fontSize: "11px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } })
-      );
-      const applyBtn = button("Apply", () => { onApply(t.prompt); ov.style.display = "none"; }, "primary");
-      const editBtn = button("Edit", () => startEdit(i));
-      const delBtn = button("✕", async () => { if (!(await confirmDialog(`Delete "${t.name}"?`))) return; customTemplates.splice(i, 1); saveCustom(); renderCustom(); }, "danger");
-      card.append(info, applyBtn, editBtn, delBtn);
-      listEl.appendChild(card);
-    });
-  }
-
-  const editForm = el("div", { style: { display: "none", flexDirection: "column", gap: "6px", padding: "10px", background: C.bg0, borderRadius: "8px", border: `1px solid ${C.border}` } });
-  const nameIn = el("input", { type: "text", placeholder: "Template name…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } });
-  const promptTA2 = el("textarea", { placeholder: "Prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", minHeight: "80px" } });
-  editForm.append(uiLabel("Name"), nameIn, uiLabel("Prompt"), promptTA2);
-  let editIdx: number | null = null;
-  const saveEditBtn = button("💾 Save", () => {
-    const n = nameIn.value.trim(), p = promptTA2.value.trim();
-    if (!n || !p) { alert("Enter both a name and a prompt."); return; }
-    if (editIdx === null) customTemplates.push({ name: n, prompt: p });
-    else customTemplates[editIdx] = { name: n, prompt: p };
-    saveCustom(); editForm.style.display = "none"; renderCustom();
-  }, "primary");
-  const cancelEditBtn = button("Cancel", () => { editForm.style.display = "none"; });
-  editForm.appendChild(row([saveEditBtn, cancelEditBtn]));
-  box.appendChild(editForm);
-
-  function startEdit(idx: number | null) {
-    editIdx = idx;
-    nameIn.value = idx !== null ? customTemplates[idx].name : "";
-    promptTA2.value = idx !== null ? customTemplates[idx].prompt : "";
-    editForm.style.display = "flex";
-  }
-  function saveCustom() { saveTemplates("tag", customTemplates).catch(() => {}); }
-
-  let loaded = false;
-  return {
-    el: ov,
-    show() {
-      ov.style.display = "flex";
-      if (!loaded) {
-        loaded = true;
-        getTemplates("tag").then((templates) => {
-          customTemplates = templates;
-          renderCustom();
-        }).catch(() => renderCustom());
-      }
-    },
-    hide() { ov.style.display = "none"; },
-  };
+// 템플릿 오버레이 — 공용 구현(shared/promptTemplateOverlay.ts), pool="sdxl".
+export function createTemplateOverlay(getMode: () => string, onApply: (prompt: string) => void) {
+  return createSharedTemplateOverlay("sdxl", getMode, onApply);
 }

@@ -76,6 +76,7 @@ import { createGalleryOverlay } from "./galleryOverlay";
 import { createImageGalleryOverlay } from "./imageGalleryOverlay";
 import { mountImagePanel, imageSlot } from "./imagesPanel";
 import { createCommonPromptOverlay } from "./commonPromptOverlay";
+import { createTemplateOverlay } from "../../shared/promptTemplateOverlay";
 import { renderDepBanner } from "./depBanner";
 import {
   checkInputExists,
@@ -1270,11 +1271,19 @@ export function renderMinimaxH3(container: HTMLElement) {
   const refineBtn = el("button", { type: "button", text: "🔧 Refine", title: "Revise the current clip's prompt from a typed instruction — same result review as Prompt Write", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const writeBtn = el("button", { type: "button", text: "✨ Prompt Write", title: "Write a fresh prompt for the current clip — same result review as inside Prompt Edit", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const editBtn = el("button", { type: "button", text: "📝 Prompt Edit", title: "Open the full prompt editor (with Ollama enhance)", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
+  // Image Generator's prompt templates (T2I / Ref2I) — the same 📋 panel the other image tools
+  // have, with this tool's own pool; opened by imgTemplateOv (mounted next to promptEditOv).
+  const tplBtn = el("button", { type: "button", text: "📋 Templates", title: "Prompt templates and tag presets", style: { ...smallBtnStyle, display: "none", border: `1px solid ${BRAND}`, fontWeight: "600" } });
+  tplBtn.addEventListener("click", () => imgTemplateOv?.show());
+  let imgTemplateOv: ReturnType<typeof createTemplateOverlay> | null = null;
+  // The Image Generator's current prompt textarea (rebuilt by renderImageGenPrompt) — a template
+  // applied from the overlay writes into it.
+  let imgInlineTA: HTMLTextAreaElement | null = null;
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips", style: smallBtnStyle });
   const addBtn = el("button", { type: "button", text: "+ Add", style: smallBtnStyle });
   const resetTAHBtn = el("button", { type: "button", text: "↕", title: "Reset text field size (not the prompt text itself) back to the default", style: smallBtnStyle });
   resetTAHBtn.addEventListener("click", () => resetPromptTAHeights());
-  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, splitBtn, addBtn, resetTAHBtn);
+  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, splitBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
   // Sibling wrapper, not a child of promptList itself — promptList gets its innerHTML wiped
@@ -1762,6 +1771,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       commonBtn.style.display = "none"; splitBtn.style.display = "none"; addBtn.style.display = "none";
       resetTAHBtn.style.display = "none"; refineBtn.style.display = "none"; writeBtn.style.display = "none"; tagBtnRow.style.display = "none";
     }
+    tplBtn.style.display = isImageGen && state.imageGenMode !== "charsheet" ? "" : "none";
     promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : isImageGen ? "IMAGE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
@@ -3295,6 +3305,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     }) as HTMLTextAreaElement;
     ta.value = isCharSheet ? (state.charSheetPrompt || "") : (state.imgPrompt || "");
     ta.disabled = isCharSheet;
+    imgInlineTA = ta;
     if (isCharSheet) ta.style.opacity = "0.5";
     ta.addEventListener("input", () => {
       if (isCharSheet) state.charSheetPrompt = ta.value; else state.imgPrompt = ta.value;
@@ -5784,6 +5795,12 @@ export function renderMinimaxH3(container: HTMLElement) {
     // which the left panel's mode buttons and Images accordion need to see, not just the plan line.
     () => { refreshPlan(); renderLeft(); }
   );
+  // Templates read only the mode; T2I and Ref2I each keep their own tag presets.
+  imgTemplateOv = createTemplateOverlay("minimax_h3", () => (state.imageGenMode === "ref2i" ? "ref2i" : "t2i"), (txt) => {
+    state.imgPrompt = txt;
+    if (imgInlineTA) imgInlineTA.value = txt;
+    persist();
+  });
   editBtn.addEventListener("click", () => {
     if (state.generationMode === "ltxupscale") { openLtxPromptEdit(); return; }
     if (state.generationMode === "facerefine") { openFrPromptEdit(); return; }
@@ -5805,7 +5822,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   commonBtn.addEventListener("click", () => commonPromptOv.show());
 
-  wrap.append(depBannerEl, subBar, mainRow, pop, promptEditOv.el, commonPromptOv.el, galleryOv.el, imageGalleryOv.el, settingsOv.el, helpOv, queueListOv);
+  wrap.append(depBannerEl, subBar, mainRow, pop, promptEditOv.el, imgTemplateOv.el, commonPromptOv.el, galleryOv.el, imageGalleryOv.el, settingsOv.el, helpOv, queueListOv);
   container.appendChild(wrap);
   document.body.appendChild(galleryOv.playerEl); // 풀스크린 플레이어는 다른 모든 것 위에 떠야 하므로 body 직속
 

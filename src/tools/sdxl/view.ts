@@ -1,7 +1,7 @@
 // view.ts — SDXL 메인 화면 조립. Klein/Qwen2511의 450px 좌측 패널/180px 프롬프트 레이아웃을
 // 그대로 따르되, SDXL 고유 기능(Checkpoint/Separate 모델 로딩 + Refiner, Upscale 3-서브모드,
 // DifferentialDiffusion 기반 Inpaint/Outpaint)을 반영한다. Klein/Qwen2511과 달리 Faceswap/Angle는
-// 원본에 없으므로 이식하지 않는다. Templates/Prompt-Expand는 원본에도 있고(pool="tag") 이 사이트
+// 원본에 없으므로 이식하지 않는다. Templates/Prompt-Expand는 원본에도 있고(pool="sdxl") 이 사이트
 // 초기 포팅 때 빠졌던 것 — SPEC_PROMPT_TEMPLATE_SYNC.md 계기로 추가.
 import type { SDXLState, SDXLMode, UpscaleMode } from "./core";
 import {

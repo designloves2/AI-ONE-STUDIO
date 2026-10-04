@@ -7,6 +7,7 @@
 import { C, el, BRAND } from "./core";
 import { button } from "../../shared/ui";
 import { createTemplateOverlay as createSharedTemplateOverlay } from "../../shared/promptTemplateOverlay";
+import { BUILT_IN } from "../klein/promptTools";
 import { createLlmBackendGroup, fetchOrModels } from "../../shared/llmBackendPanel";
 import { comfyApi } from "./comfyClient";
 import { sameOriginSrc } from "../../shared/sameOriginImage";
@@ -300,8 +301,9 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   };
 }
 
-// SDXL은 태그/가중치 방식 프롬프트라 자연어 도구들의 내장(BUILT_IN) 카테고리가 안 맞는다 —
-// 템플릿 오버레이 — 공용 구현(shared/promptTemplateOverlay.ts), pool="sdxl".
+// 템플릿 오버레이 — 공용 구현(shared/promptTemplateOverlay.ts), 도구별 풀. 노드의 현재 구조와 같게 Klein의
+// BUILT_IN 하나를 모든 이미지 도구가 공유한다(모드 이름이 edit / i2i / inpaint / faceswap 처럼 일치할 때만
+// 내장 chip이 뜨고 t2i는 없음 — 사용자 확인으로 노드와 일치시킴). 첫 수정 시 내장 기본값 사본이 사용자 목록이 된다.
 export function createTemplateOverlay(getMode: () => string, onApply: (prompt: string) => void) {
-  return createSharedTemplateOverlay("sdxl", getMode, onApply);
+  return createSharedTemplateOverlay("sdxl", getMode, onApply, BUILT_IN);
 }

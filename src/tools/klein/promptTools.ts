@@ -309,7 +309,9 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
 // 카테고리를 가진다(edit는 ANGLES/RELIGHT/STYLES/OTHER 수십 개, inpaint는 SKETCH/COLLAGE/
 // INPAINT/OUTPAINT 4개, faceswap은 1개, i2i는 비어있음, t2i/upscale은 항목 자체가 없음).
 // 이전에 Krea2/Z-Image와 동일한 범용 4카테고리를 그대로 복사해 썼던 게 실제 버그였다.
-const BUILT_IN: Record<string, { cat: string; items: { label: string; prompt: string }[] }[]> = {
+// Exported: every image tool shares this one table in the node (klein/ui_prompt_templates.js),
+// keyed by mode name — a mode only gets built-in chips when its name matches (t2i has none).
+export const BUILT_IN: Record<string, { cat: string; items: { label: string; prompt: string }[] }[]> = {
   edit: [
     { cat: "ANGLES", items: [
       { label: "Close-up", prompt: "Shift to a tight close-up on the subject. Crop the frame closely to focus on the main details while keeping the background sharp and visible. Ensure all colors, textures, and environmental elements from the original scene remain identical and perfectly clear, simply viewed from a much shorter camera distance." },

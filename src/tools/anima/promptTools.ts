@@ -6,6 +6,7 @@ import { button } from "../../shared/ui";
 // 템플릿은 도구별 config가 아니라 공용 풀(/shared/prompt_templates?pool=anima)에 저장한다 —
 // 도구마다 자기 풀을 가진다(노드 7ec5ad9). 옛 공유 풀 nl/tag는 더 이상 쓰지 않는다. UI는 shared/promptTemplateOverlay.ts.
 import { createTemplateOverlay as createSharedTemplateOverlay } from "../../shared/promptTemplateOverlay";
+import { BUILT_IN } from "../klein/promptTools";
 import { createLlmBackendGroup, fetchOrModels } from "../../shared/llmBackendPanel";
 import { comfyApi } from "./comfyClient";
 import { sameOriginSrc } from "../../shared/sameOriginImage";
@@ -305,7 +306,9 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   };
 }
 
-// Anima는 원본에 내장(BUILT_IN) 템플릿이 없다 — 커스텀 템플릿만 저장/적용하는 단순 목록형 오버레이.
+// 템플릿 오버레이 — 공용 구현(shared/promptTemplateOverlay.ts), 도구별 풀. 노드의 현재 구조와 같게 Klein의
+// BUILT_IN 하나를 모든 이미지 도구가 공유한다(모드 이름이 edit / i2i / inpaint / faceswap 처럼 일치할 때만
+// 내장 chip이 뜨고 t2i는 없음 — 사용자 확인으로 노드와 일치시킴). 첫 수정 시 내장 기본값 사본이 사용자 목록이 된다.
 export function createTemplateOverlay(getMode: () => string, onApply: (prompt: string) => void) {
-  return createSharedTemplateOverlay("anima", getMode, onApply);
+  return createSharedTemplateOverlay("anima", getMode, onApply, BUILT_IN);
 }

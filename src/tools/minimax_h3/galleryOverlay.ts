@@ -101,15 +101,26 @@ const NAMED_RATIOS: [string, number][] = [
   ["1:1", 1], ["16:9", 16 / 9], ["9:16", 9 / 16], ["4:3", 4 / 3], ["3:4", 3 / 4],
   ["21:9", 21 / 9], ["3:2", 3 / 2], ["2:3", 2 / 3], ["5:4", 5 / 4], ["4:5", 4 / 5],
 ];
-function aspectRatioLabel(w: number, h: number): string {
+// The sizes come from resolveResolution, which snaps width/height to multiples of 32 — so the pixel
+// ratio is rarely exactly the aspect the user picked (1MP 16:9 = 1344x736 = 42:23). Show the aspect
+// that was chosen when the file recorded it ("16:9 Landscape" -> "16:9", accepted when it is within
+// 10% of the real w/h); for older files fall back to the nearest named ratio within 8% (small renders
+// can be ~7% off, and the named ratios are >=6.7% apart so the nearest is right), then to the
+// GCD-reduced fraction. Mirrors the node's aspectRatioLabel(w, h, chosen).
+function aspectRatioLabel(w: number, h: number, chosen?: string): string {
   if (!w || !h) return "";
   const r = w / h;
+  const m = /^(\d+):(\d+)/.exec(chosen || "");
+  if (m) {
+    const cv = Number(m[1]) / Number(m[2]);
+    if (cv > 0 && Math.abs(r - cv) / cv <= 0.1) return `${m[1]}:${m[2]}`;
+  }
   let best: string | null = null, bestErr = Infinity;
   for (const [label, val] of NAMED_RATIOS) {
     const err = Math.abs(r - val) / val;
     if (err < bestErr) { bestErr = err; best = label; }
   }
-  if (best && bestErr <= 0.015) return best;
+  if (best && bestErr <= 0.08) return best;
   const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
   const g = gcd(w, h) || 1;
   return `${w / g}:${h / g}`;
@@ -1522,7 +1533,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       const mw = (v as any).meta?.w, mh = (v as any).meta?.h;
       if (mw && mh) {
         const mp = ((mw * mh) / 1_000_000).toFixed(1);
-        const ratio = aspectRatioLabel(mw, mh);
+        const ratio = aspectRatioLabel(mw, mh, (v as any).meta?.aspect);
         meta.appendChild(el("div", { text: `[${mw}x${mh}px / ${mp}MP${ratio ? `    ${ratio}` : ""}]`, style: { fontSize: "9px", color: "#fff", fontWeight: "600" } }));
       }
       meta.append(

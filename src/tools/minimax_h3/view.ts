@@ -2153,12 +2153,21 @@ export function renderMinimaxH3(container: HTMLElement) {
     }
     if (state.turboMode === "pdd") {
       const pddHelp = "Loads any turbo LoRA as a plain model-only LoRA (core-native since ComfyUI v0.35.0 — no separate pack). Set steps to what the LoRA was distilled for.\n\nPDD Acc (alibaba-pai) works here too: the release is per-variant, so pair Ref2VA with the reference UNET and FL2VA with the first-last one — a mismatched pair does not error, it just renders badly. Use the ComfyUI-converted file (…_comfy.safetensors); the raw alibaba-pai one applies 0 patches. 8 and 4 steps are its official counts. Strength was trained at 1.0. The LoRA itself (per generation mode) is set in ⚙ Settings → Models.";
+      // The two LoRA slots live here too (node parity) and stay in sync with ⚙ Settings → Models:
+      // both write the same state.pddFile / pddFileReference and the server config. Core-native PDD
+      // loads the file as a plain LoRA, so the options are the regular loras list.
+      const isRef = state.generationMode === "reference";
+      if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
+      const pddOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
       return [
-        col([
-          labelHelp("steps", pddHelp),
-          numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); }, 1),
+        col([labelHelp(`Turbo LoRA (First-Last / Text)${isRef ? "" : " ●"}`, pddHelp),
+          searchableSelect(pddOpts, state.pddFile || "none", (v) => { state.pddFile = v; rememberImgConfig({ pdd_file: v }); renderLeft(); }).el]),
+        col([label(`Turbo LoRA (Reference)${isRef ? " ●" : ""}`),
+          searchableSelect(pddOpts, state.pddFileReference || "none", (v) => { state.pddFileReference = v; rememberImgConfig({ pdd_file_reference: v }); renderLeft(); }).el]),
+        row([
+          col([label("steps"), numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); renderLeft(); }, 1)]),
+          col([label("lora strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         ]),
-        col([label("LoRA strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No Turbo LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }

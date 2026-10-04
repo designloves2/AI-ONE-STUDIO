@@ -93,7 +93,7 @@ Currently registered (owner-created, live now):
 
 | name | pipeline | model | steps |
 |---|---|---|---|
-| `pdd-8step` | PDD Acc + Sage + MemEff | config default UNET, per mode (FL2VA/Ref2VA) | 8 (nfe) |
+| `pdd-8step` | Turbo LoRA (Basic; the PDD Acc file) + Sage + MemEff | config default UNET, per mode (FL2VA/Ref2VA) | 8 (steps) |
 | `fast-8step` | Sage + MemEff + Spectrum | `MinimaxH3\h3ErosMax_beta4.safetensors` (hybrid, both modes) | 8 |
 
 Built-in fallback aliases (used only if the name misses `user_presets[]`):
@@ -151,7 +151,7 @@ then the skill just calls it by name.
 | `job.mode` | builder | fields (beyond `seed`/`aspect`/`megapixels`) |
 |---|---|---|
 | `facerefine` | `buildFaceRefineGraph` | `sourceFile` (required, a clip path), `prompt`, `faceDetector`, `refImages` |
-| `imagegen_t2i` / `imagegen_ref2i` | `buildImageGenGraph` | `prompt`, `refImages` (ref2i), `steps`, `turboOn`, `turboLora`, `final` |
+| `imagegen_t2i` / `imagegen_ref2i` | `buildImageGenGraph` | `prompt`, `refImages` (ref2i), `steps`, `turboOn`, `turboLora`, `final`, `imgLatentMode` (`basic`|`fizgig`) |
 | `charsheet` | `buildCharacterSheetVideoGraph` + `buildCharacterSheetGridGraph` | `refImages` (required, 1-9), `prompt`, `deblur`, `rtx`, `frameIndices`, `cellWidth`/`cellHeight` |
 | `imageupscale` | `buildImageUpscaleGraph` | `inputFile` (required, a still image), `deblur`, `rtx` |
 

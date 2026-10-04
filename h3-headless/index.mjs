@@ -67,6 +67,8 @@ job.mode:"facerefine" fields
 
 job.mode:"imagegen_t2i" / "imagegen_ref2i" fields
   prompt, refImages (ref2i only), seed, aspect, megapixels, steps, turboOn, turboLora,
+  imgLatentMode ("basic" default | "fizgig" — needs ComfyUI-Fizgig-H3-Still: one-frame latent + its own
+                 decode, a single pass at the final resolution, no latent-upscale 2nd pass),
   final (default true — a headless run always does the full two-pass render)
 
 job.mode:"charsheet" fields
@@ -396,8 +398,9 @@ async function runImageGen(job, state, avail, client, { dryRun, outDir, onPoll, 
     prompt, seed, previewRes, finalRes, filenamePrefix,
     steps: job.steps ?? 8, turboOn, turboLora, turboLoraStrength: job.turboLoraStrength ?? state.imgTurboLoraStrength,
     savePreview: job.savePreview,
+    latentMode: job.imgLatentMode === "fizgig" ? "fizgig" : "basic",
   });
-  const base = { mode: `imagegen_${subMode}`, seed, resolution: finalRes, prompt };
+  const base = { mode: `imagegen_${subMode}`, seed, resolution: finalRes, prompt, imgLatentMode: job.imgLatentMode === "fizgig" ? "fizgig" : "basic" };
   return submitAndCollect(client, graph, saveNode, { dryRun, outDir, onPoll, base });
 }
 

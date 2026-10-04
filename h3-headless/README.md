@@ -191,6 +191,10 @@ See `node index.mjs --help` for the full `job.json` field list per mode. Briefly
   optional `job.refImages`. Re-renders a small/distant face crop through H3 and stitches it back.
 - **`imagegen_t2i` / `imagegen_ref2i`** — a still image via the same H3 pipeline at 8 frames,
   read back as one frame. `final:true` (default) adds the studio's second latent-upscale pass.
+  `imgLatentMode` (`"basic"` default | `"fizgig"`): `"fizgig"` uses ComfyUI-Fizgig-H3-Still's one-frame
+  latent + its own decode in a SINGLE pass at the resolution being rendered (final resolution when
+  `final`, preview resolution otherwise) — no latent-upscale 2nd pass. Errors with an install hint when
+  the pack is missing.
 - **`charsheet`** — `job.refImages` (1-9), `job.prompt`. Submits the 124-frame turnaround render,
   then a second cheap grid-assembly graph against that output (ref photo + 8 picked frames, 3-col
   grid). Both `outputs` (video + grid image) come back in one result.

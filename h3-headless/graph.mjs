@@ -678,18 +678,26 @@ const IMG = {
   guider1: "IMG:guider1", sampler1: "IMG:sampler1",
   sepAV: "IMG:sep_av", latentUp: "IMG:latent_up", concatAV: "IMG:concat_av",
   sampSel2: "IMG:sampler_sel2", guider2: "IMG:guider2", sigmas2: "IMG:sigmas2", sampler2: "IMG:sampler2",
-  decode: "IMG:decode", frame: "IMG:frame", save: "IMG:save",
+  decode: "IMG:decode", frame: "IMG:frame", save: "IMG:save", fizLatent: "IMG:fizgig_latent",
 };
 const IMG_PASS2_SIGMAS = "0.9035, 0.6316, 0.3158, 0.0000";
 const IMG_LENGTH = 8;
 
 /**
  * opts: { subMode, final, refImages, refImageSize, prompt, seed, previewRes, finalRes,
- *         filenamePrefix, steps, turboOn, turboLora, turboLoraStrength, savePreview }
+ *         filenamePrefix, steps, turboOn, turboLora, turboLoraStrength, savePreview, latentMode }
+ *
+ * latentMode "basic" (default): the 8-frame clip latent read back as a still, preview pass then (final)
+ * latent upscale + 2nd pass. "fizgig": ComfyUI-Fizgig-H3-Still's one-frame latent + its own decode, ONE
+ * pass at previewRes (preview) / finalRes (final) — no latent upscale / 2nd pass / ImageFromBatch.
  */
 export function buildImageGenGraph(state, avail, opts) {
   const { subMode, final, refImages, refImageSize, prompt, seed, previewRes, finalRes, filenamePrefix,
-    steps, turboOn, turboLora, turboLoraStrength, savePreview } = opts || {};
+    steps, turboOn, turboLora, turboLoraStrength, savePreview, latentMode } = opts || {};
+  const fizgig = latentMode === "fizgig";
+  if (fizgig && !(has(avail, "FizgigH3StillLatent") && has(avail, "FizgigH3StillDecode")))
+    throw new Error("Use Fizgig Latent needs ComfyUI-Fizgig-H3-Still (github.com/shootthesound/ComfyUI-Fizgig-H3-Still) — install it and restart ComfyUI, or use imgLatentMode \"basic\".");
+  const renderRes = fizgig && final ? finalRes : previewRes;
   const refList = (refImages || []).filter(Boolean).slice(0, 9);
   if (subMode === "ref2i" && !refList.length) throw new Error("Reference to Image needs at least one reference image.");
   const g = {};
@@ -717,7 +725,7 @@ export function buildImageGenGraph(state, avail, opts) {
   g[IMG.clip] = { class_type: "CLIPLoader", inputs: { clip_name: state.clipName, type: "minimax", device: "default" } };
   g[IMG.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
 
-  const condInputs = { clip: [IMG.clip, 0], vae: [IMG.vaeV, 0], prompt, width: previewRes.width, height: previewRes.height, length: IMG_LENGTH };
+  const condInputs = { clip: [IMG.clip, 0], vae: [IMG.vaeV, 0], prompt, width: renderRes.width, height: renderRes.height, length: IMG_LENGTH };
   if (subMode === "ref2i") {
     condInputs.ref_image_size = refImageSize || "max";
     refList.forEach((name, i) => {
@@ -730,16 +738,24 @@ export function buildImageGenGraph(state, avail, opts) {
   }
 
   const stepCount = Math.max(1, Math.round(steps ?? 8));
+  // Fizgig: the conditioning node's own LATENT output stays unconnected — only its conditioning is
+  // used; the one-frame latent comes from the Fizgig node at the same size.
+  let startLatent = [IMG.cond, 1];
+  if (fizgig) {
+    g[IMG.fizLatent] = { class_type: "FizgigH3StillLatent", inputs: { width: renderRes.width, height: renderRes.height, batch_size: 1 } };
+    startLatent = [IMG.fizLatent, 0];
+  }
+
   g[IMG.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
   g[IMG.sampSel1] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
   g[IMG.sched] = { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
   g[IMG.guider1] = { class_type: "BasicGuider", inputs: { model, conditioning: [IMG.cond, 0] } };
   g[IMG.sampler1] = { class_type: "SamplerCustomAdvanced", inputs: {
-    noise: [IMG.noise, 0], guider: [IMG.guider1, 0], sampler: [IMG.sampSel1, 0], sigmas: [IMG.sched, 0], latent_image: [IMG.cond, 1],
+    noise: [IMG.noise, 0], guider: [IMG.guider1, 0], sampler: [IMG.sampSel1, 0], sigmas: [IMG.sched, 0], latent_image: startLatent,
   } };
 
   let decodeSamples;
-  if (!final) {
+  if (fizgig || !final) {
     decodeSamples = [IMG.sampler1, 0];
   } else {
     if (!has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("MinimaxH3LatentUpscaler3D is not installed.");
@@ -762,11 +778,19 @@ export function buildImageGenGraph(state, avail, opts) {
     decodeSamples = [IMG.sampler2, 0];
   }
 
-  g[IMG.decode] = { class_type: "VAEDecode", inputs: { samples: decodeSamples, vae: [IMG.vaeV, 0] } };
-  g[IMG.frame] = { class_type: "ImageFromBatch", inputs: { batch_index: IMG_LENGTH, length: 1, image: [IMG.decode, 0] } };
+  // A Fizgig still is already one frame — nothing to pick out of a clip.
+  let stillImage;
+  if (fizgig) {
+    g[IMG.decode] = { class_type: "FizgigH3StillDecode", inputs: { samples: decodeSamples, vae: [IMG.vaeV, 0] } };
+    stillImage = [IMG.decode, 0];
+  } else {
+    g[IMG.decode] = { class_type: "VAEDecode", inputs: { samples: decodeSamples, vae: [IMG.vaeV, 0] } };
+    g[IMG.frame] = { class_type: "ImageFromBatch", inputs: { batch_index: IMG_LENGTH, length: 1, image: [IMG.decode, 0] } };
+    stillImage = [IMG.frame, 0];
+  }
   g[IMG.save] = (final || savePreview)
-    ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [IMG.frame, 0] } }
-    : { class_type: "PreviewImage", inputs: { images: [IMG.frame, 0] } };
+    ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: stillImage } }
+    : { class_type: "PreviewImage", inputs: { images: stillImage } };
 
   return { graph: g, saveNode: IMG.save };
 }

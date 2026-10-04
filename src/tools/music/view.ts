@@ -320,11 +320,15 @@ export function renderMusic(container: HTMLElement) {
       onclick: async (e: Event) => { e.stopPropagation(); await jpost("/update_meta", { filename: t.filename, subfolder: SUB(), patch: { favorite: !t.favorite } }); loadPlaylist(); } });
     lcol.append(cb, favBtn);
     const cover = el("div", { className: "mmm-cover" + (t.filename === regenCoverFn ? " regen" : ""), title: "Track info", onclick: (e: Event) => { e.stopPropagation(); showInfo(t); } });
-    if (t.cover) cover.style.backgroundImage = coverURL(t.cover);
-    else cover.appendChild(coverPlaceholder(t));
+    // The picture sits in its own layer so hiding blurs only that — blurring the whole cover
+    // would blur the 👁 button on it too, and it must stay clickable to un-hide.
+    const art = el("div", { style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", backgroundSize: "cover", backgroundPosition: "center" } });
+    if (t.cover) art.style.backgroundImage = coverURL(t.cover);
+    else art.appendChild(coverPlaceholder(t));
+    cover.appendChild(art);
     if (t.seconds) cover.appendChild(el("div", { className: "mmm-dur", text: fmtDur(t.seconds) }));
     // "tl" — the duration badge (`.mmm-dur`) already owns the bottom-right corner.
-    attachSensitiveToggle(cover, cover, mediaKey(t.filename, t.subfolder || SUB()), "tl");
+    attachSensitiveToggle(cover, art, mediaKey(t.filename, t.subfolder || SUB()), "tl");
     const mid = el("div", { style: { flex: "1", minWidth: 0 } });
     const title = el("div", { className: "mmm-tt", text: t.title || t.filename, title: "Tap to play/pause · double-tap to restart" });
     // Play SYNCHRONOUSLY in the tap handler — iOS Safari only lets a detached <audio> start

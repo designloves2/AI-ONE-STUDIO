@@ -3818,6 +3818,47 @@ export function renderMinimaxH3(container: HTMLElement) {
     return fields;
   }
 
+  // Postprocess's RTX VSR (TJ) controls — Quality + Scale (×) / Short / Long / W×H (+ crop anchor
+  // for W×H). `k` names the state fields, so the standalone RTX method (rtx*) and the 2nd pass of a
+  // 2-pass upscale (pp2Rtx*) each keep their own values (node parity: rtxSizeControls(k)).
+  type RtxKeys = { mode: string; quality: string; scale: string; short: string; long: string; w: string; h: string; anchor: string };
+  const RTX_KEYS_SOLO: RtxKeys = { mode: "rtxSizeMode", quality: "rtxQuality", scale: "rtxScale", short: "rtxShort", long: "rtxLong", w: "rtxW", h: "rtxH", anchor: "rtxCropAnchor" };
+  const RTX_KEYS_PASS2: RtxKeys = { mode: "pp2RtxSizeMode", quality: "pp2RtxQuality", scale: "pp2RtxScale", short: "pp2RtxShort", long: "pp2RtxLong", w: "pp2RtxW", h: "pp2RtxH", anchor: "pp2RtxCropAnchor" };
+  function rtxSizeControlsKeyed(k: RtxKeys): Node[] {
+    const st = state as any;
+    const mode = st[k.mode] || "scale";
+    const MODES: [string, string][] = [["scale", "Scale (×)"], ["short", "Short"], ["long", "Long"], ["wh", "W×H"]];
+    const out: Node[] = [col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })),
+      st[k.quality] || "ULTRA", (v) => { st[k.quality] = v; persist(); })])];
+    out.push(col([label("Size"), el("div", { style: { display: "flex", gap: "4px" } }, MODES.map(([key, lbl]) => {
+      const active = key === mode;
+      const b = el("button", { type: "button", text: lbl, style: {
+        cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "4px 9px",
+        borderRadius: "5px", fontWeight: active ? "700" : "400",
+        background: active ? BRAND : C.bg2, color: "#fff",
+        border: `1px solid ${active ? BRAND : C.border}`,
+      } });
+      b.addEventListener("click", () => { st[k.mode] = key; persist(); renderLeft(); });
+      return b;
+    }))]));
+    if (mode === "scale") {
+      out.push(col([label("Scale (×)"), numberField(st[k.scale] ?? 2, (v) => { st[k.scale] = Math.max(1, v); persist(); }, 0.25)]));
+    } else if (mode === "short" || mode === "long") {
+      const f = mode === "short" ? k.short : k.long;
+      out.push(col([label(`${mode === "short" ? "Short" : "Long"} side (px)`),
+        numberField(st[f] ?? (mode === "short" ? 1080 : 1920), (v) => { st[f] = Math.max(8, Math.round(v)); persist(); }, 8)]));
+    } else {
+      out.push(row([
+        col([label("Width"), numberField(st[k.w] ?? 1920, (v) => { st[k.w] = Math.max(8, Math.round(v)); persist(); }, 8)]),
+        col([label("Height"), numberField(st[k.h] ?? 1080, (v) => { st[k.h] = Math.max(8, Math.round(v)); persist(); }, 8)]),
+      ]));
+      out.push(col([label("Crop anchor"), select(
+        ["center", "left", "right", "top", "bottom"].map((a) => ({ value: a, label: a[0].toUpperCase() + a.slice(1) })),
+        st[k.anchor] || "center", (v) => { st[k.anchor] = v; persist(); })]));
+    }
+    return out;
+  }
+
   function renderLeft() {
     const isPP = state.generationMode === "postprocess";
     const isImgGenPreviewable = state.generationMode === "imagegen" && state.imageGenMode !== "charsheet";
@@ -4497,7 +4538,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       { value: "model", label: "Model" },
     ];
     leftPanel.appendChild(accordion("ppUpscale", "C. Upscale",
-      state.ppUpscaleOn ? (state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr") : "OFF", () => {
+      state.ppUpscaleOn ? ((state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr")
+        + (state.ppUpscale2On && state.upscaleMode !== "rtx" ? " → rtx" : "")) : "OFF", () => {
         const kids: (Node | null)[] = [checkboxRow("Enable Upscale", state.ppUpscaleOn, (v) => { state.ppUpscaleOn = v; persist(); renderLeft(); })];
         if (!state.ppUpscaleOn) return kids;
         const method = state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr";
@@ -4512,14 +4554,24 @@ export function renderMinimaxH3(container: HTMLElement) {
             col([label("Tile"), numberField(state.flashvsrTileSize ?? 384, (v) => { state.flashvsrTileSize = Math.max(32, Math.round(v)); persist(); }, 32)]),
           ]));
         } else if (method === "rtx") {
-          kids.push(row([
-            col([label("Scale"), numberField(state.rtxScale ?? 2.0, (v) => { state.rtxScale = Math.max(1, v); persist(); }, 0.25)]),
-            col([label("Quality"), select(["LOW", "MEDIUM", "HIGH", "ULTRA"].map((q) => ({ value: q, label: q })), state.rtxQuality || "ULTRA", (v) => { state.rtxQuality = v; persist(); })]),
-          ]));
+          kids.push(...rtxSizeControlsKeyed(RTX_KEYS_SOLO));
         } else {
           kids.push(row([col([label("Model"), select(
             (ctx.availableModels?.upscale_models || ["none"]).map((m: string) => ({ value: m, label: m })),
             state.upscaleModel || "none", (v) => { state.upscaleModel = v; persist(); })])]));
+        }
+        // 2-pass: only FlashVSR / Model can be followed by an RTX VSR pass (RTX itself would just
+        // be run twice), and the second pass is always RTX VSR (TJ) with its own settings.
+        if (method !== "rtx") {
+          kids.push(checkboxRow("2-pass: run RTX VSR (TJ) on the result", !!state.ppUpscale2On,
+            (v) => { state.ppUpscale2On = v; persist(); renderLeft(); }));
+          if (state.ppUpscale2On) {
+            kids.push(el("div", { text: "2nd pass — RTX VSR (TJ)", style: { fontSize: "11px", fontWeight: "700", color: BRAND } }));
+            kids.push(...rtxSizeControlsKeyed(RTX_KEYS_PASS2));
+            kids.push(el("div", {
+              text: `${method === "flashvsr" ? "FlashVSR" : "Model"} → RTX VSR → next effect. These RTX settings belong to the 2nd pass only; the standalone RTX VSR method keeps its own. Scale multiplies the first pass's output; Short / Long / W×H are sized by the node from the frames it receives (needs a TJ_NODE with those options).`,
+              style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+          }
         }
         return kids;
       }));
@@ -4652,6 +4704,12 @@ export function renderMinimaxH3(container: HTMLElement) {
           rtxScale: state.rtxScale, rtxQuality: state.rtxQuality, rtxSizeMode: state.rtxSizeMode || "scale",
           rtxShort: state.rtxShort, rtxLong: state.rtxLong, rtxW: state.rtxW, rtxH: state.rtxH,
           rtxCropAnchor: state.rtxCropAnchor, srcW: srcMeta.w, srcH: srcMeta.h,
+          twoPass: !!state.ppUpscale2On,
+          pass2: {
+            rtxSizeMode: state.pp2RtxSizeMode || "scale", rtxScale: state.pp2RtxScale, rtxShort: state.pp2RtxShort,
+            rtxLong: state.pp2RtxLong, rtxW: state.pp2RtxW, rtxH: state.pp2RtxH,
+            rtxCropAnchor: state.pp2RtxCropAnchor, rtxQuality: state.pp2RtxQuality,
+          },
           flashvsr: {
             model: state.flashvsrModel, mode: state.flashvsrMode, scale: state.flashvsrScale,
             colorFix: state.flashvsrColorFix, tileSize: state.flashvsrTileSize,

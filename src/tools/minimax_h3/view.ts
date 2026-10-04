@@ -46,7 +46,6 @@ import {
   parseBrief,
   promptFirstFrame,
   pddFileForMode,
-  PDD_NFE_CHOICES,
   PIPELINE_PRESETS,
   matchPreset,
   matchUserPreset,
@@ -2119,12 +2118,12 @@ export function renderMinimaxH3(container: HTMLElement) {
   function turboSummary() {
     if (state.turboMode === "none") return "Off";
     const eff = turboEffective(state, ctx.availability);
-    const label = state.turboMode === "larryvrh" ? "larryvrh" : state.turboMode === "pdd" ? "PDD Acc" : "lightx2v";
+    const label = state.turboMode === "larryvrh" ? "larryvrh" : state.turboMode === "pdd" ? "Turbo LoRA (Basic)" : "lightx2v";
     if (eff === state.turboMode) return `${label} · ${effectiveSteps(state, ctx.availability)} steps`;
     const reason =
       state.turboMode === "larryvrh" && !turboLoraSet() ? "no turbo LoRA set"
       : state.turboMode === "larryvrh" ? "MiniMaxH3TurboLoRA not installed"
-      : state.turboMode === "pdd" && !pddFileForMode(state) ? "no PDD Acc LoRA set for this mode"
+      : state.turboMode === "pdd" && !pddFileForMode(state) ? "no Turbo LoRA set for this mode"
       : "unavailable";
     return `${label} · inactive — ${reason}`;
   }
@@ -2153,14 +2152,14 @@ export function renderMinimaxH3(container: HTMLElement) {
       ];
     }
     if (state.turboMode === "pdd") {
-      const pddHelp = "8 = trained block size 4. 4 regroups two blocks per step (faster, official); 6 uses the non-uniform default partition. Higher counts are off the training envelope and render as noise.\n\nCore-native since ComfyUI v0.35.0 — the Acc file loads as a plain model-only LoRA (no separate pack); euler runs on a normal schedule and core's FinalLayer picks the per-interval head off it. Still forces sampler=euler + SigmaShift 12/3. Use the ComfyUI-converted file (…_pruned_comfy.safetensors) — the raw alibaba-pai one applies 0 patches. The Acc LoRA itself (per generation mode) is set in ⚙ Settings → Models.";
+      const pddHelp = "Loads any turbo LoRA as a plain model-only LoRA (core-native since ComfyUI v0.35.0 — no separate pack). Set steps to what the LoRA was distilled for.\n\nPDD Acc (alibaba-pai) works here too: the release is per-variant, so pair Ref2VA with the reference UNET and FL2VA with the first-last one — a mismatched pair does not error, it just renders badly. Use the ComfyUI-converted file (…_comfy.safetensors); the raw alibaba-pai one applies 0 patches. 8 and 4 steps are its official counts. Strength was trained at 1.0. The LoRA itself (per generation mode) is set in ⚙ Settings → Models.";
       return [
         col([
-          labelHelp("Model evaluations (nfe)", pddHelp),
-          select(PDD_NFE_CHOICES.map((s) => ({ value: s, label: s })), String(state.pddNfe ?? "8"), (v) => { state.pddNfe = v; persist(); }),
+          labelHelp("steps", pddHelp),
+          numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); }, 1),
         ]),
         col([label("LoRA strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
-        ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No PDD Acc LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
+        ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No Turbo LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
     return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
@@ -5790,7 +5789,9 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   const promptEditOv = createPromptEditOverlay(
     state,
-    { persist, showPopup, currentPlan, get missingAssets() { return missingAssets; }, checkMissingAssets: refreshMissingAssets, setPromptBusy },
+    { persist, showPopup, currentPlan, get missingAssets() { return missingAssets; }, checkMissingAssets: refreshMissingAssets, setPromptBusy,
+      // Prompt Edit's Brief / Vision line opens the LLM pickers in a popup.
+      openLlmQuickSettings: (onChange) => settingsOv.openLlmQuick(onChange) },
     // Loading a prompt set (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7) can change generationMode,
     // which the left panel's mode buttons and Images accordion need to see, not just the plan line.
     () => { refreshPlan(); renderLeft(); }

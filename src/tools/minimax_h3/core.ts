@@ -65,7 +65,7 @@ export interface MinimaxState {
   // PDD Acc (alibaba-pai) — SPEC_MINIMAX_H3_PDD_AND_TELEMETRY.md. Per-mode file slots (the
   // release is split into Ref2VA/FL2VA, and pairing a file with the wrong UNET is a silent
   // quality failure, not an error), plus the two blend strengths its apply node takes. nfe is
-  // a string because it's a choice from a fixed list (PDD_NFE_CHOICES), not a free number.
+  // a string (the saved key from when this was a dedicated mode); read as an ordinary step count.
   pddFile: string;
   pddFileReference: string;
   pddNfe: string;
@@ -254,8 +254,16 @@ export interface MinimaxState {
   nativeBriefClip: string;
   // Image→Brief: brief (writes the prompt) and vision (reads images) pick backend + model
   // independently — "native" (ComfyUI CLIP) | "openrouter", any combination.
-  h3BriefBackend: string;
+  h3BriefBackend: string;   // "native" | "openrouter" | "llamagguf" | "custom"
   h3VisionBackend: string;
+  // "Connect Custom" endpoints (Brief / Vision each): the URL, model id and context are
+  // kept; the API key is deliberately not part of state — it lives in the server's memory.
+  h3CustomBriefBase: string;
+  h3CustomBriefModel: string;
+  h3CustomBriefCtx: number;
+  h3CustomVisionBase: string;
+  h3CustomVisionModel: string;
+  h3CustomVisionCtx: number;
   h3OrModelBrief: string;   // OpenRouter brief model (writes the prompt — text only)
   h3OrModelVision: string;  // OpenRouter vision model (reads the reference images — multimodal)
   // Llama GGUF (local llama.cpp, via TJ_NODE's prompt_enhancer.py/image_to_prompt.py — the
@@ -776,18 +784,16 @@ export function accelModesFor(generationMode: string) {
 
 export const TURBO_MODES = [
   { key: "none", label: "None" },
+  // Any turbo LoRA loads here as a plain model-only LoRA (core-native since v0.35.0, which
+  // is why PDD Acc needs no node of its own) — hence "Basic". Key stays "pdd" so saved
+  // settings, presets and clip metadata keep working.
+  { key: "pdd", label: "Turbo LoRA (Basic)" },
   { key: "larryvrh", label: "Turbo LoRA (larryvrh)", modes: ["t2v", "firstlast", "reference"] },
   { key: "lightx2v", label: "SLA Turbo (lightx2v)" },
-  { key: "pdd", label: "PDD Acc (alibaba-pai)" },
 ] as const;
 export function turboModesFor(generationMode: string) {
   return TURBO_MODES.filter((m: any) => !m.modes || m.modes.includes(generationMode || "t2v"));
 }
-
-/** The evaluation counts the released PDD checkpoints were partitioned for — a fixed list,
- * not a free number: the apply node's head bank was trained on this exact 32-interval grid,
- * and any other step count is off the trained envelope (renders as noise). */
-export const PDD_NFE_CHOICES = ["8", "4", "6"];
 
 /** The PDD Acc file for the current generation mode. The release is per-variant (Ref2VA for
  * reference, FL2VA for t2v/firstlast) — pairing a file with the wrong UNET is a silent quality
@@ -1740,6 +1746,12 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     visionSource: "native", // Ollama removed — always native regardless of what was saved before
     nativeVisionClip: saved.nativeVisionClip || "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: saved.nativeBriefClip || "LTX\\gemma4_e2b_it_bf16.safetensors",
+    h3CustomBriefBase: saved.h3CustomBriefBase || "",
+    h3CustomBriefModel: saved.h3CustomBriefModel || "",
+    h3CustomBriefCtx: saved.h3CustomBriefCtx ?? 0,
+    h3CustomVisionBase: saved.h3CustomVisionBase || "",
+    h3CustomVisionModel: saved.h3CustomVisionModel || "",
+    h3CustomVisionCtx: saved.h3CustomVisionCtx ?? 0,
     h3BriefBackend: saved.h3BriefBackend || (saved as any).h3LlmBackend || "native",
     h3VisionBackend: saved.h3VisionBackend || (saved as any).h3LlmBackend || "native",
     h3OrModelBrief: saved.h3OrModelBrief || (saved as any).h3OrModel || "",

@@ -9,7 +9,7 @@
 import {
   SUBFOLDER, FPS, resolveResolution, ONE_TAKE_OVERLAP_FRAMES, framesToSeconds,
   attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason,
-  PDD_NFE_CHOICES, pddFileForMode, computeRtxTarget, CHARSHEET_FRAMES,
+  pddFileForMode, computeRtxTarget, CHARSHEET_FRAMES,
   CHARSHEET_DEFAULT_FRAME_INDICES, BUILTIN_PRESETS, applyPreset,
 } from "./core-helpers.mjs";
 
@@ -59,7 +59,7 @@ export function effectiveSteps(state, avail) {
   const eff = turboEffective(state, avail);
   if (eff === "larryvrh") return state.turboSteps ?? 4;
   if (eff === "lightx2v") return state.slaTurboSteps ?? 6;
-  if (eff === "pdd") return PDD_NFE_CHOICES.includes(String(state.pddNfe)) ? Number(state.pddNfe) : 8;
+  if (eff === "pdd") return Math.max(1, Math.round(Number(state.pddNfe) || 8));
   return state.steps ?? 20;
 }
 

@@ -16,6 +16,7 @@ import {
   clearTempFiles,
   listVideos,
   saveConfig,
+  connectCustom,
   type ModelLists,
   type NodeAvailability,
 } from "./api";
@@ -37,6 +38,8 @@ export interface SettingsHandle {
   el: HTMLElement;
   show(): void;
   hide(): void;
+  /** Popup with the Brief / Vision pickers (Prompt Edit's Brief / Vision line opens it). */
+  openLlmQuick(onChange?: () => void): void;
 }
 
 export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): SettingsHandle {
@@ -160,7 +163,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       panel([
         label("Model Files"),
         col([label("Turbo LoRA (larryvrh) file"), tl.el]),
-        row([col([label("PDD Acc LoRA · First/Last & Text-only (FL2VA)"), pf.el]), col([label("PDD Acc LoRA · Reference (Ref2VA)"), pfRef.el])]),
+        row([col([label("Turbo LoRA (First-Last / Text)"), pf.el]), col([label("Turbo LoRA (Reference)"), pfRef.el])]),
         el("div", { html: "Core-native since ComfyUI v0.35.0 — pick the ComfyUI-converted file (<code>…_pruned_comfy.safetensors</code>) from <code>models/loras/</code>; the raw alibaba-pai one applies 0 patches. Pairing a file with the wrong UNET is a silent quality failure — keep FL2VA/Ref2VA matched to the generation mode.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         el("div", {
           text: "Turbo mode, Attention backend/forward, Block Cache, Spectrum, and Model Patches (Fused Modulation/Torch/fp16) moved to the left panel's Pipeline accordion — they're per-run settings now, not fixed config.",
@@ -271,6 +274,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   // ══ Sampling tab ════════════════════════════════════════════════════════
   let renderModelPickersInto: HTMLElement | null = null;
+  let quickChanged: (() => void) | null = null;   // set while the Prompt Edit LLM popup is open
 
   function samplingTab() {
     const wrap = el("div", { class: "flex flex-col gap-2" });
@@ -289,10 +293,82 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     return wrap;
   }
 
-  function renderModelPickers() {
-    const wrap2 = renderModelPickersInto;
+  // "Connect Custom" fields for one role: any OpenAI-style Chat Completions server.
+  // URL / model id / context are kept in state (and the config); the API key is not — it is
+  // sent once on Connect & test, held in the server's memory, and the field is cleared.
+  function customEndpointControls(role: "brief" | "vision", changed: () => void) {
+    const K = role === "vision"
+      ? { base: "h3CustomVisionBase", model: "h3CustomVisionModel", ctx: "h3CustomVisionCtx" } as const
+      : { base: "h3CustomBriefBase", model: "h3CustomBriefModel", ctx: "h3CustomBriefCtx" } as const;
+    const field = (type: string, value: string | number, placeholder: string, onChange: (v: string) => void) => {
+      const i = el("input", { type, placeholder, autocomplete: "off", style: {
+        width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text,
+        border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit",
+      } }) as HTMLInputElement;
+      i.value = String(value);
+      i.addEventListener("change", () => onChange(i.value));
+      return i;
+    };
+    const note = (text: string) => el("div", { text, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
+
+    const baseIn = field("text", state[K.base] || "", "http://localhost:3000/v1",
+      (v) => { state[K.base] = v.trim(); changed(); });
+    const keyIn = field("password", "", "Paste key for this session", () => {});
+    const modelIn = field("text", state[K.model] || "", "gemini-3.7-flash",
+      (v) => { state[K.model] = v.trim(); changed(); });
+    const models = el("datalist", { id: `h3-custom-models-${role}` });
+    modelIn.setAttribute("list", models.id);
+    const ctxIn = field("number", state[K.ctx] || "", "32768",
+      (v) => { state[K.ctx] = Math.max(0, Math.round(Number(v)) || 0); changed(); });
+    const status = el("div", { style: { fontSize: "11px", lineHeight: "1.5", color: C.muted, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } });
+
+    const connect = button("Connect & test", async () => {
+      state[K.base] = baseIn.value.trim();
+      state[K.model] = modelIn.value.trim();
+      state[K.ctx] = Math.max(0, Math.round(Number(ctxIn.value)) || 0);
+      changed();
+      status.style.color = C.muted; status.textContent = "Connecting…";
+      connect.disabled = true;
+      try {
+        const d = await connectCustom(role, { baseUrl: state[K.base], apiKey: keyIn.value, model: state[K.model] });
+        if (!d.ok) { status.style.color = C.err; status.textContent = `✗ ${d.error || "connection failed"}`; return; }
+        if (keyIn.value) { keyIn.value = ""; keyIn.placeholder = "✓ key held in server memory (this session)"; }
+        clear(models);
+        (d.models || []).forEach((m: string) => models.appendChild(el("option", { value: m })));
+        let msg = `✓ Connected in ${d.ms} ms` + (d.models?.length ? ` · ${d.models.length} models listed` : "") + (d.note ? ` · ${d.note}` : "");
+        if (!state[K.model] && d.models?.length) {
+          state[K.model] = d.models[0]; modelIn.value = d.models[0]; changed();
+          msg += `\nModel ID was empty — set to the first listed: ${d.models[0]}`;
+        } else if (state[K.model] && d.modelFound === false) {
+          status.style.color = C.warn; status.textContent = `${msg}\n⚠ "${state[K.model]}" is not in the endpoint's model list.`;
+          return;
+        }
+        status.style.color = C.ok; status.textContent = msg;
+      } catch (e: any) {
+        status.style.color = C.err; status.textContent = `✗ ${e?.message || e}`;
+      } finally { connect.disabled = false; }
+    }, "primary");
+
+    return col([
+      note("One shared Chat Completions backend."),
+      col([label("API base URL"), baseIn,
+        note("Public endpoints require HTTPS; loopback and private LAN addresses may use HTTP.")]),
+      col([label("API key (optional)"), keyIn,
+        note("The key is sent once to the local H3 backend, kept only in memory, and never saved in localStorage.")]),
+      col([label("Model ID (optional before connect)"), modelIn, models]),
+      col([label("Known context (optional)"), ctxIn]),
+      connect, status,
+    ]);
+  }
+
+  // h3Only renders just the Brief and Vision rows (what the Prompt Edit popup needs).
+  function renderModelPickers(target: HTMLElement | null = renderModelPickersInto, h3Only = false) {
+    const wrap2 = target;
     if (!wrap2) return;
     clear(wrap2);
+    // Every pick persists the state; in the popup it also saves to the config and lets the
+    // Prompt Edit panel behind it refresh its Brief / Vision line.
+    const changed = () => { ctx.persist(); if (h3Only) quickChanged?.(); };
 
     // Brief (writes the prompt — text only) and Vision (reads the reference images — multimodal)
     // each pick their own backend AND model, fully free combination (brief native / vision
@@ -324,11 +400,11 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     // full OpenRouter model list with a filter box — no vision-capability filter, the user
     // owns the choice (node 6a6ffb0 / d33aab3). Soft pre-select of gemini-2.5-flash only.
     const orModelSel = (get: () => string, set: (v: string) => void) => {
-      const ss = searchableSelect([get() || "loading models…"], get(), (v) => { set(v); ctx.persist(); });
+      const ss = searchableSelect([get() || "loading models…"], get(), (v) => { set(v); changed(); });
       fetchOrModels().then((ms) => {
         if (!ms.length) return;
         ss.setOptions(ms);
-        if (!get()) { set(ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]); ctx.persist(); }
+        if (!get()) { set(ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]); changed(); }
         ss.setValue(get());
       });
       return ss.el;
@@ -345,18 +421,25 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       llamaGet?: () => string, llamaSet?: (v: string) => void,
       llamaMmprojGet?: (() => string) | null, llamaMmprojSet?: ((v: string) => void) | null,
       extraRows?: HTMLElement[],
+      // "brief" | "vision" for H3's two rows — Connect Custom is offered there only; the LTX
+      // row has no route for it.
+      customRole?: "brief" | "vision",
     ) => {
       const beSel = el("select", { style: selStyle }) as HTMLSelectElement;
-      [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"], ["llamagguf", "Llama GGUF (local llama.cpp)"]].forEach(([v, t]) => {
+      [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"], ["llamagguf", "Llama GGUF (local llama.cpp)"],
+        ...(customRole ? [["custom", "Connect Custom"]] : [])].forEach(([v, t]) => {
         const o = el("option", { value: v, text: t }) as HTMLOptionElement;
         if ((backendGet() || "native") === v) o.selected = true;
         beSel.appendChild(o);
       });
-      beSel.addEventListener("change", () => { backendSet(beSel.value); ctx.persist(); renderModelPickers(); });
+      beSel.addEventListener("change", () => { backendSet(beSel.value); changed(); renderModelPickers(wrap2, h3Only); });
       const isOR = (backendGet() || "native") === "openrouter";
       const isLlama = (backendGet() || "native") === "llamagguf";
+      const isCustom = !!customRole && (backendGet() || "native") === "custom";
       let modelCtl: HTMLElement;
-      if (isLlama && llamaGet && llamaSet) {
+      if (isCustom) {
+        modelCtl = customEndpointControls(customRole!, changed);
+      } else if (isLlama && llamaGet && llamaSet) {
         const holder = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
         holder.appendChild(el("div", { text: "loading gguf models…", style: { fontSize: "11px", color: C.muted } }));
         llamaModels().then((d) => {
@@ -368,24 +451,24 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
           const isMmprojName = (n: string) => /mmproj/i.test(String(n || ""));
           const ggufList = d.gguf.filter((n) => !isMmprojName(n));
           if (!ggufList.length) ggufList.push("(none found)");
-          if (!llamaGet() && ggufList[0] && ggufList[0] !== "(none found)") { llamaSet(ggufList[0]); ctx.persist(); }
-          const ggufPick = searchableSelect(ggufList, llamaGet() || ggufList[0], (v) => { llamaSet(v); ctx.persist(); });
+          if (!llamaGet() && ggufList[0] && ggufList[0] !== "(none found)") { llamaSet(ggufList[0]); changed(); }
+          const ggufPick = searchableSelect(ggufList, llamaGet() || ggufList[0], (v) => { llamaSet(v); changed(); });
           holder.appendChild(col([label("GGUF model"), ggufPick.el]));
           if (llamaMmprojGet && llamaMmprojSet) {
             const mmList = ["none", ...d.mmproj.filter((n) => n !== "none" && isMmprojName(n))];
-            if (!llamaMmprojGet()) { llamaMmprojSet("none"); ctx.persist(); }
-            const mmPick = searchableSelect(mmList, llamaMmprojGet() || "none", (v) => { llamaMmprojSet(v); ctx.persist(); });
+            if (!llamaMmprojGet()) { llamaMmprojSet("none"); changed(); }
+            const mmPick = searchableSelect(mmList, llamaMmprojGet() || "none", (v) => { llamaMmprojSet(v); changed(); });
             holder.appendChild(col([label("mmproj model"), mmPick.el]));
           }
           // Shared by every Llama role — one context window size for whichever GGUF loads.
           // Defaults to 16384, not llama.cpp's own 4096: H3's system prompt (guide + few-shot
           // examples) plus a real request measured 5436 tokens on its own in testing, already
           // over 4096 before generation even starts (silent empty result, no error).
-          const nCtxField = numberField(state.h3LlamaNCtx ?? 16384, (v) => { state.h3LlamaNCtx = Math.max(512, Math.round(v)); ctx.persist(); }, 512);
+          const nCtxField = numberField(state.h3LlamaNCtx ?? 16384, (v) => { state.h3LlamaNCtx = Math.max(512, Math.round(v)); changed(); }, 512);
           holder.appendChild(col([label("Context length (n_ctx)"), nCtxField]));
           // A truncated brief is exactly as unusable as an empty one — this needs real
           // headroom (a full multi-shot brief measured well over 2000 tokens).
-          const maxTokField = numberField(state.h3LlamaMaxTokens ?? 4096, (v) => { state.h3LlamaMaxTokens = Math.max(256, Math.round(v)); ctx.persist(); }, 256);
+          const maxTokField = numberField(state.h3LlamaMaxTokens ?? 4096, (v) => { state.h3LlamaMaxTokens = Math.max(256, Math.round(v)); changed(); }, 256);
           holder.appendChild(col([label("Max output tokens"), maxTokField]));
         });
         modelCtl = holder;
@@ -394,7 +477,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       } else {
         modelCtl = missing.length
           ? el("div", { text: `⚠ Native needs: ${missing.join(", ")}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })
-          : searchableSelect(clipList, clipGet() || "none", (v) => { clipSet(v === "none" ? "" : v); ctx.persist(); }).el;
+          : searchableSelect(clipList, clipGet() || "none", (v) => { clipSet(v === "none" ? "" : v); changed(); }).el;
       }
       return col([label(roleLabel), beSel, modelCtl, ...(extraRows || [])]);
     };
@@ -404,17 +487,18 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         () => state.h3BriefBackend, (v) => { state.h3BriefBackend = v; pushLlmConfig({ h3_brief_backend: v }); },
         () => state.nativeBriefClip, (v) => (state.nativeBriefClip = v),
         () => state.h3OrModelBrief, (v) => { state.h3OrModelBrief = v; pushLlmConfig({ or_model_text: v }); },
-        () => state.h3LlamaBriefModel, (v) => { state.h3LlamaBriefModel = v; }, null, null),
+        () => state.h3LlamaBriefModel, (v) => { state.h3LlamaBriefModel = v; }, null, null, undefined, "brief"),
       roleRow("Vision — reads the reference images (multimodal)",
         () => state.h3VisionBackend, (v) => { state.h3VisionBackend = v; pushLlmConfig({ h3_vision_backend: v }); },
         () => state.nativeVisionClip, (v) => (state.nativeVisionClip = v),
         () => state.h3OrModelVision, (v) => { state.h3OrModelVision = v; pushLlmConfig({ or_model_vision: v }); },
         () => state.h3LlamaVisionModel, (v) => { state.h3LlamaVisionModel = v; },
-        () => state.h3LlamaVisionMmproj, (v) => { state.h3LlamaVisionMmproj = v; }),
+        () => state.h3LlamaVisionMmproj, (v) => { state.h3LlamaVisionMmproj = v; }, undefined, "vision"),
     );
 
     // ── LTX Upscale ✨ — its own vision model (reads the source clip's first frame), never
     // inherits an H3 Brief/Vision value. Node 6fe621e.
+    if (!h3Only) {
     wrap2.appendChild(el("div", { style: { borderTop: `1px solid ${C.border}`, margin: "4px 0 2px" } }));
     const ltxInstr = el("textarea", {
       value: state.ltxLlmPrompt || "",
@@ -433,8 +517,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
           el("div", { text: "The ✨ button in the LTX Upscale prompt area feeds this + the source clip's first frame to the model above. Saved with Save All.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.55" } }),
         ])
     );
+    }
 
-    if (state.h3BriefBackend === "openrouter" || state.h3VisionBackend === "openrouter" || state.ltxVisionBackend === "openrouter") {
+    if (state.h3BriefBackend === "openrouter" || state.h3VisionBackend === "openrouter" || (!h3Only && state.ltxVisionBackend === "openrouter")) {
       const keyIn = el("input", { type: "password", placeholder: "sk-or-… (stored in .env, shared)", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "5px 7px", fontSize: "11px", fontFamily: "inherit" } }) as HTMLInputElement;
       keyIn.addEventListener("blur", () => {
         const v = keyIn.value.trim();
@@ -732,6 +817,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       fbc_temporal_guard: state.fbcTemporalGuard ?? false,
       vision_source: state.visionSource || "native",
       native_vision_clip: state.nativeVisionClip || "",
+      native_brief_clip: state.nativeBriefClip || "",
+      h3_custom_brief_base: state.h3CustomBriefBase || "",
+      h3_custom_brief_model: state.h3CustomBriefModel || "",
+      h3_custom_brief_ctx: state.h3CustomBriefCtx ?? 0,
+      h3_custom_vision_base: state.h3CustomVisionBase || "",
+      h3_custom_vision_model: state.h3CustomVisionModel || "",
+      h3_custom_vision_ctx: state.h3CustomVisionCtx ?? 0,
       h3_brief_backend: state.h3BriefBackend || "native",
       h3_vision_backend: state.h3VisionBackend || "native",
       h3_or_model_brief: state.h3OrModelBrief || "",
@@ -859,6 +951,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       // vision_source ignored on load — Ollama removed, always native regardless of what a
       // config saved before this change says.
       if (cfg.native_vision_clip) state.nativeVisionClip = cfg.native_vision_clip;
+      if (cfg.native_brief_clip) state.nativeBriefClip = cfg.native_brief_clip;
+      if (cfg.h3_custom_brief_base) state.h3CustomBriefBase = cfg.h3_custom_brief_base;
+      if (cfg.h3_custom_brief_model) state.h3CustomBriefModel = cfg.h3_custom_brief_model;
+      if (cfg.h3_custom_brief_ctx != null) state.h3CustomBriefCtx = cfg.h3_custom_brief_ctx;
+      if (cfg.h3_custom_vision_base) state.h3CustomVisionBase = cfg.h3_custom_vision_base;
+      if (cfg.h3_custom_vision_model) state.h3CustomVisionModel = cfg.h3_custom_vision_model;
+      if (cfg.h3_custom_vision_ctx != null) state.h3CustomVisionCtx = cfg.h3_custom_vision_ctx;
       // per-role backend: new keys, fall back to the pre-split h3_llm_backend (node migrates too)
       if (cfg.h3_brief_backend || cfg.h3_llm_backend) state.h3BriefBackend = (cfg.h3_brief_backend || cfg.h3_llm_backend)!;
       if (cfg.h3_vision_backend || cfg.h3_llm_backend) state.h3VisionBackend = (cfg.h3_vision_backend || cfg.h3_llm_backend)!;
@@ -889,8 +988,61 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   renderBody();
 
+  // The Brief / Vision part of Save All, written on its own — the Prompt Edit popup saves
+  // each pick right away instead of waiting for Save All.
+  function saveLlmConfig() {
+    saveConfig({
+      native_vision_clip: state.nativeVisionClip || "",
+      native_brief_clip: state.nativeBriefClip || "",
+      h3_custom_brief_base: state.h3CustomBriefBase || "",
+      h3_custom_brief_model: state.h3CustomBriefModel || "",
+      h3_custom_brief_ctx: state.h3CustomBriefCtx ?? 0,
+      h3_custom_vision_base: state.h3CustomVisionBase || "",
+      h3_custom_vision_model: state.h3CustomVisionModel || "",
+      h3_custom_vision_ctx: state.h3CustomVisionCtx ?? 0,
+      h3_brief_backend: state.h3BriefBackend || "native",
+      h3_vision_backend: state.h3VisionBackend || "native",
+      h3_or_model_brief: state.h3OrModelBrief || "",
+      h3_or_model_vision: state.h3OrModelVision || "",
+      h3_llama_vision_model: state.h3LlamaVisionModel || "",
+      h3_llama_vision_mmproj: state.h3LlamaVisionMmproj || "",
+      h3_llama_brief_model: state.h3LlamaBriefModel || "",
+      h3_llama_n_ctx: state.h3LlamaNCtx ?? 16384,
+      h3_llama_max_tokens: state.h3LlamaMaxTokens ?? 4096,
+    }).catch(() => {});
+  }
+
+  // Popup with the same Brief / Vision pickers as Settings -> LLM Setting. `onChange` runs
+  // after every pick and on close, so the caller can refresh what it shows.
+  function openLlmQuick(onChange?: () => void) {
+    const dlg = el("div", { style: {
+      position: "fixed", inset: "0", zIndex: "100000", background: "rgba(0,0,0,0.75)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+    } });
+    const box = el("div", { style: {
+      background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "14px",
+      width: "min(640px, 94vw)", maxHeight: "88vh", overflowY: "auto", boxSizing: "border-box",
+      display: "flex", flexDirection: "column", gap: "10px", boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
+    } });
+    const close = () => { quickChanged = null; dlg.remove(); onChange?.(); };
+    const head = el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } });
+    head.appendChild(el("div", { text: "LLM Setting — Brief / Vision", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
+    head.appendChild(button("✕", close, "danger"));
+    const body = el("div", { style: { display: "flex", flexDirection: "column", gap: "10px" } });
+    box.append(head, body, el("div", {
+      text: "Same settings as Settings → LLM Setting. Each change applies to Prompt Edit right away and is saved.",
+      style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+    dlg.appendChild(box);
+    dlg.addEventListener("mousedown", (e) => { if (e.target === dlg) close(); });
+    document.body.appendChild(dlg);
+    quickChanged = () => { saveLlmConfig(); onChange?.(); };
+    // The option lists are only loaded once Settings has been opened.
+    refreshModels().finally(() => renderModelPickers(body, true));
+  }
+
   return {
     el: ov,
+    openLlmQuick,
     show() {
       ov.style.display = "flex";
       refreshModels();

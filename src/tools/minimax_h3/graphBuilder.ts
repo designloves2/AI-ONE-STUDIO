@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry, PipelinePreset, UserPipelinePreset } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, PDD_NFE_CHOICES, pddFileForMode, PIPELINE_PRESETS, applyPreset, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, PIPELINE_PRESETS, applyPreset, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -237,10 +237,9 @@ export function effectiveSteps(state: MinimaxState, avail?: Avail): number {
   const eff = turboEffective(state, avail);
   if (eff === "larryvrh") return state.turboSteps ?? 4;
   if (eff === "lightx2v") return state.slaTurboSteps ?? 6;
-  // PDD's step count is not a preference — it's how the 32-interval grid was partitioned during
-  // training, and the apply node emits exactly this many sigmas. Anything else is off the
-  // trained envelope and renders as noise, so it's a fixed list, not a free number.
-  if (eff === "pdd") return PDD_NFE_CHOICES.includes(String(state.pddNfe)) ? Number(state.pddNfe) : 8;
+  // Turbo LoRA (Basic): an ordinary step count — any turbo LoRA can be loaded, so there is
+  // no fixed list. pddNfe is the saved key (string) from when this was a dedicated mode.
+  if (eff === "pdd") return Math.max(1, Math.round(Number(state.pddNfe) || 8));
   return state.steps ?? 20;
 }
 

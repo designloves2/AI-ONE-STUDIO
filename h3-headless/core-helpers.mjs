@@ -7,9 +7,6 @@ export const SUBFOLDER = "one_minimax_h3";
 export const ONE_TAKE_OVERLAP_FRAMES = 39;
 export const DEFAULT_FRAMES = 192; // 8s @ 24fps
 
-/** The evaluation counts released PDD checkpoints were partitioned for — a fixed list. */
-export const PDD_NFE_CHOICES = ["8", "4", "6"];
-
 // Portrait -> Square -> Landscape
 export const ASPECTS = [
   { label: "9:16 Portrait", w: 9, h: 16 },

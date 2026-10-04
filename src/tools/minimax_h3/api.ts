@@ -108,7 +108,15 @@ export interface MmhConfig {
   fbc_temporal_guard?: boolean;
   vision_source?: string;
   native_vision_clip?: string;
-  h3_llm_backend?: string;      // pre-split; node migrates to brief + vision backend
+  native_brief_clip?: string;
+  // "Connect Custom" endpoints (Brief / Vision) — the API key is never part of the config.
+  h3_custom_brief_base?: string;
+  h3_custom_brief_model?: string;
+  h3_custom_brief_ctx?: number;
+  h3_custom_vision_base?: string;
+  h3_custom_vision_model?: string;
+  h3_custom_vision_ctx?: number;
+  h3_llm_backend?: string;     // pre-split; node migrates to brief + vision backend
   h3_brief_backend?: string;
   h3_vision_backend?: string;
   h3_or_model?: string;         // pre-split; still returned by the node as the brief value
@@ -897,6 +905,39 @@ export async function writeBriefOpenRouter(systemPrompt: string, userPrompt: str
   });
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || "OpenRouter brief failed");
+  return d.text;
+}
+
+// "Connect Custom" backend — any OpenAI-style Chat Completions server. role is "brief" or
+// "vision"; the endpoint is { baseUrl, model, context }. The API key only ever travels in
+// connectCustom() (once, to be held in the server's memory) — never stored client-side.
+export async function connectCustom(role: "brief" | "vision", { baseUrl, apiKey, model }: { baseUrl: string; apiKey?: string; model?: string }): Promise<any> {
+  const r = await fetchApi(`${API}/custom_llm/connect`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role, base_url: baseUrl, api_key: apiKey || "", model: model || "" }),
+  });
+  return r.json();
+}
+
+export interface CustomEndpoint { baseUrl: string; model: string; context?: number }
+
+export async function analyzeImagesCustom(images: string[], promptText: string, ep: CustomEndpoint): Promise<string> {
+  const r = await fetchApi(`${API}/llm/custom_analyze`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ images, prompt: promptText, base_url: ep.baseUrl, model: ep.model, context: ep.context || 0 }),
+  });
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || "Custom vision failed");
+  return d.text;
+}
+
+export async function writeBriefCustom(systemPrompt: string, userPrompt: string, ep: CustomEndpoint): Promise<string> {
+  const r = await fetchApi(`${API}/llm/custom_write_brief`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system: systemPrompt, user: userPrompt, base_url: ep.baseUrl, model: ep.model, context: ep.context || 0 }),
+  });
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.error || "Custom brief failed");
   return d.text;
 }
 

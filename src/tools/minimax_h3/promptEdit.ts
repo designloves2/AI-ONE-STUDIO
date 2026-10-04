@@ -25,6 +25,8 @@ import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
 import {
   analyzeImagesNative,
   analyzeImagesOpenRouter,
+  analyzeImagesCustom,
+  writeBriefCustom,
   analyzeImageLlama,
   writeBriefOpenRouter,
   writeBriefLlama,
@@ -89,6 +91,8 @@ export function createPromptEditOverlay(
     // popup's own Write/Refine — or the main screen's own — is running an LLM call, since
     // both edit the same underlying state.prompts.
     setPromptBusy?: (busy: boolean, label?: string) => void;
+    // Opens the Settings LLM pickers (Brief / Vision) in a popup; onChange runs after every pick and on close.
+    openLlmQuickSettings?: (onChange?: () => void) => void;
   },
   onApply?: () => void
 ): PromptEditHandle {
@@ -777,6 +781,7 @@ export function createPromptEditOverlay(
     // this is a read-only preview of what Prompt Write/Refine will actually send, not a
     // second place to edit them.
     if (state.briefImageMode === "fl") {
+      const flModelLine = el("div", { style: { minWidth: "220px" } });
       const ff = promptFirstFrame(state.prompts[selected]) || state.firstFrameImage || "";
       const lf = clipAssets(state, selected).lastFrame || state.lastFrameImage || "";
       const thumb = (src: string, tag: string) => {
@@ -791,7 +796,9 @@ export function createPromptEditOverlay(
       imgRow.append(
         el("div", { text: "First/Last frame — set on the main screen, or via \"Continue generating the clip\" below.", class: "text-[10px] leading-relaxed", style: { color: C.muted } }),
         el("div", { class: "flex gap-3" }, [thumb(ff, "Start"), thumb(lf, "End")]),
+        flModelLine,
       );
+      renderModelLine(flModelLine);
       return;
     }
     renderOverrideRow();
@@ -902,9 +909,10 @@ export function createPromptEditOverlay(
 
     const note = el("div", { class: "text-[10px] leading-relaxed", style: { color: C.muted } });
     note.textContent = `${filled}/9 image(s) for this clip. Prompt Write reads the first ${Math.min(filled, max)}.`;
-    const modelLine = el("div", { class: "text-[10px]", style: { color: C.muted, cursor: "help" } });
-    modelLine.title = "Change these in Settings → LLM Setting";
-    imgCol.append(grid, note, modelLine);
+    // The Brief / Vision line runs the full width of the panel, under the band: inside the
+    // image column the long model paths wrapped into several short lines.
+    const modelLine = el("div", { style: { minWidth: "220px" } });
+    imgCol.append(grid, note);
     cols.appendChild(imgCol);
 
     if (assets.own) {
@@ -928,7 +936,7 @@ export function createPromptEditOverlay(
       cols.appendChild(audCol);
     }
 
-    imgRow.append(overrideRow, cols);
+    imgRow.append(overrideRow, cols, modelLine);
     renderModelLine(modelLine);
     renderEnhCollapse();
   }
@@ -937,28 +945,57 @@ export function createPromptEditOverlay(
   enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, refineBtn, enhStopBtn);
   enhWrap.append(enhTop, imgRow, enhBottom);
 
-  // Read-only — Settings → Models is where these are actually changed (SPEC_MINIMAX_H3_PER_CLIP_
-  // OVERRIDE.md peer note: a picker here just eats two rows of vertical space that come straight
-  // out of the clip editor's height, for a setting that's shared by every clip anyway).
+  // Brief / Vision line — full model names, one per row, clickable: opens the LLM Setting
+  // popup (the Settings pickers for these two) so the model can be changed without leaving
+  // Prompt Edit. Mirrors the node's renderModelSel (node 9378d44).
   function renderModelLine(target: HTMLElement) {
-    const shortName = (m: string) => String(m || "").split("/").pop()?.split("\\").pop() || m;
-    const briefDesc = state.h3BriefBackend === "llamagguf"
-      ? (state.h3LlamaBriefModel ? `Llama GGUF ${shortName(state.h3LlamaBriefModel)}` : "(none)")
-      : state.h3BriefBackend === "openrouter"
-      ? `OpenRouter ${state.h3OrModelBrief || "default"}` : (state.nativeBriefClip || "(none)");
-    const visionDesc = state.h3VisionBackend === "llamagguf"
-      ? (state.h3LlamaVisionModel ? `Llama GGUF ${shortName(state.h3LlamaVisionModel)}+${shortName(state.h3LlamaVisionMmproj || "none")}` : "(none)")
-      : state.h3VisionBackend === "openrouter"
-      ? `OpenRouter ${state.h3OrModelVision || "default"}` : (state.nativeVisionClip || "(none)");
-    const anyNative = state.h3BriefBackend !== "openrouter" && state.h3BriefBackend !== "llamagguf"
-      || state.h3VisionBackend !== "openrouter" && state.h3VisionBackend !== "llamagguf";
+    clear(target);
+    const needImage = enhMode === "image";
+    const bBackend = state.h3BriefBackend;
+    const vBackend = state.h3VisionBackend;
+    const bOR = bBackend === "openrouter", vOR = vBackend === "openrouter";
+    const bLlama = bBackend === "llamagguf", vLlama = vBackend === "llamagguf";
+    const bCustom = bBackend === "custom", vCustom = vBackend === "custom";
+    const customName = (base: string, model: string) => model ? `Custom:${model}${base ? ` @ ${base}` : ""}` : null;
+    // Full names, nothing cut off: the line wraps instead of ending in an ellipsis.
+    const brief = bCustom ? customName(state.h3CustomBriefBase, state.h3CustomBriefModel)
+      : bLlama ? (state.h3LlamaBriefModel ? `Llama:${state.h3LlamaBriefModel}` : null)
+      : bOR ? `OR:${state.h3OrModelBrief || "default"}`
+      : (state.nativeBriefClip || null);
+    // Vision has no GGUF model of its own — it reuses Brief's, only the mmproj differs.
+    const vision = vCustom ? customName(state.h3CustomVisionBase, state.h3CustomVisionModel)
+      : vLlama ? (state.h3LlamaVisionModel ? `Llama:${state.h3LlamaVisionModel}+${state.h3LlamaVisionMmproj || "none"}` : null)
+      : vOR ? `OR:${state.h3OrModelVision || "default"}`
+      : (state.nativeVisionClip || null);
+    const openQuick = () => ctx.openLlmQuickSettings?.(() => { renderImageRow(); });
+    const lineStyle: Record<string, string> = { fontSize: "10px", color: C.text, cursor: "pointer", lineHeight: "1.5",
+      whiteSpace: "normal", overflowWrap: "anywhere", textDecoration: "underline dotted", textUnderlineOffset: "2px" };
+    const anyNative = !bOR && !bLlama && !bCustom || needImage && !vOR && !vLlama && !vCustom;
     if (anyNative && !clipModels.length) {
-      target.textContent = "Could not load the CLIP list — check the ComfyUI connection";
-      target.style.color = C.warn;
+      target.appendChild(el("div", {
+        text: "Could not load the CLIP list — check the ComfyUI connection",
+        title: "Click to open LLM Setting", onclick: openQuick,
+        style: { ...lineStyle, fontSize: "10.5px", color: C.warn },
+      }));
       return;
     }
-    target.textContent = `Brief: ${briefDesc} · Vision: ${visionDesc} — change in Settings → LLM`;
-    target.style.color = C.muted;
+    if (!brief || (needImage && !vision)) {
+      target.appendChild(el("div", {
+        text: !brief ? "Brief: not set — click to pick a CLIP/GGUF model or switch backend."
+                     : "Vision: not set — click to pick a CLIP/GGUF model or switch backend.",
+        title: "Click to open LLM Setting",
+        onclick: openQuick,
+        style: { ...lineStyle, fontSize: "10.5px", color: C.warn },
+      }));
+      return;
+    }
+    // Brief and Vision each get their own line, so a long model path stays on one line.
+    const lines = needImage ? [`Brief: ${brief}`, `Vision: ${vision}`] : [`Brief: ${brief}`];
+    target.appendChild(el("div", {
+      title: "Click to change the Brief / Vision models",
+      onclick: openQuick,
+      style: { cursor: "pointer" },
+    }, lines.map((t) => el("div", { text: t, style: lineStyle }))));
   }
 
   async function refreshEnhanceModels() {
@@ -1085,10 +1122,11 @@ export function createPromptEditOverlay(
     progTimer = undefined;
   }
 
-  function briefBackendCheck(): { briefOR: boolean; briefLlama: boolean } | null {
+  function briefBackendCheck(): { briefOR: boolean; briefLlama: boolean; briefCustom: boolean } | null {
     const briefOR = state.h3BriefBackend === "openrouter";
     const briefLlama = state.h3BriefBackend === "llamagguf";
-    if (!briefOR && !briefLlama && !state.nativeBriefClip) {
+    const briefCustom = state.h3BriefBackend === "custom";
+    if (!briefOR && !briefLlama && !briefCustom && !state.nativeBriefClip) {
       ctx.showPopup("Set a Brief CLIP (or switch the Brief backend to OpenRouter/Llama GGUF in Settings).", true);
       return null;
     }
@@ -1096,7 +1134,11 @@ export function createPromptEditOverlay(
       ctx.showPopup("No Llama GGUF brief model set — pick one in Settings.", true);
       return null;
     }
-    return { briefOR, briefLlama };
+    if (briefCustom && !(state.h3CustomBriefBase && state.h3CustomBriefModel)) {
+      ctx.showPopup("Connect Custom (Brief) needs an API base URL and a model ID - set them in Settings.", true);
+      return null;
+    }
+    return { briefOR, briefLlama, briefCustom };
   }
 
   async function doWrite() {
@@ -1106,15 +1148,20 @@ export function createPromptEditOverlay(
 
     const backends = briefBackendCheck();
     if (!backends) return;
-    const { briefOR, briefLlama } = backends;
+    const { briefOR, briefLlama, briefCustom } = backends;
     const visionOR = state.h3VisionBackend === "openrouter";
     const visionLlama = state.h3VisionBackend === "llamagguf";
-    if (!visionOR && !visionLlama && images.length && !state.nativeVisionClip) {
+    const visionCustom = state.h3VisionBackend === "custom";
+    if (!visionOR && !visionLlama && !visionCustom && images.length && !state.nativeVisionClip) {
       ctx.showPopup("Set a Vision CLIP (or switch the Vision backend to OpenRouter/Llama GGUF in Settings).", true);
       return;
     }
     if (images.length && visionLlama && !state.h3LlamaVisionModel) {
       ctx.showPopup("No Llama GGUF vision model set — pick one in Settings.", true);
+      return;
+    }
+    if (images.length && visionCustom && !(state.h3CustomVisionBase && state.h3CustomVisionModel)) {
+      ctx.showPopup("Connect Custom (Vision) needs an API base URL and a model ID - set them in Settings.", true);
       return;
     }
     const base = (editor.value || "").trim();
@@ -1150,7 +1197,9 @@ export function createPromptEditOverlay(
             ? `Analyzing ${images.length} image(s) (OpenRouter)…`
             : `Analyzing ${images.length} image(s) (native, one batch)…`);
           const prompt = `${VISION_SYSTEM_PROMPT} There are ${images.length} images, in order. Describe each one separately, each on its own line starting with "Image N: ".`;
-          imageSummary = (visionOR
+          imageSummary = (visionCustom
+            ? await analyzeImagesCustom(images, prompt, { baseUrl: state.h3CustomVisionBase, model: state.h3CustomVisionModel, context: state.h3CustomVisionCtx })
+            : visionOR
             ? await analyzeImagesOpenRouter(images, prompt, state.h3OrModelVision || state.h3OrModelBrief)
             : await analyzeImagesNative(state.nativeVisionClip, images, prompt)).trim();
         }
@@ -1168,7 +1217,9 @@ export function createPromptEditOverlay(
           .join("\n");
       }
       progressStage("Writing brief…");
-      const text = (briefLlama
+      const text = (briefCustom
+        ? await writeBriefCustom(systemPrompt, buildUserPrompt(base, imageSummary), { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
+        : briefLlama
         ? await writeBriefLlama(buildUserPrompt(base, imageSummary), state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : briefOR
         ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary), state.h3OrModelBrief)
@@ -1198,7 +1249,7 @@ export function createPromptEditOverlay(
     if (busy) return;
     const backends = briefBackendCheck();
     if (!backends) return;
-    const { briefOR, briefLlama } = backends;
+    const { briefOR, briefLlama, briefCustom } = backends;
     const current = (editor.value || "").trim();
     if (!current) { ctx.showPopup("Nothing to refine — write a prompt first (or use Prompt Write).", true); return; }
     const instruction = await promptTextareaDialog("Revise the current prompt how?", {
@@ -1216,7 +1267,9 @@ export function createPromptEditOverlay(
     try {
       progressStage("Refining brief…");
       const userPrompt = buildRefineUserPrompt(current, instruction);
-      const text = (briefLlama
+      const text = (briefCustom
+        ? await writeBriefCustom(systemPrompt, userPrompt, { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
+        : briefLlama
         ? await writeBriefLlama(userPrompt, state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : briefOR
         ? await writeBriefOpenRouter(systemPrompt, userPrompt, state.h3OrModelBrief)

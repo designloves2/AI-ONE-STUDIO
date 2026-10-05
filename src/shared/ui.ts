@@ -373,6 +373,7 @@ export function promptTextareaDialog(message: string, opts: { defaultValue?: str
     const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(420px, 92vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "10px" } });
     box.appendChild(el("div", { text: message, style: { color: C.text, fontSize: "13px", lineHeight: "1.5", whiteSpace: "pre-wrap" } }));
     const input = el("textarea", { value: opts.defaultValue || "", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "13px", fontFamily: "inherit", outline: "none", minHeight: "90px", resize: "vertical", lineHeight: "1.5" } }) as HTMLTextAreaElement;
+    input.value = opts.defaultValue || ""; // el() sets attributes, which a textarea ignores once created
     box.appendChild(input);
     if (opts.tags?.length) {
       const tagRow = el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } });

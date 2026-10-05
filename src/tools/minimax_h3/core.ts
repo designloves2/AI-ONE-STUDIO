@@ -72,6 +72,7 @@ export interface MinimaxState {
   pddLoraStrength: number;
   upscaleModel: string;
   targetLength: string;
+  refineIncludeImages: boolean;
   audioLock: boolean;
   lockAudioFile: string;
   audioLockMode: string;
@@ -1609,6 +1610,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     turboLoraLowVram: saved.turboLoraLowVram ?? false,
     upscaleModel: saved.upscaleModel || "",
     targetLength: saved.targetLength || "",
+    refineIncludeImages: !!saved.refineIncludeImages,
     audioLock: saved.audioLock ?? false,
     lockAudioFile: saved.lockAudioFile || "",
     audioLockMode: saved.audioLockMode || "lock",

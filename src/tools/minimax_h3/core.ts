@@ -266,6 +266,9 @@ export interface MinimaxState {
   h3CustomVisionBase: string;
   h3CustomVisionModel: string;
   h3CustomVisionCtx: number;
+  ltxCustomBase: string;   // LTX Upscale's own Connect Custom endpoint
+  ltxCustomModel: string;
+  ltxCustomCtx: number;
   h3OrModelBrief: string;   // OpenRouter brief model (writes the prompt — text only)
   h3OrModelVision: string;  // OpenRouter vision model (reads the reference images — multimodal)
   // Llama GGUF (local llama.cpp, via TJ_NODE's prompt_enhancer.py/image_to_prompt.py — the
@@ -1766,6 +1769,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     h3CustomVisionBase: saved.h3CustomVisionBase || "",
     h3CustomVisionModel: saved.h3CustomVisionModel || "",
     h3CustomVisionCtx: saved.h3CustomVisionCtx ?? 0,
+    ltxCustomBase: saved.ltxCustomBase || "",
+    ltxCustomModel: saved.ltxCustomModel || "",
+    ltxCustomCtx: saved.ltxCustomCtx ?? 0,
     h3BriefBackend: saved.h3BriefBackend || (saved as any).h3LlmBackend || "native",
     h3VisionBackend: saved.h3VisionBackend || (saved as any).h3LlmBackend || "native",
     h3OrModelBrief: saved.h3OrModelBrief || (saved as any).h3OrModel || "",

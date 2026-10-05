@@ -114,6 +114,7 @@ function commonMeta(state: any, r: any) {
     llmBackend: state.llmBackend || "local",
     llmModel: (state.llmBackend === "openrouter" ? state.llmOrModel
              : state.llmBackend === "comfy"      ? state.llmClip
+             : state.llmBackend === "custom"     ? state.llmCustomModel
              : state.llmModel) || "",
     styleFamily: state.styleFamily || "", title: state.title || "",
   };

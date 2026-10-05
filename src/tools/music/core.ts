@@ -84,6 +84,7 @@ export const LLM_BACKENDS = [
   { key: "local",      label: "Local (TJ_NODE GGUF)" },
   { key: "openrouter", label: "OpenRouter" },
   { key: "comfy",      label: "ComfyUI TextGenerate" },
+  { key: "custom",     label: "Connect Custom" },
 ];
 export const LLM_CLIP_TYPES = ["qwen_image", "lumina2", "ltxv", "pixart", "hidream", "wan", "hunyuan_image", "flux2", "sd3", "stable_diffusion"];
 
@@ -203,6 +204,9 @@ export function defaultState(saved: any): any {
     llmOrModel:   saved.llmOrModel   || "",
     llmClip:      saved.llmClip      || "",
     llmClipType:  saved.llmClipType  || "qwen_image",
+    llmCustomBase:  saved.llmCustomBase  || "",   // custom backend: OpenAI-style endpoint (key stays in server memory)
+    llmCustomModel: saved.llmCustomModel || "",
+    llmCustomCtx:   saved.llmCustomCtx   ?? 0,
 
     engineStash: (saved.engineStash && typeof saved.engineStash === "object") ? saved.engineStash : {},
 

@@ -168,7 +168,7 @@ export function createMusicGalleryMount(): GalleryMount {
     if (meta?.seconds) line("Length", fmtDur(meta.seconds));
     if (meta?.seed != null) line("Seed", String(meta.seed));
     if (meta?.llmBackend) {
-      const bk = ({ local: "Local GGUF", openrouter: "OpenRouter", comfy: "ComfyUI TextGenerate" } as any)[meta.llmBackend] || meta.llmBackend;
+      const bk = ({ local: "Local GGUF", openrouter: "OpenRouter", comfy: "ComfyUI TextGenerate", custom: "Connect Custom" } as any)[meta.llmBackend] || meta.llmBackend;
       line("LLM", meta.llmModel ? `${bk} · ${meta.llmModel}` : bk);
     }
     topRow.append(big, metaCol);

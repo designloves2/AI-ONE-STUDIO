@@ -8,7 +8,7 @@
 // src/tools/minimax_h3/promptEdit.ts, this repo's other full-screen popup.
 import { el } from "./ui";
 import { C, BRAND } from "../identity";
-import { createLlmBackendGroup, type LlmBackendState } from "./llmBackendPanel";
+import { createLlmBackendGroup, backendName, type LlmBackendState } from "./llmBackendPanel";
 import { sameOriginSrc } from "./sameOriginImage";
 
 // Per-prompt options (vision task / model format / aesthetic / extra instructions / seed) live
@@ -283,10 +283,10 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const footerEnhance = el("span", {});
   const footerVision = el("span", {});
   footerBar.append(footerEnhance, footerVision);
-  function backendLabel(b?: string) { return b === "openrouter" ? "OpenRouter" : b === "comfy" ? "ComfyUI Native" : "Local GGUF"; }
+  const backendLabel = backendName;
   function refreshFooter() {
-    footerEnhance.textContent = "Enhance: " + backendLabel(llm.backend_text) + (llm.backend_text === "openrouter" ? " · " + (llm.or_model || "(model not set)") : "");
-    footerVision.textContent = "Image→Prompt: " + backendLabel(llm.backend_vision) + (llm.backend_vision === "openrouter" ? " · " + (llm.or_model_vision || "(model not set)") : "");
+    footerEnhance.textContent = "Enhance: " + backendLabel(llm.backend_text) + (llm.backend_text === "openrouter" ? " · " + (llm.or_model || "(model not set)") : llm.backend_text === "custom" ? " · " + (llm.custom_model_text || "(model not set)") : "");
+    footerVision.textContent = "Image→Prompt: " + backendLabel(llm.backend_vision) + (llm.backend_vision === "openrouter" ? " · " + (llm.or_model_vision || "(model not set)") : llm.backend_vision === "custom" ? " · " + (llm.custom_model_vision || "(model not set)") : "");
   }
 
   const debugToggleBtn = el("button", {
@@ -367,6 +367,9 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           image_b64: imageB64,
           backend: llm.backend_vision || "local",
           or_model: llm.or_model_vision || llm.or_model,
+          custom_base: llm.custom_base_vision,
+          custom_model: llm.custom_model_vision,
+          custom_ctx: llm.custom_ctx_vision,
           gguf_model: llm.gguf_model,
           mmproj_file: llm.mmproj_file,
           text_encoder_name: llm.text_encoder_name,
@@ -406,6 +409,9 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           prompt,
           backend: llm.backend_text || "local",
           or_model: llm.or_model,
+          custom_base: llm.custom_base_text,
+          custom_model: llm.custom_model_text,
+          custom_ctx: llm.custom_ctx_text,
           gguf_model: llm.gguf_model,
           text_encoder_name: llm.text_encoder_name,
           clip_loader_type: llm.clip_loader_type,

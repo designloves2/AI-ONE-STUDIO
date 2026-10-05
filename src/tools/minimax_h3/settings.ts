@@ -5,6 +5,7 @@ import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, numberField, panel, row, searchableSelect } from "../../shared/ui";
 import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
+import { customLLMControls } from "../../shared/customLlmControls";
 import { C, BRAND } from "../../identity";
 import { buildDepFix } from "./depBanner";
 import {
@@ -16,7 +17,6 @@ import {
   clearTempFiles,
   listVideos,
   saveConfig,
-  connectCustom,
   type ModelLists,
   type NodeAvailability,
 } from "./api";
@@ -296,69 +296,24 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
   // "Connect Custom" fields for one role: any OpenAI-style Chat Completions server.
   // URL / model id / context are kept in state (and the config); the API key is not — it is
   // sent once on Connect & test, held in the server's memory, and the field is cleared.
-  function customEndpointControls(role: "brief" | "vision", changed: () => void) {
+  function customEndpointControls(role: "brief" | "vision" | "ltx", changed: () => void) {
     const K = role === "vision"
       ? { base: "h3CustomVisionBase", model: "h3CustomVisionModel", ctx: "h3CustomVisionCtx" } as const
+      : role === "ltx"
+      ? { base: "ltxCustomBase", model: "ltxCustomModel", ctx: "ltxCustomCtx" } as const
       : { base: "h3CustomBriefBase", model: "h3CustomBriefModel", ctx: "h3CustomBriefCtx" } as const;
-    const field = (type: string, value: string | number, placeholder: string, onChange: (v: string) => void) => {
-      const i = el("input", { type, placeholder, autocomplete: "off", style: {
-        width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text,
-        border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit",
-      } }) as HTMLInputElement;
-      i.value = String(value);
-      i.addEventListener("change", () => onChange(i.value));
-      return i;
-    };
-    const note = (text: string) => el("div", { text, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
-
-    const baseIn = field("text", state[K.base] || "", "http://localhost:3000/v1",
-      (v) => { state[K.base] = v.trim(); changed(); });
-    const keyIn = field("password", "", "Paste key for this session", () => {});
-    const modelIn = field("text", state[K.model] || "", "gemini-3.7-flash",
-      (v) => { state[K.model] = v.trim(); changed(); });
-    const models = el("datalist", { id: `h3-custom-models-${role}` });
-    modelIn.setAttribute("list", models.id);
-    const ctxIn = field("number", state[K.ctx] || "", "32768",
-      (v) => { state[K.ctx] = Math.max(0, Math.round(Number(v)) || 0); changed(); });
-    const status = el("div", { style: { fontSize: "11px", lineHeight: "1.5", color: C.muted, whiteSpace: "pre-wrap", overflowWrap: "anywhere" } });
-
-    const connect = button("Connect & test", async () => {
-      state[K.base] = baseIn.value.trim();
-      state[K.model] = modelIn.value.trim();
-      state[K.ctx] = Math.max(0, Math.round(Number(ctxIn.value)) || 0);
-      changed();
-      status.style.color = C.muted; status.textContent = "Connecting…";
-      connect.disabled = true;
-      try {
-        const d = await connectCustom(role, { baseUrl: state[K.base], apiKey: keyIn.value, model: state[K.model] });
-        if (!d.ok) { status.style.color = C.err; status.textContent = `✗ ${d.error || "connection failed"}`; return; }
-        if (keyIn.value) { keyIn.value = ""; keyIn.placeholder = "✓ key held in server memory (this session)"; }
-        clear(models);
-        (d.models || []).forEach((m: string) => models.appendChild(el("option", { value: m })));
-        let msg = `✓ Connected in ${d.ms} ms` + (d.models?.length ? ` · ${d.models.length} models listed` : "") + (d.note ? ` · ${d.note}` : "");
-        if (!state[K.model] && d.models?.length) {
-          state[K.model] = d.models[0]; modelIn.value = d.models[0]; changed();
-          msg += `\nModel ID was empty — set to the first listed: ${d.models[0]}`;
-        } else if (state[K.model] && d.modelFound === false) {
-          status.style.color = C.warn; status.textContent = `${msg}\n⚠ "${state[K.model]}" is not in the endpoint's model list.`;
-          return;
-        }
-        status.style.color = C.ok; status.textContent = msg;
-      } catch (e: any) {
-        status.style.color = C.err; status.textContent = `✗ ${e?.message || e}`;
-      } finally { connect.disabled = false; }
-    }, "primary");
-
-    return col([
-      note("One shared Chat Completions backend."),
-      col([label("API base URL"), baseIn,
-        note("Public endpoints require HTTPS; loopback and private LAN addresses may use HTTP.")]),
-      col([label("API key (optional)"), keyIn,
-        note("The key is sent once to the local H3 backend, kept only in memory, and never saved in localStorage.")]),
-      col([label("Model ID (optional before connect)"), modelIn, models]),
-      col([label("Known context (optional)"), ctxIn]),
-      connect, status,
-    ]);
+    return customLLMControls({
+      role,
+      values: { base: state[K.base], model: state[K.model], ctx: state[K.ctx] },
+      onChange: (p) => {
+        if ("base" in p) state[K.base] = p.base!;
+        if ("model" in p) state[K.model] = p.model!;
+        if ("ctx" in p) state[K.ctx] = p.ctx!;
+        changed();
+      },
+      theme: { bg: C.bg2, text: C.text, border: C.border, muted: C.muted, ok: C.ok, warn: C.warn, err: C.err, brand: BRAND },
+      noteKeyWhere: "the local H3 backend",
+    });
   }
 
   // h3Only renders just the Brief and Vision rows (what the Prompt Edit popup needs).
@@ -421,9 +376,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       llamaGet?: () => string, llamaSet?: (v: string) => void,
       llamaMmprojGet?: (() => string) | null, llamaMmprojSet?: ((v: string) => void) | null,
       extraRows?: HTMLElement[],
-      // "brief" | "vision" for H3's two rows — Connect Custom is offered there only; the LTX
-      // row has no route for it.
-      customRole?: "brief" | "vision",
+      // server-side key slot for Connect Custom: "brief" / "vision" for H3's two rows, "ltx" for LTX Upscale.
+      customRole?: "brief" | "vision" | "ltx",
     ) => {
       const beSel = el("select", { style: selStyle }) as HTMLSelectElement;
       [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"], ["llamagguf", "Llama GGUF (local llama.cpp)"],
@@ -515,7 +469,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         [
           col([label("✨ instruction (system prompt)"), ltxInstr]),
           el("div", { text: "The ✨ button in the LTX Upscale prompt area feeds this + the source clip's first frame to the model above. Saved with Save All.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.55" } }),
-        ])
+        ], "ltx")
     );
     }
 
@@ -836,6 +790,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       h3_custom_vision_base: state.h3CustomVisionBase || "",
       h3_custom_vision_model: state.h3CustomVisionModel || "",
       h3_custom_vision_ctx: state.h3CustomVisionCtx ?? 0,
+      ltx_custom_base: state.ltxCustomBase || "",
+      ltx_custom_model: state.ltxCustomModel || "",
+      ltx_custom_ctx: state.ltxCustomCtx ?? 0,
       h3_brief_backend: state.h3BriefBackend || "native",
       h3_vision_backend: state.h3VisionBackend || "native",
       h3_or_model_brief: state.h3OrModelBrief || "",
@@ -970,6 +927,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.h3_custom_vision_base) state.h3CustomVisionBase = cfg.h3_custom_vision_base;
       if (cfg.h3_custom_vision_model) state.h3CustomVisionModel = cfg.h3_custom_vision_model;
       if (cfg.h3_custom_vision_ctx != null) state.h3CustomVisionCtx = cfg.h3_custom_vision_ctx;
+      if (cfg.ltx_custom_base) state.ltxCustomBase = cfg.ltx_custom_base;
+      if (cfg.ltx_custom_model) state.ltxCustomModel = cfg.ltx_custom_model;
+      if (cfg.ltx_custom_ctx != null) state.ltxCustomCtx = cfg.ltx_custom_ctx;
       // per-role backend: new keys, fall back to the pre-split h3_llm_backend (node migrates too)
       if (cfg.h3_brief_backend || cfg.h3_llm_backend) state.h3BriefBackend = (cfg.h3_brief_backend || cfg.h3_llm_backend)!;
       if (cfg.h3_vision_backend || cfg.h3_llm_backend) state.h3VisionBackend = (cfg.h3_vision_backend || cfg.h3_llm_backend)!;
@@ -1012,6 +972,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       h3_custom_vision_base: state.h3CustomVisionBase || "",
       h3_custom_vision_model: state.h3CustomVisionModel || "",
       h3_custom_vision_ctx: state.h3CustomVisionCtx ?? 0,
+      ltx_custom_base: state.ltxCustomBase || "",
+      ltx_custom_model: state.ltxCustomModel || "",
+      ltx_custom_ctx: state.ltxCustomCtx ?? 0,
       h3_brief_backend: state.h3BriefBackend || "native",
       h3_vision_backend: state.h3VisionBackend || "native",
       h3_or_model_brief: state.h3OrModelBrief || "",

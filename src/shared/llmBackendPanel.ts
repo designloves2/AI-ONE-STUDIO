@@ -7,6 +7,11 @@
 import { getComfyBase } from "./comfyBase";
 import { C } from "../identity";
 import { searchableSelect } from "./ui";
+import { customLLMControls } from "./customLlmControls";
+
+const CUSTOM_THEME = { bg: "#1a1a1a", text: "#ddd", border: "#444", muted: "#888", ok: "#7eff7e", warn: "#f0b429", err: "#ff6b6b", brand: "#7612DA" };
+/** Display name of a backend value — also used by the prompt popup's footer / summary. */
+export const backendName = (b?: string) => b === "openrouter" ? "OpenRouter" : b === "comfy" ? "ComfyUI Native" : b === "custom" ? "Connect Custom" : "Local GGUF";
 
 // credentials: "include" — external access is behind Cloudflare Access (see comfyBase.ts).
 const fetchApi = (path: string, opts?: RequestInit) => fetch(`${getComfyBase()}${path}`, { ...opts, credentials: "include" });
@@ -100,6 +105,14 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
   state.backend_vision = state.backend_vision || legacy;
   state.or_model = state.or_model || "";
   state.or_model_vision = state.or_model_vision || "";
+  // "Connect Custom" endpoints, one per role (the API key is never kept here — it lives in the
+  // server's memory).
+  state.custom_base_text = state.custom_base_text || "";
+  state.custom_model_text = state.custom_model_text || "";
+  state.custom_ctx_text = state.custom_ctx_text ?? 0;
+  state.custom_base_vision = state.custom_base_vision || "";
+  state.custom_model_vision = state.custom_model_vision || "";
+  state.custom_ctx_vision = state.custom_ctx_vision ?? 0;
   const blocks: Block[] = [];
   const syncAll = () => blocks.forEach((b) => b.syncFromState());
   const fillAll = (m: string[], k: string) => blocks.forEach((b) => b.fill(m, k));
@@ -128,10 +141,10 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
     const wrap = document.createElement("div");
     Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "6px", marginBottom: "2px" });
 
-    const BACKEND_LABELS = ["Local GGUF", "ComfyUI Native", "OpenRouter"];
-    const backendLabel = () => getBackend() === "openrouter" ? "OpenRouter" : getBackend() === "comfy" ? "ComfyUI Native" : "Local GGUF";
+    const BACKEND_LABELS = ["Local GGUF", "ComfyUI Native", "OpenRouter", "Connect Custom"];
+    const backendLabel = () => backendName(getBackend());
     const beSel = sel(BACKEND_LABELS, backendLabel(),
-      (v) => { setBackend(v === "OpenRouter" ? "openrouter" : v === "ComfyUI Native" ? "comfy" : "local"); save(); syncAll(); });
+      (v) => { setBackend(v === "OpenRouter" ? "openrouter" : v === "ComfyUI Native" ? "comfy" : v === "Connect Custom" ? "custom" : "local"); save(); syncAll(); });
     wrap.appendChild(lblRow(role === "vision" ? "Backend — vision (reads images)" : "Backend — text (writes prompt)", beSel));
 
     // ComfyUI Native — reuses whatever CLIP-type text-encoder checkpoint is already installed
@@ -167,6 +180,25 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
     orGroup.appendChild(lblRow("OpenRouter API key", keyInp));
     wrap.appendChild(orGroup);
 
+    // Connect Custom — any OpenAI-style Chat Completions server, its own URL / model / key for
+    // this role (Prompt Enhance and Image → Prompt Write do not share one).
+    const ck = role === "vision"
+      ? { base: "custom_base_vision", model: "custom_model_vision", ctx: "custom_ctx_vision" }
+      : { base: "custom_base_text", model: "custom_model_text", ctx: "custom_ctx_text" };
+    const customGroup = customLLMControls({
+      role: role === "vision" ? "img_i2p" : "img_enhance",
+      values: { base: state[ck.base], model: state[ck.model], ctx: state[ck.ctx] },
+      onChange: (p) => {
+        if ("base" in p) state[ck.base] = p.base;
+        if ("model" in p) state[ck.model] = p.model;
+        if ("ctx" in p) state[ck.ctx] = p.ctx;
+        save();
+      },
+      theme: CUSTOM_THEME,
+      noteKeyWhere: "the local ONE STUDIO backend",
+    });
+    wrap.appendChild(customGroup);
+
     const block: Block = {
       el: wrap,
       localOnly: [],
@@ -179,8 +211,10 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
         const or = b === "openrouter";
         const comfy = b === "comfy";
         orGroup.style.display = or ? "flex" : "none";
+        const custom = b === "custom";
         comfyGroup.style.display = comfy ? "flex" : "none";
-        block.localOnly.forEach((r) => (r.style.display = or || comfy ? "none" : "flex"));
+        customGroup.style.display = custom ? "flex" : "none";
+        block.localOnly.forEach((r) => (r.style.display = or || comfy || custom ? "none" : "flex"));
       },
       fill(orModels, keyHint) {
         if (orModels && orModels.length) {

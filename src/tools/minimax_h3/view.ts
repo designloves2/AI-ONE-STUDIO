@@ -105,6 +105,8 @@ import {
   writeBriefOpenRouter,
   writeBriefNative,
   writeBriefLlama,
+  analyzeImagesCustom,
+  writeBriefCustom,
   scanFaceRefine,
   listPromptSets,
   getPromptSet,
@@ -1357,14 +1359,18 @@ export function renderMinimaxH3(container: HTMLElement) {
     const backend = state.ltxVisionBackend || "native";
     if (backend === "openrouter") return `OpenRouter · ${(state.ltxVisionOrModel || "(model not set)").split("/").pop()}`;
     if (backend === "llamagguf") return `Llama GGUF · ${(state.ltxLlamaModel || "(model not set)").split(/[\\/]/).pop()}`;
+    if (backend === "custom") return `Custom · ${state.ltxCustomModel || "(model not set)"}`;
     return `native CLIP · ${(state.ltxVisionClip || "(clip not set)").split(/[\\/]/).pop()}`;
   }
+  const ltxCustomEp = () => ({ baseUrl: state.ltxCustomBase, model: state.ltxCustomModel, context: state.ltxCustomCtx, role: "ltx" });
+  const ltxCustomMissing = () => !(state.ltxCustomBase && state.ltxCustomModel);
   async function ltxWritePrompt() {
     if (_ltxBusy) return;
     if (!state.ltxSource) { showPopup("Pick a source clip first.", true); return; }
     const backend = state.ltxVisionBackend || "native";
     if (backend === "openrouter" && !(state.ltxVisionOrModel || "").trim()) { showPopup("Set the OpenRouter vision model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
     if (backend === "llamagguf" && !(state.ltxLlamaModel || "").trim()) { showPopup("Set the Llama GGUF model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend === "custom" && ltxCustomMissing()) { showPopup("Connect Custom (LTX Upscale) needs an API base URL and a model ID - set them in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
     if (backend === "native" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native vision CLIP in ⚙ Settings → LLM Setting → LTX Upscale (or switch that backend to OpenRouter/Llama GGUF).", true); return; }
     _ltxBusy = true; renderPrompts();
     try {
@@ -1372,6 +1378,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       const instr = (state.ltxLlmPrompt || "").trim() || "Describe this video frame as one text-to-image prompt matching exactly what is shown.";
       const text = backend === "openrouter"
         ? await analyzeImagesOpenRouter([frame], instr, state.ltxVisionOrModel)
+        : backend === "custom"
+        ? await analyzeImagesCustom([frame], instr, ltxCustomEp())
         : backend === "llamagguf"
         ? await analyzeImageLlama(await imageToB64(frame), state.ltxLlamaModel, state.ltxLlamaMmproj, instr, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : await analyzeImagesNative(state.ltxVisionClip, [frame], instr, "ltxv");
@@ -1389,12 +1397,15 @@ export function renderMinimaxH3(container: HTMLElement) {
     const backend = state.ltxVisionBackend || "native";
     if (backend === "openrouter" && !(state.ltxVisionOrModel || "").trim()) { showPopup("Set the OpenRouter model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
     if (backend === "llamagguf" && !(state.ltxLlamaModel || "").trim()) { showPopup("Set the Llama GGUF model in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
+    if (backend === "custom" && ltxCustomMissing()) { showPopup("Connect Custom (LTX Upscale) needs an API base URL and a model ID - set them in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
     if (backend === "native" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native LLM CLIP in ⚙ Settings → LLM Setting → LTX Upscale.", true); return; }
     _ltxBusy = true; renderPrompts();
     try {
       const sys = (state.ltxConvertPrompt || "").trim() || "Rewrite this MiniMax-H3 brief as one LTX-2.5 prompt paragraph.";
       const text = backend === "openrouter"
         ? await writeBriefOpenRouter(sys, src, state.ltxVisionOrModel)
+        : backend === "custom"
+        ? await writeBriefCustom(sys, src, ltxCustomEp())
         : backend === "llamagguf"
         ? await writeBriefLlama(`${sys}\n\n${src}`, state.ltxLlamaModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : await writeBriefNative(state.ltxVisionClip, sys, src, "ltxv");
@@ -1568,16 +1579,22 @@ export function renderMinimaxH3(container: HTMLElement) {
     const llmLabel = el("div", { text: `LLM: ${ltxVisionLabel()}`, style: { fontSize: "10px", color: C.muted, alignSelf: "center" } });
     const syncLlmCfg = () => comfyApi.fetchApi("/minimax_h3_one/config", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ltx_vision_backend: state.ltxVisionBackend || "native", ltx_vision_clip: state.ltxVisionClip || "", ltx_vision_or_model: state.ltxVisionOrModel || "" }),
+      body: JSON.stringify({ ltx_vision_backend: state.ltxVisionBackend || "native", ltx_vision_clip: state.ltxVisionClip || "", ltx_vision_or_model: state.ltxVisionOrModel || "", ltx_custom_base: state.ltxCustomBase || "", ltx_custom_model: state.ltxCustomModel || "", ltx_custom_ctx: state.ltxCustomCtx ?? 0 }),
     }).catch(() => {});
     function renderLlmPicker() {
       clear(llmWrap);
       const backend = state.ltxVisionBackend || "native";
-      const bSel = select([{ value: "native", label: "Native CLIP (local)" }, { value: "openrouter", label: "OpenRouter (cloud)" }], backend, (v) => {
+      const bSel = select([{ value: "native", label: "Native CLIP (local)" }, { value: "openrouter", label: "OpenRouter (cloud)" }, { value: "custom", label: "Connect Custom" }], backend, (v) => {
         state.ltxVisionBackend = v; persist(); syncLlmCfg(); renderLlmPicker(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`;
       });
       let mSel: HTMLElement;
-      if (backend === "openrouter") {
+      if (backend === "custom") {
+        // The URL / key / context live in ⚙ Settings → LLM Setting → LTX Upscale; only the model id is quick to change here.
+        const mi = el("input", { type: "text", value: state.ltxCustomModel || "", placeholder: "model id (URL + key: Settings → LLM Setting)",
+          style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+        mi.addEventListener("change", () => { state.ltxCustomModel = mi.value.trim(); persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; });
+        mSel = mi;
+      } else if (backend === "openrouter") {
         const s = el("select", { style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLSelectElement;
         s.appendChild(el("option", { value: state.ltxVisionOrModel || "", text: state.ltxVisionOrModel || "loading models…" }));
         s.addEventListener("change", () => { state.ltxVisionOrModel = s.value; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; });
@@ -1592,7 +1609,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         const te = ["none", ...((ctx.availableModels?.text_encoders_all || ctx.availableModels?.text_encoders || []).filter((x: string) => x !== "none"))];
         mSel = select(te.map((x: string) => ({ value: x, label: x })), state.ltxVisionClip || "none", (v) => { state.ltxVisionClip = v === "none" ? "" : v; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; });
       }
-      llmWrap.append(row([col([label("LLM backend"), bSel]), col([label(backend === "openrouter" ? "OpenRouter model" : "Vision CLIP"), mSel])]));
+      llmWrap.append(row([col([label("LLM backend"), bSel]), col([label(backend === "openrouter" ? "OpenRouter model" : backend === "custom" ? "Model ID" : "Vision CLIP"), mSel])]));
     }
 
     const bigTA = el("textarea", { style: { width: "100%", minHeight: "200px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "10px", fontSize: "13px", fontFamily: "inherit", outline: "none", resize: "vertical" } }) as HTMLTextAreaElement;

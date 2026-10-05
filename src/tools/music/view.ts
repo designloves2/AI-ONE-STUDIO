@@ -6,6 +6,7 @@
 //
 // LLM: local / openrouter 는 POST /music_one/llm/run (서버측), comfy 는 원본대로
 // TextGenerate 그래프를 큐에 넣어 처리 — 웹은 API 키를 들지 않는다.
+import { fetchAllPages } from "../../shared/pagedList";
 import {
   C, BRAND, LEFT_W, PLAYER_H, PAD, API, SUBFOLDER, ensureMusicStyles,
   el, clear, loadState, saveState, defaultState, randomSeed,
@@ -435,8 +436,10 @@ export function renderMusic(container: HTMLElement) {
   async function loadPlaylist() {
     try {
       const playingFn = curIdx >= 0 ? tracks[curIdx]?.filename : null;
-      const d = await jget(`/playlist?limit=200&sort=${sortSel.value}${favOnly ? "&favonly=1" : ""}&subfolder=${encodeURIComponent(SUB())}`);
-      tracks = d.tracks || [];
+      tracks = await fetchAllPages<any>(async (offset, limit) => {
+        const d = await jget(`/playlist?offset=${offset}&limit=${limit}&sort=${sortSel.value}${favOnly ? "&favonly=1" : ""}&subfolder=${encodeURIComponent(SUB())}`);
+        return { rows: d.tracks || [], total: d.total ?? 0 };
+      });
       curIdx = playingFn ? tracks.findIndex((t) => t.filename === playingFn) : -1;
       renderPlaylist();
     } catch (e) { console.warn("[MMM] playlist", e); }

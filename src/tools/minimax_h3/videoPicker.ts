@@ -7,7 +7,7 @@
 // can read from.
 import { el } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
-import { copyOutputToInput, getClipLastFrame, listVideos } from "./api";
+import { copyOutputToInput, getClipLastFrame, listVideosAll } from "./api";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
 
 export interface PickerClip {
@@ -56,7 +56,7 @@ export function openVideoGalleryPicker(
   (async () => {
     let items: { filename: string; subfolder?: string }[] = [];
     try {
-      const d = await listVideos(undefined, { limit: 120 });
+      const d = await listVideosAll(undefined);
       items = d.videos || [];
     } catch (e: any) {
       status.textContent = `Could not read the gallery: ${e?.message || e}`;

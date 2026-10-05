@@ -23,7 +23,7 @@ import {
   getModels,
   getSystemPrompt,
   getVideoInfo,
-  listVideos,
+  listVideosAll,
   revealOutputFolder,
   saveMeta,
   stitchClips,
@@ -1575,7 +1575,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   async function refresh() {
     countTag.textContent = "loading…";
     try {
-      const d = await listVideos(state.saveSubfolder || SUBFOLDER, { limit: 300 });
+      const d = await listVideosAll(state.saveSubfolder || SUBFOLDER);
       videos = d.videos || [];
     } catch {
       videos = [];

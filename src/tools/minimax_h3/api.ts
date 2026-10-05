@@ -1,4 +1,5 @@
 import { getComfyBase } from "../../shared/comfyBase";
+import { fetchAllPages } from "../../shared/pagedList";
 // api.ts — MiniMax H3의 백엔드 호출 (원본 web/minimax/api_minimax.js 이식).
 // 프롬프트 에디터의 LLM(Ollama) 기능은 ComfyUI가 서빙하는 `/minimax_h3_one/llm/*` 라우트를
 // 그대로 부르므로, 이 파일만으로도 ComfyUI가 CORS 허용 상태로 켜져 있으면 바로 동작한다
@@ -718,6 +719,24 @@ export async function listImages(subfolder?: string, opts: { offset?: number; li
   const r = await fetchApi(`${API}/images?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(subfolder || SUBFOLDER)}`);
   if (!r.ok) return { images: [] };
   return r.json();
+}
+
+/** Every clip in the folder — walks the 300-per-request pages so old clips are never cut off. */
+export async function listVideosAll(subfolder?: string): Promise<{ videos: GalleryVideo[] } & Record<string, any>> {
+  const videos = await fetchAllPages<GalleryVideo>(async (offset, limit) => {
+    const d = await listVideos(subfolder, { offset, limit });
+    return { rows: d.videos || [], total: d.total ?? 0 };
+  });
+  return { videos, total: videos.length };
+}
+
+/** Every image in the folder — same paging as listVideosAll. */
+export async function listImagesAll(subfolder?: string): Promise<{ images: GalleryImage[] } & Record<string, any>> {
+  const images = await fetchAllPages<GalleryImage>(async (offset, limit) => {
+    const d = await listImages(subfolder, { offset, limit });
+    return { rows: d.images || [], total: d.total ?? 0 };
+  });
+  return { images, total: images.length };
 }
 
 // Same /delete route the video gallery already uses — delete is filename+subfolder generic.

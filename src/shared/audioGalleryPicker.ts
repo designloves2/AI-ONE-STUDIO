@@ -5,6 +5,7 @@
 // lists the MusicMaker playlist (the one audio "gallery" this pack has) and, on pick, copies
 // the chosen track into ComfyUI's input/ via the caller tool's own copy_to_input route — then
 // hands back the unique input-folder filename.
+import { fetchAllPages } from "./pagedList";
 import { el, clear } from "./ui";
 import { getComfyBase } from "./comfyBase";
 import { playableAudioUrl } from "../tools/music/api";
@@ -138,8 +139,10 @@ export function openAudioGalleryPicker(onPick: (name: string) => void, copyApi =
     try {
       const cfg = await fetchApi("/music_one/config").then((r) => r.json()).catch(() => ({}));
       saveSub = (cfg.save_subfolder || "one_music").trim() || "one_music";
-      const d = await fetchApi(`/music_one/playlist?limit=300&sort=newest&subfolder=${encodeURIComponent(saveSub)}`).then((r) => r.json());
-      const tracks = d.tracks || [];
+      const tracks = await fetchAllPages<any>(async (offset, limit) => {
+        const d = await fetchApi(`/music_one/playlist?offset=${offset}&limit=${limit}&sort=newest&subfolder=${encodeURIComponent(saveSub)}`).then((r) => r.json());
+        return { rows: d.tracks || [], total: d.total ?? 0 };
+      });
       clear(list);
       tracks.forEach((t: any) => list.appendChild(rowFor(t)));
       statusEl.textContent = tracks.length

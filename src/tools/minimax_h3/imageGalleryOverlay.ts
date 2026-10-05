@@ -15,7 +15,7 @@ import { SUBFOLDER } from "./core";
 import { button, el, clear } from "../../shared/ui";
 import { createCacheButton, applyThumb } from "../../shared/thumbCache";
 import { C, BRAND } from "../../identity";
-import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
+import { listImagesAll, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
 import { queuePrompt } from "./comfyClient";
 import { buildImageUpscaleGraph } from "./graphBuilder";
 import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "../../shared/sensitiveMedia";
@@ -698,7 +698,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
 
   async function refresh() {
     try {
-      const d = await listImages(imgFolder(state), { limit: 300 });
+      const d = await listImagesAll(imgFolder(state));
       images = d.images || [];
     } catch (e: any) {
       images = [];

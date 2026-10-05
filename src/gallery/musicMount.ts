@@ -5,6 +5,7 @@
 // compose/generate/LLM. Row layout / `.mmm-*` classes match the tool's `trackRow`. Reads the
 // node's `/music_one/*` routes via the tool's `api.ts`; Reuse stashes the track meta and hops
 // to `#music`.
+import { fetchAllPages } from "../shared/pagedList";
 import type { GalleryMount } from "./mounts";
 import { navigateToTool } from "../shared/galleryNav";
 import { stashReuse } from "../shared/galleryHandoff";
@@ -264,8 +265,10 @@ export function createMusicGalleryMount(): GalleryMount {
   async function loadPlaylist() {
     try {
       const playingFn = curIdx >= 0 ? tracks[curIdx]?.filename : null;
-      const d = await jget(`/playlist?limit=300&sort=${sortSel.value}${favOnly ? "&favonly=1" : ""}&subfolder=${encodeURIComponent(SUB())}`);
-      tracks = d.tracks || [];
+      tracks = await fetchAllPages<any>(async (offset, limit) => {
+        const d = await jget(`/playlist?offset=${offset}&limit=${limit}&sort=${sortSel.value}${favOnly ? "&favonly=1" : ""}&subfolder=${encodeURIComponent(SUB())}`);
+        return { rows: d.tracks || [], total: d.total ?? 0 };
+      });
       curIdx = playingFn ? tracks.findIndex((t) => t.filename === playingFn) : -1;
       renderList();
     } catch (e) { console.warn("[music-gallery] playlist", e); }

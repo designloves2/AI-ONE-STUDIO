@@ -287,6 +287,14 @@ export function renderZImage(root: HTMLElement) {
   // Hermes agent job.json header button — zimage is in scope (krea2 + zimage only, node's
   // Krea2-era + 1af0942 commits).
   const agentJsonHdrBtn = purpleHdrBtn("⬇ job.json", () => downloadAgentJson());
+  const autoEnhanceChk = el("input", { type: "checkbox" }) as HTMLInputElement;
+  autoEnhanceChk.checked = !!state.autoEnhance;
+  autoEnhanceChk.addEventListener("change", () => { state.autoEnhance = autoEnhanceChk.checked; persist(); });
+  const autoEnhanceLbl = el("label", {
+    title: "Automatically run Prompt Enhance on the current prompt right before Generate, updating the PROMPT field in place.",
+    style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: C.muted, cursor: "pointer" },
+  }, [autoEnhanceChk, el("span", { text: "Auto Enhance" })]);
+  promptHdr.appendChild(autoEnhanceLbl);
   promptHdr.append(expandBtn, templatesBtn, agentJsonHdrBtn);
 
   const promptTA = el("textarea", { placeholder: "Prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } });
@@ -794,6 +802,21 @@ export function renderZImage(root: HTMLElement) {
     statusText.textContent = "Queuing…";
     progressInner.style.width = "0%";
     externalQueueBanner.style.display = "none";
+
+    if (state.autoEnhance && getModePrompt(state, state.mode).trim()) {
+      statusText.textContent = "Enhancing…";
+      try {
+        const enhanced = await promptExpandOv.enhance(getModePrompt(state, state.mode));
+        setModePrompt(state, state.mode, enhanced); refreshPromptBox(); persist();
+      } catch (e: any) {
+        statusText.textContent = `Auto Enhance failed: ${e.message || e}`;
+        samplingActive = false;
+        genBtn.style.display = "block";
+        stopBtn.style.display = "none";
+        return;
+      }
+      statusText.textContent = "Queuing…";
+    }
 
     try {
       const graph = buildGraph(state);

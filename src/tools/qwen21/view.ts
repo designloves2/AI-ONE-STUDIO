@@ -353,42 +353,6 @@ export function renderQwen21(root: HTMLElement) {
   wrap.appendChild(promptExpandOv.el);
   wrap.appendChild(templateOv.el);
 
-  // ── Auto Enhance — Generate 직전 현재 프롬프트에 Prompt Enhance를 조용히 1회 실행하고
-  // 결과로 PROMPT 필드를 갱신한 다음 그 프롬프트로 생성한다. 원본 llmApi.enhance()와 동일하게
-  // Settings/Prompt Edit과 같은 tj_studio_one_llm_settings 백엔드 설정을 그대로 사용한다.
-  async function runAutoEnhance(): Promise<void> {
-    const prompt = getModePrompt(state, state.mode).trim();
-    if (!prompt) return;
-    const r = await comfyApi.fetchApi("/tj_studio_one/llm/enhance", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt,
-        backend: llmState.backend_text || "local",
-        or_model: llmState.or_model,
-        custom_base: llmState.custom_base_text,
-        custom_model: llmState.custom_model_text,
-        custom_ctx: llmState.custom_ctx_text,
-        gguf_model: llmState.gguf_model,
-        text_encoder_name: llmState.text_encoder_name,
-        clip_loader_type: llmState.clip_loader_type,
-        n_gpu_layers: llmState.n_gpu_layers,
-        n_ctx: llmState.n_ctx,
-        max_tokens: llmState.max_tokens,
-        temperature: llmState.temperature,
-        seed: llmState.seed,
-        model_format: llmState.model_format,
-        aesthetic: llmState.aesthetic,
-        extra_instructions: llmState.extra_instructions,
-      }),
-    });
-    const d = await r.json();
-    if (!d.ok) throw new Error(d.error || "enhance failed");
-    setModePrompt(state, state.mode, d.result);
-    refreshPromptBox();
-    persist();
-  }
-
   // ── Seed + Generate/Stop ────────────────────────────────────────────────
   const seedInput = numberField(state.seed, (v) => { state.seed = v; persist(); }, 1);
   const seedModeDD = select(
@@ -1036,7 +1000,8 @@ export function renderQwen21(root: HTMLElement) {
     if (state.autoEnhance && getModePrompt(state, state.mode).trim()) {
       statusText.textContent = "Enhancing…";
       try {
-        await runAutoEnhance();
+        const enhanced = await promptExpandOv.enhance(getModePrompt(state, state.mode));
+        setModePrompt(state, state.mode, enhanced); refreshPromptBox(); persist();
       } catch (e: any) {
         statusText.textContent = `Auto Enhance failed: ${e.message || e}`;
         samplingActive = false;

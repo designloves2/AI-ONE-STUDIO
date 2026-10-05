@@ -108,6 +108,11 @@ export interface Krea2State {
   scheduler: string;
   seed: number;
   seedMode: string;
+  autoEnhance: boolean;
+  // Enhance — Enhanced KSampler (TJ)'s krea2 txtfusion amplification. Off by default (an opt-in amplifier, not a correctness fix).
+  enhanceEnabled: boolean;
+  enhanceStrength: number;
+  enhanceTextScale: number;
 
   loras: LoraEntry[];
 
@@ -214,6 +219,10 @@ export function defaultState(saved: Partial<Krea2State> = {}): Krea2State {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+    autoEnhance: saved.autoEnhance ?? false,
+    enhanceEnabled: saved.enhanceEnabled ?? false,
+    enhanceStrength: saved.enhanceStrength ?? 1.0,
+    enhanceTextScale: saved.enhanceTextScale ?? 1.0,
 
     loras: Array.isArray(saved.loras)
       ? saved.loras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 0.8, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))

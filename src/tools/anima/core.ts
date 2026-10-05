@@ -6,6 +6,7 @@ export { el, clear } from "../../shared/ui";
 
 export const SUBFOLDER = "anima-one-tj";
 export const API = "/anima_one";
+export const LORA_UI_CAP = 3;
 export const LS_KEY = "anima_one_state_v1";
 
 export type AnimaMode = "t2i" | "inpaint" | "anycontrol" | "depthcontrol";
@@ -77,6 +78,9 @@ export interface AnimaState {
   vae: string;
   turboLora: string;
 
+  // LoRA section (max 3, LoraLoaderModelOnly chain applied to every mode) — mirrors Krea2.
+  loras: { name: string; strength: number; triggerWord?: string; enabled: boolean }[];
+
   prompt: string;
   promptsByMode: Record<string, string>;
   negativePrompt: string;
@@ -92,6 +96,7 @@ export interface AnimaState {
   scheduler: string;
   seed: number;
   seedMode: string;
+  autoEnhance: boolean;
 
   // Inpainting
   inpaintImage: string;
@@ -142,6 +147,10 @@ export function defaultState(saved: Partial<AnimaState> = {}): AnimaState {
     vae: saved.vae || "",
     turboLora: saved.turboLora || "",
 
+    loras: Array.isArray(saved.loras)
+      ? saved.loras.map((l: any) => ({ name: l.name || "none", strength: l.strength ?? 0.8, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))
+      : [],
+
     prompt: saved.prompt || "",
     promptsByMode: (() => {
       if (saved.promptsByMode) return { ...saved.promptsByMode };
@@ -162,6 +171,7 @@ export function defaultState(saved: Partial<AnimaState> = {}): AnimaState {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+    autoEnhance: saved.autoEnhance ?? false,
 
     inpaintImage: saved.inpaintImage || "",
     inpaintMask: saved.inpaintMask || null,

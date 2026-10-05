@@ -115,6 +115,9 @@ import {
   type PromptSetData,
 } from "./api";
 import { comfyApi, queuePrompt } from "./comfyClient";
+import { createPromptEditPopup } from "../../shared/promptEditPopup";
+import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
+import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
@@ -1277,6 +1280,24 @@ export function renderMinimaxH3(container: HTMLElement) {
   const tplBtn = el("button", { type: "button", text: "📋 Templates", title: "Prompt templates and tag presets", style: { ...smallBtnStyle, display: "none", border: `1px solid ${BRAND}`, fontWeight: "600" } });
   tplBtn.addEventListener("click", () => imgTemplateOv?.show());
   let imgTemplateOv: ReturnType<typeof createTemplateOverlay> | null = null;
+  // Character Sheet's own pair, same slot as writeBtn/editBtn — occupies that spot instead of a separate row.
+  const sysPromptSaveBtn = el("button", { type: "button", text: "💾 System Prompt Save", title: "Save the current box contents as the system prompt", style: { ...smallBtnStyle, display: "none", border: `1px solid ${BRAND}`, fontWeight: "600", marginLeft: "auto" } });
+  sysPromptSaveBtn.addEventListener("click", () => {
+    const overwriting = !!state.charSheetSystemPrompt;
+    if (!window.confirm(overwriting
+      ? "This replaces the saved system prompt with the current box contents. Continue?"
+      : "Save the current box contents as the system prompt (used whenever Reset is pressed, or a new session opens Character Sheet for the first time)?")) return;
+    const ta = promptList.querySelector("textarea") as HTMLTextAreaElement | null;
+    state.charSheetSystemPrompt = ta ? ta.value : (state.charSheetPrompt || "");
+    persist();
+    saveConfig({ charsheet_system_prompt: state.charSheetSystemPrompt }).catch(() => {});
+    showPopup("System prompt saved.", false);
+  });
+  const sysPromptResetBtn = el("button", { type: "button", text: "↺ System Prompt Reset", title: "Discard edits and reload the saved system prompt", style: { ...smallBtnStyle, display: "none" } });
+  sysPromptResetBtn.addEventListener("click", () => {
+    state.charSheetPrompt = state.charSheetSystemPrompt || CHARSHEET_PROMPT_TEMPLATE;
+    persist(); renderPrompts();
+  });
   // The Image Generator's current prompt textarea (rebuilt by renderImageGenPrompt) — a template
   // applied from the overlay writes into it.
   let imgInlineTA: HTMLTextAreaElement | null = null;
@@ -1284,7 +1305,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   const addBtn = el("button", { type: "button", text: "+ Add", style: smallBtnStyle });
   const resetTAHBtn = el("button", { type: "button", text: "↕", title: "Reset text field size (not the prompt text itself) back to the default", style: smallBtnStyle });
   resetTAHBtn.addEventListener("click", () => resetPromptTAHeights());
-  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, splitBtn, addBtn, resetTAHBtn);
+  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
   // Sibling wrapper, not a child of promptList itself — promptList gets its innerHTML wiped
@@ -1338,7 +1359,11 @@ export function renderMinimaxH3(container: HTMLElement) {
   // original" is the whole job. Mirrors renderLtxPrompt/ltxWritePrompt/ltxConvertToLtx (node
   // 8427b5b + review rounds).
   let _ltxBusy = false;
-  async function grabFirstFrameFile(): Promise<string> {
+  async function grabSampleFrames(): Promise<string[]> {
+    // client-side: sample several frames spread across the clip (not just frame 0) and upload each
+    // as a PNG — one frame alone can't show action or camera movement, and the LTX-2.5 prompt format
+    // needs both. Roughly 1.5 frames/sec of clip, clamped so a short clip still gets a minimum spread
+    // and a long one doesn't balloon the vision call — LTX Upscale's own ceiling is ~8s/pass anyway.
     if (!state.ltxSource) throw new Error("No source clip.");
     const v = document.createElement("video");
     v.src = `${comfyApi.base}/view?filename=${encodeURIComponent(state.ltxSource)}&type=input`;
@@ -1348,13 +1373,23 @@ export function renderMinimaxH3(container: HTMLElement) {
       v.addEventListener("error", () => rej(new Error("Could not read the source video.")), { once: true });
       setTimeout(() => rej(new Error("Source video load timed out.")), 15000);
     });
-    try { v.currentTime = 0.05; await new Promise((r) => v.addEventListener("seeked", r, { once: true })); } catch {}
+    const dur = Math.max(0.1, v.duration || 0);
+    const count = Math.min(10, Math.max(3, Math.round(dur * 1.5)));
     const cv = document.createElement("canvas");
     cv.width = v.videoWidth || 1024; cv.height = v.videoHeight || 576;
-    cv.getContext("2d")!.drawImage(v, 0, 0, cv.width, cv.height);
-    const blob: Blob = await new Promise((r) => cv.toBlob((b) => r(b!), "image/png"));
-    return uploadMedia(new File([blob], `ltx_srcframe_${Date.now()}.png`, { type: "image/png" }));
+    const ctx2d = cv.getContext("2d")!;
+    const files: string[] = [];
+    for (let i = 0; i < count; i++) {
+      // spread across the clip, never quite touching either edge (encode padding / black frames)
+      const t = Math.min(dur - 0.05, Math.max(0.05, (dur * (i + 0.5)) / count));
+      try { v.currentTime = t; await new Promise((r) => v.addEventListener("seeked", r, { once: true })); } catch {}
+      ctx2d.drawImage(v, 0, 0, cv.width, cv.height);
+      const blob: Blob = await new Promise((r) => cv.toBlob((bl) => r(bl!), "image/png"));
+      files.push(await uploadMedia(new File([blob], `ltx_srcframe_${Date.now()}_${i}.png`, { type: "image/png" })));
+    }
+    return files;
   }
+  // The ✨ vision setup, its own — not shared with H3. Configured in Settings.
   function ltxVisionLabel() {
     const backend = state.ltxVisionBackend || "native";
     if (backend === "openrouter") return `OpenRouter · ${(state.ltxVisionOrModel || "(model not set)").split("/").pop()}`;
@@ -1374,16 +1409,24 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (backend === "native" && !(state.ltxVisionClip || "").trim()) { showPopup("Set the native vision CLIP in ⚙ Settings → LLM Setting → LTX Upscale (or switch that backend to OpenRouter/Llama GGUF).", true); return; }
     _ltxBusy = true; renderPrompts();
     try {
-      const frame = await grabFirstFrameFile();
+      const frames = await grabSampleFrames();
       const instr = (state.ltxLlmPrompt || "").trim() || "Describe this video frame as one text-to-image prompt matching exactly what is shown.";
       const text = backend === "openrouter"
-        ? await analyzeImagesOpenRouter([frame], instr, state.ltxVisionOrModel)
+        ? await analyzeImagesOpenRouter(frames, instr, state.ltxVisionOrModel)
         : backend === "custom"
-        ? await analyzeImagesCustom([frame], instr, ltxCustomEp())
+        ? await analyzeImagesCustom(frames, instr, ltxCustomEp())
         : backend === "llamagguf"
-        ? await analyzeImageLlama(await imageToB64(frame), state.ltxLlamaModel, state.ltxLlamaMmproj, instr, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
-        : await analyzeImagesNative(state.ltxVisionClip, [frame], instr, "ltxv");
-      if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup("Prompt written from the source clip's first frame.", false); }
+        ? await (async () => {
+            // The shared /tj_studio_one/llm/image_to_prompt route takes one image per call — same loop the
+            // Prompt Edit panel's own Llama GGUF vision path uses.
+            const lines: string[] = [];
+            for (const f of frames) {
+              lines.push(String(await analyzeImageLlama(await imageToB64(f), state.ltxLlamaModel, state.ltxLlamaMmproj, instr, state.h3LlamaNCtx, state.h3LlamaMaxTokens) || "").trim());
+            }
+            return lines.join("\n");
+          })()
+        : await analyzeImagesNative(state.ltxVisionClip, frames, instr, "ltxv");
+      if (text && text.trim()) { state.ltxPrompt = text.trim(); persist(); showPopup(`Prompt written from ${frames.length} frames sampled across the clip.`, false); }
       else showPopup("The vision model returned nothing — try again or write the prompt by hand.", true);
     } catch (e: any) { showPopup(e.message, true); }
     _ltxBusy = false; renderPrompts();
@@ -1787,7 +1830,13 @@ export function renderMinimaxH3(container: HTMLElement) {
       commonBtn.style.display = "none"; splitBtn.style.display = "none"; addBtn.style.display = "none";
       resetTAHBtn.style.display = "none"; refineBtn.style.display = "none"; writeBtn.style.display = "none"; tagBtnRow.style.display = "none";
     }
-    tplBtn.style.display = isImageGen && state.imageGenMode !== "charsheet" ? "" : "none";
+    const isCharSheetHdr = isImageGen && state.imageGenMode === "charsheet";
+    // editBtn is repurposed as t2i/ref2i's own "🔍 Prompt Edit" (see its click handler's imagegen branch) — only truly
+    // hidden for Character Sheet, which uses sysPromptSaveBtn/ResetBtn in this same slot instead.
+    editBtn.style.display = isCharSheetHdr ? "none" : "";
+    tplBtn.style.display = isImageGen && !isCharSheetHdr ? "" : "none";
+    sysPromptSaveBtn.style.display = isCharSheetHdr ? "" : "none";
+    sysPromptResetBtn.style.display = isCharSheetHdr ? "" : "none";
     promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : isImageGen ? "IMAGE PROMPT" : "PROMPTS";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
@@ -3341,14 +3390,14 @@ export function renderMinimaxH3(container: HTMLElement) {
     promptList.innerHTML = "";
     promptCount.textContent = "";
     const isCharSheet = state.imageGenMode === "charsheet";
+    if (isCharSheet && !state.charSheetPrompt) { state.charSheetPrompt = CHARSHEET_PROMPT_TEMPLATE; persist(); }
     const ta = el("textarea", {
-      placeholder: isCharSheet ? "Character Sheet uses its own system prompt — see the panel." : "Describe the image…",
+      placeholder: "Describe the image…",
       style: { minHeight: "120px", width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px", fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "vertical" },
     }) as HTMLTextAreaElement;
     ta.value = isCharSheet ? (state.charSheetPrompt || "") : (state.imgPrompt || "");
-    ta.disabled = isCharSheet;
-    imgInlineTA = ta;
-    if (isCharSheet) ta.style.opacity = "0.5";
+    // t2i/ref2i's "🔍 Prompt Edit" needs a live handle on whichever textarea is on screen — rebuilt every render.
+    imgInlineTA = isCharSheet ? null : ta;
     ta.addEventListener("input", () => {
       if (isCharSheet) state.charSheetPrompt = ta.value; else state.imgPrompt = ta.value;
       persist();
@@ -3450,13 +3499,22 @@ export function renderMinimaxH3(container: HTMLElement) {
     const turboOn = !!state.imgTurboOn;
     leftPanel.appendChild(panel([
       label("Turbo"),
-      checkboxRow("Turbo (adds one LoRA, fixed 3-step 2nd pass)", turboOn, (v) => { state.imgTurboOn = v; rememberImgConfig({ img_turbo_on: v }); renderLeft(); }),
-      turboOn ? row([col([label("Turbo LoRA"), searchableSelect(["none", ...availableLoras.filter((x) => x !== "none")], (state as any)[turboKey] || "none", (v) => {
+      checkboxRow("Use Turbo LoRA", turboOn, (v) => { state.imgTurboOn = v; rememberImgConfig({ img_turbo_on: v }); renderLeft(); }),
+      turboOn ? row([col([label(`Turbo LoRA (${subMode === "ref2i" ? "Reference" : "Text/First-Last"})`), searchableSelect(["none", ...availableLoras.filter((x) => x !== "none")], (state as any)[turboKey] || "none", (v) => {
         (state as any)[turboKey] = v;
         rememberImgConfig(subMode === "ref2i" ? { img_turbo_lora_ref2i: v } : { img_turbo_lora_t2i: v });
       }).el])]) : null,
       turboOn ? row([col([label("strength"), numberField(state.imgTurboLoraStrength ?? 1.0, (v) => { state.imgTurboLoraStrength = v; rememberImgConfig({ img_turbo_lora_strength: v }); }, 0.05)])]) : null,
-      !turboOn ? row([col([label("Steps"), numberField(state.imgSteps ?? 8, (v) => { state.imgSteps = Math.max(1, Math.round(v)); persist(); }, 1)])]) : null,
+      row([
+        col([label("Steps"), numberField(state.imgSteps ?? 20, (v) => { state.imgSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
+        col([label("2nd Pass Steps"), select(
+          [3, 4, 5].map((n) => ({ value: String(n), label: `${n} step` })),
+          String(state.imgSecondPassSteps ?? 3),
+          (v) => { state.imgSecondPassSteps = Number(v); persist(); })]),
+      ]),
+      el("div", {
+        text: "Steps sets the first (preview) pass only — 20+ for a plain render (no turbo LoRA); a turbo LoRA is trained for far fewer, typically 3/4/8 depending on the LoRA. 2nd Pass Steps picks which fixed sigma schedule the final-resolution pass uses — independent of Steps and Turbo.",
+        style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
     ]));
 
     if (subMode === "charsheet") {
@@ -3489,8 +3547,14 @@ export function renderMinimaxH3(container: HTMLElement) {
           (v) => { state.charSheetRtxSupersample = v; rememberImgConfig({ charsheet_rtx_supersample: v }); }),
         checkboxRow("Use Latent Upscale (cheap first pass, then upscale)", !!state.charSheetUseLatentUpscale,
           (v) => { state.charSheetUseLatentUpscale = v; rememberImgConfig({ charsheet_use_latent_upscale: v }); renderLeft(); }),
-        !state.charSheetUseLatentUpscale ? null : row([col([label("First Pass MP"), numberField(
-          state.charSheetFirstPassRatio ?? 0.36, (v) => { state.charSheetFirstPassRatio = Math.max(0.05, v); rememberImgConfig({ charsheet_first_pass_ratio: state.charSheetFirstPassRatio }); }, 0.02)])]),
+        !state.charSheetUseLatentUpscale ? null : row([
+          col([label("First Pass MP"), numberField(
+            state.charSheetFirstPassRatio ?? 0.36, (v) => { state.charSheetFirstPassRatio = Math.max(0.05, v); rememberImgConfig({ charsheet_first_pass_ratio: state.charSheetFirstPassRatio }); }, 0.02)]),
+          col([label("2nd Pass Steps"), select(
+            [3, 4, 5].map((n) => ({ value: String(n), label: `${n} step` })),
+            String(state.charSheetSecondPassSteps ?? 3),
+            (v) => { state.charSheetSecondPassSteps = Number(v); rememberImgConfig({ charsheet_second_pass_steps: Number(v) }); })]),
+        ]),
         checkboxRow("Save Each Frame separately", !!state.charSheetSaveEachFrames, (v) => { state.charSheetSaveEachFrames = v; rememberImgConfig({ charsheet_save_each_frames: v }); }),
         row([col([label("Sheet Max Size (px)"), numberField(
           state.charSheetMaxSize ?? 2048, (v) => { state.charSheetMaxSize = Math.max(256, Math.round(v)); rememberImgConfig({ charsheet_max_size: state.charSheetMaxSize }); }, 64)])]),
@@ -3585,7 +3649,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         refImages: state.imgRefImages, refImageSize: state.imgRefImageSize || "max",
         prompt: state.imgPrompt || "", seed, previewRes, finalRes,
         filenamePrefix: `${state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER}/img_${Date.now()}`,
-        steps: state.imgSteps ?? 8,
+        steps: state.imgSteps ?? 20, secondPassSteps: state.imgSecondPassSteps ?? 3,
         turboOn: !!state.imgTurboOn, turboLora: (state as any)[turboKey], turboLoraStrength: state.imgTurboLoraStrength ?? 1.0,
         savePreview: !!state.imgPreviewSaveToGallery,
         latentMode: state.imgLatentMode,
@@ -3606,7 +3670,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           imgLoras: state.imgLoras || [], subMode,
           refImages: subMode === "ref2i" ? (state.imgRefImages || []) : [],
           refImageSize: state.imgRefImageSize || "max", seed,
-          imgSteps: state.imgSteps ?? 8,
+          imgSteps: state.imgSteps ?? 20, imgSecondPassSteps: state.imgSecondPassSteps ?? 3,
           imgLatentMode: state.imgLatentMode === "fizgig" ? "fizgig" : "basic",
           imgTurboOn: !!state.imgTurboOn,
           imgTurboLora: state.imgTurboOn ? ((state as any)[turboKey] || null) : null,
@@ -3662,6 +3726,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         rtx: state.charSheetRtxVsr ? { rtxScale: 2.0, rtxQuality: "ULTRA" } : null,
         rtxSupersample: !!state.charSheetRtxSupersample,
         useLatentUpscale: !!state.charSheetUseLatentUpscale, firstPassRes,
+        secondPassSteps: state.charSheetSecondPassSteps ?? 3,
         width: finalRes.width, height: finalRes.height, seed,
         filenamePrefix: `${state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER}/${subjectStem}_${Date.now()}`,
       });
@@ -4099,7 +4164,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       accordion("turbo", "Turbo", turboSummary(), () => [
         col([select(turboModesFor(state.generationMode).map((m) => ({ value: m.key, label: m.label })), state.turboMode, (v) => {
           state.turboMode = v;
-          persist();
+          rememberImgConfig({ turbo_mode: v });
           renderLeft();
         })]),
         ...turboSettings(),
@@ -5870,6 +5935,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (Array.isArray(meta.refImages)) state.imgRefImages = meta.refImages.slice();
     if (meta.refImageSize) state.imgRefImageSize = meta.refImageSize;
     if (meta.imgSteps != null) state.imgSteps = meta.imgSteps;
+    if (meta.imgSecondPassSteps != null) state.imgSecondPassSteps = meta.imgSecondPassSteps;
     state.imgLatentMode = meta.imgLatentMode === "fizgig" ? "fizgig" : "basic";
     if (meta.imgTurboOn != null) state.imgTurboOn = !!meta.imgTurboOn;
     if (meta.imgTurboLora) {
@@ -5911,9 +5977,27 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (imgInlineTA) imgInlineTA.value = txt;
     persist();
   });
+  // Image Generator's "🔍 Prompt Edit" — the same merged single-screen popup (image/URL analysis, LLM backend,
+  // Enhance/Write/Apply) Krea2/Z-Image/Klein/Qwen2511/SDXL/Anima all share, reused here. t2i and ref2i share one
+  // prompt (state.imgPrompt); Character Sheet has its own system-prompt flow (sysPromptSaveBtn/Reset) and never opens it.
+  const imgLlmState = loadLLMSettings();
+  const imgPromptEditOv = createPromptEditPopup({
+    fetchApi: (path, opts) => comfyApi.fetchApi(path, opts),
+    getPrompt: () => state.imgPrompt || "",
+    setPrompt: (text) => { state.imgPrompt = text; if (imgInlineTA) imgInlineTA.value = text; persist(); },
+    persist,
+    openImageGalleryPicker: (onPick) => openImageGalleryPicker(onPick, INPUT_TOOL_ID),
+    viewUrl: (filename) => viewUrl(filename),
+    llm: imgLlmState,
+    saveLlm: () => saveLLMSettings(imgLlmState),
+    openSettings: () => settingsOv.show(),
+    title: "🔍 Prompt Edit",
+  });
+  wrap.appendChild(imgPromptEditOv.el);
   editBtn.addEventListener("click", () => {
     if (state.generationMode === "ltxupscale") { openLtxPromptEdit(); return; }
     if (state.generationMode === "facerefine") { openFrPromptEdit(); return; }
+    if (state.generationMode === "imagegen" && state.imageGenMode !== "charsheet") { imgPromptEditOv.show(); return; }
     promptEditOv.show();
   });
   // Whichever clip's textarea was last focused, so Refine/Prompt Write from the main screen

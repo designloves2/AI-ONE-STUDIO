@@ -66,6 +66,7 @@ export interface QEState {
   scheduler: string;
   seed: number;
   seedMode: string;
+  autoEnhance: boolean;
 
   lightningLora: SimpleLora;
   loras: LoraEntry[];
@@ -235,6 +236,7 @@ export function defaultState(saved: Partial<QEState> = {}): QEState {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+    autoEnhance: saved.autoEnhance ?? false,
 
     lightningLora: saved.lightningLora
       ? { name: saved.lightningLora.name || "none", strength: saved.lightningLora.strength ?? 1, enabled: saved.lightningLora.enabled !== false }

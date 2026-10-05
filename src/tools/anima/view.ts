@@ -4,10 +4,10 @@
 import type { AnimaState, AnimaMode } from "./core";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS, SEND_TO,
-  BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG,
+  BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG, LORA_UI_CAP,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed,
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildT2IGraph, buildInpaintGraph, buildAnyControlGraph, buildDepthControlGraph } from "./graphBuilder";
@@ -291,6 +291,14 @@ export function renderAnima(root: HTMLElement) {
   const templatesBtn = purpleHdrBtn("📋 Prompt Preset", () => templateOv.show());
   // No job.json feature exists for Anima (no headless package / buildAgentJob reference
   // anywhere in this tool's source) — not adding the header button per the Plan A default.
+  const autoEnhanceChk = el("input", { type: "checkbox" }) as HTMLInputElement;
+  autoEnhanceChk.checked = !!state.autoEnhance;
+  autoEnhanceChk.addEventListener("change", () => { state.autoEnhance = autoEnhanceChk.checked; persist(); });
+  const autoEnhanceLbl = el("label", {
+    title: "Automatically run Prompt Enhance on the current prompt right before Generate, updating the PROMPT field in place.",
+    style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: C.muted, cursor: "pointer" },
+  }, [autoEnhanceChk, el("span", { text: "Auto Enhance" })]);
+  promptHdr.appendChild(autoEnhanceLbl);
   promptHdr.append(expandBtn, templatesBtn);
 
   const promptTA = el("textarea", { placeholder: "Prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } });
@@ -499,6 +507,57 @@ export function renderAnima(root: HTMLElement) {
   // Inpainting/Any Control 모드는 마스크를 그려야 해서 beforeGenerate에서 자동 저장 훅이 필요.
   let controlAutoSave: (() => Promise<boolean>) | null = null;
 
+  // LoRA section (max 3) — mirrors Krea2 ONE STUDIO's LoRA UI.
+  function loraSection() {
+    const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+    function rebuild() {
+      clear(wrap);
+      (state.loras || []).forEach((l, i) => {
+        const nameOpts = ["none", ...availableLoras.filter((n) => n !== "none")];
+        const trigIn = el("input", { type: "text", placeholder: "trigger word", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+        trigIn.value = l.triggerWord || "";
+        trigIn.addEventListener("input", () => { l.triggerWord = trigIn.value; persist(); });
+        const nameSel = searchableSelect(nameOpts, l.name || "none", async (v) => {
+          const prev = l.name;
+          l.name = v;
+          persist();
+          if (v && v !== "none") {
+            if (v !== prev) { l.triggerWord = ""; trigIn.value = ""; }
+            if (!l.triggerWord) {
+              trigIn.placeholder = "Loading…";
+              try {
+                const tw = await api.getLoraTriggers(v);
+                if (tw) { l.triggerWord = tw; trigIn.value = tw; persist(); }
+              } catch {}
+              trigIn.placeholder = "trigger word";
+            }
+          } else {
+            l.triggerWord = ""; trigIn.value = "";
+          }
+        });
+        const strIn = numberField(l.strength, (v) => { l.strength = v; persist(); }, 0.05);
+        const enChk = checkboxRow("on", l.enabled, (v) => { l.enabled = v; persist(); });
+        const delBtn = iconBtn("✕", "Remove", () => { state.loras.splice(i, 1); persist(); rebuild(); });
+        const headerRow = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } }, [
+          el("div", { text: "LORA", style: { color: C.muted, fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.04em" } }),
+          el("div", { style: { flex: "1" } }),
+          enChk,
+          delBtn,
+        ]);
+        wrap.appendChild(panel([
+          headerRow,
+          nameSel.el,
+          row([col([label("Trigger Word"), trigIn]), col([label("Strength"), strIn])]),
+        ]));
+      });
+      if ((state.loras || []).length < LORA_UI_CAP) {
+        wrap.appendChild(button(`+ Add LoRA (max ${LORA_UI_CAP})`, () => { state.loras.push({ name: "none", strength: 0.8, triggerWord: "", enabled: true }); persist(); rebuild(); }));
+      }
+    }
+    rebuild();
+    return wrap;
+  }
+
   function renderLeftPanel() {
     clear(leftScroll);
     controlAutoSave = null;
@@ -509,6 +568,7 @@ export function renderAnima(root: HTMLElement) {
       ]));
       leftScroll.appendChild(resolutionSection());
       leftScroll.appendChild(panel([label("Sampling"), turboSection()]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "inpaint") {
       const editor = createMaskEditor(state, persist, "inpaintImage", "inpaintMask");
       leftScroll.appendChild(panel([
@@ -524,6 +584,7 @@ export function renderAnima(root: HTMLElement) {
         row([col([label("Strength"), numberField(state.inpaintStrength, (v) => { state.inpaintStrength = Math.max(0, Math.min(2, v)); persist(); }, 0.05)]), col([label("Start %"), numberField(state.inpaintStart, (v) => { state.inpaintStart = Math.max(0, Math.min(1, v)); persist(); }, 0.05)]), col([label("End %"), numberField(state.inpaintEnd, (v) => { state.inpaintEnd = Math.max(0, Math.min(1, v)); persist(); }, 0.05)])]),
       ]));
       leftScroll.appendChild(panel([label("Sampling"), turboSection()]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "anycontrol") {
       const editor = createMaskEditor(state, persist, "anyControlImage", "anyControlMask");
       leftScroll.appendChild(panel([
@@ -539,6 +600,7 @@ export function renderAnima(root: HTMLElement) {
         row([col([label("Strength"), numberField(state.anyControlStrength, (v) => { state.anyControlStrength = Math.max(0, Math.min(2, v)); persist(); }, 0.05)]), col([label("Start %"), numberField(state.anyControlStart, (v) => { state.anyControlStart = Math.max(0, Math.min(1, v)); persist(); }, 0.05)]), col([label("End %"), numberField(state.anyControlEnd, (v) => { state.anyControlEnd = Math.max(0, Math.min(1, v)); persist(); }, 0.05)])]),
       ]));
       leftScroll.appendChild(panel([label("Sampling"), turboSection()]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "depthcontrol") {
       leftScroll.appendChild(panel([
         label("Source Image"),
@@ -551,6 +613,7 @@ export function renderAnima(root: HTMLElement) {
         row([col([label("Strength"), numberField(state.depthControlStrength, (v) => { state.depthControlStrength = Math.max(0, Math.min(2, v)); persist(); }, 0.05)]), col([label("Start %"), numberField(state.depthControlStart, (v) => { state.depthControlStart = Math.max(0, Math.min(1, v)); persist(); }, 0.05)]), col([label("End %"), numberField(state.depthControlEnd, (v) => { state.depthControlEnd = Math.max(0, Math.min(1, v)); persist(); }, 0.05)])]),
       ]));
       leftScroll.appendChild(panel([label("Sampling"), turboSection()]));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     }
   }
   renderLeftPanel();
@@ -584,6 +647,21 @@ export function renderAnima(root: HTMLElement) {
     statusText.textContent = "Queuing…";
     progressInner.style.width = "0%";
     externalQueueBanner.style.display = "none";
+
+    if (state.autoEnhance && getModePrompt(state, state.mode).trim()) {
+      statusText.textContent = "Enhancing…";
+      try {
+        const enhanced = await promptExpandOv.enhance(getModePrompt(state, state.mode));
+        setModePrompt(state, state.mode, enhanced); refreshPromptBox(); persist();
+      } catch (e: any) {
+        statusText.textContent = `Auto Enhance failed: ${e.message || e}`;
+        samplingActive = false;
+        genBtn.style.display = "block";
+        stopBtn.style.display = "none";
+        return;
+      }
+      statusText.textContent = "Queuing…";
+    }
 
     try {
       const graph =

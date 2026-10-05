@@ -19,6 +19,15 @@ export async function getModels(): Promise<{ diffusion_models: string[]; text_en
   }
 }
 
+export async function getLoraTriggers(name: string): Promise<string> {
+  try {
+    const d = await jsonFetch(`${API}/lora_triggers?name=${encodeURIComponent(name)}`);
+    return d.ok && d.triggers?.length ? d.triggers.join(", ") : "";
+  } catch {
+    return "";
+  }
+}
+
 export async function getConfig(): Promise<any> {
   try {
     return await jsonFetch(`${API}/config`);

@@ -179,6 +179,8 @@ export interface MmhConfig {
   charsheet_rtx_supersample?: boolean;
   charsheet_use_latent_upscale?: boolean;
   charsheet_first_pass_ratio?: number;
+  charsheet_second_pass_steps?: number;
+  charsheet_system_prompt?: string;
   charsheet_save_each_frames?: boolean;
   charsheet_max_size?: number;
 }

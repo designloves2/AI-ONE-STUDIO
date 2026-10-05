@@ -290,6 +290,14 @@ export function renderKrea2(root: HTMLElement) {
   // zimage only, never klein). Moved here from the left panel's bottom bar so it sits with the
   // other prompt-header actions, same as node's Krea2-era + 8938d00 restyle.
   const agentJsonHdrBtn = purpleHdrBtn("⬇ job.json", () => downloadAgentJson());
+  const autoEnhanceChk = el("input", { type: "checkbox" }) as HTMLInputElement;
+  autoEnhanceChk.checked = !!state.autoEnhance;
+  autoEnhanceChk.addEventListener("change", () => { state.autoEnhance = autoEnhanceChk.checked; persist(); });
+  const autoEnhanceLbl = el("label", {
+    title: "Automatically run Prompt Enhance on the current prompt right before Generate, updating the PROMPT field in place.",
+    style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px", color: C.muted, cursor: "pointer" },
+  }, [autoEnhanceChk, el("span", { text: "Auto Enhance" })]);
+  promptHdr.appendChild(autoEnhanceLbl);
   promptHdr.append(expandBtn, templatesBtn, agentJsonHdrBtn);
 
   const promptTA = el("textarea", { placeholder: "Prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } });
@@ -664,6 +672,31 @@ export function renderKrea2(root: HTMLElement) {
   // Output(Save/Preview)은 원본처럼 좌측 패널이 아니라 미리보기 아래 sendToWrap의
   // 세그먼트 토글(renderOutputToggle)로 구현되어 있다 — ⚙ Settings 체크로 숨김/표시.
 
+  // Enhance — Enhanced KSampler (TJ)'s krea2 txtfusion amplification. Shared by T2I and I2I (Identity Edit isn't
+  // wired to it yet). Requires TJ_NODE's "Enhanced KSampler (TJ)" node; when the toggle is off the graph builder
+  // emits a plain KSampler, so the app works fine without that pack installed.
+  function enhancePanel() {
+    const strengthRow = row([col([label("Strength"), numberField(state.enhanceStrength ?? 1.0, (v) => { state.enhanceStrength = Math.max(0, Math.min(2, v ?? 1)); persist(); }, 0.05)])]);
+    const textScaleRow = row([col([label("Text scale (adv)"), numberField(state.enhanceTextScale ?? 1.0, (v) => { state.enhanceTextScale = Math.max(0.25, Math.min(4, v ?? 1)); persist(); }, 0.05)])]);
+    const optsWrap = el("div", { style: { flexDirection: "column", gap: "6px", display: state.enhanceEnabled ? "flex" : "none" } }, [strengthRow, textScaleRow]);
+    const tog = el("button", {
+      type: "button", text: state.enhanceEnabled ? "Enhance ON" : "Enhance OFF",
+      style: {
+        cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 8px",
+        borderRadius: "6px", border: "none", width: "100%",
+        background: state.enhanceEnabled ? BRAND : "#444", color: "#fff", fontWeight: "700",
+      },
+      onclick: () => {
+        state.enhanceEnabled = !state.enhanceEnabled;
+        persist();
+        tog.textContent = state.enhanceEnabled ? "Enhance ON" : "Enhance OFF";
+        tog.style.background = state.enhanceEnabled ? BRAND : "#444";
+        optsWrap.style.display = state.enhanceEnabled ? "flex" : "none";
+      },
+    });
+    return panel([label("Enhance (krea2)"), tog, optsWrap]);
+  }
+
   function renderLeftPanel() {
     clear(leftScroll);
     if (state.mode === "t2i") {
@@ -680,6 +713,7 @@ export function renderKrea2(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Resolution"), resSel, customRow]));
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+      leftScroll.appendChild(enhancePanel());
       leftScroll.appendChild(panel([label("ControlNet (Krea2 Control LoRA)"), controlNetSection("t2i")]));
     } else if (state.mode === "i2i") {
       leftScroll.appendChild(panel([
@@ -690,6 +724,7 @@ export function renderKrea2(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Denoise"), numberField(state.i2iDenoise, (v) => { state.i2iDenoise = Math.max(0, Math.min(1, v)); persist(); }, 0.01)]));
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+      leftScroll.appendChild(enhancePanel());
       leftScroll.appendChild(panel([label("ControlNet (Krea2 Control LoRA)"), controlNetSection("i2i")]));
     } else if (state.mode === "identity") {
       const swapBtn = button("⇄ Swap ①↔②", () => { const t = state.identityImage; state.identityImage = state.identityImageB; state.identityImageB = t; persist(); renderLeftPanel(); });
@@ -783,6 +818,21 @@ export function renderKrea2(root: HTMLElement) {
     statusText.textContent = "Queuing…";
     progressInner.style.width = "0%";
     externalQueueBanner.style.display = "none";
+
+    if (state.autoEnhance && getModePrompt(state, state.mode).trim()) {
+      statusText.textContent = "Enhancing…";
+      try {
+        const enhanced = await promptExpandOv.enhance(getModePrompt(state, state.mode));
+        setModePrompt(state, state.mode, enhanced); refreshPromptBox(); persist();
+      } catch (e: any) {
+        statusText.textContent = `Auto Enhance failed: ${e.message || e}`;
+        samplingActive = false;
+        genBtn.style.display = "block";
+        stopBtn.style.display = "none";
+        return;
+      }
+      statusText.textContent = "Queuing…";
+    }
 
     try {
       const graph = buildGraph(state);

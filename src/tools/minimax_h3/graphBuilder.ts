@@ -1749,8 +1749,13 @@ const IMG = {
   decode: "IMG:decode", frame: "IMG:frame", save: "IMG:save",
 };
 
-// The reference workflow's own fixed second-pass schedule ("3 step Sigmas").
-const IMG_PASS2_SIGMAS = "0.9035, 0.6316, 0.3158, 0.0000";
+// The reference workflow's own fixed second-pass schedules, by step count — user-selectable
+// (3/4/5), not derived: each is its own hand-tuned sigma curve, not a subdivision of the others.
+export const IMG_PASS2_SIGMAS_BY_STEPS: Record<number, string> = {
+  3: "0.9035, 0.6316, 0.3158, 0.0000",
+  4: "0.9035, 0.8000, 0.6316, 0.3158, 0.0000",
+  5: "0.9231, 0.8780, 0.8000, 0.6316, 0.3158, 0.0000",
+};
 // Frame count for the short clip a still is read back from — fixed, not user-facing (the
 // reference workflow's own PrimitiveInt value); ImageFromBatch's batch_index below always
 // matches it, so this is the one place both must agree if it's ever changed.
@@ -1779,7 +1784,8 @@ export interface ImageGenOpts {
   previewRes: { width: number; height: number };
   finalRes: { width: number; height: number };
   filenamePrefix: string;
-  steps?: number; // first-pass step count (also both passes' count with Turbo off); default 8
+  steps?: number; // first-pass step count only; default 20 (a plain, non-turbo render needs 20+ steps — turbo LoRAs are trained for far fewer)
+  secondPassSteps?: number; // 3 | 4 | 5 (default 3) — which fixed sigma schedule (IMG_PASS2_SIGMAS_BY_STEPS) the latent-upscale second pass uses; independent of steps and Turbo
   turboOn?: boolean;
   turboLora?: string;
   turboLoraStrength?: number;
@@ -1793,7 +1799,7 @@ export interface ImageGenOpts {
 
 export function buildImageGenGraph(state: MinimaxState, avail: Avail | undefined, opts: ImageGenOpts) {
   const { subMode, final, refImages, refImageSize, prompt, seed, previewRes, finalRes, filenamePrefix,
-    steps, turboOn, turboLora, turboLoraStrength, savePreview } = opts;
+    steps, secondPassSteps, turboOn, turboLora, turboLoraStrength, savePreview } = opts;
   const fizgig = opts.latentMode === "fizgig";
   if (fizgig && !(has(avail, "FizgigH3StillLatent") && has(avail, "FizgigH3StillDecode")))
     throw new Error("Use Fizgig Latent needs ComfyUI-Fizgig-H3-Still (github.com/shootthesound/ComfyUI-Fizgig-H3-Still) — install it and restart ComfyUI, or switch to Use Basic Latent.");
@@ -1855,7 +1861,7 @@ export function buildImageGenGraph(state: MinimaxState, avail: Avail | undefined
     startLatent = [IMG.fizLatent, 0];
   }
 
-  const stepCount = Math.max(1, Math.round(steps ?? 8));
+  const stepCount = Math.max(1, Math.round(steps ?? 20));
   g[IMG.noise] = { class_type: "RandomNoise", inputs: { noise_seed: seed ?? 0 } };
   g[IMG.sampSel1] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
   g[IMG.sched] = { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
@@ -1886,12 +1892,11 @@ export function buildImageGenGraph(state: MinimaxState, avail: Avail | undefined
     } };
     g[IMG.sampSel2] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
     g[IMG.guider2] = { class_type: "BasicGuider", inputs: { model, conditioning: [IMG.cond, 0] } };
-    // Turbo on: the reference workflow's own fixed 3-step schedule, built for a turbo
-    // LoRA's distilled step count. Turbo off: a plain schedule at the same step count as
-    // the first pass, since there's no turbo LoRA here to justify only 3 steps.
-    g[IMG.sigmas2] = turboOn
-      ? { class_type: "ManualSigmas", inputs: { sigmas: IMG_PASS2_SIGMAS } }
-      : { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: stepCount, denoise: 1, model } };
+    // One of the reference workflow's own fixed sigma schedules — the second pass refines an
+    // already-upscaled latent, not a from-scratch sample, so it doesn't need (and Turbo on/off
+    // doesn't change) the first pass's own step count.
+    const pass2Sigmas = IMG_PASS2_SIGMAS_BY_STEPS[secondPassSteps ?? 3] || IMG_PASS2_SIGMAS_BY_STEPS[3];
+    g[IMG.sigmas2] = { class_type: "ManualSigmas", inputs: { sigmas: pass2Sigmas } };
     g[IMG.sampler2] = { class_type: "SamplerCustomAdvanced", inputs: {
       noise: [IMG.noise, 0], guider: [IMG.guider2, 0], sampler: [IMG.sampSel2, 0],
       sigmas: [IMG.sigmas2, 0], latent_image: [IMG.concatAV, 0],
@@ -1940,7 +1945,6 @@ const CS = {
   decode: "CS:decode", deblur: "CS:deblur", rtxCrop: "CS:rtx_crop", rtx: "CS:rtx", rtxDown: "CS:rtx_downsize",
   video: "CS:video", save: "CS:save",
 };
-const CS_PASS2_SIGMAS = "0.9035, 0.6316, 0.3158, 0.0000";
 
 export interface CharacterSheetVideoOpts {
   refImages: string[]; // 1-9 filenames already in ComfyUI's input/
@@ -1951,6 +1955,7 @@ export interface CharacterSheetVideoOpts {
   rtxSupersample?: boolean; // after RTX VSR, resize back down to width/height instead of leaving it upscaled
   useLatentUpscale?: boolean; // cheap first pass at firstPassRes, then latent-upscale to width/height
   firstPassRes?: { width: number; height: number } | null;
+  secondPassSteps?: number; // 3 | 4 | 5 (default 3) — only read when useLatentUpscale is true; which of IMG_PASS2_SIGMAS_BY_STEPS the second pass uses
   width: number;
   height: number;
   seed: number;
@@ -1964,7 +1969,7 @@ export interface CharacterSheetVideoOpts {
  */
 export function buildCharacterSheetVideoGraph(state: MinimaxState, avail: Avail | undefined, opts: CharacterSheetVideoOpts) {
   const { refImages, refImageSize, prompt, deblur = "none", rtx = null, rtxSupersample = false,
-    useLatentUpscale = false, firstPassRes, width, height, seed, filenamePrefix } = opts;
+    useLatentUpscale = false, firstPassRes, secondPassSteps, width, height, seed, filenamePrefix } = opts;
   const refList = (refImages || []).filter(Boolean).slice(0, 9);
   if (!refList.length) throw new Error("Character Sheet needs at least one reference image.");
   if (!state.unetReference || state.unetReference === "none")
@@ -2021,7 +2026,9 @@ export function buildCharacterSheetVideoGraph(state: MinimaxState, avail: Avail 
     g[CS.concatAV] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [CS.latentUp, 0], audio_latent: [CS.sepAV, 1] } };
     g[CS.sampSel2] = { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } };
     g[CS.guider2] = { class_type: "BasicGuider", inputs: { model, conditioning: [CS.cond, 0] } };
-    g[CS.sigmas2] = { class_type: "ManualSigmas", inputs: { sigmas: CS_PASS2_SIGMAS } };
+    g[CS.sigmas2] = { class_type: "ManualSigmas", inputs: {
+      sigmas: IMG_PASS2_SIGMAS_BY_STEPS[secondPassSteps ?? 3] || IMG_PASS2_SIGMAS_BY_STEPS[3],
+    } };
     g[CS.sampler2] = { class_type: "SamplerCustomAdvanced", inputs: {
       noise: [CS.noise, 0], guider: [CS.guider2, 0], sampler: [CS.sampSel2, 0],
       sigmas: [CS.sigmas2, 0], latent_image: [CS.concatAV, 0],

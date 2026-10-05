@@ -64,6 +64,7 @@ export interface ZImageState {
   scheduler: string;
   seed: number;
   seedMode: string;
+  autoEnhance: boolean;
 
   loras: LoraEntry[];
 
@@ -198,6 +199,7 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+    autoEnhance: saved.autoEnhance ?? false,
 
     loras: Array.isArray(saved.loras)
       ? saved.loras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))

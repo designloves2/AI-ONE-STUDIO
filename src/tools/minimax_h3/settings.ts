@@ -915,6 +915,8 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       if (cfg.charsheet_rtx_supersample != null) state.charSheetRtxSupersample = cfg.charsheet_rtx_supersample;
       if (cfg.charsheet_use_latent_upscale != null) state.charSheetUseLatentUpscale = cfg.charsheet_use_latent_upscale;
       if (cfg.charsheet_first_pass_ratio != null) state.charSheetFirstPassRatio = cfg.charsheet_first_pass_ratio;
+      if (cfg.charsheet_system_prompt && !state.charSheetSystemPrompt) state.charSheetSystemPrompt = cfg.charsheet_system_prompt;
+      if (state.charSheetSecondPassSteps == null && cfg.charsheet_second_pass_steps != null) state.charSheetSecondPassSteps = cfg.charsheet_second_pass_steps;
       if (cfg.charsheet_save_each_frames != null) state.charSheetSaveEachFrames = cfg.charsheet_save_each_frames;
       if (cfg.charsheet_max_size != null) state.charSheetMaxSize = cfg.charsheet_max_size;
       // vision_source ignored on load — Ollama removed, always native regardless of what a

@@ -14,6 +14,19 @@ function saveNode(link: any, state: AnimaState) {
   return { class_type: "SaveImage", inputs: { images: link, filename_prefix: `${folder}/Anima` } };
 }
 
+function withLoraChain(g: Record<string, any>, prefix: string, modelLink: [string, number], loras: AnimaState["loras"]): [string, number] {
+  let out = modelLink;
+  (loras || []).forEach((lora, i) => {
+    if (!lora.name || lora.name === "none" || lora.enabled === false) return;
+    const strength = parseFloat(String(lora.strength ?? 0.8));
+    if (!(strength > 0)) return;
+    const id = `${prefix}${i}`;
+    g[id] = { class_type: "LoraLoaderModelOnly", inputs: { model: out, lora_name: lora.name, strength_model: strength } };
+    out = [id, 0];
+  });
+  return out;
+}
+
 // 공용 프렐류드: CLIP / VAE / UNet(+turbo LoRA) / positive+negative CLIPTextEncode.
 // unetName으로 T2I가 Preview3 체크포인트를 끼워넣을 수 있다; 그 외 모드는 항상 Base 1.0.
 function baseGraph(state: AnimaState, promptText: string, unetName?: string) {
@@ -43,6 +56,8 @@ function baseGraph(state: AnimaState, promptText: string, unetName?: string) {
     g["AN:turbo_lora"] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelOut, lora_name: loraName, strength_model: 1 } };
     modelOut = ["AN:turbo_lora", 0];
   }
+
+  modelOut = withLoraChain(g, "AN:lora", modelOut, state.loras || []);
 
   g["AN:positive"] = { class_type: "CLIPTextEncode", inputs: { clip: ["AN:clip", 0], text: promptText || "" } };
   const negativeText = (state.negativePrompt || "").trim();

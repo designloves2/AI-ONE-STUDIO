@@ -60,6 +60,10 @@ export interface PromptEditPopupHandle {
   el: HTMLElement;
   show(): void;
   hide(): void;
+  /** Same Prompt Enhance call the popup's own button makes (node `llmApi.enhance()`), for callers that run
+   *  it programmatically — the image tools' "Auto Enhance" checkbox. Puts `prompt` in the popup's text box,
+   *  enhances it in place (errors alert like the button's) and returns the box's text afterwards. */
+  enhance(prompt: string): Promise<string>;
 }
 
 function selStyle(sel: HTMLSelectElement) {
@@ -482,5 +486,11 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   }
   function hide() { ov.style.display = "none"; }
 
-  return { el: ov, show, hide };
+  async function enhance(prompt: string): Promise<string> {
+    promptTA.value = prompt;
+    await doEnhance();
+    return promptTA.value;
+  }
+
+  return { el: ov, show, hide, enhance };
 }

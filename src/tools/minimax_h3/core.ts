@@ -420,6 +420,7 @@ export interface MinimaxState {
   // pipeline's turboLora/turboLoraReference split — different base models need different
   // turbo LoRAs), and the 2nd pass keeps the reference workflow's fixed 3-step schedule.
   imgSteps: number;
+  imgSecondPassSteps: number;       // 3 | 4 | 5 — which fixed sigma schedule the latent-upscale second pass uses
   // "basic" = the 8-frame clip latent read back as a still (preview pass, then latent upscale
   // + 2nd pass); "fizgig" = ComfyUI-Fizgig-H3-Still's one-frame latent + its own decode, a
   // single pass at the resolution being rendered.
@@ -435,6 +436,7 @@ export interface MinimaxState {
   // 124-frame turnaround, and its own Post-finish block (Deblur / RTX VSR / RTX VSR for
   // supersampling / Use Latent Upscale + First Pass MP / Save Each Frame / Sheet Max Size).
   charSheetPrompt: string;
+  charSheetSystemPrompt: string;     // the saved "system prompt" the Character Sheet box resets to
   charSheetSubjectName: string;
   charSheetFrameIndices: number[]; // always 8
   charSheetDeblur: string;         // "none" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA"
@@ -442,6 +444,7 @@ export interface MinimaxState {
   charSheetRtxSupersample: boolean;
   charSheetUseLatentUpscale: boolean;
   charSheetFirstPassRatio: number;
+  charSheetSecondPassSteps: number; // 3 | 4 | 5, only used with Latent Upscale
   charSheetSaveEachFrames: boolean;
   charSheetMaxSize: number;
   // Set after a render — lets the cheap grid-assembly graph (and the View & Edit Sheet
@@ -700,31 +703,36 @@ export const CHARSHEET_PROMPT_TEMPLATE =
 // the prompt for a light refine pass, so it must describe the clip that already exists.
 // Editable in Settings but works as-is. Mirrors node `LTX_UPSCALE_LLM_PROMPT` (0c78cc7).
 export const LTX_UPSCALE_LLM_PROMPT =
-  "You write prompts for the LTX-2.5 video model, following the official LTX-2.5 prompt " +
-  "guide. You are given ONE still frame from near the start of a short existing clip that " +
-  "is about to go through a light 2x upscale + refine at low denoise, so your prompt must " +
-  "describe the clip that ALREADY EXISTS — not a new idea, no new cuts, no camera move " +
-  "that is not already in the footage, and nothing that is not visible or clearly implied.\n\n" +
-  "Write ONE flowing present-tense paragraph, about 4-8 sentences (~60-120 words), that " +
-  "covers these six elements in this order:\n" +
-  "1. Establish the shot — shot scale and angle that match the framing shown (wide / " +
-  "medium / medium close-up / close-up; low / high / eye-level / over-the-shoulder).\n" +
-  "2. Set the scene — lighting condition and direction, colour palette, key textures, " +
-  "atmosphere (haze, fog, rain, dust, bokeh). One coherent light logic.\n" +
-  "3. Describe the action — the main action as one natural sequence, flowing from what " +
-  "this frame shows to how the motion plausibly continues.\n" +
-  "4. Define the character(s) — age, hairstyle, clothing, distinguishing features, props. " +
-  "Show emotion through physical cues (jaw tightens, shoulders drop, a slow exhale), " +
-  "never abstract labels like 'sad' or 'angry'.\n" +
-  "5. Camera movement — how and when the camera moves (static frame, slow push-in, pull " +
-  "back, pan across, tilt, tracking, handheld, orbit); describe how the subject is framed " +
-  "after the move.\n" +
-  "6. Audio — ambient sound, music, and any speech. Put spoken lines in quotation marks " +
-  "and name the language/accent. If the frame gives no basis for sound, use one short " +
-  "plausible ambient sentence.\n\n" +
-  "Natural cinematic language only. No bullet points, no keyword lists, no parenthetical " +
-  "weights, no \"masterpiece / 4k / best quality\" boosters, no negative phrasing, and " +
-  "never mention upscaling, resolution or the refine pass. Output only the paragraph.";
+  "You write prompts for the LTX-2.5 video model, following the official LTX-2.5 prompt "
+  + "guide. You are given SEVERAL still frames sampled across a short existing clip, in "
+  + "chronological order (evenly spread from near the start to near the end) — use every "
+  + "frame together to read the actual motion, action and camera movement across the shot, "
+  + "not just the first one. The clip is about to go through a light 2x upscale + refine at "
+  + "low denoise, so your prompt must describe the clip that ALREADY EXISTS — not a new "
+  + "idea, no new cuts, no camera move that is not already visible across these frames, and "
+  + "nothing that isn't shown or clearly implied by how the frames change.\n\n"
+  + "Write ONE flowing present-tense paragraph, about 4-8 sentences (~60-120 words), that "
+  + "covers these six elements in this order:\n"
+  + "1. Establish the shot — shot scale and angle that match the framing shown (wide / "
+  + "medium / medium close-up / close-up; low / high / eye-level / over-the-shoulder).\n"
+  + "2. Set the scene — lighting condition and direction, colour palette, key textures, "
+  + "atmosphere (haze, fog, rain, dust, bokeh). One coherent light logic across the frames.\n"
+  + "3. Describe the action — the main action as one natural sequence, reading how it "
+  + "actually progresses from the first sampled frame to the last.\n"
+  + "4. Define the character(s) — age, hairstyle, clothing, distinguishing features, props. "
+  + "Show emotion through physical cues (jaw tightens, shoulders drop, a slow exhale), "
+  + "never abstract labels like 'sad' or 'angry'.\n"
+  + "5. Camera movement — compare the framing across the frames to name how and when the "
+  + "camera actually moves (static frame, slow push-in, pull back, pan across, tilt, "
+  + "tracking, handheld, orbit) rather than guessing; describe how the subject ends up "
+  + "framed by the last frame.\n"
+  + "6. Audio — ambient sound, music, and any speech. Put spoken lines in quotation marks "
+  + "and name the language/accent. If the frames give no basis for sound, use one short "
+  + "plausible ambient sentence.\n\n"
+  + "Natural cinematic language only. No bullet points, no keyword lists, no parenthetical "
+  + "weights, no \"masterpiece / 4k / best quality\" boosters, no negative phrasing, and "
+  + "never mention upscaling, resolution, the refine pass, or that you were given multiple "
+  + "frames. Output only the paragraph.";
 
 // The "H3 → LTX 2.5" button's default instruction — rewrites a gallery clip's saved MiniMax
 // H3 structured brief into a plain LTX-2.5 prompt. Text-only, no image. Mirrors node
@@ -1891,7 +1899,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
       : [],
     imgSaveSubfolder: saved.imgSaveSubfolder || "",
     imgPreviewSaveToGallery: !!saved.imgPreviewSaveToGallery,
-    imgSteps: saved.imgSteps ?? 8,
+    imgSteps: saved.imgSteps ?? 20,
+    imgSecondPassSteps: saved.imgSecondPassSteps ?? 3,
     imgLatentMode: saved.imgLatentMode === "fizgig" ? "fizgig" : "basic",
     imgTurboOn: !!saved.imgTurboOn,
     imgTurboLoraT2i: saved.imgTurboLoraT2i || "none",
@@ -1900,6 +1909,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
 
     // ── Character Sheet ─────────────────────────────────────────────────────
     charSheetPrompt: saved.charSheetPrompt || "",
+    charSheetSystemPrompt: saved.charSheetSystemPrompt || "",
     charSheetSubjectName: saved.charSheetSubjectName || "Character",
     charSheetFrameIndices: Array.isArray(saved.charSheetFrameIndices) && saved.charSheetFrameIndices.length === 8
       ? saved.charSheetFrameIndices.slice() : CHARSHEET_DEFAULT_FRAME_INDICES.slice(),
@@ -1908,6 +1918,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     charSheetRtxSupersample: !!saved.charSheetRtxSupersample,
     charSheetUseLatentUpscale: !!saved.charSheetUseLatentUpscale,
     charSheetFirstPassRatio: saved.charSheetFirstPassRatio ?? 0.36,
+    charSheetSecondPassSteps: saved.charSheetSecondPassSteps ?? 3,
     charSheetSaveEachFrames: !!saved.charSheetSaveEachFrames,
     charSheetMaxSize: saved.charSheetMaxSize ?? 2048,
     charSheetVideoFile: saved.charSheetVideoFile || null,

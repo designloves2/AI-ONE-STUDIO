@@ -15,7 +15,8 @@ import { SUBFOLDER } from "./core";
 import { button, el, clear } from "../../shared/ui";
 import { createCacheButton, applyThumb } from "../../shared/thumbCache";
 import { C, BRAND } from "../../identity";
-import { listImagesAll, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
+import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
+import { fetchRows } from "../../shared/pagedList";
 import { queuePrompt } from "./comfyClient";
 import { buildImageUpscaleGraph } from "./graphBuilder";
 import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "../../shared/sensitiveMedia";
@@ -105,6 +106,8 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   } });
 
   let images: GalleryImage[] = [];
+  let totalImages = 0; // server-side total; `images` is only what has been loaded so far (100 per "Load more")
+  const GALLERY_PAGE = 100;
   let galleryFilter = "all";
   const GALLERY_FILTERS = [
     { value: "all", label: "All" },
@@ -503,7 +506,8 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     clear(grid);
     cellRefs = [];
     filtered = images.filter(matchesFilter);
-    countTag.textContent = `${filtered.length} image${filtered.length === 1 ? "" : "s"}`;
+    countTag.textContent = `${filtered.length} image${filtered.length === 1 ? "" : "s"}${totalImages > images.length ? ` · ${images.length} / ${totalImages} loaded` : ""}`;
+    moreBar.style.display = images.length < totalImages ? "flex" : "none";
     hint.style.display = filtered.length ? "none" : "block";
     filtered.forEach((v, idx) => grid.appendChild(thumb(v, idx)));
     refreshPostBar();
@@ -698,13 +702,34 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
 
   async function refresh() {
     try {
-      const d = await listImagesAll(imgFolder(state));
-      images = d.images || [];
+      // Re-load as many as were already showing (at least one page), so a delete/refresh doesn't snap back to page one.
+      const r = await fetchRows<GalleryImage>(async (offset, limit) => {
+        const d = await listImages(imgFolder(state), { offset, limit });
+        return { rows: d.images || [], total: d.total ?? 0 };
+      }, Math.max(GALLERY_PAGE, images.length));
+      images = r.rows;
+      totalImages = r.total;
     } catch (e: any) {
       images = [];
+      totalImages = 0;
       ctx.showPopup?.(`Could not load images: ${e.message || e}`, true);
     }
     renderGrid();
+  }
+
+  let loadingMore = false;
+  async function loadMore() {
+    if (loadingMore) return;
+    loadingMore = true; moreBtn.textContent = "Loading…";
+    try {
+      const d = await listImages(imgFolder(state), { offset: images.length, limit: GALLERY_PAGE });
+      const have = new Set(images.map(vKey));
+      images = images.concat((d.images || []).filter((v: GalleryImage) => !have.has(vKey(v))));
+      totalImages = d.total ?? totalImages;
+      if (!(d.images || []).length) totalImages = images.length; // nothing more came back — stop offering the button
+      renderGrid();
+    } catch { /* keep what is loaded */ }
+    finally { loadingMore = false; moreBtn.textContent = "Load more"; }
   }
 
   function show() { ov.style.display = "flex"; refresh(); }
@@ -719,6 +744,10 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     show();
   }
 
-  ov.append(hdr, postBar, grid, hint);
+  const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 22px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+  const moreBar = el("div", { style: { display: "none", justifyContent: "center", flexShrink: "0" } }, [moreBtn]);
+
+  ov.append(hdr, postBar, grid, moreBar, hint);
+  moreBtn.addEventListener("click", loadMore);
   return { el: ov, show, hide, showPicker, refresh, isOpen: () => ov.style.display !== "none" };
 }

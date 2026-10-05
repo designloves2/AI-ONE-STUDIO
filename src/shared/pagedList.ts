@@ -18,3 +18,21 @@ export async function fetchAllPages<T>(
   }
   return all;
 }
+
+/** The first `want` rows (each request asks for at most PAGE_SIZE). Used to re-load whatever a
+ * "Load more" gallery had already shown after a refresh, instead of snapping back to page one. */
+export async function fetchRows<T>(
+  fetchPage: (offset: number, limit: number) => Promise<{ rows: T[]; total: number }>,
+  want: number,
+): Promise<{ rows: T[]; total: number }> {
+  const all: T[] = [];
+  let total = 0;
+  while (all.length < want) {
+    const r = await fetchPage(all.length, Math.min(PAGE_SIZE, want - all.length));
+    total = r.total;
+    if (!r.rows.length) break;
+    all.push(...r.rows);
+    if (all.length >= total) break;
+  }
+  return { rows: all, total };
+}

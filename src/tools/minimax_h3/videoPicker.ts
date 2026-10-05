@@ -7,7 +7,7 @@
 // can read from.
 import { el } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
-import { copyOutputToInput, getClipLastFrame, listVideosAll } from "./api";
+import { copyOutputToInput, getClipLastFrame, listVideos } from "./api";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
 
 export interface PickerClip {
@@ -53,22 +53,15 @@ export function openVideoGalleryPicker(
   head.appendChild(closeBtn);
   document.body.appendChild(ov);
 
-  (async () => {
-    let items: { filename: string; subfolder?: string }[] = [];
-    try {
-      const d = await listVideosAll(undefined);
-      items = d.videos || [];
-    } catch (e: any) {
-      status.textContent = `Could not read the gallery: ${e?.message || e}`;
-      return;
-    }
-    if (!items.length) {
-      status.textContent = "No rendered clips yet.";
-      return;
-    }
-    status.textContent = `${items.length} clips · hover to preview`;
+  // 100 at a time with a "Load more" button — one cell is a <video>, so building every clip at
+  // once would be slow.
+  const PAGE = 100;
+  let loaded = 0, total = 0, busy = false;
+  const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 18px", borderRadius: "6px", background: "transparent", color: C.text, border: `1px solid ${C.border}` } });
+  const moreRow = el("div", { class: "shrink-0", style: { display: "none", padding: "6px 12px", textAlign: "center", borderTop: `1px solid ${C.border}` } }, [moreBtn]);
+  box.appendChild(moreRow);
 
-    items.forEach((it) => {
+  const addCell = (it: { filename: string; subfolder?: string }) => {
       const url = `/view?filename=${encodeURIComponent(it.filename)}&subfolder=${encodeURIComponent(it.subfolder || "")}&type=output`;
       const cell = el("div", { class: "flex flex-col overflow-hidden cursor-pointer", style: { border: `1px solid ${C.border}`, borderRadius: "8px", background: "#000", height: "134px" } });
       const vid = el("video", { muted: "", playsinline: "", preload: "metadata", class: "block shrink-0", style: { width: "100%", height: "108px", objectFit: "cover", background: "#000" } }) as HTMLVideoElement;
@@ -98,6 +91,25 @@ export function openVideoGalleryPicker(
         }
       });
       grid.appendChild(cell);
-    });
-  })();
+  };
+
+  async function loadMore() {
+    if (busy) return;
+    busy = true; moreBtn.textContent = "Loading…";
+    try {
+      const d = await listVideos(undefined, { offset: loaded, limit: PAGE });
+      const rows: { filename: string; subfolder?: string }[] = d.videos || [];
+      total = d.total ?? 0;
+      rows.forEach(addCell);
+      loaded += rows.length;
+      status.textContent = loaded ? `${loaded} / ${total} clips · hover to preview` : "No rendered clips yet.";
+      moreRow.style.display = loaded < total && rows.length ? "block" : "none";
+    } catch (e: any) {
+      status.textContent = `Could not read the gallery: ${e?.message || e}`;
+    } finally {
+      busy = false; moreBtn.textContent = "Load more";
+    }
+  }
+  moreBtn.addEventListener("click", loadMore);
+  loadMore();
 }

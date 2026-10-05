@@ -659,8 +659,20 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     prefixIn.value = state.filenamePrefix || "MMH3";
     prefixIn.addEventListener("input", () => { state.filenamePrefix = prefixIn.value.trim(); ctx.persist(); });
 
+    const pageSizeIn = el("input", { type: "number", step: "10", min: "10", max: "300", style: numInputStyle() }) as HTMLInputElement;
+    const pageSizeInitial = state.galleryPageSize ?? 50; // like the node's numField: an emptied box falls back to the value it opened with
+    pageSizeIn.value = String(pageSizeInitial);
+    pageSizeIn.addEventListener("input", () => {
+      const v = parseFloat(pageSizeIn.value);
+      state.galleryPageSize = Math.min(300, Math.max(10, Math.round(isNaN(v) ? pageSizeInitial : v)));
+      ctx.persist();
+    });
+
     wrap.appendChild(
       panel([
+        label("Gallery — items per load"),
+        pageSizeIn,
+        el("div", { text: "How many clips/images the H3 galleries and the reference-video picker load first, and again with each \"Load more\" click. 10–300; smaller opens faster.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         label("Save Folder (inside ComfyUI output/)"), pathIn,
         label("Filename Prefix"), prefixIn,
         el("div", { text: "Every clip is always written to disk as its own video; the stitched file is written alongside them.", style: { fontSize: "10px", color: C.muted } }),

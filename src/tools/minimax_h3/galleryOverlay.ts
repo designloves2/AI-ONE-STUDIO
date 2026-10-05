@@ -34,7 +34,7 @@ import {
 } from "./api";
 import { queuePrompt, type QueueResult } from "./comfyClient";
 import { buildInterpolateGraph, buildUpscaleGraph, buildResizeGraph } from "./graphBuilder";
-import { fetchRows } from "../../shared/pagedList";
+import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { makeSensitiveControl, mediaKey, isBlurred, isSensitive, setSensitive, wireRevealButton } from "../../shared/sensitiveMedia";
 
@@ -213,8 +213,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   window.addEventListener("resize", () => { if (ov.style.display !== "none") fitBelowTopbar(); });
 
   let videos: GalleryVideo[] = [];
-  let totalVideos = 0; // server-side total; `videos` is only what has been loaded so far (100 per "Load more")
-  const GALLERY_PAGE = 100;
+  let videoTotal = 0;      // what the folder holds; `videos` is only the part loaded so far
   // "all" | "stitched" | "ltxupscale" | "facerefine" | "deblur" | "rtxvsr" — replaces the old
   // binary "★ stitched only" toggle. Mirrors node `8bd31ed`.
   let galleryFilter = "all";
@@ -1225,10 +1224,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   const hint = el("div", { class: "shrink-0 text-[10px] text-center", style: { color: C.muted } });
   hint.innerHTML = "double-click a clip to play it full screen · <b>space</b> play/pause · <b>← →</b> seek · <b>[ ]</b> previous / next · <b>Esc</b> close";
 
-  const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 22px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-  const moreBar = el("div", { class: "shrink-0 flex items-center justify-center", style: { display: "none" } }, [moreBtn]);
-
-  ov.append(hdr, stitchBar, audioOverrideBar, upscaleBar, interpBar, resizeBar, grid, moreBar, hint);
+  ov.append(hdr, stitchBar, audioOverrideBar, upscaleBar, interpBar, resizeBar, grid, hint);
 
   // ── fullscreen player ───────────────────────────────────────────────────
   const player = el("div", { class: "hidden fixed inset-0 z-[100000] flex-col", style: { display: "none", background: "rgba(0,0,0,0.97)" } });
@@ -1367,8 +1363,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     clear(grid);
     const list = shown();
     const filterLabel = GALLERY_FILTERS.find((f) => f.value === galleryFilter)?.label || "All";
-    countTag.textContent = `${list.length} clip${list.length === 1 ? "" : "s"}${galleryFilter !== "all" ? ` (${filterLabel})` : ""}${totalVideos > videos.length ? ` · ${videos.length} / ${totalVideos} loaded` : ""} · ${state.saveSubfolder || SUBFOLDER}`;
-    moreBar.style.display = videos.length < totalVideos ? "flex" : "none";
+    countTag.textContent = `${list.length} clip${list.length === 1 ? "" : "s"}${galleryFilter !== "all" ? ` (${filterLabel})` : ""}${videos.length < videoTotal ? ` · ${videos.length} / ${videoTotal} loaded` : ""} · ${state.saveSubfolder || SUBFOLDER}`;
     if (!list.length) {
       grid.appendChild(el("div", { text: galleryFilter !== "all" ? `No ${filterLabel} videos yet.` : "No clips yet — generate something first.", class: "text-xs text-center", style: { color: C.muted, gridColumn: "1 / -1", padding: "30px 0" } }));
       return;
@@ -1575,42 +1570,30 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       card.append(thumbWrap, meta);
       grid.appendChild(card);
     });
+    if (videos.length < videoTotal) grid.appendChild(loadMoreButton(loadMore));
     if (mode === "stitch") refreshStitchBar();
     else if (mode === "upscale" || mode === "rife" || mode === "resize") refreshPostBar();
   }
 
+  const fetchVideoPage = (offset: number, limit: number) => listVideos(state.saveSubfolder || SUBFOLDER, { offset, limit });
+
+  // A refresh (or a delete) re-fetches at least as many clips as were showing, so the
+  // grid does not snap back to the first page.
   async function refresh() {
     countTag.textContent = "loading…";
     try {
-      // Re-load as many as were already showing (at least one page), so a delete/refresh doesn't snap back to page one.
-      const r = await fetchRows<GalleryVideo>(async (offset, limit) => {
-        const d = await listVideos(state.saveSubfolder || SUBFOLDER, { offset, limit });
-        return { rows: d.videos || [], total: d.total ?? 0 };
-      }, Math.max(GALLERY_PAGE, videos.length));
-      videos = r.rows;
-      totalVideos = r.total;
-    } catch {
-      videos = [];
-      totalVideos = 0;
-    }
+      const d = await fetchFirst<GalleryVideo>(fetchVideoPage, "videos", Math.max(galleryPageSize(state), videos.length));
+      videos = d.rows; videoTotal = d.total;
+    } catch { videos = []; videoTotal = 0; }
     renderGrid();
   }
 
-  let loadingMore = false;
   async function loadMore() {
-    if (loadingMore) return;
-    loadingMore = true; moreBtn.textContent = "Loading…";
-    try {
-      const d = await listVideos(state.saveSubfolder || SUBFOLDER, { offset: videos.length, limit: GALLERY_PAGE });
-      const have = new Set(videos.map(vKey));
-      videos = videos.concat((d.videos || []).filter((v: GalleryVideo) => !have.has(vKey(v))));
-      totalVideos = d.total ?? totalVideos;
-      if (!(d.videos || []).length) totalVideos = videos.length; // nothing more came back — stop offering the button
-      renderGrid();
-    } catch { /* keep what is loaded */ }
-    finally { loadingMore = false; moreBtn.textContent = "Load more"; }
+    const d = await fetchVideoPage(videos.length, galleryPageSize(state));
+    videos = mergeUnique(videos, d.videos || []);
+    videoTotal = (d.videos || []).length ? Number(d.total) || videos.length : videos.length;
+    renderGrid();
   }
-  moreBtn.addEventListener("click", loadMore);
 
   // Shared by the card's own mini-buttons and Prompt View popup's footer buttons below.
   // Mirrors node `8bd31ed`.

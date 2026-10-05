@@ -8,6 +8,8 @@
 import { el } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { copyOutputToInput, getClipLastFrame, listVideos } from "./api";
+import { loadState } from "./core";
+import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
 
 export interface PickerClip {
@@ -53,13 +55,13 @@ export function openVideoGalleryPicker(
   head.appendChild(closeBtn);
   document.body.appendChild(ov);
 
-  // 100 at a time with a "Load more" button — one cell is a <video>, so building every clip at
-  // once would be slow.
-  const PAGE = 100;
-  let loaded = 0, total = 0, busy = false;
-  const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 18px", borderRadius: "6px", background: "transparent", color: C.text, border: `1px solid ${C.border}` } });
-  const moreRow = el("div", { class: "shrink-0", style: { display: "none", padding: "6px 12px", textAlign: "center", borderTop: `1px solid ${C.border}` } }, [moreBtn]);
-  box.appendChild(moreRow);
+  type Clip = { filename: string; subfolder?: string };
+  let items: Clip[] = [], total = 0;
+  const fetchPage = (offset: number, limit: number) => listVideos(undefined, { offset, limit });
+  const pageSize = galleryPageSize(loadState());
+  const setStatus = () => {
+    status.textContent = `${items.length} clips${items.length < total ? ` · ${items.length} / ${total} loaded` : ""} · hover to preview`;
+  };
 
   const addCell = (it: { filename: string; subfolder?: string }) => {
       const url = `/view?filename=${encodeURIComponent(it.filename)}&subfolder=${encodeURIComponent(it.subfolder || "")}&type=output`;
@@ -93,23 +95,32 @@ export function openVideoGalleryPicker(
       grid.appendChild(cell);
   };
 
-  async function loadMore() {
-    if (busy) return;
-    busy = true; moreBtn.textContent = "Loading…";
+  // The button sits after the last cell; it is removed and re-added after every page.
+  let moreBtn: HTMLButtonElement | null = null;
+  const updateMore = () => {
+    moreBtn?.remove(); moreBtn = null;
+    if (items.length >= total) return;
+    moreBtn = loadMoreButton(async () => {
+      const d = await fetchPage(items.length, pageSize);
+      const fresh = mergeUnique(items, d.videos || []).slice(items.length);
+      items = items.concat(fresh);
+      total = (d.videos || []).length ? Number(d.total) || items.length : items.length;
+      fresh.forEach(addCell);
+      setStatus(); updateMore();
+    });
+    grid.appendChild(moreBtn);
+  };
+
+  (async () => {
     try {
-      const d = await listVideos(undefined, { offset: loaded, limit: PAGE });
-      const rows: { filename: string; subfolder?: string }[] = d.videos || [];
-      total = d.total ?? 0;
-      rows.forEach(addCell);
-      loaded += rows.length;
-      status.textContent = loaded ? `${loaded} / ${total} clips · hover to preview` : "No rendered clips yet.";
-      moreRow.style.display = loaded < total && rows.length ? "block" : "none";
+      ({ rows: items, total } = await fetchFirst<Clip>(fetchPage, "videos", pageSize));
     } catch (e: any) {
       status.textContent = `Could not read the gallery: ${e?.message || e}`;
-    } finally {
-      busy = false; moreBtn.textContent = "Load more";
+      return;
     }
-  }
-  moreBtn.addEventListener("click", loadMore);
-  loadMore();
+    if (!items.length) { status.textContent = "No rendered clips yet."; return; }
+    setStatus();
+    items.forEach(addCell);
+    updateMore();
+  })();
 }

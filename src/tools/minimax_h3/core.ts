@@ -73,6 +73,7 @@ export interface MinimaxState {
   upscaleModel: string;
   targetLength: string;
   refineIncludeImages: boolean;
+  galleryPageSize: number; // rows per "Load more" in the H3 galleries and the video picker
   audioLock: boolean;
   lockAudioFile: string;
   audioLockMode: string;
@@ -1611,6 +1612,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     upscaleModel: saved.upscaleModel || "",
     targetLength: saved.targetLength || "",
     refineIncludeImages: !!saved.refineIncludeImages,
+    galleryPageSize: saved.galleryPageSize ?? 50,   // rows per "Load more" in the H3 galleries and the video picker
     audioLock: saved.audioLock ?? false,
     lockAudioFile: saved.lockAudioFile || "",
     audioLockMode: saved.audioLockMode || "lock",

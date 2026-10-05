@@ -16,7 +16,7 @@ import { button, el, clear } from "../../shared/ui";
 import { createCacheButton, applyThumb } from "../../shared/thumbCache";
 import { C, BRAND } from "../../identity";
 import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
-import { fetchRows } from "../../shared/pagedList";
+import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
 import { queuePrompt } from "./comfyClient";
 import { buildImageUpscaleGraph } from "./graphBuilder";
 import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "../../shared/sensitiveMedia";
@@ -106,8 +106,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   } });
 
   let images: GalleryImage[] = [];
-  let totalImages = 0; // server-side total; `images` is only what has been loaded so far (100 per "Load more")
-  const GALLERY_PAGE = 100;
+  let imageTotal = 0;      // what the folder holds; `images` is only the part loaded so far
   let galleryFilter = "all";
   const GALLERY_FILTERS = [
     { value: "all", label: "All" },
@@ -506,10 +505,10 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     clear(grid);
     cellRefs = [];
     filtered = images.filter(matchesFilter);
-    countTag.textContent = `${filtered.length} image${filtered.length === 1 ? "" : "s"}${totalImages > images.length ? ` · ${images.length} / ${totalImages} loaded` : ""}`;
-    moreBar.style.display = images.length < totalImages ? "flex" : "none";
+    countTag.textContent = `${filtered.length} image${filtered.length === 1 ? "" : "s"}${images.length < imageTotal ? ` · ${images.length} / ${imageTotal} loaded` : ""}`;
     hint.style.display = filtered.length ? "none" : "block";
     filtered.forEach((v, idx) => grid.appendChild(thumb(v, idx)));
+    if (images.length < imageTotal) grid.appendChild(loadMoreButton(loadMore));
     refreshPostBar();
   }
 
@@ -700,36 +699,26 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     document.body.appendChild(pop);
   }
 
+  const fetchImagePage = (offset: number, limit: number) => listImages(imgFolder(state), { offset, limit });
+
+  // A refresh (or a delete) re-fetches at least as many images as were showing, so the
+  // grid does not snap back to the first page.
   async function refresh() {
     try {
-      // Re-load as many as were already showing (at least one page), so a delete/refresh doesn't snap back to page one.
-      const r = await fetchRows<GalleryImage>(async (offset, limit) => {
-        const d = await listImages(imgFolder(state), { offset, limit });
-        return { rows: d.images || [], total: d.total ?? 0 };
-      }, Math.max(GALLERY_PAGE, images.length));
-      images = r.rows;
-      totalImages = r.total;
+      const d = await fetchFirst<GalleryImage>(fetchImagePage, "images", Math.max(galleryPageSize(state), images.length));
+      images = d.rows; imageTotal = d.total;
     } catch (e: any) {
-      images = [];
-      totalImages = 0;
+      images = []; imageTotal = 0;
       ctx.showPopup?.(`Could not load images: ${e.message || e}`, true);
     }
     renderGrid();
   }
 
-  let loadingMore = false;
   async function loadMore() {
-    if (loadingMore) return;
-    loadingMore = true; moreBtn.textContent = "Loading…";
-    try {
-      const d = await listImages(imgFolder(state), { offset: images.length, limit: GALLERY_PAGE });
-      const have = new Set(images.map(vKey));
-      images = images.concat((d.images || []).filter((v: GalleryImage) => !have.has(vKey(v))));
-      totalImages = d.total ?? totalImages;
-      if (!(d.images || []).length) totalImages = images.length; // nothing more came back — stop offering the button
-      renderGrid();
-    } catch { /* keep what is loaded */ }
-    finally { loadingMore = false; moreBtn.textContent = "Load more"; }
+    const d = await fetchImagePage(images.length, galleryPageSize(state));
+    images = mergeUnique(images, d.images || []);
+    imageTotal = (d.images || []).length ? Number(d.total) || images.length : images.length;
+    renderGrid();
   }
 
   function show() { ov.style.display = "flex"; refresh(); }
@@ -744,10 +733,6 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     show();
   }
 
-  const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 22px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-  const moreBar = el("div", { style: { display: "none", justifyContent: "center", flexShrink: "0" } }, [moreBtn]);
-
-  ov.append(hdr, postBar, grid, moreBar, hint);
-  moreBtn.addEventListener("click", loadMore);
+  ov.append(hdr, postBar, grid, hint);
   return { el: ov, show, hide, showPicker, refresh, isOpen: () => ov.style.display !== "none" };
 }

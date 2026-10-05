@@ -1287,8 +1287,10 @@ export function createPromptEditOverlay(
   enhBtn.addEventListener("click", doWrite);
 
   // Refine — text-only unless "Include Images" is ticked (then the attached images get the same vision pass as Prompt Write).
+  let lastRefineInstruction = "";
   async function doRefine() {
     if (busy) return;
+    deriveModes();
     const backends = briefBackendCheck();
     if (!backends) return;
     const { briefOR, briefLlama, briefCustom } = backends;
@@ -1298,9 +1300,10 @@ export function createPromptEditOverlay(
     const current = (editor.value || "").trim();
     if (!current) { ctx.showPopup("Nothing to refine — write a prompt first (or use Prompt Write).", true); return; }
     const instruction = await promptTextareaDialog("Revise the current prompt how?", {
-      tags: ["Picture", "Subject", "Shot"], okLabel: "Refine",
+      defaultValue: lastRefineInstruction, tags: ["Picture", "Subject", "Shot"], okLabel: "Refine",
     });
-    if (!instruction) return;
+    if (!instruction || !instruction.trim()) return;
+    lastRefineInstruction = instruction.trim();
     busy = true;
     enhBtn.setAttribute("disabled", "true");
     refineBtn.setAttribute("disabled", "true");
@@ -1312,7 +1315,7 @@ export function createPromptEditOverlay(
     try {
       const imageSummary = await describeImages(images);
       progressStage("Refining brief…");
-      const userPrompt = buildRefineUserPrompt(current, instruction, imageSummary);
+      const userPrompt = buildRefineUserPrompt(current, lastRefineInstruction, imageSummary);
       const text = (briefCustom
         ? await writeBriefCustom(systemPrompt, userPrompt, { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
         : briefLlama
@@ -1321,7 +1324,7 @@ export function createPromptEditOverlay(
         ? await writeBriefOpenRouter(systemPrompt, userPrompt, state.h3OrModelBrief)
         : await writeBriefNative(state.nativeBriefClip, systemPrompt, userPrompt)).trim();
       if (!text) throw new Error("empty response");
-      openReview(text, (targetSel as HTMLSelectElement).value);
+      openReview(text, "one", "refine");
       statusTag.textContent = "review the result";
       statusTag.style.color = C.ok;
     } catch (e: any) {
@@ -1349,11 +1352,13 @@ export function createPromptEditOverlay(
   const reviewOv = el("div", { class: "absolute inset-0 z-20 flex-col p-3 gap-2 box-border", style: { display: "none", background: "rgba(11,11,11,0.985)" } });
   let reviewText = "",
     reviewTarget = "one",
+    reviewKind: "write" | "refine" = "write",
     reviewMode: "one" | "split" | "manual" = "split";
   const reviewSel = new Set<string>();
   let reviewParsed: ReturnType<typeof parseBrief> = { header: "", shots: [], footer: "" };
   const rvHdr = el("div", { class: "flex items-center gap-2 shrink-0" });
-  rvHdr.appendChild(el("div", { text: "✨ Prompt Write/Refine result", class: "text-white text-[13px] font-bold" }));
+  const rvHdrTitle = el("div", { text: "✨ Prompt Write result", class: "text-white text-[13px] font-bold" });
+  rvHdr.appendChild(rvHdrTitle);
   const rvInfo = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   rvHdr.appendChild(rvInfo);
   const rvBody = el("div", { class: "flex-1 overflow-y-auto flex flex-col gap-1.5" });
@@ -1377,8 +1382,9 @@ export function createPromptEditOverlay(
   const rvFoot = el("div", { class: "flex items-center gap-2 shrink-0" });
   const rvSummary = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   const rvCancel = el("button", { type: "button", text: "✕ Discard", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}` } });
+  const rvAgain = el("button", { type: "button", text: "↻ Write again", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
   const rvApply = button("✓ Apply", () => applyReview(), "primary");
-  rvFoot.append(rvSummary, rvCancel, rvApply);
+  rvFoot.append(rvSummary, rvCancel, rvAgain, rvApply);
   reviewOv.append(rvHdr, rvBody, rvModeRow, rvFoot);
 
   // One result card. `key` is "one" | "header" | `shot:${i}` | "footer". In manual mode a
@@ -1448,11 +1454,14 @@ export function createPromptEditOverlay(
       : `Replaces clip ${selected + 1}${p.header || p.footer ? " and the common parts" : ""}.`;
   }
 
-  function openReview(text: string, target: string) {
+  function openReview(text: string, target: string, kind: "write" | "refine" = "write") {
     reviewText = text;
     reviewTarget = target;
+    reviewKind = kind;
+    rvHdrTitle.textContent = kind === "refine" ? "🔧 Prompt Refine result" : "✨ Prompt Write result";
+    rvAgain.textContent = kind === "refine" ? "↻ Refine again" : "↻ Write again";
     reviewParsed = parseBrief(text);
-    reviewMode = "split";
+    reviewMode = kind === "refine" ? "one" : "split";
     reviewSel.clear();
     // Seed manual mode all-ticked so "Use selected" == "Auto Split" until a card is removed.
     if (reviewParsed.header) reviewSel.add("header");
@@ -1505,6 +1514,10 @@ export function createPromptEditOverlay(
     statusTag.textContent = "applied";
     statusTag.style.color = C.ok;
   }
+  rvAgain.addEventListener("click", () => {
+    reviewOv.style.display = "none";
+    if (reviewKind === "refine") doRefine(); else enhBtn.click();
+  });
   rvCancel.addEventListener("click", () => {
     reviewOv.style.display = "none";
     statusTag.textContent = "discarded";

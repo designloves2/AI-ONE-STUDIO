@@ -19,13 +19,9 @@ import { createTemplateOverlay } from "./promptTools";
 import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
 import { comfyApi } from "./comfyClient";
 
-const LLM_LS_KEY = "tj_studio_one_llm_settings";
-function loadLlmState(): PromptEditLlmState {
-  try { return JSON.parse(localStorage.getItem(LLM_LS_KEY) || "{}"); } catch { return {}; }
-}
-function saveLlmState(s: PromptEditLlmState) {
-  try { localStorage.setItem(LLM_LS_KEY, JSON.stringify(s)); } catch {}
-}
+import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
+function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
+function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 import { createMaskEditor } from "./maskEditor";
 
 export function renderKlein(root: HTMLElement) {

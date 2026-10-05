@@ -10,15 +10,7 @@ import { createLlmBackendGroup, fetchOrModels } from "../../shared/llmBackendPan
 import { comfyApi } from "./comfyClient";
 import { sameOriginSrc } from "../../shared/sameOriginImage";
 
-const LLM_LS_KEY = "tj_studio_one_llm_settings";
-function loadLLMSettings(): any {
-  try { return JSON.parse(localStorage.getItem(LLM_LS_KEY) || "{}"); } catch { return {}; }
-}
-function saveLLMSettings(patch: any) {
-  const s = loadLLMSettings();
-  Object.assign(s, patch);
-  localStorage.setItem(LLM_LS_KEY, JSON.stringify(s));
-}
+import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 
 function mkSelect(options: string[], value: string, onChange: (v: string) => void) {
   const s = el("select", { style: { background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "4px", padding: "4px 6px", fontSize: "11px", width: "100%" } });

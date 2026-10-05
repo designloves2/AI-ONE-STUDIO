@@ -1365,7 +1365,13 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
     const filterLabel = GALLERY_FILTERS.find((f) => f.value === galleryFilter)?.label || "All";
     countTag.textContent = `${list.length} clip${list.length === 1 ? "" : "s"}${galleryFilter !== "all" ? ` (${filterLabel})` : ""}${videos.length < videoTotal ? ` · ${videos.length} / ${videoTotal} loaded` : ""} · ${state.saveSubfolder || SUBFOLDER}`;
     if (!list.length) {
-      grid.appendChild(el("div", { text: galleryFilter !== "all" ? `No ${filterLabel} videos yet.` : "No clips yet — generate something first.", class: "text-xs text-center", style: { color: C.muted, gridColumn: "1 / -1", padding: "30px 0" } }));
+      const more = videos.length < videoTotal;
+      grid.appendChild(el("div", {
+        text: galleryFilter !== "all"
+          ? (more ? `No ${filterLabel} videos among the ${videos.length} loaded — Load more to look further.` : `No ${filterLabel} videos yet.`)
+          : "No clips yet — generate something first.",
+        class: "text-xs text-center", style: { color: C.muted, gridColumn: "1 / -1", padding: "30px 0" } }));
+      if (more) grid.appendChild(loadMoreButton(loadMore));
       return;
     }
     list.forEach((v, i) => {

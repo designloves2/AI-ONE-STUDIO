@@ -1365,6 +1365,27 @@ export function createPromptEditOverlay(
     reviewTarget = "one",
     reviewKind: "write" | "refine" = "write",
     reviewMode: "one" | "split" | "manual" = "split";
+  // Set by openTransient() when a main-screen button (Refine or Prompt Write) opened `ov` purely to
+  // host the review overlay — once the user is done, close `ov` back up too instead of leaving the
+  // full Prompt Edit popup sitting open behind it.
+  let transientMode = false;
+  /** Run `action` (doRefine or doWrite) for one clip without navigating into the full Prompt Edit
+   * popup. `reviewOv` is an absolute-inset child of `ov` and only paints while `ov` is displayed,
+   * so this still shows `ov` underneath, but the review card (or the instruction dialog that
+   * precedes it, for Refine) covers it — the user never sees the tabs/editor. */
+  function openTransient(idx: number | null | undefined, action: () => Promise<void>) {
+    const wasOpen = ov.style.display !== "none";
+    transientMode = !wasOpen;
+    ov.style.display = "flex";
+    if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
+    if (idx != null) selected = idx;
+    if (selected >= state.prompts.length) selected = 0;
+    if (!systemPrompt) loadSystemPrompt();
+    loadSelected();
+    action().finally(() => {
+      if (transientMode && reviewOv.style.display === "none") ov.style.display = "none";
+    });
+  }
   const reviewSel = new Set<string>();
   let reviewParsed: ReturnType<typeof parseBrief> = { header: "", shots: [], footer: "" };
   const rvHdr = el("div", { class: "flex items-center gap-2 shrink-0" });
@@ -1520,6 +1541,7 @@ export function createPromptEditOverlay(
     }
     ctx.persist();
     reviewOv.style.display = "none";
+    if (transientMode) { ov.style.display = "none"; transientMode = false; }
     renderAll();
     onApply?.();
     statusTag.textContent = "applied";
@@ -1531,6 +1553,7 @@ export function createPromptEditOverlay(
   });
   rvCancel.addEventListener("click", () => {
     reviewOv.style.display = "none";
+    if (transientMode) { ov.style.display = "none"; transientMode = false; }
     statusTag.textContent = "discarded";
     statusTag.style.color = C.muted;
   });
@@ -1684,29 +1707,11 @@ export function createPromptEditOverlay(
       footerUC.paint();
       refreshPreviewTag();
     },
-    async openWrite(clipIndex) {
-      if (typeof clipIndex === "number" && clipIndex >= 0) selected = clipIndex;
-      ov.style.display = "flex";
-      if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
-      if (selected >= state.prompts.length) selected = 0;
-      deriveModes();
-      renderImageRow();
-      renderAll();
-      refreshEnhanceModels();
-      if (!systemPrompt) await loadSystemPrompt();
-      doWrite();
+    openRefine(clipIndex) {
+      openTransient(clipIndex, doRefine);
     },
-    async openRefine(clipIndex) {
-      if (typeof clipIndex === "number" && clipIndex >= 0) selected = clipIndex;
-      ov.style.display = "flex";
-      if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
-      if (selected >= state.prompts.length) selected = 0;
-      deriveModes();
-      renderImageRow();
-      renderAll();
-      refreshEnhanceModels();
-      if (!systemPrompt) await loadSystemPrompt();
-      doRefine();
+    openWrite(clipIndex) {
+      openTransient(clipIndex, doWrite);
     },
   };
 }

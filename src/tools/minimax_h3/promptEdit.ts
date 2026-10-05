@@ -661,7 +661,6 @@ export function createPromptEditOverlay(
   function deriveModes() {
     const gm = state.generationMode || "t2v";
     enhMode = gm === "t2v" ? "text" : "image";
-    refineImgWrap.style.display = enhMode === "image" ? "inline-flex" : "none";
     state.briefImageMode = gm === "firstlast" ? "fl" : "ref";
     modeTag.textContent = gm === "t2v" ? "✨ Text → Brief"
       : gm === "firstlast" ? "🖼 Image → Brief (First/Last, from the main screen)"
@@ -691,16 +690,6 @@ export function createPromptEditOverlay(
   const refineSpin = el("span", { text: "⟳", class: "hidden", style: { animation: "mmh3-spin 0.8s linear infinite", fontSize: "13px" } });
   const refineBtnLabel = el("span", { text: "🔧 Prompt Refine" });
   refineBtn.append(refineSpin, refineBtnLabel);
-
-  // Re-send the currently attached images with the refine request, for when the pictures were
-  // swapped after the prompt was written. Only meaningful when the mode has images.
-  const refineImgChk = el("input", { type: "checkbox", style: { margin: "0", cursor: "pointer" } }) as HTMLInputElement;
-  refineImgChk.checked = !!state.refineIncludeImages;
-  refineImgChk.addEventListener("change", () => { state.refineIncludeImages = refineImgChk.checked; ctx.persist(); });
-  const refineImgWrap = el("label", {
-    title: "Analyze the images currently attached (main screen / this clip) and refine the prompt to match them",
-    style: { display: "none", alignItems: "center", gap: "5px", fontSize: "11px", color: C.muted, cursor: "pointer", whiteSpace: "nowrap", flexShrink: "0" },
-  }, [refineImgChk, el("span", { text: "Include Images" })]);
 
   // native(ComfyUI 그래프로 도는 로컬 LLM)만 인터럽트가 확실히 먹는다 — Ollama/llama.cpp 같은
   // 외부 서버 경유(non-native) 호출은 ComfyUI 큐 밖이라 /interrupt로 못 멈출 확률이 높아서
@@ -953,7 +942,7 @@ export function createPromptEditOverlay(
   }
 
   const enhBottom = el("div", { class: "flex items-center gap-2 flex-wrap" });
-  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, refineImgWrap, refineBtn, enhStopBtn);
+  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, refineBtn, enhStopBtn);
   enhWrap.append(enhTop, imgRow, enhBottom);
 
   // Brief / Vision line — full model names, one per row, clickable: opens the LLM Setting
@@ -1294,16 +1283,38 @@ export function createPromptEditOverlay(
     const backends = briefBackendCheck();
     if (!backends) return;
     const { briefOR, briefLlama, briefCustom } = backends;
-    const images = refineImgChk.checked ? attachedImages() : [];
-    if (refineImgChk.checked && enhMode === "image" && !images.length) { ctx.showPopup("Include Images is on, but no image is attached.", true); return; }
-    if (images.length && !visionBackendCheck()) return;
     const current = (editor.value || "").trim();
     if (!current) { ctx.showPopup("Nothing to refine — write a prompt first (or use Prompt Write).", true); return; }
+    // Re-send the currently attached images with the request, for when the pictures were
+    // swapped after the prompt was written. Lives in this dialog because Refine is reached
+    // from two buttons (the main screen's and the Prompt Edit popup's) and both land here.
+    // Only offered when the mode has images; the choice is saved the moment it is toggled.
+    let includeImagesChk: HTMLInputElement | null = null;
+    if (enhMode === "image") {
+      includeImagesChk = el("input", { type: "checkbox", style: { margin: "0", cursor: "pointer" } }) as HTMLInputElement;
+      includeImagesChk.checked = !!state.refineIncludeImages;
+      const chk = includeImagesChk;
+      chk.addEventListener("change", () => { state.refineIncludeImages = chk.checked; ctx.persist(); });
+    }
+    const includeImagesRow = includeImagesChk && el("label", {
+      title: "Analyze the images currently attached (main screen / this clip) and refine the prompt to match them",
+      style: { display: "flex", alignItems: "center", gap: "6px", fontSize: "11.5px", color: C.text, cursor: "pointer" },
+    }, [includeImagesChk, el("span", { text: "Include Images" })]);
+
     const instruction = await promptTextareaDialog("Revise the current prompt how?", {
-      defaultValue: lastRefineInstruction, tags: ["Picture", "Subject", "Shot"], okLabel: "Refine",
+      defaultValue: lastRefineInstruction, tags: ["Picture", "Subject", "Shot"], okLabel: "Refine", extra: includeImagesRow,
     });
     if (!instruction || !instruction.trim()) return;
     lastRefineInstruction = instruction.trim();
+
+    const images = includeImagesChk?.checked ? attachedImages() : [];
+    if (includeImagesChk?.checked && !images.length) { ctx.showPopup("Include Images is on, but no image is attached.", true); return; }
+    const visionBackend = state.h3VisionBackend;
+    if (images.length) {
+      if (visionBackend === "llamagguf" && !state.h3LlamaVisionModel) { ctx.showPopup("No Llama GGUF vision model set - pick one in Settings.", true); return; }
+      if (visionBackend === "custom" && !(state.h3CustomVisionBase && state.h3CustomVisionModel)) { ctx.showPopup("Connect Custom (Vision) needs an API base URL and a model ID - set them in Settings.", true); return; }
+      if (!["openrouter", "llamagguf", "custom"].includes(visionBackend) && !state.nativeVisionClip) { ctx.showPopup("No vision CLIP set - pick one in Settings, or switch the Vision backend to OpenRouter/Llama GGUF.", true); return; }
+    }
     busy = true;
     enhBtn.setAttribute("disabled", "true");
     refineBtn.setAttribute("disabled", "true");

@@ -367,7 +367,7 @@ export function promptDialog(message: string, defaultValue = ""): Promise<string
 // Same shape as promptDialog, but a multiline textarea with optional insert-at-cursor tag
 // buttons underneath (e.g. Picture/Subject/Shot — "N" inserted literally, the user replaces
 // it themselves) — for an instruction long enough that a single-line input would truncate it.
-export function promptTextareaDialog(message: string, opts: { defaultValue?: string; tags?: string[]; okLabel?: string } = {}): Promise<string | null> {
+export function promptTextareaDialog(message: string, opts: { defaultValue?: string; tags?: string[]; okLabel?: string; extra?: HTMLElement | null } = {}): Promise<string | null> {
   return new Promise((resolve) => {
     const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.6)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
     const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "18px", width: "min(420px, 92vw)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column", gap: "10px" } });
@@ -393,6 +393,8 @@ export function promptTextareaDialog(message: string, opts: { defaultValue?: str
       });
       box.appendChild(tagRow);
     }
+    // Optional caller-owned element between the input and the buttons (its state is the caller's business).
+    if (opts.extra) box.appendChild(opts.extra);
     const btnRow = el("div", { style: { display: "flex", justifyContent: "flex-end", gap: "8px" } });
     function finish(v: string | null) {
       document.removeEventListener("keydown", onKey);

@@ -5990,7 +5990,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     viewUrl: (filename) => viewUrl(filename),
     llm: imgLlmState,
     saveLlm: () => saveLLMSettings(imgLlmState),
-    openSettings: () => settingsOv.show(),
+    openSettings: () => settingsOv.openImageLlmSettings(),
     title: "🔍 Prompt Edit",
   });
   wrap.appendChild(imgPromptEditOv.el);

@@ -6,6 +6,7 @@ import { SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, numberField, panel, row, searchableSelect } from "../../shared/ui";
 import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
 import { customLLMControls } from "../../shared/customLlmControls";
+import { mountLLMSettingsSection } from "../../shared/llmSettingsSection";
 import { C, BRAND } from "../../identity";
 import { buildDepFix } from "./depBanner";
 import {
@@ -40,6 +41,8 @@ export interface SettingsHandle {
   hide(): void;
   /** Popup with the Brief / Vision pickers (Prompt Edit's Brief / Vision line opens it). */
   openLlmQuick(onChange?: () => void): void;
+  /** Opens the overlay on the Image LLM section. */
+  openImageLlmSettings(): void;
 }
 
 export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): SettingsHandle {
@@ -700,10 +703,23 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     );
     rightCol.append(
       section("sampling", "LLM Setting", samplingTab()),
+      section("imagellm", "Image LLM", imageLlmTab()),
       section("output", "Output", outputTab()),
       section("packs", "Third-party pack status", packStatusTab()),
     );
     refreshPackStatusText();
+  }
+
+  // "Image LLM" — the image tools' shared Prompt Enhance / Image → Prompt Write settings (the SAME section every
+  // image tool uses, stored on the server). Separate from "LLM Setting" above: the Image Generator's Prompt Edit
+  // popup reads its backend/model config from these cross-tool image-tool settings, a different system from H3's
+  // own video Brief / Vision backends.
+  function imageLlmTab() {
+    const wrap2 = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
+    const p = panel([]);
+    wrap2.appendChild(p);
+    mountLLMSettingsSection(p);
+    return wrap2;
   }
 
   function saveAll() {
@@ -1024,6 +1040,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       ov.style.display = "flex";
       refreshModels();
       renderBody();
+    },
+    /** Opens the overlay straight on the Image LLM section (the Image Generator's Prompt Edit popup's settings button). */
+    openImageLlmSettings() {
+      ov.style.display = "flex";
+      refreshModels();
+      renderBody();
+      ov.querySelector(".aos-mmh3-sec-imagellm")?.scrollIntoView({ block: "start" });
     },
     hide() {
       ov.style.display = "none";

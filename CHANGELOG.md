@@ -3,6 +3,26 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.5.0] — 2026-10-06
+
+Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` (node → web). See `PORT_LEDGER.md` rows 13–21.
+
+### Added
+- **MiniMax H3**: Prompt Refine **Include Images** (inside the Refine dialog); main-screen Refine / Prompt Write open
+  the Prompt Edit popup transiently (closes after cancel/apply/discard); **Load more** gallery paging with a user-set
+  page size (Settings → Output, default 50) for the video gallery, image gallery and video picker; filter-empty
+  message keeps Load more; Image Generator **2nd Pass Steps** 3/4/5, Steps default 20, "Prompt Edit" popup, editable
+  Character Sheet box with System Prompt Save/Reset; LTX ✨ Write from frame samples several frames; **Image LLM**
+  settings section; Turbo mode remembered immediately.
+- **Connect Custom** (OpenAI-compatible) LLM backend in every LLM picker (shared `customLlmControls`).
+- Image tools' LLM settings stored on the server (`llmSettingsStore.ts`); **Auto Enhance** checkbox in all image tools.
+- **Krea2** Enhance toggle (Enhanced KSampler); **Anima** LoRA section (max 3).
+- MusicMaker: stops the playing `<audio>` before deleting a track (Windows file lock).
+
+### Fixed
+- Refine dialog now prefills the last instruction (textarea default was set as an attribute).
+- Prompt Edit popup no longer closes under the user after a cancelled "Refine again".
+
 ## [0.4.0] — 2026-10-03
 
 Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` (node → web, plus web-only items marked). See `PORT_LEDGER.md`.

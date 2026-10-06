@@ -78,6 +78,21 @@ more recently and haven't been battle-tested as thoroughly as the rest.
 The image tools can browse each other's galleries and send an image straight into another
 tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Reference slots.
 
+### LLM 연결 / LLM backends
+모든 프롬프트 LLM 선택창(MiniMax H3 Brief/Vision/LTX Upscale, 이미지 도구의 Prompt Enhance·Image → Prompt Write,
+MusicMaker)에 **Connect Custom**(OpenAI 호환 서버) 옵션이 있습니다. API 키는 서버 메모리에만 보관되고
+브라우저에 저장되지 않습니다. 이미지 도구의 LLM 설정은 **서버**(`/tj_shared/llm_settings`)에 저장되어 브라우저/주소가
+달라도 노드와 웹이 같은 값을 봅니다 (H3 설정의 "Image LLM"에서도 편집). 이미지 도구에는 **Auto Enhance**
+(Generate 직전 자동 Prompt Enhance) 체크칸이 있고, H3 갤러리는 설정(Settings → Output)의 개수만큼씩
+"Load more"로 불러옵니다.
+
+Every prompt-LLM picker (MiniMax H3 Brief / Vision / LTX Upscale, the image tools' Prompt Enhance and
+Image → Prompt Write, MusicMaker) offers **Connect Custom** (any OpenAI-compatible server). API keys are held only in
+the server's memory, never in the browser. The image tools' LLM settings live on the **server**
+(`/tj_shared/llm_settings`), so node and web see the same values across browsers/origins (also editable under
+"Image LLM" in the H3 settings). Image tools have an **Auto Enhance** checkbox (runs Prompt Enhance right before
+Generate), and the H3 galleries load "Load more" pages of the size set in Settings → Output.
+
 ## 상단바 도구 / Top Bar Utilities
 
 상단바 우측에 ComfyUI 서버 상태를 관리하는 3가지 위젯이 있습니다.

@@ -89,6 +89,9 @@ export default defineConfig({
     allowedHosts: ["studio.tjtj.cloud"],
     proxy: {
       ...Object.fromEntries(comfyPaths.map((p) => [p, longProxy()])),
+      // ComfyUI-TJ_NODE's Reference Asset Library REST (the H3 Asset tab). Its guard only accepts a request whose
+      // Origin host equals the Host header, so unlike the routes above the original Host must reach it (changeOrigin: false).
+      "/tj_node": longProxy({ changeOrigin: false }),
       "/ws": longProxy({ target: COMFY.replace(/^http/, "ws"), ws: true }),
     },
   },

@@ -276,6 +276,8 @@ export const MMH3_OPTIONAL_NODES = [
   "LoadAudio",
   "TrimAudioDuration",
   "TJ_H3_AudioLock",
+  // Reference Asset Library nodes (ship with TJ_NODE) — a clip that uses library assets / a project
+  "TJ_H3Reference", "TJ_H3ImageToVideo",
   "TJ_H3_LatentContinuation",
   "TJ_H3_SaveLatentCheckpoint",
   "TJ_H3_LoadLatentCheckpoint",

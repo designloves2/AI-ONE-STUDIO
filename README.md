@@ -78,6 +78,17 @@ more recently and haven't been battle-tested as thoroughly as the rest.
 The image tools can browse each other's galleries and send an image straight into another
 tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Reference slots.
 
+### 에셋 라이브러리 / Asset Library (MiniMax H3)
+H3 상단 첫 번째 **Asset** 탭에서 ComfyUI-TJ_NODE의 레퍼런스 에셋 라이브러리(이미지·영상·오디오·세트, 프로젝트)를
+보고 등록·교체·저장·삭제할 수 있습니다. Reference / First-Last 패널의 "Files / Gallery | Asset Library" 스위치와
+Prompt Edit의 `@` 자동완성으로 클립에 연결합니다. 서버는 TJ_NODE의 `/tj_node/reflib` REST를 그대로 사용합니다
+(개발 서버는 `/tj_node`를 프록시; 터널로 직접 호출하려면 TJ_NODE의 `tj_reflib.json` `allowed_origins` 설정이 필요).
+
+H3's first **Asset** tab browses and edits ComfyUI-TJ_NODE's reference asset library (images, videos, audio, sets, projects).
+Attach assets to a clip with the "Files / Gallery | Asset Library" switch (Reference, First/Last) or via `@` in Prompt Edit.
+It uses TJ_NODE's `/tj_node/reflib` REST as-is (the dev server proxies `/tj_node`; calling it straight from the tunnel needs
+`allowed_origins` in TJ_NODE's `tj_reflib.json`).
+
 ### LLM 연결 / LLM backends
 모든 프롬프트 LLM 선택창(MiniMax H3 Brief/Vision/LTX Upscale, 이미지 도구의 Prompt Enhance·Image → Prompt Write,
 MusicMaker)에 **Connect Custom**(OpenAI 호환 서버) 옵션이 있습니다. API 키는 서버 메모리에만 보관되고

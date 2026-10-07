@@ -3,6 +3,8 @@
 // 비디오 3 + 오디오 3(옵트인). 이게 없으면 First/Last·Reference 모드는 이미지를 넣을
 // 방법이 없어 사실상 동작 불가 — 반드시 있어야 하는 패널.
 import type { MinimaxState } from "./core";
+import { normalizeAssetRef } from "./core";
+import { mountLibraryRefs, emptyAssetRef, sourceToggle } from "../../shared/reflibRefpanel";
 import { col, el, clear, label, numberField, panel, row, select } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 import { getMediaInfo, uploadImage, uploadMedia, viewUrl } from "./api";
@@ -17,6 +19,8 @@ export interface ImagesPanelCtx {
   // Filenames confirmed missing from ComfyUI's input/ folder (SPEC_MINIMAX_H3_PER_CLIP_
   // OVERRIDE.md §8) — checked in one batch after a prompt-set load, not per-tile.
   missingAssets?: Set<string>;
+  // Re-render the pills / left panel / prompt list after a change that affects them (the library choice).
+  refreshModes?: () => void;
 }
 
 // Drag-to-reorder for a filled media tile. Uses a private dataTransfer type so it never
@@ -514,6 +518,12 @@ export interface ImagesPanelHandle {
 /** 모드별 이미지 입력 패널. state에 직접 쓴다. */
 export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): ImagesPanelHandle {
   const wrap = el("div");
+  // The node-wide library assets / project (Asset tab); a clip's own override lives in Prompt Edit.
+  const libraryBlock = (libMode: "reference" | "firstlast", note: string) => mountLibraryRefs({
+    mode: libMode, note,
+    getRef: () => state.assetRef || emptyAssetRef(),
+    onChange: (ref: any) => { state.assetRef = normalizeAssetRef(ref); ctx.persist(); ctx.refreshModes?.(); },
+  }).el;
 
   function render() {
     clear(wrap);
@@ -537,18 +547,26 @@ export function mountImagePanel(state: MinimaxState, ctx: ImagesPanelCtx): Image
           label("First / Last Keyframes"),
           el("div", { class: "flex gap-1.5 justify-center" }, [mpCol(first.el, firstMp), mpCol(last.el, lastMp)]),
           el("div", { text: "MP = megapixels sent to the model for that image (0 = send as uploaded, no resize).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+          libraryBlock("firstlast", "A library frame replaces that file slot."),
           el("div", { html: "Both are optional. With neither, this is the same as Text only. In a relay run the <b>Last Frame Chain</b> continuity mode overwrites ① for every clip after the first.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         ])
       );
       return;
     }
 
-    const types = (state as any).refTypes || { images: true };
+    const useLib = state.refSource === "library";
+    // Library source: only the library block - the file slots are not shown (and not used).
+    const types = useLib ? {} : ((state as any).refTypes || { images: true });
     const picker = refTypeDropdown(state, ctx, render);
     const kids: (Node | null)[] = [
       label("Reference"),
       el("div", { html: "Uses the <b>Ref2VA</b> model. Acceleration here is SolAttn / Spectrum / None at the normal step count — Turbo is fl2v-only and isn't offered in this mode.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.55" } }),
-      picker.el,
+      sourceToggle(useLib ? "library" : "files", (src: string) => {
+        state.refSource = src as "files" | "library";
+        if (src === "files") state.assetRef = null;
+        ctx.persist(); render(); ctx.refreshModes?.();
+      }),
+      useLib ? libraryBlock("reference", "Assets or a project from the Asset tab; their order is the <Picture i> / <Video k> / <Audio j> order.") : picker.el,
     ];
 
     if (types.images) {

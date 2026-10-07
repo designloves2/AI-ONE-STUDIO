@@ -3,6 +3,25 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.6.0] — 2026-10-07
+
+Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` (node → web). See `PORT_LEDGER.md` rows 22–23.
+
+### Added
+- **MiniMax H3 "7+1 hi-res finish"** (Turbo LoRA (Basic) only): 7 of the 8 steps at Start MP, latent upscale, the last step at
+  Final MP; Canvas MP and steps lock while on; preview overlay "Upscaling & refining detail…"; pink border on such clips in the
+  gallery; kept in presets / Reuse / clip meta. Needs `BlockSparseAttention` (added to the availability list).
+- **MiniMax H3 Asset Library** (ComfyUI-TJ_NODE's `/tj_node/reflib` REST): an **Asset** tab (first pill) to browse / register /
+  replace / save / delete assets and build projects; "Files / Gallery | Asset Library" source switch for Reference and a library
+  frame block for First/Last (node-wide and per clip in Prompt Edit); `@` autocomplete + Load check; library-aware Prompt
+  Write / Refine; graph emits `TJ_H3Reference` / `TJ_H3ImageToVideo` (also at the final size with 7+1).
+- Dev proxy: `/tj_node` (kept at its original Host — the library's guard only accepts same-origin requests).
+
+### Changed
+- Prompt entries keep their per-clip override fields (override / refImages / refVideos / refAudios / lastFrame / header / footer)
+  across a reload, as the node does.
+- `ctx.refreshModes` is now wired (settings that change the available modes re-render the pills, left panel and prompts).
+
 ## [0.5.0] — 2026-10-06
 
 Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` (node → web). See `PORT_LEDGER.md` rows 13–21.

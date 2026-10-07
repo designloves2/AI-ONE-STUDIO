@@ -33,8 +33,19 @@ export interface PromptEntry {
   refVideos?: MinimaxState["refVideos"];
   refAudios?: MinimaxState["refAudios"];
   lastFrame?: string;
+  // The clip's own library assets / project (override on only) — see clipAssets()
+  assetRef?: AssetRef | null;
+  refSource?: "files" | "library";
   header?: string;
   footer?: string;
+}
+
+/** Reference-library choice: Reference mode uses `project` OR `ids`, First/Last mode uses `first` / `last`. */
+export interface AssetRef {
+  project: number | null;
+  ids: number[];
+  first: number | null;
+  last: number | null;
 }
 
 export interface LoraEntry {
@@ -227,6 +238,10 @@ export interface MinimaxState {
   refImages: string[];
   refImagesMp: number[];
   refImageSize: string;
+  // Library assets / project the whole node uses (Asset tab). When set for the current mode they
+  // replace the file slots; empty = the file slots work as before.
+  assetRef: AssetRef | null;
+  refSource: "files" | "library";
   refVideos: { file: string; start: number; end: number; withAudio?: boolean }[];
   refAudios: { file: string; start: number; end: number }[];
   refTypes: { images?: boolean; videos?: boolean; audios?: boolean };
@@ -1348,6 +1363,22 @@ export function formatClock(ms: number) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
+/**
+ * A saved asset reference, cleaned: { project, ids, first, last } with real numbers, or null when it
+ * points at nothing. Reference mode uses project OR ids, First/Last mode uses first / last.
+ */
+export function normalizeAssetRef(r: any): AssetRef | null {
+  if (!r || typeof r !== "object") return null;
+  const id = (v: any) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
+  const out = {
+    project: id(r.project),
+    ids: Array.isArray(r.ids) ? (r.ids.map(id).filter(Boolean) as number[]).slice(0, 15) : [],
+    first: id(r.first),
+    last: id(r.last),
+  };
+  return out.project || out.ids.length || out.first || out.last ? out : null;
+}
+
 export const promptText = (p: PromptEntry | string) => (typeof p === "string" ? p : p?.text || "");
 export const promptEnabled = (p: PromptEntry | string) => (typeof p === "string" ? true : p?.enabled !== false);
 export const promptFirstFrame = (p: PromptEntry | string) => (typeof p === "string" ? "" : p?.firstFrame || "");
@@ -1355,6 +1386,7 @@ export const promptOverrides = (p: PromptEntry | string | undefined): boolean =>
 
 export interface ClipAssets {
   own: boolean; // true = this clip's own set (from the prompt entry), false = the common set
+  assetRef: AssetRef | null;
   refImages: string[];
   refImagesMp: number[];
   refVideos: MinimaxState["refVideos"];
@@ -1372,6 +1404,7 @@ export function clipAssets(state: MinimaxState, i: number): ClipAssets {
     const e = p as PromptEntry;
     return {
       own: true,
+      assetRef: e.assetRef || null,
       refImages: (e.refImages || []).filter(Boolean),
       refImagesMp: e.refImagesMp || [],
       refVideos: e.refVideos || [],
@@ -1381,6 +1414,7 @@ export function clipAssets(state: MinimaxState, i: number): ClipAssets {
   }
   return {
     own: false,
+    assetRef: state.assetRef || null,
     refImages: (state.refImages || []).filter(Boolean),
     refImagesMp: state.refImagesMp || [],
     refVideos: state.refVideos || [],
@@ -1766,7 +1800,22 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     avgMinutesPerClip: saved.avgMinutesPerClip ?? 13,
     unloadBetweenClips: saved.unloadBetweenClips ?? true,
     prompts: (Array.isArray(saved.prompts) && saved.prompts.length ? saved.prompts : [{ text: "", firstFrame: "", enabled: true }]).map((p: any) =>
-      typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : { text: p?.text || "", firstFrame: p?.firstFrame || "", enabled: p?.enabled !== false }
+      typeof p === "string"
+        ? { text: p, firstFrame: "", enabled: true, override: false, refImages: [], refImagesMp: [], lastFrame: "", refVideos: [], refAudios: [], assetRef: null, refSource: "files" as const, header: "", footer: "" }
+        : {
+            text: p?.text || "", firstFrame: p?.firstFrame || "", enabled: p?.enabled !== false,
+            override: !!p?.override,
+            refImages: Array.isArray(p?.refImages) ? p.refImages.slice(0, 9) : [],
+            refImagesMp: Array.isArray(p?.refImagesMp) ? p.refImagesMp.slice(0, 9) : [],
+            lastFrame: p?.lastFrame || "",
+            refVideos: Array.isArray(p?.refVideos) ? p.refVideos.map((v: any) => ({ ...v })) : [],
+            refAudios: Array.isArray(p?.refAudios) ? p.refAudios.map((a: any) => ({ ...a })) : [],
+            // the clip's own library assets / project (override on only) - see clipAssets()
+            assetRef: normalizeAssetRef(p?.assetRef),
+            refSource: p?.refSource === "library" ? ("library" as const) : ("files" as const),
+            // header/tail follow the override too - see clipFraming()
+            header: p?.header || "", footer: p?.footer || "",
+          }
     ),
     promptHeader: saved.promptHeader || "",
     promptFooter: saved.promptFooter || "",
@@ -1778,6 +1827,10 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     refImages: Array.isArray(saved.refImages) ? saved.refImages.slice(0, 9) : [],
     refImagesMp: Array.isArray(saved.refImagesMp) ? saved.refImagesMp.slice(0, 9) : [],
     refImageSize: saved.refImageSize || "match",
+    // Library assets / project the whole node uses (Asset tab). When set for the current mode
+    // they replace the file slots; empty = the file slots work as before.
+    assetRef: normalizeAssetRef(saved.assetRef),
+    refSource: saved.refSource === "library" ? "library" : "files",
     refVideos: Array.isArray(saved.refVideos) ? saved.refVideos.slice(0, 3).map((v) => ({ file: v.file || "", start: v.start ?? 0, end: v.end ?? 5, withAudio: v.withAudio !== false })) : [],
     refAudios: Array.isArray(saved.refAudios) ? saved.refAudios.slice(0, 3).map((a) => ({ file: a.file || "", start: a.start ?? 0, end: a.end ?? 5 })) : [],
     refTypes: { images: saved.refTypes?.images !== false, videos: saved.refTypes?.videos ?? false, audios: saved.refTypes?.audios ?? false },

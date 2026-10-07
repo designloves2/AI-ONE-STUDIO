@@ -15,7 +15,11 @@ import {
   promptFirstFrame,
   promptOverrides,
   promptText,
+  normalizeAssetRef,
 } from "./core";
+import { mountLibraryRefs, emptyAssetRef, sourceToggle } from "../../shared/reflibRefpanel";
+import { libraryRefFor, libraryContext } from "../../shared/reflibLlm";
+import { attachAtComplete } from "../../shared/reflibAt";
 import { button, clear, el, confirmDialog, promptDialog, promptTextareaDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
@@ -93,6 +97,8 @@ export function createPromptEditOverlay(
     setPromptBusy?: (busy: boolean, label?: string) => void;
     // Opens the Settings LLM pickers (Brief / Vision) in a popup; onChange runs after every pick and on close.
     openLlmQuickSettings?: (onChange?: () => void) => void;
+    // Re-renders the pills / left panel / prompt list (a library choice changes what they show).
+    refreshModes?: () => void;
   },
   onApply?: () => void
 ): PromptEditHandle {
@@ -746,6 +752,10 @@ export function createPromptEditOverlay(
       p.refImagesMp = (state.refImagesMp || []).slice();
       p.refVideos = JSON.parse(JSON.stringify(state.refVideos || []));
       p.refAudios = JSON.parse(JSON.stringify(state.refAudios || []));
+      if (!p.assetRef) {
+        p.refSource = state.refSource || "files";
+        p.assetRef = state.assetRef ? { ...state.assetRef, ids: [...(state.assetRef.ids || [])] } : null;
+      }
       p.lastFrame = state.lastFrameImage || "";
       p.header = state.promptHeader || "";
       p.footer = state.promptFooter || "";
@@ -755,6 +765,7 @@ export function createPromptEditOverlay(
     ctx.persist();
     refreshFraming();
     renderImageRow();
+    ctx.refreshModes?.();
   });
   function renderOverrideRow() {
     const own = promptOverrides(state.prompts[selected]);
@@ -912,10 +923,35 @@ export function createPromptEditOverlay(
     // The Brief / Vision line runs the full width of the panel, under the band: inside the
     // image column the long model paths wrapped into several short lines.
     const modelLine = el("div", { style: { minWidth: "220px" } });
-    imgCol.append(grid, note);
+    // Library assets / project for whoever owns this attach area (this clip when overriding,
+    // else the node's common set) - when set they replace the file slots below.
+    const own = assets.own;
+    const pOwn = normPrompt(state.prompts[selected]) as PromptEntry;
+    state.prompts[selected] = pOwn;
+    const libBlock = mountLibraryRefs({
+      mode: "reference",
+      note: own ? "This clip only: assets or a project from the Asset tab." : "Common: assets or a project from the Asset tab.",
+      getRef: () => (own ? pOwn.assetRef : state.assetRef) || emptyAssetRef(),
+      getPrompt: () => editor.value || "",
+      onChange: (ref: any) => {
+        const n = normalizeAssetRef(ref);
+        if (own) pOwn.assetRef = n; else state.assetRef = n;
+        ctx.persist(); ctx.refreshModes?.();
+      },
+    });
+    // One source at a time: the file slots (images, video, audio) or the library. Switching to
+    // Files drops the library choice so nothing stays active out of sight.
+    const useLib = (own ? pOwn.refSource : state.refSource) === "library";
+    const srcToggle = sourceToggle(useLib ? "library" : "files", (src: string) => {
+      if (own) { pOwn.refSource = src as "files" | "library"; if (src === "files") pOwn.assetRef = null; }
+      else { state.refSource = src as "files" | "library"; if (src === "files") state.assetRef = null; }
+      ctx.persist(); renderImageRow(); ctx.refreshModes?.();
+    });
+    if (useLib) imgCol.append(srcToggle, libBlock.el);
+    else imgCol.append(srcToggle, grid, note);
     cols.appendChild(imgCol);
 
-    if (assets.own) {
+    if (assets.own && !useLib) {
       // Render inputs, never shown to the vision model — feeding clips to it would restrict
       // which model can be used and cost far more time, for something that helps write a
       // prompt rather than make the video. Same slots the left panel uses (buildClipMediaSlots),
@@ -1026,7 +1062,7 @@ export function createPromptEditOverlay(
   // own output shape (shot-separated brief text, not their 6-section MiniMax H3 schema — our
   // own system prompt already governs that, this is just the same technique for framing
   // the request).
-  function buildUserPrompt(baseText: string, imageSummary: string) {
+  function buildUserPrompt(baseText: string, imageSummary: string, lib: any = null) {
     const t = targetPlan();
     const modeLabel = state.generationMode === "reference" ? "Reference"
       : state.briefImageMode === "fl" ? "First/Last frame" : "Text/Image → Brief";
@@ -1035,11 +1071,13 @@ export function createPromptEditOverlay(
       `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} shot(s) of ~${t.clipSec.toFixed(2)}s each.`,
     ];
     if (t.shots > 1) lines.push(`Write exactly ${t.shots} shots, separated by a line containing only ---, one shot per clip.`);
-    const refCount = state.generationMode === "reference" ? (state.refImages || []).length : 0;
+    // Library references are named by @token (the library node turns them into the model's tags),
+    // so the numbered-tag manifest is replaced by the token list.
+    const refCount = lib ? 0 : state.generationMode === "reference" ? (state.refImages || []).length : 0;
     lines.push(
       "",
       "Reference manifest:",
-      refCount ? `${refCount} reference image(s) supplied; refer to them as <Picture 1>…<Picture ${refCount}>.` : "None"
+      lib ? lib.text : refCount ? `${refCount} reference image(s) supplied; refer to them as <Picture 1>…<Picture ${refCount}>.` : "None"
     );
     if (imageSummary) {
       if (state.briefImageMode === "fl") {
@@ -1081,7 +1119,7 @@ export function createPromptEditOverlay(
   // same recency effect — text-only, no images re-attached, exactly like their version ("media
   // is intentionally not attached"). The OUTPUT stays our own shot-separated brief format
   // throughout; only the prompt-construction technique is borrowed.
-  function buildRefineUserPrompt(currentPrompt: string, instruction: string, imageSummary = "") {
+  function buildRefineUserPrompt(currentPrompt: string, instruction: string, imageSummary = "", lib: any = null) {
     const lines: string[] = [
       "Rewrite the current H3 brief according to the revision instruction. Return only the complete revised brief. Do not discuss the changes.",
       "",
@@ -1099,11 +1137,14 @@ export function createPromptEditOverlay(
         "",
       );
     }
+    if (lib) lines.push(lib.text, "");
     lines.push(
       "Revision instruction:",
       instruction,
       "",
-      "Reference revision rule: preserve each existing <Picture N> tag that the revision instruction does not ask to change. Only add, remove, or renumber a <Picture N> tag when the instruction's meaning actually calls for it.",
+      lib
+        ? "Reference revision rule: preserve each existing @token that the revision instruction does not ask to change. Only add or remove an @token when the instruction's meaning actually calls for it, and use only the tokens listed above."
+        : "Reference revision rule: preserve each existing <Picture N> tag that the revision instruction does not ask to change. Only add, remove, or renumber a <Picture N> tag when the instruction's meaning actually calls for it.",
       "",
       "Final grounding check: keep everything from the current prompt that the " + (imageSummary ? "instruction or the attached images don't call for changing. " : "instruction doesn't ask you to change. ") + "Apply only what the instruction actually asks for — do not invent unrelated actions, props, on-screen text, dialogue, locations, music or ambient sound beyond what it asks for or clearly implies. Return only the complete revised prompt, no commentary outside it.",
     );
@@ -1157,6 +1198,8 @@ export function createPromptEditOverlay(
   // preview row, or the reference set (this clip's own, or the main screen's).
   function attachedImages(): string[] {
     if (enhMode !== "image") return [];
+    // Library assets are described from their library record instead (see libraryContext).
+    if (libraryRefFor(clipAssets(state, selected), state.generationMode)) return [];
     if (state.briefImageMode === "fl") {
       const ff = promptFirstFrame(state.prompts[selected]) || state.firstFrameImage || "";
       const lf = clipAssets(state, selected).lastFrame || state.lastFrameImage || "";
@@ -1164,6 +1207,20 @@ export function createPromptEditOverlay(
     }
     return clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean);
   }
+
+  // The library references of the clip being edited, described for the LLM (null for a file clip).
+  // Cached for a few seconds: typing "@" asks for it on every keystroke.
+  let libMemo: { key: string; at: number; value: any } = { key: "", at: 0, value: null };
+  async function libraryContextForClip() {
+    const ref = libraryRefFor(clipAssets(state, selected), state.generationMode);
+    if (!ref) return null;
+    const key = JSON.stringify(ref);
+    if (libMemo.key === key && Date.now() - libMemo.at < 4000) return libMemo.value;
+    const value = await libraryContext(ref);
+    libMemo = { key, at: Date.now(), value };
+    return value;
+  }
+  attachAtComplete(editor, async () => (await libraryContextForClip())?.items || []);
 
   // Vision pass shared by Prompt Write and Prompt Refine: returns the "Image N: ..." text.
   async function describeImages(images: string[]): Promise<string> {
@@ -1227,13 +1284,15 @@ export function createPromptEditOverlay(
     if (busy) return;
     deriveModes(); renderImageRow();
     const images = attachedImages();
+    const lib = await libraryContextForClip();
+    if (lib?.error) { ctx.showPopup(`Library references: ${lib.error}`, true); return; }
 
     const backends = briefBackendCheck();
     if (!backends) return;
     const { briefOR, briefLlama, briefCustom } = backends;
     if (images.length && !visionBackendCheck()) return;
     const base = (editor.value || "").trim();
-    if (!base && !images.length) {
+    if (!base && !images.length && !lib) {
       ctx.showPopup("Write something first (or add an image).", true);
       return;
     }
@@ -1249,12 +1308,12 @@ export function createPromptEditOverlay(
       const imageSummary = await describeImages(images);
       progressStage("Writing brief…");
       const text = (briefCustom
-        ? await writeBriefCustom(systemPrompt, buildUserPrompt(base, imageSummary), { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
+        ? await writeBriefCustom(systemPrompt, buildUserPrompt(base, imageSummary, lib), { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
         : briefLlama
-        ? await writeBriefLlama(buildUserPrompt(base, imageSummary), state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
+        ? await writeBriefLlama(buildUserPrompt(base, imageSummary, lib), state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : briefOR
-        ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary), state.h3OrModelBrief)
-        : await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary))).trim();
+        ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary, lib), state.h3OrModelBrief)
+        : await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary, lib))).trim();
       if (!text) throw new Error("empty response");
       openReview(text, (targetSel as HTMLSelectElement).value);
       statusTag.textContent = "review the result";
@@ -1308,7 +1367,9 @@ export function createPromptEditOverlay(
     lastRefineInstruction = instruction.trim();
 
     const images = includeImagesChk?.checked ? attachedImages() : [];
-    if (includeImagesChk?.checked && !images.length) { ctx.showPopup("Include Images is on, but no image is attached.", true); return; }
+    const lib = await libraryContextForClip();
+    if (lib?.error) { ctx.showPopup(`Library references: ${lib.error}`, true); return; }
+    if (includeImagesChk?.checked && !images.length && !lib) { ctx.showPopup("Include Images is on, but no image is attached.", true); return; }
     const visionBackend = state.h3VisionBackend;
     if (images.length) {
       if (visionBackend === "llamagguf" && !state.h3LlamaVisionModel) { ctx.showPopup("No Llama GGUF vision model set - pick one in Settings.", true); return; }
@@ -1326,7 +1387,7 @@ export function createPromptEditOverlay(
     try {
       const imageSummary = await describeImages(images);
       progressStage("Refining brief…");
-      const userPrompt = buildRefineUserPrompt(current, lastRefineInstruction, imageSummary);
+      const userPrompt = buildRefineUserPrompt(current, lastRefineInstruction, imageSummary, lib);
       const text = (briefCustom
         ? await writeBriefCustom(systemPrompt, userPrompt, { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
         : briefLlama

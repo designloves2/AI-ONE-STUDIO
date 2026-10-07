@@ -629,6 +629,29 @@ function buildConditioning(g: Graph, state: MinimaxState, promptText: string, wi
   const { firstFrame, lastFrame, refImages } = opts || {};
 
   if (mode === "reference") {
+    // A clip that uses library assets / a project: TJ_H3Reference loads and orders them itself
+    // (images, videos with their soundtrack, audio) and has the same outputs as the core node,
+    // so nothing downstream changes. The file slots are not used for this clip.
+    const ref = state.assetRef;
+    if (ref && (ref.project || (ref.ids || []).length)) {
+      const libInputs: Record<string, any> = {
+        clip: [N.clip, 0], vae: [N.vaeV, 0], audio_vae: [N.vaeA, 0],
+        prompt: promptText, width, height, length: frames,
+        ref_image_size: state.refImageSize || "match",
+        match_check: "warn",
+      };
+      if (ref.project) {
+        libInputs.mode = "project";
+        libInputs.project = String(ref.project);
+      } else {
+        const ids = ref.ids.slice(0, 15);
+        libInputs.mode = "assets";
+        libInputs.asset_count = ids.length;
+        ids.forEach((id, i) => { libInputs[`asset_${i + 1}`] = String(id); });
+      }
+      g[key] = { class_type: "TJ_H3Reference", inputs: libInputs };
+      return;
+    }
     const inputs: Record<string, any> = { clip: [N.clip, 0], vae: [N.vaeV, 0], audio_vae: [N.vaeA, 0], prompt: promptText, width, height, length: frames, ref_image_size: state.refImageSize || "match" };
     (refImages || []).slice(0, 9).forEach((name, i) => {
       if (!name) return;
@@ -672,17 +695,23 @@ function buildConditioning(g: Graph, state: MinimaxState, promptText: string, wi
   }
 
   const inputs: Record<string, any> = { clip: [N.clip, 0], vae: [N.vaeV, 0], prompt: promptText, width, height, length: frames };
+  // Library First / Last frames: TJ_H3ImageToVideo wraps the same core node and takes an
+  // asset id per frame; a frame without an asset still comes from its file as before.
+  const lib = mode === "firstlast" ? state.assetRef : null;
+  const libFirst = lib?.first || null, libLast = lib?.last || null;
   if (mode === "firstlast") {
-    if (firstFrame) {
+    if (libFirst) inputs.first_asset = String(libFirst);
+    else if (firstFrame) {
       g[N.loadFirst] = { class_type: "LoadImage", inputs: { image: firstFrame } };
       inputs.first_frame = resizeToMp(g, N.loadFirstResize, [N.loadFirst, 0], state.firstFrameMp);
     }
-    if (lastFrame) {
+    if (libLast) inputs.last_asset = String(libLast);
+    else if (lastFrame) {
       g[N.loadLast] = { class_type: "LoadImage", inputs: { image: lastFrame } };
       inputs.last_frame = resizeToMp(g, N.loadLastResize, [N.loadLast, 0], state.lastFrameMp);
     }
   }
-  g[key] = { class_type: "MiniMaxH3ImageToVideo", inputs };
+  g[key] = { class_type: libFirst || libLast ? "TJ_H3ImageToVideo" : "MiniMaxH3ImageToVideo", inputs };
 }
 
 export interface BuildClipOpts {
@@ -731,7 +760,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // so stage 2 (a bigger latent) needs its own copy built at the final size. Plain text
   // conditioning carries no image tokens and is shared.
   const mode = state.generationMode || "t2v";
-  const hrCond = !!hires && (mode === "reference" || (mode === "firstlast" && !!(firstFrame || lastFrame)));
+  const hrCond = !!hires && (mode === "reference" || (mode === "firstlast" && !!(firstFrame || lastFrame || state.assetRef?.first || state.assetRef?.last)));
   if (hrCond) buildConditioning(g, state, fullPrompt, outW, outH, frames, condOpts, avail, N.hrCond);
 
   // 텍스트 인코더(N.clip)로 할 인코딩은 여기서 끝 — N.cond가 유일한 소비자라, 디퓨즈

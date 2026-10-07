@@ -119,7 +119,9 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
-import { hiresActive, hiresSizes } from "./core";
+import { hiresActive, hiresSizes, normalizeAssetRef } from "./core";
+import { mountAssetBrowser } from "../../shared/reflibBrowser";
+import { assetRefActive } from "../../shared/reflibRefpanel";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -399,6 +401,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     iconBtn("?", "Help", () => (helpOv.style.display = "flex"))
   );
 
+  let assetView = false;        // Asset tab showing instead of the generation screen
   function renderPills() {
     pillsWrap.innerHTML = "";
     const modes = generationModesFor(state);
@@ -409,8 +412,13 @@ export function renderMinimaxH3(container: HTMLElement) {
         persist();
       }
     }
+    // The Asset tab is a view, not a generation mode: state.generationMode keeps the mode
+    // the node will run, so leaving the tab returns to it unchanged.
+    const assetTab = { key: "assets", label: "Asset", enabled: true, reason: "Reference asset library" };
     pillsWrap.appendChild(
-      modeBar(modes, state.generationMode, (key) => {
+      modeBar([assetTab, ...modes], assetView ? "assets" : state.generationMode, (key) => {
+        if (key === "assets") { setAssetView(true); renderPills(); return; }
+        setAssetView(false);
         state.generationMode = key;
         if (!turboModesFor(key).some((m) => m.key === state.turboMode)) state.turboMode = "none";
         persist();
@@ -4174,7 +4182,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
     // Images (mode-specific: First/Last keyframes, Reference images/videos/audios)
     leftPanel.appendChild(
-      accordion("images", "Images", generationModesFor(state).find((m) => m.key === state.generationMode)?.label || "", () => {
+      accordion("images", "Images", assetRefActive(state.assetRef, state.generationMode) ? "Asset Library" : generationModesFor(state).find((m) => m.key === state.generationMode)?.label || "", () => {
         const imgPanel = mountImagePanel(state, ctx);
         ctx._rerenderImages = imgPanel.render;
         return [imgPanel.el];
@@ -5163,6 +5171,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       refImages: rs.refImages || [], refImagesMp: rs.refImagesMp || [],
       firstFrameImage: rs.firstFrameImage || null, lastFrameImage: rs.lastFrameImage || null,
       refVideos: rs.refVideos || [], refAudios: rs.refAudios || [],
+      // Library assets / project the clip used (Asset tab). null = the clip used the file slots.
+      assetRef: rs.assetRef ? { ...rs.assetRef, ids: [...(rs.assetRef.ids || [])] } : null,
       seed: rs.seed,
       node: "minimax_h3", created: Date.now(), ...extra,
     };
@@ -5500,6 +5510,12 @@ export function renderMinimaxH3(container: HTMLElement) {
         // buildConditioning() already reads all three straight off `state`, so no graphBuilder.ts
         // change is needed to make the per-clip set actually render.
         const clipState: MinimaxState = { ...rs, generationMode: modeForClip, refImagesMp: assets.refImagesMp, refVideos: assets.refVideos, refAudios: assets.refAudios };
+        // Library assets / project of this clip (its own when overriding, else the node's). A
+        // chained clip starts from the previous clip's last frame, so a library First frame
+        // does not apply to it.
+        clipState.assetRef = assets.assetRef
+          ? { ...assets.assetRef, first: continued ? null : assets.assetRef.first }
+          : null;
 
         const isOneTake = rs.continuityMode === "onetake";
         const checkpointName = isOneTake ? `${instanceId}_${i}` : null;
@@ -5892,6 +5908,10 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.lastFrameImage !== undefined) state.lastFrameImage = meta.lastFrameImage || null;
       if (Array.isArray(meta.refVideos)) state.refVideos = JSON.parse(JSON.stringify(meta.refVideos));
       if (Array.isArray(meta.refAudios)) state.refAudios = JSON.parse(JSON.stringify(meta.refAudios));
+      // The library choice comes back with the clip; a clip saved without one (or before the
+      // library existed) restores to the file slots, so a leftover library set cannot win over them.
+      state.assetRef = normalizeAssetRef(meta.assetRef);
+      state.refSource = state.assetRef ? "library" : "files";
       persist();
       refreshPlan();
       renderPills();
@@ -6010,11 +6030,23 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   mainRow.append(leftOuter, rightPanel);
 
+  // Asset tab: the reference asset library, filling the space the generation screen uses.
+  const assetBrowser = mountAssetBrowser({ height: "100%" });
+  const assetRow = el("div", { class: "p-4 flex-1 min-h-0", style: { display: "none" } }, [assetBrowser.el]);
+  function setAssetView(on: boolean) {
+    assetView = on;
+    mainRow.style.display = on ? "none" : "";
+    assetRow.style.display = on ? "block" : "none";
+    if (on) assetBrowser.reload(); else assetBrowser.stop();
+  }
+  ctx.refreshModes = () => { renderPills(); renderLeft(); renderPrompts(); };
+
   const promptEditOv = createPromptEditOverlay(
     state,
     { persist, showPopup, currentPlan, get missingAssets() { return missingAssets; }, checkMissingAssets: refreshMissingAssets, setPromptBusy,
       // Prompt Edit's Brief / Vision line opens the LLM pickers in a popup.
-      openLlmQuickSettings: (onChange) => settingsOv.openLlmQuick(onChange) },
+      openLlmQuickSettings: (onChange) => settingsOv.openLlmQuick(onChange),
+      refreshModes: () => ctx.refreshModes?.() },
     // Loading a prompt set (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7) can change generationMode,
     // which the left panel's mode buttons and Images accordion need to see, not just the plan line.
     () => { refreshPlan(); renderLeft(); }
@@ -6064,7 +6096,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   commonBtn.addEventListener("click", () => commonPromptOv.show());
 
-  wrap.append(depBannerEl, subBar, mainRow, pop, promptEditOv.el, imgTemplateOv.el, commonPromptOv.el, galleryOv.el, imageGalleryOv.el, settingsOv.el, helpOv, queueListOv);
+  wrap.append(depBannerEl, subBar, mainRow, assetRow, pop, promptEditOv.el, imgTemplateOv.el, commonPromptOv.el, galleryOv.el, imageGalleryOv.el, settingsOv.el, helpOv, queueListOv);
   container.appendChild(wrap);
   document.body.appendChild(galleryOv.playerEl); // 풀스크린 플레이어는 다른 모든 것 위에 떠야 하므로 body 직속
 

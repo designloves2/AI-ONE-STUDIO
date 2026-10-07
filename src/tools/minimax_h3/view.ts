@@ -122,6 +122,8 @@ import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageG
 import { hiresActive, hiresSizes, normalizeAssetRef } from "./core";
 import { mountAssetBrowser } from "../../shared/reflibBrowser";
 import { assetRefActive } from "../../shared/reflibRefpanel";
+import { libraryRefFor, libraryContextCached } from "../../shared/reflibLlm";
+import { attachAtComplete } from "../../shared/reflibAt";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -1901,6 +1903,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         persist();
       });
       ta.dataset.clipIndex = String(i);
+      attachAtComplete(ta, async () => (await libraryContextCached(libraryRefFor(clipAssets(state, i), state.generationMode)))?.items || []);
       ta.addEventListener("focus", () => { ta.style.borderColor = BRAND; lastFocusedPromptTA = ta; });
       ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
       allPromptTAs.push(ta);
@@ -5595,6 +5598,9 @@ export function renderMinimaxH3(container: HTMLElement) {
             deblur: built.meta.deblur || null, upscale: built.meta.upscale || null,
             hires: built.meta.hires || null,
           });
+          // The library set this clip actually used (its own when overriding; a chained clip has `first` dropped),
+          // not the node-wide one metaForVideo() records by default.
+          clipMeta.assetRef = clipState.assetRef ? { ...clipState.assetRef, ids: [...(clipState.assetRef.ids || [])] } : null;
           // An inline upscale changes the frame size metaForVideo() can't predict, so re-probe
           // the file. Deblur alone never resizes — skip the round trip for it.
           if (built.meta.upscale || built.meta.hires) await reconcileGeometry(clipMeta, vid);

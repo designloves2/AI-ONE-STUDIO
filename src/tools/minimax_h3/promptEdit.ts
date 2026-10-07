@@ -18,7 +18,7 @@ import {
   normalizeAssetRef,
 } from "./core";
 import { mountLibraryRefs, emptyAssetRef, sourceToggle } from "../../shared/reflibRefpanel";
-import { libraryRefFor, libraryContext } from "../../shared/reflibLlm";
+import { libraryRefFor, libraryContextCached } from "../../shared/reflibLlm";
 import { attachAtComplete } from "../../shared/reflibAt";
 import { button, clear, el, confirmDialog, promptDialog, promptTextareaDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
@@ -1209,17 +1209,8 @@ export function createPromptEditOverlay(
   }
 
   // The library references of the clip being edited, described for the LLM (null for a file clip).
-  // Cached for a few seconds: typing "@" asks for it on every keystroke.
-  let libMemo: { key: string; at: number; value: any } = { key: "", at: 0, value: null };
-  async function libraryContextForClip() {
-    const ref = libraryRefFor(clipAssets(state, selected), state.generationMode);
-    if (!ref) return null;
-    const key = JSON.stringify(ref);
-    if (libMemo.key === key && Date.now() - libMemo.at < 4000) return libMemo.value;
-    const value = await libraryContext(ref);
-    libMemo = { key, at: Date.now(), value };
-    return value;
-  }
+  // Cached for a few seconds (shared with the main prompt boxes): typing "@" asks for it on every keystroke.
+  const libraryContextForClip = () => libraryContextCached(libraryRefFor(clipAssets(state, selected), state.generationMode));
   attachAtComplete(editor, async () => (await libraryContextForClip())?.items || []);
 
   // Vision pass shared by Prompt Write and Prompt Refine: returns the "Image N: ..." text.

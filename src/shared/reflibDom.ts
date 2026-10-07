@@ -16,7 +16,10 @@ const MOBILE_CSS = `@media (max-width: 767px) {
   .rl-bar { flex-wrap: wrap !important; }
   .rl-bar input[type=text] { width: 100% !important; flex: 1 1 100% !important; }
   .rl-gi-grid { grid-template-columns: repeat(3, 1fr) !important; }
-}`;
+  .rl-gi-tabs { display: none !important; }
+  .rl-gi-tabsel { display: block !important; }
+}
+.rl-gi-tabsel { display: none; }`;
 if (typeof document !== "undefined" && !document.getElementById("aos-reflib-mobile-css")) {
   const st = document.createElement("style"); st.id = "aos-reflib-mobile-css"; st.textContent = MOBILE_CSS; document.head.append(st);
 }

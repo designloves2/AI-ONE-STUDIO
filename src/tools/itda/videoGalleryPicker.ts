@@ -34,7 +34,7 @@ interface VideoToolDef {
 const VIDEO_TOOLS: VideoToolDef[] = [
   { id: "input", label: "INPUT folder", kind: "shared", root: "input" },
   { id: "output", label: "OUTPUT folder", kind: "shared", root: "output" },
-  { id: "minimaxh3", label: "MiniMax H3", kind: "tool", api: "/minimax_h3_one", subfolder: "one_minimax_h3" },
+  { id: "minimaxh3", label: "H3 Video", kind: "tool", api: "/minimax_h3_one", subfolder: "one_minimax_h3" },
   { id: "itdastudio", label: "ITDA Studio", kind: "itda" },
 ];
 

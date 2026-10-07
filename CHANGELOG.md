@@ -3,6 +3,21 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.7.1] — 2026-10-07
+
+Asset Library "+ Add" menu and gallery import (node `5549f48`). See `PORT_LEDGER.md` row 26.
+
+### Added
+- **"+ Add ▾" menu** (was "+ Register"): Single Image / Images as a set (2-10) / Video / Audio / From Gallery, with per-type file
+  filters, wrong-extension and set-size checks, and set creation (`POST /tj_node/reflib/sets`).
+- **Gallery import** now has everything the gallery pickers have: per-tile hide toggle + blur (also for video and audio), the
+  Show/Hide and Cache header buttons, INPUT Video / OUTPUT Video tabs, ▶ preview on MusicMaker tracks (one at a time), folder
+  list refresh every 5 s, and the `maxImages` / `singleVideoAudio` options with "Register as set".
+- Phone: the 14 gallery-import tabs are one combo box.
+
+### Changed
+- Tabs renamed "H3 Image" / "H3 Video" (also the ITDA video picker's former "MiniMax H3" tab).
+
 ## [0.7.0] — 2026-10-07
 
 Asset Library follow-ups. See `PORT_LEDGER.md` rows 24–25.

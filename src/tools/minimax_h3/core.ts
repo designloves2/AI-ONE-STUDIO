@@ -210,9 +210,9 @@ export interface MinimaxState {
   frSlaTurboLora: string;
   frSlaTurboStrength: number;
   frSlaTurboSteps: number;
-  // Dedicated SLA turbo LoRA slot (node parity). Only Face Refine fills it on web; the main render's stays "none".
-  slaTurboLora?: string;
-  slaTurboStrength?: number;
+  // SLA Turbo (lightx2v): its own LoRA slot — an ordinary LoRA distilled against the SLA kernel.
+  slaTurboLora: string;
+  slaTurboStrength: number;
 
   accelMode: string;
   upscaleMode: string;
@@ -859,8 +859,8 @@ export const TURBO_MODES = [
   // is why PDD Acc needs no node of its own) — hence "Basic". Key stays "pdd" so saved
   // settings, presets and clip metadata keep working.
   { key: "pdd", label: "Turbo LoRA (Basic)" },
-  { key: "larryvrh", label: "Turbo LoRA (larryvrh)", modes: ["t2v", "firstlast", "reference"] },
-  { key: "lightx2v", label: "SLA Turbo (lightx2v)" },
+  { key: "larryvrh", label: "Turbo LoRA (larryvrh)", modes: ["t2v", "firstlast", "reference"], node: "MiniMaxH3TurboLoRA" },
+  { key: "lightx2v", label: "SLA Turbo (lightx2v)", node: "H3SLAAttention" },
 ] as const;
 export function turboModesFor(generationMode: string) {
   return TURBO_MODES.filter((m: any) => !m.modes || m.modes.includes(generationMode || "t2v"));
@@ -982,7 +982,7 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPi
 export const RECIPE_KEYS = [
   "steps", "sampler", "scheduler", "denoise", "shiftVideo", "shiftAudio",
   "turboSteps", "slaTurboSteps",
-  "turboLora", "turboLoraReference", "pddFile", "pddFileReference",
+  "turboLora", "turboLoraReference", "pddFile", "pddFileReference", "slaTurboLora",
   // A preset can also pin the diffusion model per mode — a merge/finetune the pipeline was
   // benchmarked on (e.g. a hybrid FL2VA/Ref2VA checkpoint). Absent on a preset → the run
   // keeps whatever UNET Settings → Models has for the mode. `applyPreset` only writes keys
@@ -1032,6 +1032,7 @@ export interface UserPipelinePreset {
   shiftAudio?: number;
   turboSteps?: number;
   slaTurboSteps?: number;
+  slaTurboLora?: string;
   turboLora?: string;
   turboLoraReference?: string;
   pddFile?: string;
@@ -1862,6 +1863,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     refTypes: { images: saved.refTypes?.images !== false, videos: saved.refTypes?.videos ?? false, audios: saved.refTypes?.audios ?? false },
     steps: saved.steps ?? 20,
     turboSteps: saved.turboSteps ?? 4,
+    slaTurboLora: saved.slaTurboLora || "none",
+    slaTurboStrength: saved.slaTurboStrength ?? 1.0,
     slaTurboSteps: saved.slaTurboSteps ?? 6,
     sampler: saved.sampler || "res_multistep",
     scheduler: saved.scheduler || "simple",

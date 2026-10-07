@@ -237,12 +237,42 @@ export function turboEffective(state: MinimaxState, avail?: Avail): string {
     if (!pddFileForMode(state)) return "none";
     return "pdd";
   }
+  if (state.turboMode === "lightx2v") {
+    // lightx2v is a plain LoRA, but without the SLA kernel it was distilled against it contributes nothing but its own
+    // load time, so a missing LoRA or a missing SLA pack is a fallback rather than a LoRA that can't pay off.
+    if (!state.slaTurboLora || state.slaTurboLora === "none") return "none";
+    if (avail && Object.keys(avail).length && !avail.H3SLAAttention) return "none";
+    return "lightx2v";
+  }
   return state.turboMode || "none";
 }
 
+/** Why the selected turbo is not running (null when it is, or when Turbo is off) — the node's effectiveTurbo().reason. */
+export function turboFallbackReason(state: MinimaxState, avail?: Avail): string | null {
+  const want = state.turboMode || "none";
+  if (want === "none" || turboEffective(state, avail) !== "none") return null;
+  if (want === "larryvrh") {
+    if (!turboLoraForMode(state)) return "No turbo LoRA set — turbo skipped.";
+    return "comfyui-minimax-h3-turbo is not installed — turbo skipped.";
+  }
+  if (want === "pdd") return "No PDD Acc file set for this mode — turbo skipped.";
+  if (!state.slaTurboLora || state.slaTurboLora === "none") return "No SLA turbo LoRA set — turbo skipped.";
+  return "H3 SLA Attention is not installed — the lightx2v LoRA gives no speedup without it.";
+}
+
+/**
+ * The larryvrh turbo LoRA for the current mode.
+ *
+ * Reference mode has its own slot because a turbo LoRA is trained against one base
+ * model, but it falls back to the main one when unset — that keeps a setup that only
+ * ever filled the main slot working in Reference mode exactly as it did before.
+ */
 export function turboLoraForMode(state: MinimaxState): string {
-  const name = state.turboLora;
-  return name && name !== "none" ? name : "";
+  const isRef = (state.generationMode || "t2v") === "reference";
+  const pick = (isRef && state.turboLoraReference && state.turboLoraReference !== "none")
+    ? state.turboLoraReference
+    : state.turboLora;
+  return pick && pick !== "none" ? pick : "";
 }
 
 /** The step count a run will actually sample at — goes through turboEffective() first, so a
@@ -531,16 +561,14 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
     m = [N.h3sparse, 0];
   }
 
-  // ── Turbo (L8, weights) — larryvrh's own LoRA node, or PDD's plain model-only LoRA.
-  // lightx2v is a regular LoRA, already applied above via the loras[] loop, gated to SLA
-  // attention entirely through the UI/attnBackend axis.
+  // ── Turbo (L8, weights) — larryvrh's own LoRA node, the SLA turbo LoRA, or PDD's plain model-only LoRA.
   const turboWeights = turboEffective(state, avail);
   if (turboWeights === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
     g[N.turbo] = { class_type: "MiniMaxH3TurboLoRA", inputs: { model: m, lora_name: turboLoraForMode(state), strength: state.turboLoraStrength ?? 1.0, low_vram: !!state.turboLoraLowVram } };
     m = [N.turbo, 0];
-  } else if (turboWeights === "lightx2v" && state.slaTurboLora && state.slaTurboLora !== "none") {
-    // An ordinary LoRA — the speedup comes from the SLA kernel it was distilled against. Only Face Refine fills
-    // this slot on web; the main render keeps lightx2v as a regular LoRA entry (see the note above).
+  } else if (turboWeights === "lightx2v") {
+    // An ordinary LoRA — the speedup comes from the SLA kernel it was distilled
+    // against, which applySla() installs later.
     g[N.slaTurboLora] = { class_type: "LoraLoaderModelOnly", inputs: { model: m, lora_name: state.slaTurboLora, strength_model: state.slaTurboStrength ?? 1.0 } };
     m = [N.slaTurboLora, 0];
   } else if (turboWeights === "pdd") {
@@ -607,7 +635,10 @@ function applyPreview(g: Graph, state: MinimaxState, avail: Avail | undefined, m
 // checkbox, so the node stays in the graph either way once turned on in Settings — flipping
 // the left-panel box just toggles sparse vs dense passthrough.
 function applySla(g: Graph, state: MinimaxState, avail: Avail | undefined, modelLink: any) {
-  if (state.attnBackend !== "sla" || !has(avail, "H3SLAAttention")) return modelLink;
+  // Selected either as the attention backend outright, or implied by the lightx2v turbo LoRA,
+  // which is worthless without it.
+  const wantSla = state.attnBackend === "sla" || state.turboMode === "lightx2v";
+  if (!wantSla || !has(avail, "H3SLAAttention")) return modelLink;
   g[N.sla] = {
     class_type: "H3SLAAttention",
     inputs: {
@@ -898,8 +929,9 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
       stepsEffective: steps, samplerUsed,
       turboFile:
         turboEff === "larryvrh" ? turboLoraForMode(state) || null
+        : turboEff === "lightx2v" ? (state.slaTurboLora || null)
         : turboEff === "pdd" ? pddFileForMode(state) || null
-        : null, // lightx2v has no dedicated file slot on this port — it's a regular LoRA entry
+        : null,
       pddNfe: turboEff === "pdd" ? String(state.pddNfe ?? "8") : null,
       // null when the pipeline didn't run it; the save path re-probes the output only when
       // `upscale` is set (deblur alone never changes the size).
@@ -1228,16 +1260,12 @@ export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefin
   refState.pddNfe = state.frPddNfe;
   refState.pddLoraStrength = state.frPddLoraStrength;
   refState.turboLoraReference = state.frTurboLora;
-  refState.turboLora = state.frTurboLora;   // web's turboLoraForMode() reads turboLora (not the Reference slot) — this copy is Face Refine's own
   refState.turboLoraStrength = state.frTurboLoraStrength;
   refState.turboSteps = state.frTurboSteps;
   refState.turboLoraLowVram = state.frTurboLoraLowVram;
   refState.slaTurboLora = state.frSlaTurboLora;
   refState.slaTurboStrength = state.frSlaTurboStrength;
   refState.slaTurboSteps = state.frSlaTurboSteps;
-  // Web's turboEffective() does not gate lightx2v on the SLA slot (the main panel uses a plain LoRA entry), so the
-  // "no SLA turbo LoRA set — turbo is skipped" rule is applied here.
-  if (refState.turboMode === "lightx2v" && (!state.frSlaTurboLora || state.frSlaTurboLora === "none")) refState.turboMode = "none";
   refState.hiresFinish = false;   // 7+1 is a clip-render mode
   const modelLink0 = buildModelChain(g, refState, avail);
   g[N.clip] = String(clipFile || "").toLowerCase().endsWith(".gguf")

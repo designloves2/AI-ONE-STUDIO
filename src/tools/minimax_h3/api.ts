@@ -71,6 +71,13 @@ export interface MmhConfig {
   turbo_lora_strength?: number;
   pdd_file?: string;
   pdd_file_reference?: string;
+  turbo_lora_reference?: string;
+  sla_turbo_lora?: string;
+  sla_turbo_strength?: number;
+  sla_turbo_steps?: number;
+  pdd_nfe?: string | number;
+  pdd_lora_strength?: number;
+  turbo_mode?: string;
   upscale_model?: string;
   save_subfolder?: string;
   prompt_suffix?: string;

@@ -45,7 +45,6 @@ import {
   loadState,
   parseBrief,
   promptFirstFrame,
-  pddFileForMode,
   PIPELINE_PRESETS,
   matchPreset,
   matchUserPreset,
@@ -118,7 +117,7 @@ import { comfyApi, queuePrompt } from "./comfyClient";
 import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
-import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
 import { hiresActive, hiresSizes, normalizeAssetRef } from "./core";
 import { mountAssetBrowser } from "../../shared/reflibBrowser";
 import { assetRefActive } from "../../shared/reflibRefpanel";
@@ -2219,43 +2218,66 @@ export function renderMinimaxH3(container: HTMLElement) {
   }
 
   function turboSummary() {
-    if (state.turboMode === "none") return "Off";
-    const eff = turboEffective(state, ctx.availability);
-    const label = state.turboMode === "larryvrh" ? "larryvrh" : state.turboMode === "pdd" ? "Turbo LoRA (Basic)" : "lightx2v";
-    if (eff === state.turboMode) return `${label} · ${effectiveSteps(state, ctx.availability)} steps`;
-    const reason =
-      state.turboMode === "larryvrh" && !turboLoraSet() ? "no turbo LoRA set"
-      : state.turboMode === "larryvrh" ? "MiniMaxH3TurboLoRA not installed"
-      : state.turboMode === "pdd" && !pddFileForMode(state) ? "no Turbo LoRA set for this mode"
-      : "unavailable";
-    return `${label} · inactive — ${reason}`;
+    if (state.turboMode === "none") return "None";
+    // Basic and larryvrh would both shorten to "Turbo LoRA", so Basic keeps its suffix.
+    const full = (TURBO_MODES.find((t) => t.key === state.turboMode) || { label: "None" }).label;
+    const label = /\(Basic\)/.test(full) ? String(full) : String(full || "").replace(/ \(.*\)/, "");
+    return turboEffective(state, ctx.availability) === "none"
+      ? `${label} · inactive`
+      : `${label} · ${effectiveSteps(state, ctx.availability)} steps`;
   }
-  function turboLoraSet() {
-    return !!state.turboLora && state.turboLora !== "none";
+  // The "not installed" and "why the turbo is not running" lines under the Turbo select (node parity).
+  function turboNotes(): (Node | null)[] {
+    const node = (TURBO_MODES.find((t) => t.key === state.turboMode) as any)?.node;
+    const availKnown = ctx.availability && Object.keys(ctx.availability).length;
+    const reason = turboFallbackReason(state, ctx.availability);
+    return [
+      node && availKnown && !ctx.availability?.[node]
+        ? el("div", { html: `⚠ <code>${node}</code> not installed — this option is skipped at run time.`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })
+        : null,
+      reason ? el("div", { text: `⚠ ${reason}`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }) : null,
+    ];
   }
   function turboSettings() {
     if (state.turboMode === "larryvrh") {
+      const isRef = state.generationMode === "reference";
+      if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
+      const lopts = ["none", ...availableLoras.filter((x) => x !== "none")];
       return [
+        col([label(`Turbo LoRA (Text / First-Last)${isRef ? "" : " ●"}`),
+          searchableSelect(lopts, state.turboLora || "none", (v) => { state.turboLora = v; rememberImgConfig({ turbo_lora: v }); renderLeft(); }).el]),
+        col([label(`Turbo LoRA (Reference)${isRef ? " ●" : ""}`),
+          searchableSelect(lopts, state.turboLoraReference || "none", (v) => { state.turboLoraReference = v; rememberImgConfig({ turbo_lora_reference: v }); renderLeft(); }).el]),
+        el("div", { text: isRef
+            ? "● Reference mode uses the Reference slot; it falls back to the first one when that is unset."
+            : "● This mode uses the first slot.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
         row([
-          col([label("Turbo strength"), n(state.turboLoraStrength ?? 1.0, (v) => (state.turboLoraStrength = v))]),
-          col([label("Low VRAM"), checkboxRow("low_vram", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; persist(); })]),
+          col([label("strength"), numberField(state.turboLoraStrength ?? 1.0, (v) => { state.turboLoraStrength = v; rememberImgConfig({ turbo_lora_strength: v }); }, 0.05)]),
+          col([label("turbo steps"), numberField(state.turboSteps ?? 4, (v) => { state.turboSteps = Math.max(1, Math.round(v)); persist(); syncTurboDependents(); }, 1)]),
         ]),
-        col([label("Turbo steps"), n(state.turboSteps ?? 4, (v) => { state.turboSteps = Math.max(1, Math.round(v)); syncTurboDependents(); }, 1)]),
-        el("div", { text: "Uses the dedicated MiniMaxH3TurboLoRA node + this step count. The LoRA file itself is set in ⚙ Settings → Models.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-        ...(turboLoraSet() ? [] : [el("div", { text: "⚠ No turbo LoRA file selected in ⚙ Settings → Models — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
+        checkboxRow("Low VRAM turbo load", !!state.turboLoraLowVram, (v) => { state.turboLoraLowVram = v; rememberImgConfig({ turbo_lora_low_vram: v }); }),
+        el("div", { text: "Runs a 4-step schedule, so sparse attention and the step caches are unavailable — their error has nowhere to average out.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
       ];
     }
     if (state.turboMode === "lightx2v") {
+      if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
+      const lopts = ["none", ...availableLoras.filter((x) => x !== "none")];
       return [
-        col([label("Steps"), n(state.slaTurboSteps ?? 6, (v) => { state.slaTurboSteps = Math.max(1, Math.round(v)); syncTurboDependents(); }, 1)]),
+        col([label("SLA turbo LoRA"), searchableSelect(lopts, state.slaTurboLora || "none",
+          (v) => { state.slaTurboLora = v; rememberImgConfig({ sla_turbo_lora: v }); renderLeft(); }).el]),
+        row([
+          col([label("strength"), numberField(state.slaTurboStrength ?? 1.0, (v) => { state.slaTurboStrength = v; rememberImgConfig({ sla_turbo_strength: v }); }, 0.05)]),
+          col([label("steps"), numberField(state.slaTurboSteps ?? 6, (v) => { state.slaTurboSteps = Math.max(1, Math.round(v)); persist(); syncTurboDependents(); }, 1)]),
+        ]),
         el("div", {
-          text: "This is a regular LoRA, not a dedicated node — add the SLA-turbo LoRA file itself in the LoRA section below. Selecting this here just locks Attention to SLA (required — the LoRA gives no speedup without it).",
+          text: "An ordinary LoRA distilled against the SLA kernel — it gives no speedup on its own, so H3 SLA Attention is selected and locked below. 6 steps is what its authors recommend.",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
         }),
       ];
     }
     if (state.turboMode === "pdd") {
-      const pddHelp = "Loads any turbo LoRA as a plain model-only LoRA (core-native since ComfyUI v0.35.0 — no separate pack). Set steps to what the LoRA was distilled for.\n\nPDD Acc (alibaba-pai) works here too: the release is per-variant, so pair Ref2VA with the reference UNET and FL2VA with the first-last one — a mismatched pair does not error, it just renders badly. Use the ComfyUI-converted file (…_comfy.safetensors); the raw alibaba-pai one applies 0 patches. 8 and 4 steps are its official counts. Strength was trained at 1.0. The LoRA itself (per generation mode) is set in ⚙ Settings → Models.";
+      const pddHelp = "Loads any turbo LoRA as a plain model-only LoRA (core-native since ComfyUI v0.35.0 — no separate pack). Set steps to what the LoRA was distilled for.\n\nPDD Acc (alibaba-pai) works here too: the release is per-variant, so pair Ref2VA with the reference UNET and FL2VA with the first-last one — a mismatched pair does not error, it just renders badly. Use the ComfyUI-converted file (…_comfy.safetensors); the raw alibaba-pai one applies 0 patches. 8 and 4 steps are its official counts. Strength was trained at 1.0.";
       // The two LoRA slots live here too (node parity) and stay in sync with ⚙ Settings → Models:
       // both write the same state.pddFile / pddFileReference and the server config. Core-native PDD
       // loads the file as a plain LoRA, so the options are the regular loras list.
@@ -2297,7 +2319,6 @@ export function renderMinimaxH3(container: HTMLElement) {
           col([label("Activation chunk rows"), numberField(state.hiresChunkRows ?? 2048, (v) => { state.hiresChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]),
           hiresLine,
         ] : []),
-        ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No Turbo LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
     return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
@@ -2940,6 +2961,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     // ── denoise ────────────────────────────────────────────────────────────
     // Face Refine's own Turbo — the same choices as the main Turbo section (None / Turbo LoRA (Basic) / larryvrh / SLA), each
     // with its own LoRA, strength and steps, kept in fr* keys so the main render's Turbo is untouched.
+    // availableLoras is otherwise only lazy-loaded by the H3 / LTX panels — Face Refine can be the first panel opened.
+    if (!availableLoras.length && !frLoraFetchTried) { frLoraFetchTried = true; getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {}); }
     const frLoraOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
     const frMode = state.frTurboMode || "none";
     const frNote = (t: string) => el("div", { text: t, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
@@ -4248,6 +4271,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           rememberImgConfig({ turbo_mode: v });
           renderLeft();
         })]),
+        ...turboNotes(),
         ...turboSettings(),
       ])
     );
@@ -4480,6 +4504,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   // ══ LoRA panel ══════════════════════════════════════════════════════════
   let availableLoras: string[] = [];
+  let frLoraFetchTried = false;   // Face Refine asks for the LoRA list once (an empty list must not loop)
 
   function mountLoraPanel() {
     const wrap = el("div");
@@ -5194,7 +5219,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       turboLora: rs.turboMode === "larryvrh" ? rs.turboLora : null,
       turboLoraReference: rs.turboMode === "larryvrh" ? rs.turboLoraReference : null,
       turboLoraStrength: rs.turboLoraStrength, turboLoraLowVram: rs.turboLoraLowVram,
-      turboSteps: rs.turboSteps, slaTurboSteps: rs.slaTurboSteps,
+      turboSteps: rs.turboSteps, slaTurboSteps: rs.slaTurboSteps, slaTurboLora: rs.slaTurboLora,
       scheduler: rs.scheduler, denoise: rs.denoise, shiftVideo: rs.shiftVideo, shiftAudio: rs.shiftAudio,
       // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §4 — refImages/refImagesMp/firstFrameImage/
       // lastFrameImage/refVideos/refAudios were never saved before, so Reuse on a Reference-mode
@@ -5906,12 +5931,13 @@ export function renderMinimaxH3(container: HTMLElement) {
       // node v1.21.2 — the turbo section's own step counts + model files + the sampling row.
       // Same bug class as the presets: Reuse of a PDD clip restored turboMode="pdd" with no
       // file → effectiveTurbo fell back to normal steps. != null so a pre-v1.21.2 clip (none of
-      // these fields) leaves the panel alone. slaTurboLora is skipped — plain LoRA entry here.
+      // these fields) leaves the panel alone.
       if (meta.pddFile != null) state.pddFile = meta.pddFile;
       if (meta.pddFileReference != null) state.pddFileReference = meta.pddFileReference;
       if (meta.pddNfe != null) state.pddNfe = String(meta.pddNfe);
       if (meta.turboSteps != null) state.turboSteps = meta.turboSteps;
       if (meta.slaTurboSteps != null) state.slaTurboSteps = meta.slaTurboSteps;
+      if (meta.slaTurboLora) state.slaTurboLora = meta.slaTurboLora;
       if (meta.scheduler != null) state.scheduler = meta.scheduler;
       if (meta.denoise != null) state.denoise = meta.denoise;
       if (meta.shiftVideo != null) state.shiftVideo = meta.shiftVideo;

@@ -737,6 +737,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       turbo_lora_strength: state.turboLoraStrength ?? 1.0,
       pdd_file: state.pddFile || "",
       pdd_file_reference: state.pddFileReference || "",
+      turbo_lora_reference: state.turboLoraReference || "",
+      sla_turbo_lora: state.slaTurboLora || "",
+      sla_turbo_strength: state.slaTurboStrength ?? 1.0,
+      sla_turbo_steps: state.slaTurboSteps ?? 6,
+      pdd_nfe: String(state.pddNfe ?? "8"),
+      pdd_lora_strength: state.pddLoraStrength ?? 1.0,
+      turbo_mode: state.turboMode || "none",
       // LTX 2.5 Upscale mode
       ltx_unet: state.ltxUnet || "",
       ltx_latent_upscaler: state.ltxLatentUpscaler || "",
@@ -857,6 +864,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       take("turboLora", cfg.turbo_lora);
       take("pddFile", cfg.pdd_file);
       take("pddFileReference", cfg.pdd_file_reference);
+      take("turboLoraReference", cfg.turbo_lora_reference);
+      take("slaTurboLora", cfg.sla_turbo_lora);
+      if (cfg.sla_turbo_strength != null) state.slaTurboStrength = cfg.sla_turbo_strength;
+      if (cfg.sla_turbo_steps != null) state.slaTurboSteps = cfg.sla_turbo_steps;
+      if (cfg.pdd_nfe != null) state.pddNfe = String(cfg.pdd_nfe);
+      if (cfg.pdd_lora_strength != null) state.pddLoraStrength = cfg.pdd_lora_strength;
+      if (cfg.turbo_mode) state.turboMode = cfg.turbo_mode;
       take("ltxUnet", cfg.ltx_unet);
       take("ltxLatentUpscaler", cfg.ltx_latent_upscaler);
       take("ltxClip", cfg.ltx_clip);

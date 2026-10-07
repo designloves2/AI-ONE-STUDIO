@@ -198,8 +198,21 @@ export interface MinimaxState {
   // Face Refine's OWN LoRA list — never state.loras.
   frLoras: LtxLoraEntry[];
   // Face Refine's OWN turbo switch — independent of the main render's turboMode (§18).
-  frTurboOn: boolean;
-  frTurboPreset: string;     // a preset id from allPresets(), e.g. "u:PDD-8step"
+  // Face Refine's own Turbo — the same choices as the main Turbo section, kept apart so it never changes the main render's.
+  frTurboMode: string;       // "none" | "pdd" | "larryvrh" | "lightx2v"
+  frPddFile: string;
+  frPddNfe: string;
+  frPddLoraStrength: number;
+  frTurboLora: string;
+  frTurboLoraStrength: number;
+  frTurboSteps: number;
+  frTurboLoraLowVram: boolean;
+  frSlaTurboLora: string;
+  frSlaTurboStrength: number;
+  frSlaTurboSteps: number;
+  // Dedicated SLA turbo LoRA slot (node parity). Only Face Refine fills it on web; the main render's stays "none".
+  slaTurboLora?: string;
+  slaTurboStrength?: number;
 
   accelMode: string;
   upscaleMode: string;
@@ -243,7 +256,7 @@ export interface MinimaxState {
   // replace the file slots; empty = the file slots work as before.
   assetRef: AssetRef | null;
   refSource: "files" | "library";
-  refVideos: { file: string; start: number; end: number; withAudio?: boolean }[];
+  refVideos: { file: string; start: number; end: number; withAudio?: boolean; mp?: number; srcW?: number; srcH?: number }[];
   refAudios: { file: string; start: number; end: number }[];
   refTypes: { images?: boolean; videos?: boolean; audios?: boolean };
   steps: number;
@@ -1778,8 +1791,18 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     frLoras: Array.isArray(saved.frLoras)
       ? saved.frLoras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, enabled: l.enabled !== false }))
       : [],
-    frTurboOn: saved.frTurboOn ?? false,
-    frTurboPreset: saved.frTurboPreset || "",
+    frTurboMode: saved.frTurboMode || "none",
+    // The same choices as the main Turbo section, kept apart so Face Refine never changes the main render's.
+    frPddFile: saved.frPddFile || "none",
+    frPddNfe: String(saved.frPddNfe ?? "8"),
+    frPddLoraStrength: saved.frPddLoraStrength ?? 1.0,
+    frTurboLora: saved.frTurboLora || "none",
+    frTurboLoraStrength: saved.frTurboLoraStrength ?? 1.0,
+    frTurboSteps: saved.frTurboSteps ?? 4,
+    frTurboLoraLowVram: !!saved.frTurboLoraLowVram,
+    frSlaTurboLora: saved.frSlaTurboLora || "none",
+    frSlaTurboStrength: saved.frSlaTurboStrength ?? 1.0,
+    frSlaTurboSteps: saved.frSlaTurboSteps ?? 6,
 
     accelMode: saved.accelMode || "solattn",
     upscaleMode: saved.upscaleMode || "none",

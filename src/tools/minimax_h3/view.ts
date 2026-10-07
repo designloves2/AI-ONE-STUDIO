@@ -2938,32 +2938,60 @@ export function renderMinimaxH3(container: HTMLElement) {
     ]));
 
     // ── denoise ────────────────────────────────────────────────────────────
-    // Face Refine's own Turbo switch — independent of whatever the main H3 generation modes
-    // are set to. OFF: Steps/Sampler below are free-editable. ON: a saved turbo preset's full
-    // accel recipe applies and Steps/Sampler are hidden — a turbo LoRA's step count is not a
-    // preference to override.
-    const frTurboPresets: { id: string; label: string }[] = [
-      ...userPresets.filter((p) => p.turbo && p.turbo !== "none").map((p) => ({ id: `u:${p.name}`, label: `★ ${p.name}` })),
-      ...PIPELINE_PRESETS.filter((p) => p.turbo && p.turbo !== "none").map((p) => ({ id: `s:${p.id}`, label: p.label })),
-    ];
-    leftPanel.appendChild(accordion("frdenoise", "Denoise", state.frTurboOn ? "Turbo" : `${state.frSteps ?? 8} steps`, () => {
-      const kids: (Node | null)[] = [
-        row([col([checkboxRow("Turbo", !!state.frTurboOn, (v) => { state.frTurboOn = v; persist(); renderLeft(); })])]),
+    // Face Refine's own Turbo — the same choices as the main Turbo section (None / Turbo LoRA (Basic) / larryvrh / SLA), each
+    // with its own LoRA, strength and steps, kept in fr* keys so the main render's Turbo is untouched.
+    const frLoraOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
+    const frMode = state.frTurboMode || "none";
+    const frNote = (t: string) => el("div", { text: t, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
+    const frWarn = (t: string) => el("div", { text: t, style: { fontSize: "10px", color: C.warn } });
+    leftPanel.appendChild(accordion("frdenoise", "Denoise", frMode !== "none" ? "Turbo" : `${state.frSteps ?? 8} steps`, () => {
+      const frTurboRow: (Node | null)[] = [
+        label("Turbo"),
+        select(TURBO_MODES.map((t) => ({ value: t.key, label: t.label })), frMode, (v) => { state.frTurboMode = v; persist(); renderLeft(); }),
       ];
-      if (state.frTurboOn) {
-        if (frTurboPresets.length) {
-          const curId = state.frTurboPreset || frTurboPresets[0].id;
-          if (!state.frTurboPreset) { state.frTurboPreset = curId; persist(); }
-          kids.push(row([col([label("Turbo preset"), select(frTurboPresets.map((p) => ({ value: p.id, label: p.label })), curId, (v) => { state.frTurboPreset = v; persist(); })])]));
-        } else {
-          kids.push(el("div", { text: "No turbo preset found — save one (with a turbo LoRA set) from the main panel's Preset menu first.", style: { fontSize: "10px", color: C.warn } }));
-        }
-      } else {
-        kids.push(row([
-          col([label("Steps"), numberField(state.frSteps ?? 8, (v) => { state.frSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
-          col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.frSampler || "euler", (v) => { state.frSampler = v; persist(); })]),
-        ]));
+      const frNode = (TURBO_MODES.find((t) => t.key === frMode) as any)?.node;
+      if (frNode && ctx.availability && Object.keys(ctx.availability).length && !ctx.availability[frNode]) {
+        frTurboRow.push(el("div", { html: `⚠ <code>${frNode}</code> not installed — this option is skipped at run time.`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
       }
+      if (frMode === "pdd") {
+        frTurboRow.push(
+          label("Turbo LoRA"),
+          searchableSelect(frLoraOpts, state.frPddFile || "none", (v) => { state.frPddFile = v; persist(); renderLeft(); }).el,
+          row([
+            col([label("steps"), numberField(Number(state.frPddNfe) || 8, (v) => { state.frPddNfe = String(Math.max(1, Math.round(v))); persist(); renderLeft(); }, 1)]),
+            col([label("lora strength"), numberField(state.frPddLoraStrength ?? 1.0, (v) => { state.frPddLoraStrength = v; persist(); }, 0.05)]),
+          ]));
+        if (!state.frPddFile || state.frPddFile === "none") frTurboRow.push(frWarn("⚠ No turbo LoRA set — turbo is skipped."));
+      } else if (frMode === "larryvrh") {
+        frTurboRow.push(
+          label("Turbo LoRA"),
+          searchableSelect(frLoraOpts, state.frTurboLora || "none", (v) => { state.frTurboLora = v; persist(); renderLeft(); }).el,
+          row([
+            col([label("strength"), numberField(state.frTurboLoraStrength ?? 1.0, (v) => { state.frTurboLoraStrength = v; persist(); }, 0.05)]),
+            col([label("turbo steps"), numberField(state.frTurboSteps ?? 4, (v) => { state.frTurboSteps = Math.max(1, Math.round(v)); persist(); renderLeft(); }, 1)]),
+          ]),
+          checkboxRow("Low VRAM turbo load", !!state.frTurboLoraLowVram, (v) => { state.frTurboLoraLowVram = v; persist(); }));
+        if (!state.frTurboLora || state.frTurboLora === "none") frTurboRow.push(frWarn("⚠ No turbo LoRA set — turbo is skipped."));
+      } else if (frMode === "lightx2v") {
+        frTurboRow.push(
+          label("SLA turbo LoRA"),
+          searchableSelect(frLoraOpts, state.frSlaTurboLora || "none", (v) => { state.frSlaTurboLora = v; persist(); renderLeft(); }).el,
+          row([
+            col([label("strength"), numberField(state.frSlaTurboStrength ?? 1.0, (v) => { state.frSlaTurboStrength = v; persist(); }, 0.05)]),
+            col([label("steps"), numberField(state.frSlaTurboSteps ?? 6, (v) => { state.frSlaTurboSteps = Math.max(1, Math.round(v)); persist(); renderLeft(); }, 1)]),
+          ]),
+          frNote("An ordinary LoRA distilled against the SLA kernel; H3 SLA Attention is applied with it."));
+        if (!state.frSlaTurboLora || state.frSlaTurboLora === "none") frTurboRow.push(frWarn("⚠ No SLA turbo LoRA set — turbo is skipped."));
+      }
+      const frTurboSteps = frMode === "pdd" ? Number(state.frPddNfe) || 8
+        : frMode === "larryvrh" ? state.frTurboSteps ?? 4 : frMode === "lightx2v" ? state.frSlaTurboSteps ?? 6 : null;
+      const kids: (Node | null)[] = [row([col(frTurboRow)])];
+      const stepsField = numberField(frMode !== "none" ? (frTurboSteps as number) : (state.frSteps ?? 8), (v) => { state.frSteps = Math.max(1, Math.round(v)); persist(); }, 1);
+      if (frMode !== "none") { (stepsField as HTMLInputElement).disabled = true; stepsField.style.opacity = "0.5"; }
+      kids.push(row([
+        col([label(frMode !== "none" ? "Steps (set by Turbo)" : "Steps"), stepsField]),
+        ...(frMode === "none" ? [col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.frSampler || "euler", (v) => { state.frSampler = v; persist(); })])] : []),
+      ]));
       kids.push(row([
         col([label("Base denoise"), numberField(state.frDenoise ?? 0.40, (v) => { state.frDenoise = Math.min(1, Math.max(0.01, v)); persist(); }, 0.01)]),
       ]));
@@ -3328,7 +3356,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
         const built = buildFaceRefineGraph(rs, ctx.availability, {
           nodeId: instanceId, sourceFile, promptText: rs.frPrompt, seed: rs.seed,
-          refImages: rs.refImages, userPresets,
+          refImages: rs.refImages,
           confirmedPickOverride: chain ? String(chain[i]) : undefined,
         });
         lastMeta = built.meta;

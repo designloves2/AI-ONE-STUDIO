@@ -461,6 +461,15 @@ function mediaSlot(kind: "video" | "audio", list: any[], idx: number, ctx: Image
   });
   const outRow = tinyNum("out", entry.end ?? 0, (v) => { entry.end = v; onWindowEdit(); }, (v) => Math.min(Math.max(0, v), srcLen()));
   wrap.append(inRow.el, outRow.el);
+  // A reference video keeps its own size and every frame becomes tokens, so a large clip is what
+  // makes a render crawl. mp = downscale (never upscale) to this many megapixels when the clip is
+  // queued; 0 = as it is. The file in the input folder is not changed.
+  if (isVideo) {
+    const mpRow = tinyNum("mp", entry.mp ?? 0, (v) => { entry.mp = v; ctx.persist(); }, (v) => Math.max(0, v));
+    mpRow.input.step = "0.1";
+    mpRow.el.title = "Downscale to this many megapixels when queued (0 = as it is, never upscaled). The file is not changed.";
+    wrap.append(mpRow.el);
+  }
 
   // Source facts, at the same size — a silent video can't lend its soundtrack, and that's
   // worth saying here rather than failing the prompt later.
@@ -469,6 +478,7 @@ function mediaSlot(kind: "video" | "audio", list: any[], idx: number, ctx: Image
   getMediaInfo(entry.file).then((d) => {
     if (!d.ok) return;
     const bits = [`${(d.duration || 0).toFixed(2)}s`];
+    if (isVideo && d.width) { bits.push(`${d.width}×${d.height}`); entry.srcW = d.width; entry.srcH = d.height; }
     if (isVideo && d.fps) bits.push(`${d.fps}fps→24`);
     if (isVideo) bits.push(d.has_audio ? "has audio" : "silent");
     // One fact per line: dot-separated wrapped at arbitrary points in a 72px column.

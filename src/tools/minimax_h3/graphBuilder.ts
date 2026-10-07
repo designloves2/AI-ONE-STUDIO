@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
-import type { MinimaxState, LoraEntry, PipelinePreset, UserPipelinePreset } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, PIPELINE_PRESETS, applyPreset, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
+import type { MinimaxState, LoraEntry } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -24,6 +24,7 @@ const N = {
   sol: "MM:solattn",
   spectrum: "MM:spectrum",
   turbo: "MM:turbo_lora",
+  slaTurboLora: "MM:sla_turbo_lora",
   pdd: "MM:pdd_acc",
   preview: "MM:preview",
   cond: "MM:cond",
@@ -57,6 +58,7 @@ const N = {
   ref: (i: number) => `MM:ref_${i}`,
   refResize: (i: number) => `MM:ref_resize_${i}`,
   refVid: (i: number) => `MM:refvid_${i}`,
+  refVidResize: (i: number) => `MM:refvid_resize_${i}`,
   refAud: (i: number) => `MM:refaud_${i}`,
   refAudTrim: (i: number) => `MM:refaud_trim_${i}`,
   audioLock: "MM:audio_lock",
@@ -536,6 +538,11 @@ function buildModelChain(g: Graph, state: MinimaxState, avail: Avail | undefined
   if (turboWeights === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
     g[N.turbo] = { class_type: "MiniMaxH3TurboLoRA", inputs: { model: m, lora_name: turboLoraForMode(state), strength: state.turboLoraStrength ?? 1.0, low_vram: !!state.turboLoraLowVram } };
     m = [N.turbo, 0];
+  } else if (turboWeights === "lightx2v" && state.slaTurboLora && state.slaTurboLora !== "none") {
+    // An ordinary LoRA — the speedup comes from the SLA kernel it was distilled against. Only Face Refine fills
+    // this slot on web; the main render keeps lightx2v as a regular LoRA entry (see the note above).
+    g[N.slaTurboLora] = { class_type: "LoraLoaderModelOnly", inputs: { model: m, lora_name: state.slaTurboLora, strength_model: state.slaTurboStrength ?? 1.0 } };
+    m = [N.slaTurboLora, 0];
   } else if (turboWeights === "pdd") {
     // Core-native since ComfyUI v0.35.0 (#15908 "Support PDD LoRA"). The ComfyUI-converted
     // Acc checkpoint (not the raw alibaba-pai file — its DiffSynth key names map to nothing
@@ -670,7 +677,11 @@ function buildConditioning(g: Graph, state: MinimaxState, promptText: string, wi
         const skip = Math.round(start * FPS);
         const cap = Math.max(0, Math.round((end - start) * FPS));
         g[N.refVid(i)] = { class_type: "VHS_LoadVideo", inputs: { video: v.file, force_rate: FPS, custom_width: 0, custom_height: 0, frame_load_cap: cap, skip_first_frames: skip, select_every_nth: 1 } };
-        inputs[`ref_videos.ref_video_${i}`] = [N.refVid(i), 0];
+        // Downscale to v.mp megapixels (never upscale: skipped when the probed source is already
+        // smaller). Without this the video keeps its own size and every frame becomes tokens.
+        const tooBig = !v.srcW || !v.srcH || v.srcW * v.srcH > (v.mp || 0) * 1e6;
+        inputs[`ref_videos.ref_video_${i}`] = (v.mp || 0) > 0 && tooBig
+          ? resizeToMp(g, N.refVidResize(i), [N.refVid(i), 0], v.mp) : [N.refVid(i), 0];
         if (v.withAudio !== false) inputs[`ref_video_audios.ref_video_audio_${i}`] = [N.refVid(i), 2];
       });
     }
@@ -1122,21 +1133,6 @@ const FR = {
   lora: (i: number) => `FR:lora${i}`, // Face Refine's own LoRA chain — §17, never state.loras
 };
 
-/** Resolve a saved preset id ("s:<numeric id>" for a PIPELINE_PRESETS built-in, "u:<name>" for
- * a user preset) the same way view.ts's own preset dropdown names them (§18's frTurboPreset). */
-function findPresetById(id: string, userPresets: UserPipelinePreset[] | undefined): PipelinePreset | UserPipelinePreset | null {
-  if (!id) return null;
-  if (id.startsWith("u:")) {
-    const name = id.slice(2);
-    return (userPresets || []).find((p) => p.name === name) || null;
-  }
-  if (id.startsWith("s:")) {
-    const num = Number(id.slice(2));
-    return PIPELINE_PRESETS.find((p) => p.id === num) || null;
-  }
-  return null;
-}
-
 export interface FaceRefineOpts {
   nodeId?: string | number | null;
   sourceFile: string; // filename in ComfyUI's input/
@@ -1146,13 +1142,10 @@ export interface FaceRefineOpts {
   // Multi-person chain (§12): each chain step calls this with its own single pick instead
   // of reading state.frConfirmedPick, so the step never touches the shared state.
   confirmedPickOverride?: string;
-  // Needed only when state.frTurboOn is set — the caller's own loaded user-preset list, so
-  // this stays a pure function instead of reading from a global/module cache.
-  userPresets?: UserPipelinePreset[];
 }
 
 export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefined, opts: FaceRefineOpts) {
-  const { nodeId = null, sourceFile, promptText, seed, refImages, confirmedPickOverride, userPresets } = opts;
+  const { nodeId = null, sourceFile, promptText, seed, refImages, confirmedPickOverride } = opts;
   if (!sourceFile) throw new Error("Face Refine: pick a source clip (gallery or upload).");
   if (!state.faceDetector || state.faceDetector === "none")
     throw new Error("Face Refine: set a face detector in ⚙ Settings — FaceRefine Model.");
@@ -1227,27 +1220,25 @@ export function buildFaceRefineGraph(state: MinimaxState, avail: Avail | undefin
   if (useCustomModel && (!clipFile || clipFile === "none"))
     throw new Error("Face Refine: set its own text encoder in ⚙ Settings → FaceRefine Model (or turn off 'use a separate model').");
   const refState: MinimaxState = { ...state, generationMode: "reference", unetReference: unetFile };
-  // Face Refine's OWN turbo switch (§18) — independent of the main render's turboMode.
-  // OFF: force "none" regardless of what the main render has set, so no turbo LoRA leaks in
-  // by accident. ON: apply the chosen saved preset's full accel recipe onto refState (a
-  // shallow copy — the real `state`/main render is untouched).
-  if (state.frTurboOn) {
-    const preset = findPresetById(state.frTurboPreset, userPresets)
-      || (userPresets || []).find((p) => p.turbo && p.turbo !== "none")
-      || PIPELINE_PRESETS.find((p) => p.turbo && p.turbo !== "none")
-      || null;
-    if (preset) {
-      applyPreset(refState, preset);
-      // applyPreset writes unetReference when the matched preset pins one (RECIPE_KEYS) —
-      // re-assert Face Refine's own model choice (unetFile: frUnet under frUseCustomModel,
-      // else state.unetReference) so a preset's pinned model can never silently override it.
-      refState.unetReference = unetFile;
-    } else {
-      refState.turboMode = "none";
-    }
-  } else {
-    refState.turboMode = "none";
-  }
+  // Face Refine's OWN turbo settings — the same choices as the main Turbo section (None / Turbo LoRA
+  // (Basic) / larryvrh / SLA), independent of the main render's. refState is a shallow copy, so the
+  // real `state` is untouched; Face Refine always runs Reference-style, hence the Reference LoRA slots.
+  refState.turboMode = state.frTurboMode || "none";
+  refState.pddFileReference = state.frPddFile;
+  refState.pddNfe = state.frPddNfe;
+  refState.pddLoraStrength = state.frPddLoraStrength;
+  refState.turboLoraReference = state.frTurboLora;
+  refState.turboLora = state.frTurboLora;   // web's turboLoraForMode() reads turboLora (not the Reference slot) — this copy is Face Refine's own
+  refState.turboLoraStrength = state.frTurboLoraStrength;
+  refState.turboSteps = state.frTurboSteps;
+  refState.turboLoraLowVram = state.frTurboLoraLowVram;
+  refState.slaTurboLora = state.frSlaTurboLora;
+  refState.slaTurboStrength = state.frSlaTurboStrength;
+  refState.slaTurboSteps = state.frSlaTurboSteps;
+  // Web's turboEffective() does not gate lightx2v on the SLA slot (the main panel uses a plain LoRA entry), so the
+  // "no SLA turbo LoRA set — turbo is skipped" rule is applied here.
+  if (refState.turboMode === "lightx2v" && (!state.frSlaTurboLora || state.frSlaTurboLora === "none")) refState.turboMode = "none";
+  refState.hiresFinish = false;   // 7+1 is a clip-render mode
   const modelLink0 = buildModelChain(g, refState, avail);
   g[N.clip] = String(clipFile || "").toLowerCase().endsWith(".gguf")
     ? { class_type: "CLIPLoaderGGUF", inputs: { clip_name: clipFile, type: "minimax" } }

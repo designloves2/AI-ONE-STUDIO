@@ -358,7 +358,7 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
   g[N.hrMem] = { class_type: "H3MemoryOptimization", inputs: {
     model: [N.hrShift, 0],
     fused_qkv: "auto", preserve_precision: true, embedding_memory_mode: "Auto",
-    mlp_memory: "auto", chunk_rows: 2048, precision_mode: "Preserve native",
+    mlp_memory: "auto", chunk_rows: Math.round(state.hiresChunkRows ?? 2048), precision_mode: "Preserve native",
     qkv_streaming_mode: "Forced", kitchen_v_memory_mode: "Lower VRAM (slower)",
   } };
   g[N.hrSparse] = { class_type: "BlockSparseAttention", inputs: {

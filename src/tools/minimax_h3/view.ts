@@ -2294,6 +2294,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             col([label("Start MP"), numberField(state.hiresStartMp ?? 0.5, (v) => { state.hiresStartMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
             col([label("Final MP"), numberField(state.hiresFinalMp ?? 1.0, (v) => { state.hiresFinalMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
           ]),
+          col([label("Activation chunk rows"), numberField(state.hiresChunkRows ?? 2048, (v) => { state.hiresChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]),
           hiresLine,
         ] : []),
         ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No Turbo LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
@@ -5138,7 +5139,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
-      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp,
+      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresChunkRows: rs.hiresChunkRows,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
       // accel stays for pre-split readers only (this session's own Reuse now reads the axis
       // fields below directly) — a peer session on the node port confirmed accelMode is
@@ -5844,6 +5845,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.hiresFinish = !!meta.hiresFinish;
       if (meta.hiresStartMp != null) state.hiresStartMp = meta.hiresStartMp;
       if (meta.hiresFinalMp != null) state.hiresFinalMp = meta.hiresFinalMp;
+      if (meta.hiresChunkRows != null) state.hiresChunkRows = meta.hiresChunkRows;
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
       if (meta.sampler != null) state.sampler = meta.sampler;

@@ -220,6 +220,7 @@ export interface MinimaxState {
   hiresFinish: boolean;
   hiresStartMp: number;
   hiresFinalMp: number;
+  hiresChunkRows: number;
   clipFrames: number;
   clipLengthCustom: boolean;
   clipLengthCustomSec: number;
@@ -981,7 +982,7 @@ export const RECIPE_KEYS = [
   "loras",
   // 7+1 hi-res finish: the checkbox and its two sizes travel with a saved recipe, but it is
   // not a matching axis — a built-in preset never turns it on or off.
-  "hiresFinish", "hiresStartMp", "hiresFinalMp",
+  "hiresFinish", "hiresStartMp", "hiresFinalMp", "hiresChunkRows",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -1028,6 +1029,7 @@ export interface UserPipelinePreset {
   hiresFinish?: boolean;
   hiresStartMp?: number;
   hiresFinalMp?: number;
+  hiresChunkRows?: number;
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */
@@ -1792,6 +1794,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     hiresFinish: !!saved.hiresFinish,
     hiresStartMp: saved.hiresStartMp ?? 0.5,
     hiresFinalMp: saved.hiresFinalMp ?? saved.megapixels ?? 1.0,
+    hiresChunkRows: saved.hiresChunkRows ?? 2048,   // H3 Memory Optimization "Activation chunk rows" of the 7+1 last step
     clipFrames: saved.clipFrames ?? DEFAULT_FRAMES,
     clipLengthCustom: !!saved.clipLengthCustom,
     clipLengthCustomSec: saved.clipLengthCustomSec ?? framesToSeconds(saved.clipFrames ?? DEFAULT_FRAMES),

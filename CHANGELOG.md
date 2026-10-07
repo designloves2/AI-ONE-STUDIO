@@ -3,6 +3,27 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.7.0] — 2026-10-07
+
+Asset Library follow-ups. See `PORT_LEDGER.md` rows 24–25.
+
+### Added
+- **Phone layout (≤767px) for every Asset Library screen** (desktop unchanged): categories and project names are a combo box, the
+  Assets-tab viewer opens as a full-screen sheet (✕ closes), cards 3 / 2 / 2 per row, touch-size controls and 16px inputs, wrapping
+  top / bottom bars, 3-column gallery-import and picker grids, full-width `@` list that moves above the box when the keyboard
+  leaves no room.
+- `@` autocomplete on the main clip prompt boxes (it was only in Prompt Edit), sharing the 4 s library-context memo
+  (`libraryContextCached`).
+
+### Fixed
+- Clip meta now records the library set the clip actually used (its own when overriding; a chained clip without `first`), not the
+  node-wide one.
+
+### Notes
+- Using the library through `https://studio.tjtj.cloud` needs `allowed_origins` in ComfyUI's `tj_reflib.json` (see README);
+  without it the Asset tab shows "FORBIDDEN: Cross-origin requests are not allowed."
+- Package version set to 0.7.0 (it had stayed at 0.2.0 / 0.0.0 while this changelog moved on).
+
 ## [0.6.0] — 2026-10-07
 
 Coordinated with `ComfyUI-TJ_NODE_STUDIO_ONE` (node → web). See `PORT_LEDGER.md` rows 22–23.

@@ -81,13 +81,18 @@ tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Refe
 ### 에셋 라이브러리 / Asset Library (MiniMax H3)
 H3 상단 첫 번째 **Asset** 탭에서 ComfyUI-TJ_NODE의 레퍼런스 에셋 라이브러리(이미지·영상·오디오·세트, 프로젝트)를
 보고 등록·교체·저장·삭제할 수 있습니다. Reference / First-Last 패널의 "Files / Gallery | Asset Library" 스위치와
-Prompt Edit의 `@` 자동완성으로 클립에 연결합니다. 서버는 TJ_NODE의 `/tj_node/reflib` REST를 그대로 사용합니다
-(개발 서버는 `/tj_node`를 프록시; 터널로 직접 호출하려면 TJ_NODE의 `tj_reflib.json` `allowed_origins` 설정이 필요).
+메인 화면 클립 프롬프트와 Prompt Edit의 `@` 자동완성으로 클립에 연결합니다. 서버는 TJ_NODE의 `/tj_node/reflib` REST를 그대로
+사용합니다. 휴대폰(≤767px)에서는 카테고리·프로젝트가 콤보박스, 뷰어가 전체 화면 시트로 바뀝니다(라벨·동작은 동일).
+개발 서버는 `/tj_node`를 프록시합니다. 터널(`https://studio.tjtj.cloud`)에서 쓰려면 ComfyUI 사용자 폴더의
+`tj_reflib.json`에 `{ "allowed_origins": ["https://studio.tjtj.cloud"] }`를 직접 추가해야 합니다(보안 설정 — 이 허용 출처에서
+오는 요청은 에셋 삭제·교체까지 가능해집니다).
 
 H3's first **Asset** tab browses and edits ComfyUI-TJ_NODE's reference asset library (images, videos, audio, sets, projects).
-Attach assets to a clip with the "Files / Gallery | Asset Library" switch (Reference, First/Last) or via `@` in Prompt Edit.
-It uses TJ_NODE's `/tj_node/reflib` REST as-is (the dev server proxies `/tj_node`; calling it straight from the tunnel needs
-`allowed_origins` in TJ_NODE's `tj_reflib.json`).
+Attach assets to a clip with the "Files / Gallery | Asset Library" switch (Reference, First/Last) or via `@` in the main clip
+prompt boxes and Prompt Edit. It uses TJ_NODE's `/tj_node/reflib` REST as-is. On phones (≤767px) categories / projects become a
+combo box and the viewer a full-screen sheet (same labels and behaviour). The dev server proxies `/tj_node`; to use it through
+the tunnel add `{ "allowed_origins": ["https://studio.tjtj.cloud"] }` to `tj_reflib.json` in ComfyUI's user folder yourself
+(a security setting — that origin can then also delete / replace assets).
 
 ### LLM 연결 / LLM backends
 모든 프롬프트 LLM 선택창(MiniMax H3 Brief/Vision/LTX Upscale, 이미지 도구의 Prompt Enhance·Image → Prompt Write,

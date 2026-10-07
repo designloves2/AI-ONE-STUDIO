@@ -61,8 +61,9 @@ function audioTrimEditor(a, f, src) {
   const hit = (e) => {
     const r = rect(), x = e.clientX - r.left;
     const sx = (num(f.start) / duration) * r.width, ex = (outOf() / duration) * r.width;
-    if (Math.abs(x - sx) <= 10) return "start";
-    if (Math.abs(x - ex) <= 10) return "end";
+    const tol = window.matchMedia("(pointer: coarse)").matches ? 24 : 10;   // fingers need a wider grab zone than a mouse
+    if (Math.abs(x - sx) <= tol) return "start";
+    if (Math.abs(x - ex) <= tol) return "end";
     return x > sx && x < ex ? "move" : "new";
   };
   const setStart = (t) => { f.start.value = round(Math.min(Math.max(0, t), Math.max(0, outOf() - 0.05))); };
@@ -164,6 +165,9 @@ function column(title) {
 }
 
 export function mountAssetBrowser({ height }) {
+  // Web-only: phones (<=767px) get a stacked layout (see applyLayout below).
+  const narrow = window.matchMedia("(max-width: 767px)");
+  const coarse = window.matchMedia("(pointer: coarse)");
   const LEFT_W = 190;                          // left column, same on both tabs; the two tab buttons together are as wide
   const CARD_KEY = "tj_reflib_card_cols";      // cards per row: 4 (small) / 3 / 2 (large)
   let cardCols = 4;
@@ -179,7 +183,7 @@ export function mountAssetBrowser({ height }) {
 
   // "+ Register" opens a two-way menu: upload from disk, or pick from this pack's galleries.
   const menuItem = (text, onClick) => {
-    const i = el("div", { text, style: { padding: "7px 14px", cursor: "pointer", whiteSpace: "nowrap" } });
+    const i = el("div", { text, className: "rl-menu-item", style: { padding: "7px 14px", cursor: "pointer", whiteSpace: "nowrap" } });
     i.addEventListener("mouseenter", () => { i.style.background = C.bg3; });
     i.addEventListener("mouseleave", () => { i.style.background = "transparent"; });
     i.addEventListener("click", () => { menuBox.style.display = "none"; onClick(); });
@@ -205,14 +209,24 @@ export function mountAssetBrowser({ height }) {
     display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", padding: "6px", borderTop: `1px solid ${C.border}` } },
     btnReplace, btnSave, btnDelete);
   view.box.appendChild(actions);
+  // Web-only: on phones the viewer opens as a full-screen sheet over the list; this closes it (the node has no such control).
+  const closeSheet = btn("✕", () => { S.id = null; S.detail = null; drawList(); drawView(); }, {
+    position: "absolute", top: "4px", right: "6px", zIndex: "2", display: "none", background: "#c0392b", color: "#fff", border: "none", padding: "5px 12px" });
+  view.box.style.position = "relative";
+  // Web-only: on phones the category list (Assets tab) / project list (Projects tab) is a combo box, not a row of chips.
+  const catSelect = el("select", { style: { ...fieldStyle, display: "none", margin: "6px", width: "calc(100% - 12px)" } });
+  cats.box.insertBefore(catSelect, cats.body);
+  view.box.appendChild(closeSheet);
 
   // Card size: three steps, 4 / 3 / 2 cards per row (slider right = bigger cards); remembered per browser.
-  const sizeLabel = el("span", { text: `${cardCols} per row`, style: { color: C.muted, minWidth: "62px", textAlign: "right" } });
+  // Phones show fewer, bigger cards: the slider keeps its 4 / 3 / 2 steps, mapped to 3 / 2 / 2 per row.
+  const effCols = () => (narrow.matches ? { 4: 3, 3: 2, 2: 2 }[cardCols] : cardCols);
+  const sizeLabel = el("span", { text: `${effCols()} per row`, style: { color: C.muted, minWidth: "62px", textAlign: "right" } });
   const sizeSlider = el("input", { type: "range", min: "1", max: "3", step: "1", value: String(5 - cardCols),
     style: { flex: "1", accentColor: C.lime } });
   sizeSlider.addEventListener("input", () => {
     cardCols = 5 - Number(sizeSlider.value);
-    sizeLabel.textContent = `${cardCols} per row`;
+    sizeLabel.textContent = `${effCols()} per row`;
     try { localStorage.setItem(CARD_KEY, String(cardCols)); } catch { /* storage blocked */ }
     if (S.tab === "assets") drawList(); else drawLibrary();
   });
@@ -229,27 +243,46 @@ export function mountAssetBrowser({ height }) {
   const cols = el("div", { style: {
     display: "grid", gridTemplateColumns: `${LEFT_W}px 1fr 1.2fr`, gap: "8px", flex: "1", minHeight: "0" } },
     cats.box, list.box, view.box);
-  const root = el("div", { style: {
+  const root = el("div", { className: "rl-root", style: {
     display: "flex", flexDirection: "column", gap: "8px", width: "100%", height: typeof height === "number" ? `${height}px` : height, flexShrink: "0",
     boxSizing: "border-box", color: C.text, fontSize: "12px" } },
     el("div", { style: { display: "flex", gap: "6px", alignItems: "center" } },
       el("div", { style: { display: "flex", gap: "6px", width: `${LEFT_W}px`, flexShrink: "0", marginRight: "2px" } }, tabAssets, tabProjects), search,
       registerMenu, btn("Refresh", () => reload()), fileAdd, fileRep),
     cols, msg);
-  // Web-only layout step (phones, <=767px): the three columns would not fit side by side, so they stack and the
-  // whole browser scrolls, and the top row wraps. Same screens, same labels — only the arrangement differs.
-  const narrow = window.matchMedia("(max-width: 767px)");
+  // Web-only layout step (phones, <=767px). Same screens, labels and behaviour; only the arrangement differs:
+  //  - the three columns stack in one scrolling page, in the order categories / assets / (viewer);
+  //  - categories (Assets tab) and project names (Projects tab) become a combo box;
+  //  - the Assets tab's viewer opens as a full-screen sheet when an asset is picked (✕ closes it);
+  //  - the Projects tab keeps its contents panel above the library grid so additions stay visible;
+  //  - the top row wraps and controls get touch sizes (reflibDom.ts MOBILE_CSS).
   const topRow = root.firstElementChild;
-  const applyLayout = () => {
+  function applyLayout(redraw) {
     const m = narrow.matches;
-    cols.style.gridTemplateColumns = m ? "1fr" : `${LEFT_W}px 1fr 1.2fr`;
-    cols.style.gridAutoRows = m ? "minmax(300px, auto)" : "";
+    cols.style.display = m ? "flex" : "grid";
+    cols.style.flexDirection = m ? "column" : "";
+    cols.style.gridTemplateColumns = m ? "" : `${LEFT_W}px 1fr 1.2fr`;
     cols.style.overflowY = m ? "auto" : "";
     topRow.style.flexWrap = m ? "wrap" : "nowrap";
     search.style.minWidth = m ? "140px" : "";
-  };
-  narrow.addEventListener("change", applyLayout);
-  applyLayout();
+    cats.body.style.display = m ? "none" : "";
+    catSelect.style.display = m ? "block" : "none";
+    const sheet = m && S.tab === "assets" && S.id != null && !!S.detail;
+    const projects = S.tab === "projects";
+    cats.box.style.flex = list.box.style.flex = m ? "none" : "";
+    cats.box.style.order = "0";
+    list.box.style.order = m && projects ? "2" : "1";
+    view.box.style.order = m && projects ? "1" : "2";
+    view.box.style.flex = m && !sheet ? "none" : "";
+    if (m && projects) view.box.style.minHeight = "220px"; else view.box.style.minHeight = "";
+    if (sheet) Object.assign(view.box.style, { position: "fixed", inset: "0", zIndex: "100000", borderRadius: "0", maxHeight: "none" });
+    else Object.assign(view.box.style, { position: "relative", inset: "", zIndex: "", borderRadius: "8px" });
+    closeSheet.style.display = sheet ? "block" : "none";
+    if (redraw) { if (S.tab === "assets") drawList(); else drawLibrary(); }
+    sizeLabel.textContent = `${effCols()} per row`;
+  }
+  narrow.addEventListener("change", () => applyLayout(true));
+  applyLayout(false);
 
   function drawCats() {
     cats.body.replaceChildren();
@@ -257,18 +290,20 @@ export function mountAssetBrowser({ height }) {
     for (const a of S.assets) counts[a.category] = (counts[a.category] || 0) + 1;
     for (const c of ["all", ...CATEGORIES]) {
       const on = S.category === c;
-      const row = el("div", { style: {
+      const row = el("div", { className: "rl-cat", style: {
         padding: "6px 9px", borderRadius: "6px", cursor: "pointer", display: "flex", justifyContent: "space-between",
         background: on ? C.lime : "transparent", color: on ? "#fff" : C.text } },
         el("span", { text: c === "all" ? "All" : c }), el("span", { text: String(counts[c] || 0) }));
       row.addEventListener("click", () => { S.category = c; drawCats(); drawList(); });
       cats.body.appendChild(row);
     }
+    catSelect.onchange = () => { S.category = catSelect.value; drawCats(); drawList(); };
+    catSelect.replaceChildren(...["all", ...CATEGORIES].map(c => el("option", { value: c, text: `${c === "all" ? "All" : c} ${counts[c] || 0}`, selected: S.category === c })));
   }
 
   function drawList() {
     list.body.replaceChildren();
-    const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(${cardCols}, 1fr)`, gap: "8px" } });
+    const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(${effCols()}, 1fr)`, gap: "8px" } });
     for (const a of S.assets) {
       if (S.category !== "all" && a.category !== S.category) continue;
       if (S.query && !`${a.name} ${(a.tags || []).join(" ")} ${a.id}`.toLowerCase().includes(S.query)) continue;
@@ -297,7 +332,7 @@ export function mountAssetBrowser({ height }) {
     view.body.replaceChildren();
     S.stopPlay?.(); S.stopPlay = null;
     const d = S.detail;
-    if (!d) { view.body.appendChild(el("div", { text: "Pick an asset on the left.", style: { color: C.muted, padding: "6px" } })); return; }
+    if (!d) { view.body.appendChild(el("div", { text: "Pick an asset on the left.", style: { color: C.muted, padding: "6px" } })); applyLayout(false); return; }
     const a = d.asset;
     const src = reflib.fileUrl(a);
     let media;
@@ -337,6 +372,7 @@ export function mountAssetBrowser({ height }) {
         lab("Name"), f.name, lab("Category"), f.category, lab("Sub"), f.sub, lab("Tags"), f.tags,
         lab("Note"), f.note, ...(a.kind === "audio" ? [] : [lab("mp (cap)"), f.mp])),
       el("div", { text: used, style: { color: C.muted, fontSize: "11px" } })));
+    applyLayout(false);
   }
 
 
@@ -355,6 +391,7 @@ export function mountAssetBrowser({ height }) {
     search.placeholder = projects ? "Search the library" : "Search name / tag / ID";
     registerMenu.style.display = projects ? "none" : "block";
     say("");
+    applyLayout(false);
     if (!projects) { S.stopPlay?.(); drawCats(); drawList(); drawView(); return; }
     S.stopPlay?.(); S.stopPlay = null;
     loadProjects().then(() => { drawProjectList(); drawDraft(); drawLibrary(); });
@@ -369,7 +406,7 @@ export function mountAssetBrowser({ height }) {
   function drawProjectList() {
     cats.body.replaceChildren(...S.projects.map(p => {
       const on = S.draft?.id === p.id;
-      const row = el("div", { title: p.note || p.name, style: {
+      const row = el("div", { title: p.note || p.name, className: "rl-cat", style: {
         padding: "6px 9px", borderRadius: "6px", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: "6px",
         background: on ? C.lime : "transparent", color: on ? "#fff" : C.text } },
         el("span", { text: p.name, style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }),
@@ -378,6 +415,11 @@ export function mountAssetBrowser({ height }) {
       return row;
     }));
     if (!S.projects.length) cats.body.append(el("div", { text: "No projects yet. Press “New project”.", style: { color: C.muted, padding: "6px" } }));
+    catSelect.onchange = () => { if (catSelect.value) openProject(Number(catSelect.value)); };
+    catSelect.replaceChildren(...(S.projects.length
+      ? [...(S.draft?.id == null ? [el("option", { value: "", text: "—", selected: true })] : []),
+         ...S.projects.map(p => el("option", { value: String(p.id), text: `${p.name} ${p.item_count}`, selected: S.draft?.id === p.id }))]
+      : [el("option", { value: "", text: "No projects yet. Press “New project”.", disabled: true, selected: true })]));
   }
 
   async function openProject(id) {
@@ -431,7 +473,7 @@ export function mountAssetBrowser({ height }) {
 
   function drawLibrary() {
     list.body.replaceChildren();
-    const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(${cardCols}, 1fr)`, gap: "8px" } });
+    const grid = el("div", { style: { display: "grid", gridTemplateColumns: `repeat(${effCols()}, 1fr)`, gap: "8px" } });
     for (const a of S.assets) {
       if (S.query && !`${a.name} ${(a.tags || []).join(" ")} ${a.id}`.toLowerCase().includes(S.query)) continue;
       const inside = draftItems().some(i => i.asset_id === a.id);

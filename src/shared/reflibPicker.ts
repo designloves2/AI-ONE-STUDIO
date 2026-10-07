@@ -11,7 +11,7 @@ import { loadLimits, limitWarning } from "./reflibLimits";
 function overlay(title, width) {
   const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100000",
     display: "flex", alignItems: "center", justifyContent: "center" } });
-  const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px",
+  const box = el("div", { className: "rl-root", style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px",
     width: `min(${width}px, 96vw)`, height: "min(760px, 92vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
     display: "flex", flexDirection: "column", gap: "10px", color: C.text, fontSize: "12px" } });
   const close = () => { document.removeEventListener("keydown", onKey); ov.remove(); };
@@ -49,7 +49,7 @@ export function openAssetPicker({ title = "Pick from the asset library", kinds =
   const status = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
   const useBtn = btn("Use selected", () => { onPick(S.picked); close(); }, { background: C.lime, color: "#fff", border: "none", fontWeight: "700" });
   const clearBtn = btn("Clear", () => { S.picked = []; draw(); });
-  const footer = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0",
+  const footer = el("div", { className: "rl-bar", style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0",
     paddingTop: "8px", borderTop: `1px solid ${C.border}` } }, status, el("span", { style: { flex: "1" } }),
     ...(multi ? [clearBtn, useBtn] : []));
   box.append(el("div", { style: { display: "flex", gap: "6px", flexShrink: "0" } }, search), chips, grid, footer);

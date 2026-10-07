@@ -93,7 +93,7 @@ export function openGalleryImport(onDone) {
 
   const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100000",
     display: "flex", alignItems: "center", justifyContent: "center" } });
-  const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px",
+  const box = el("div", { className: "rl-root", style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px",
     width: "min(1056px, 96vw)", height: "min(840px, 92vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)",
     display: "flex", flexDirection: "column", gap: "10px", color: C.text } });
 
@@ -125,7 +125,7 @@ export function openGalleryImport(onDone) {
     folderSel.value = folder;
   }
 
-  const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+  const grid = el("div", { className: "rl-gi-grid", style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
     gridAutoRows: "min-content", gap: "8px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
   const status = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
   const moreBtn = btn("Load more", () => loadMore(), { display: "none", flexShrink: "0" });
@@ -136,7 +136,7 @@ export function openGalleryImport(onDone) {
   const countLabel = el("span", { style: { color: C.muted } });
   const goBtn = btn("Register selected", () => register(), { background: BRAND, color: "#fff", border: "none", fontWeight: "700" });
   const clearBtn = btn("Clear", () => { picked.clear(); grid.querySelectorAll("[data-sel]").forEach(c => mark(c, false)); updateBar(); });
-  const bar = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0",
+  const bar = el("div", { className: "rl-bar", style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0",
     paddingTop: "8px", borderTop: `1px solid ${C.border}` } },
     el("span", { text: "Category", style: { color: C.muted } }), cat, sub, countLabel, el("span", { style: { flex: "1" } }), clearBtn, goBtn);
 

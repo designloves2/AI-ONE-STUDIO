@@ -6,6 +6,21 @@ import { C as WebC, BRAND } from "../identity";
 // The node's palette calls the accent colour `lime`; the web identity names the same value BRAND.
 export const C = { ...WebC, lime: BRAND };
 
+// ── Web-only phone layout (<=767px) for every asset-library screen. Labels / behaviour are the node's; only sizes,
+// wrapping and arrangement change here (touch-size controls, combo-box categories, 16px inputs so iOS does not zoom).
+const MOBILE_CSS = `@media (max-width: 767px) {
+  .rl-root button, .rl-root select { min-height: 40px; }
+  .rl-root input[type=text], .rl-root input[type=number], .rl-root select { min-height: 40px; font-size: 16px !important; }
+  .rl-root input[type=range] { min-height: 32px; }
+  .rl-menu-item { padding: 13px 18px !important; }
+  .rl-bar { flex-wrap: wrap !important; }
+  .rl-bar input[type=text] { width: 100% !important; flex: 1 1 100% !important; }
+  .rl-gi-grid { grid-template-columns: repeat(3, 1fr) !important; }
+}`;
+if (typeof document !== "undefined" && !document.getElementById("aos-reflib-mobile-css")) {
+  const st = document.createElement("style"); st.id = "aos-reflib-mobile-css"; st.textContent = MOBILE_CSS; document.head.append(st);
+}
+
 export function el(tag, props = {}, ...kids) {
   const e = document.createElement(tag);
   for (const k in props) {

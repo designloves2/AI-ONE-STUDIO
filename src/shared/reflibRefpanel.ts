@@ -80,7 +80,7 @@ export function sourceToggle(source, onChange) {
  */
 export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt = null as any }) {
   let lastReport = "(press Load to check the prompt against these references)";
-  const root = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", padding: "6px",
+  const root = el("div", { className: "rl-root", style: { display: "flex", flexDirection: "column", gap: "6px", padding: "6px",
     border: `1px solid ${C.border}`, borderRadius: "8px", background: C.bg2 } });
 
   const thumb = (a, size) => el("img", { src: a ? reflib.thumbUrl(a) : "", style: { width: `${size}px`, height: `${size}px`,

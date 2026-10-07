@@ -28,7 +28,7 @@ export function attachAtComplete(textarea, getItems) {
   function draw() {
     const b = ensureBox();
     b.replaceChildren(...items.map((c, i) => {
-      const row = el("div", { style: { display: "flex", gap: "8px", alignItems: "center", padding: "3px 8px", cursor: "pointer",
+      const row = el("div", { style: { display: "flex", gap: "8px", alignItems: "center", padding: window.matchMedia("(max-width: 767px)").matches ? "10px 8px" : "3px 8px", cursor: "pointer",
         background: i === index ? "#2f4a66" : "" } },
         el("img", { src: c.thumb, style: { width: "28px", height: "28px", objectFit: "cover", borderRadius: "3px", background: "#000" } }),
         el("div", { text: `${c.token}   #${c.id} ${c.name} · ${c.kind} · ${c.category}` }));
@@ -63,8 +63,18 @@ export function attachAtComplete(textarea, getItems) {
     if (!items.length) { hide(); return; }
     const r = textarea.getBoundingClientRect();
     const b = ensureBox();
-    b.style.left = `${Math.max(4, r.left)}px`;
-    b.style.top = `${r.bottom + 2}px`;
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      // Web-only phone placement: full width, and above the box when the keyboard / screen edge leaves no room below.
+      const vh = window.visualViewport?.height || window.innerHeight;
+      const room = vh - r.bottom;
+      b.style.left = "8px"; b.style.right = "8px"; b.style.minWidth = "0"; b.style.maxHeight = "40vh";
+      if (room < 180) { b.style.top = ""; b.style.bottom = `${window.innerHeight - r.top + 2}px`; }
+      else { b.style.bottom = ""; b.style.top = `${r.bottom + 2}px`; }
+    } else {
+      b.style.left = `${Math.max(4, r.left)}px`;
+      b.style.right = ""; b.style.bottom = "";
+      b.style.top = `${r.bottom + 2}px`;
+    }
     b.style.display = "block";
     draw();
   }

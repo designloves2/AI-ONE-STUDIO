@@ -1857,7 +1857,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     // they replace the file slots; empty = the file slots work as before.
     assetRef: normalizeAssetRef(saved.assetRef),
     refSource: saved.refSource === "library" ? "library" : "files",
-    refVideos: Array.isArray(saved.refVideos) ? saved.refVideos.slice(0, 3).map((v) => ({ file: v.file || "", start: v.start ?? 0, end: v.end ?? 5, withAudio: v.withAudio !== false })) : [],
+    refVideos: Array.isArray(saved.refVideos) ? saved.refVideos.slice(0, 3).map((v) => ({ file: v.file || "", start: v.start ?? 0, end: v.end ?? 5, withAudio: v.withAudio !== false, mp: v.mp ?? 0, srcW: v.srcW ?? 0, srcH: v.srcH ?? 0 })) : [],
     refAudios: Array.isArray(saved.refAudios) ? saved.refAudios.slice(0, 3).map((a) => ({ file: a.file || "", start: a.start ?? 0, end: a.end ?? 5 })) : [],
     refTypes: { images: saved.refTypes?.images !== false, videos: saved.refTypes?.videos ?? false, audios: saved.refTypes?.audios ?? false },
     steps: saved.steps ?? 20,

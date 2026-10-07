@@ -119,6 +119,7 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, effectiveSteps } from "./graphBuilder";
+import { hiresActive, hiresSizes } from "./core";
 import { ltxUpscaleReady, ltxUpscaleMissing, type LtxLoraEntry } from "./core";
 import { faceRefineReady, faceRefineMissing } from "./core";
 
@@ -525,6 +526,13 @@ export function renderMinimaxH3(container: HTMLElement) {
     style: { background: "rgba(0,0,0,0.55)" },
   });
   fvsrBanner.innerHTML = "<div style='font-size:16px;font-weight:700;color:#e0a530;text-shadow:0 0 12px rgba(224,165,48,0.5);padding:24px 16px;'>◮ FlashVSR upscaling… please wait — no live preview for this pass</div>";
+  // 7+1: the last step runs on a second sampler with no live preview of its own, so the preview
+  // freezes on the 7th step's frame — this says why, same layer as the banners above.
+  const hiresBanner = el("div", {
+    class: "absolute inset-0 z-[5] flex items-center justify-center text-center hidden",
+    style: { background: "rgba(0,0,0,0.6)", padding: "0 16px" },
+  });
+  hiresBanner.innerHTML = "<div style='font-size:18px;font-weight:700;color:#ff9ec7;text-shadow:0 0 12px rgba(255,158,199,0.5);'>Upscaling &amp; refining detail…</div>";
   // Postprocess's own pre-sampling banner — its chained steps (Deblur/Denoise/Upscale/Skin
   // Retouch/Grain/Interpolate/Resize) stream no live preview of their own either, same "is it
   // doing anything?" problem frDetectBanner/fvsrBanner solve. Text differs between a short
@@ -621,7 +629,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(720, savedH))}px`;
   } catch {}
 
-  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, ppBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
+  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, hiresBanner, ppBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
   // Captured at the moment the result is shown (showResultVideo), NOT re-derived from live
@@ -1017,7 +1025,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   function showPreviewFrame(dataURL: string, mime?: string) {
     placeholder.style.display = "none";
     frDetectBanner.style.display = "none";
-    fvsrBanner.style.display = "none";
+    fvsrBanner.style.display = "none"; hiresBanner.style.display = "none";
     previewOffMsg.classList.add("hidden");
     try { resultVid.pause(); } catch {}
     resultVid.style.display = "none";
@@ -1054,6 +1062,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     lastResultURL = url;
     if (opts.cache !== false) modeResultCache.set(resultModeKey(), { kind: "video", url, compareRange: opts.compareRange ?? null });
     placeholder.style.display = "none";
+    hiresBanner.style.display = "none";
     previewOffMsg.classList.add("hidden");
     previewImg.style.display = "none";
     try { previewVid.pause(); } catch {}
@@ -1205,7 +1214,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     // image might never arrive if previewEnabled is off, or an image is slow) — clear the
     // pre-sampling banner here too so it never lingers over the "no preview" case.
     frDetectBanner.style.display = "none";
-    fvsrBanner.style.display = "none";
+    fvsrBanner.style.display = "none"; hiresBanner.style.display = "none";
     placeholder.style.display = "none";
     const clipFrac = total ? step / total : 0;
     const overall = totClip ? (curClip - 1 + clipFrac) / totClip : clipFrac;
@@ -2242,15 +2251,40 @@ export function renderMinimaxH3(container: HTMLElement) {
       const isRef = state.generationMode === "reference";
       if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
       const pddOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
+      const hiresOn = hiresActive(state);
+      // The two MP fields only change this line, so they must not rebuild the panel
+      // (a rebuild put the column back at the top while you were typing).
+      const hiresText = () => {
+        const hs = hiresSizes(state);
+        return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale})`;
+      };
+      const hiresLine = el("div", { text: hiresText(), style: { fontSize: "10px", color: C.muted } });
       return [
         col([labelHelp(`Turbo LoRA (First-Last / Text)${isRef ? "" : " ●"}`, pddHelp),
           searchableSelect(pddOpts, state.pddFile || "none", (v) => { state.pddFile = v; rememberImgConfig({ pdd_file: v }); renderLeft(); }).el]),
         col([label(`Turbo LoRA (Reference)${isRef ? " ●" : ""}`),
           searchableSelect(pddOpts, state.pddFileReference || "none", (v) => { state.pddFileReference = v; rememberImgConfig({ pdd_file_reference: v }); renderLeft(); }).el]),
         row([
-          col([label("steps"), numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); syncTurboDependents(); }, 1)]),
+          col([label("steps"), (() => {
+            const f = numberField(hiresOn ? 8 : (Number(state.pddNfe) || 8), (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); syncTurboDependents(); }, 1);
+            if (hiresOn) { f.disabled = true; f.style.opacity = "0.4"; }
+            return f;
+          })()]),
           col([label("lora strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         ]),
+        checkboxRow("7+1 hi-res finish", !!state.hiresFinish, (v) => {
+          state.hiresFinish = v;
+          if (v) state.hiresFinalMp = state.megapixels ?? 1.0;   // start from what the canvas was
+          persist(); renderLeft(); refreshPlan();
+        }, { title: "Run 7 of the 8 steps small, scale the latent up, then run the last step at full size." }),
+        el("div", { text: "Needs the 8-step turbo LoRA above. Steps are fixed at 8 (7 small + 1 large).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        ...(hiresOn ? [
+          row([
+            col([label("Start MP"), numberField(state.hiresStartMp ?? 0.5, (v) => { state.hiresStartMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+            col([label("Final MP"), numberField(state.hiresFinalMp ?? 1.0, (v) => { state.hiresFinalMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+          ]),
+          hiresLine,
+        ] : []),
         ...(pddFileForMode(state) ? [] : [el("div", { text: "⚠ No Turbo LoRA selected in ⚙ Settings → Models for this generation mode — this falls back to no Turbo until one is set.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })]),
       ];
     }
@@ -3995,7 +4029,14 @@ export function renderMinimaxH3(container: HTMLElement) {
         label("Canvas"),
         row([
           col([label("Aspect"), select(ASPECTS.map((a) => ({ value: a.label, label: a.label })), state.aspect, (v) => { state.aspect = v; persist(); refreshPlan(); })]),
-          col([label("Megapixels"), numberField(state.megapixels ?? 1.0, (v) => { state.megapixels = Math.max(0.1, v); persist(); refreshPlan(); }, 0.1)]),
+          col([label("Megapixels"), (() => {
+            const f = numberField(state.megapixels ?? 1.0, (v) => { state.megapixels = Math.max(0.1, v); persist(); refreshPlan(); }, 0.1);
+            if (hiresActive(state)) {
+              f.disabled = true; f.style.opacity = "0.4";
+              f.title = "7+1 hi-res finish is on — set Start / Final MP in the Turbo section.";
+            }
+            return f;
+          })()]),
         ]),
       ])
     );
@@ -5082,10 +5123,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     return ((rs.seed ?? 0) + i) % Number.MAX_SAFE_INTEGER;
   }
   function metaForVideo(rs: MinimaxState, promptTextVal: string, extra: Record<string, any> = {}) {
-    const { width, height } = resolveResolution(rs.aspect, rs.megapixels);
+    const { width, height } = hiresActive(rs) ? hiresSizes(rs).final : resolveResolution(rs.aspect, rs.megapixels);
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
+      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
       // accel stays for pre-split readers only (this session's own Reuse now reads the axis
       // fields below directly) — a peer session on the node port confirmed accelMode is
@@ -5483,10 +5525,12 @@ export function renderMinimaxH3(container: HTMLElement) {
         // FlashVSR runs as a second node in the same submission right after the sampler — its
         // tile progress arrives on the same event, distinguished only by node id.
         const fvsrOn = clipState.upscaleMode === "flashvsr";
-        const progressNodes = fvsrOn ? [NODE_IDS.sampler, NODE_IDS.fvsr] : NODE_IDS.sampler;
+        const hiresOn = hiresActive(clipState);
+        const progressNodes = [NODE_IDS.sampler, ...(hiresOn ? [NODE_IDS.hrSampler] : []), ...(fvsrOn ? [NODE_IDS.fvsr] : [])];
         const onClipProgress = (v: number, m: number, nodeId?: string) => {
-          if (nodeId === NODE_IDS.fvsr) setFlashVSRProgress(v, m);
-          else { fvsrBanner.style.display = "none"; setStepProgress(v, m); }
+          if (nodeId === NODE_IDS.hrSampler) hiresBanner.style.display = "flex";
+          else if (nodeId === NODE_IDS.fvsr) setFlashVSRProgress(v, m);
+          else { fvsrBanner.style.display = "none"; hiresBanner.style.display = "none"; setStepProgress(v, m); }
         };
         let res;
         try {
@@ -5500,7 +5544,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         } finally {
           samplingActive = false;
           resumePromptId = null;
-          fvsrBanner.style.display = "none";
+          fvsrBanner.style.display = "none"; hiresBanner.style.display = "none";
         }
         if (isOneTake) prevCheckpointName = checkpointName;
         // 렌더가 실제로 끝난 시점 — 체인 프레임 복사 등 후처리 오버헤드는 빼고, 모델이
@@ -5533,10 +5577,11 @@ export function renderMinimaxH3(container: HTMLElement) {
             // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md — post-decode frame ops wired into
             // this clip's graph (null when not run).
             deblur: built.meta.deblur || null, upscale: built.meta.upscale || null,
+            hires: built.meta.hires || null,
           });
           // An inline upscale changes the frame size metaForVideo() can't predict, so re-probe
           // the file. Deblur alone never resizes — skip the round trip for it.
-          if (built.meta.upscale) await reconcileGeometry(clipMeta, vid);
+          if (built.meta.upscale || built.meta.hires) await reconcileGeometry(clipMeta, vid);
           saveMeta(vid.filename, vid.subfolder || "", clipMeta);
 
           // §6 "Also save the clip before deblur / upscale" — the second file the graph wrote
@@ -5774,6 +5819,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       // 변주하고 싶으면 Reuse 후 사용자가 직접 시드 모드를 바꾸면 됨.
       if (meta.aspect != null) state.aspect = meta.aspect;
       if (meta.megapixels != null) state.megapixels = meta.megapixels;
+      state.hiresFinish = !!meta.hiresFinish;
+      if (meta.hiresStartMp != null) state.hiresStartMp = meta.hiresStartMp;
+      if (meta.hiresFinalMp != null) state.hiresFinalMp = meta.hiresFinalMp;
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
       if (meta.sampler != null) state.sampler = meta.sampler;

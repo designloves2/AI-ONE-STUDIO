@@ -206,6 +206,9 @@ export interface MinimaxState {
   oneTakeAudioOverride: boolean;
   aspect: string;
   megapixels: number;
+  hiresFinish: boolean;
+  hiresStartMp: number;
+  hiresFinalMp: number;
   clipFrames: number;
   clipLengthCustom: boolean;
   clipLengthCustomSec: number;
@@ -634,6 +637,22 @@ export function resolveResolution(aspectLabel: string, megapixels: number) {
   return { width: snap(w), height: snap(h) };
 }
 
+/**
+ * 7+1 hi-res finish: the first 7 of the 8 turbo steps run at Start MP, the latent is scaled
+ * up, and the last step refines it at Final MP. Only exists with Turbo LoRA (Basic).
+ * (turboEffective() lives in graphBuilder.ts; "pdd" there means turboMode pdd + a file set.)
+ */
+export function hiresActive(state: MinimaxState): boolean {
+  return !!state.hiresFinish && state.turboMode === "pdd" && !!pddFileForMode(state);
+}
+
+/** Stage-1 size, the size the latent upscaler lands on (both 32-aligned), and the ratio between them. */
+export function hiresSizes(state: MinimaxState) {
+  const start = resolveResolution(state.aspect, state.hiresStartMp ?? 0.5);
+  const final = resolveResolution(state.aspect, state.hiresFinalMp ?? state.megapixels);
+  return { start, final, scale: Math.round(final.width / start.width * 1000) / 1000 };
+}
+
 export const SAMPLERS = ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde", "ddim", "uni_pc", "res_multistep", "er_sde", "lcm", "deis"];
 export const SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "beta", "ddim_uniform"];
 
@@ -945,6 +964,9 @@ export const RECIPE_KEYS = [
   // this captures/restores the general list too. Applying a preset still overwrites
   // state.loras outright (Reuse Setting already full-replaces meta.loras the same way).
   "loras",
+  // 7+1 hi-res finish: the checkbox and its two sizes travel with a saved recipe, but it is
+  // not a matching axis — a built-in preset never turns it on or off.
+  "hiresFinish", "hiresStartMp", "hiresFinalMp",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -988,6 +1010,9 @@ export interface UserPipelinePreset {
   unetFirstLast?: string;
   unetReference?: string;
   loras?: LoraEntry[];
+  hiresFinish?: boolean;
+  hiresStartMp?: number;
+  hiresFinalMp?: number;
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */
@@ -1730,6 +1755,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     oneTakeAudioOverride: !!saved.oneTakeAudioOverride,
     aspect: saved.aspect || "9:16 Portrait",
     megapixels: saved.megapixels ?? 1.0,
+    hiresFinish: !!saved.hiresFinish,
+    hiresStartMp: saved.hiresStartMp ?? 0.5,
+    hiresFinalMp: saved.hiresFinalMp ?? saved.megapixels ?? 1.0,
     clipFrames: saved.clipFrames ?? DEFAULT_FRAMES,
     clipLengthCustom: !!saved.clipLengthCustom,
     clipLengthCustomSec: saved.clipLengthCustomSec ?? framesToSeconds(saved.clipFrames ?? DEFAULT_FRAMES),

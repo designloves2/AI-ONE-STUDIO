@@ -12,6 +12,7 @@ import { C, BRAND } from "../../identity";
 // process pick) — making the two indistinguishable on a stitched card while picking it. BRAND
 // now means "picked" only; amber means "stitched" only. Mirrors node `8bd31ed`.
 const STITCH_COLOR = "#e0a530";
+const HIRES_COLOR = "#ffb3d1";   // clips made with the 7+1 hi-res finish
 import {
   analyzeImagesNative,
   clipViewUrl,
@@ -1381,7 +1382,7 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
       const isFull = !!(v as any).is_full;
       const card = el("div", {
         class: "relative flex flex-col rounded-lg cursor-pointer",
-        style: { background: C.bg1, border: `1px solid ${picked ? BRAND : isFull ? STITCH_COLOR : C.border}`, opacity: mode === "stitch" && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
+        style: { background: C.bg1, border: `${(v as any).meta?.hires && !picked && !isFull ? 2 : 1}px solid ${picked ? BRAND : isFull ? STITCH_COLOR : (v as any).meta?.hires ? HIRES_COLOR : C.border}`, opacity: mode === "stitch" && !picked && stitchOrder.length >= STITCH_MAX ? "0.4" : "1" },
       });
 
       const thumbWrap = el("div", { class: "relative w-full overflow-hidden" });

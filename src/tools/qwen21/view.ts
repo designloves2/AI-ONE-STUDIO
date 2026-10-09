@@ -312,9 +312,12 @@ export function renderQwen21(root: HTMLElement) {
       style: { background: BRAND, color: "#fff", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer", fontSize: "11px", fontWeight: "700", whiteSpace: "nowrap" },
     });
   }
+  // Refine: revise the current prompt from an instruction without opening Prompt Edit (node 9bac1a5).
+  const refineHdrBtn = purpleHdrBtn("🔧 Refine", () => { void promptExpandOv.refine(); });
+  refineHdrBtn.title = "Revise the current prompt from an instruction (no need to open Prompt Edit)";
   const expandBtn = purpleHdrBtn("🔍 Prompt Edit", () => promptExpandOv.show());
   const templatesBtn = purpleHdrBtn("📋 Prompt Preset", () => templateOv.show());
-  promptHdr.append(expandBtn, templatesBtn);
+  promptHdr.append(refineHdrBtn, expandBtn, templatesBtn);
 
   const promptTA = el("textarea", { placeholder: "Describe what you want to generate…", style: { width: "100%", boxSizing: "border-box", background: C.bg1, color: C.text, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "9px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", minHeight: "180px", outline: "none" } }) as HTMLTextAreaElement;
   function updatePromptCount() {
@@ -334,6 +337,7 @@ export function renderQwen21(root: HTMLElement) {
 
   const llmState = loadLlmState();
   const promptExpandOv = createPromptEditPopup({
+    getPromptTA: () => promptTA as HTMLTextAreaElement,
     fetchApi: (path, opts) => comfyApi.fetchApi(path, opts),
     getPrompt: () => getModePrompt(state, state.mode),
     setPrompt: (text) => { setModePrompt(state, state.mode, text); refreshPromptBox(); },

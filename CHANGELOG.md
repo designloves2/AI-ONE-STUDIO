@@ -3,6 +3,23 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [Unreleased]
+
+Image-prompt Refine on all 7 image tools, Prompt Edit image paste (node `5a52038`..`9bac1a5`). See `PORT_LEDGER.md` row 30.
+
+### Added
+- **🔧 Refine** (Krea2, Anima, Z-Image, Klein, Qwen2511, SDXL, Qwen2.1): instruction popup -> original / refined compare window
+  (changed or removed original words highlighted, refined side editable) -> Re:Refine / Apply / Close. New main PROMPT header
+  button (Auto Enhance | Refine | Prompt Edit | Prompt Preset) with a busy overlay on the prompt box, plus a fourth equal button
+  in Prompt Edit (Image -> Prompt Write / Prompt Enhance / Refine / APPLY). Uses the existing `/llm/enhance` route with
+  `refine_instruction`; the server side lives in the node.
+- **Ctrl+V image paste** into Prompt Edit (text paste untouched).
+- Phone: the compare window stacks the two columns; Prompt Edit's four buttons wrap two per row.
+
+### Notes
+- The node's image-URL redirect fix and its input-card clear (X) buttons need no web change: the download route is server side,
+  and every web image slot already had its own clear button.
+
 ## [0.7.1] — 2026-10-07
 
 Asset Library "+ Add" menu and gallery import (node `5549f48`). See `PORT_LEDGER.md` row 26.

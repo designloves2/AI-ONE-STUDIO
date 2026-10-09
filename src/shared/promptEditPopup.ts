@@ -44,6 +44,9 @@ export interface PromptEditPopupConfig {
   /** Opens the tool's own Settings overlay, scrolled/focused at the LLM section if possible. */
   openSettings?: () => void;
   title?: string; // header title text, default "Prompt Edit"
+  /** The tool's main PROMPT textarea — Refine (run from the main header) disables it and covers it with a busy
+   *  overlay while the LLM works (node attachLLMPanel `getPromptTA`). */
+  getPromptTA?: () => HTMLTextAreaElement | null;
   /**
    * This tool's own Model Format preset (e.g. "Qwen Image 2.1 (T2I)"), applied once the real
    * model_formats list arrives from the server — but only while the field is still empty or on
@@ -64,6 +67,9 @@ export interface PromptEditPopupHandle {
    *  it programmatically — the image tools' "Auto Enhance" checkbox. Puts `prompt` in the popup's text box,
    *  enhances it in place (errors alert like the button's) and returns the box's text afterwards. */
   enhance(prompt: string): Promise<string>;
+  /** Refine on the tool's main prompt without opening Prompt Edit (node `llmApi.refine()`): instruction popup -> LLM ->
+   *  original / refined compare -> Apply writes the current mode's prompt back. */
+  refine(): Promise<void>;
 }
 
 function selStyle(sel: HTMLSelectElement) {
@@ -81,6 +87,155 @@ function fieldCol(labelText: string, control: HTMLElement) {
   wrap.append(el("div", { text: labelText, style: { color: C.muted, fontSize: "11px" } }), control);
   return wrap;
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Refine — revise an already-written prompt from a typed instruction, then compare
+// ══════════════════════════════════════════════════════════════════════════
+// Port of node llm_panel.js runRefine (5a52038 + f7debf6): instruction popup → LLM → original /
+// refined side by side → Re:Refine / Apply / Close. Overlays are fixed to the window (z 100000) so
+// they sit above Prompt Edit. Phone (≤767px) stacks the two compare columns — web-only adaptation.
+let lastRefineInstruction = "";
+
+function injectRingStyle() {
+  if (document.getElementById("tj-llm-ring-style")) return;
+  const st = document.createElement("style");
+  st.id = "tj-llm-ring-style";
+  st.textContent = `
+    @keyframes tj-llm-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .tj-llm-ring { width: 40px; height: 40px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.15); border-top-color: #7eff7e; animation: tj-llm-spin 0.9s linear infinite; }
+  `;
+  document.head.appendChild(st);
+}
+
+/** Dim overlay with spinner + label (node `_makeBusyOverlay`). */
+function makeBusyOverlay(label: string) {
+  injectRingStyle();
+  const ov = document.createElement("div");
+  Object.assign(ov.style, { position: "absolute", inset: "0", background: "rgba(0,0,0,0.6)", display: "none", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px", zIndex: "10", pointerEvents: "all", backdropFilter: "blur(1px)" });
+  const ring = document.createElement("div"); ring.className = "tj-llm-ring";
+  const lbl = document.createElement("div"); lbl.textContent = label || "";
+  Object.assign(lbl.style, { color: "#ccc", fontSize: "12px", letterSpacing: "0.03em" });
+  ov.append(ring, lbl);
+  return { el: ov, setLabel: (s: string) => { lbl.textContent = s; } };
+}
+
+function refineOverlay() {
+  const ov = document.createElement("div");
+  Object.assign(ov.style, { position: "fixed", inset: "0", zIndex: "100000", background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "inherit" });
+  const box = document.createElement("div");
+  Object.assign(box.style, { background: "#1b1b1b", border: `1px solid ${BRAND}`, borderRadius: "10px", padding: "16px", display: "flex", flexDirection: "column", gap: "10px", boxSizing: "border-box", color: "#ddd", maxHeight: "90vh" });
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  return { ov, box };
+}
+function refineBtn(text: string, bg: string) {
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = text;
+  Object.assign(b.style, { background: bg, color: "#fff", border: "none", borderRadius: "6px", padding: "8px 16px", cursor: "pointer", fontSize: "13px", fontWeight: "700" });
+  return b;
+}
+function refineTitle(text: string) {
+  const d = document.createElement("div");
+  d.textContent = text;
+  Object.assign(d.style, { color: "#fff", fontSize: "14px", fontWeight: "700" });
+  return d;
+}
+
+function askRefineInstruction(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const { ov, box } = refineOverlay();
+    box.style.width = "min(560px, 92vw)";
+    const ta = document.createElement("textarea");
+    ta.value = lastRefineInstruction; ta.rows = 5;
+    ta.placeholder = "e.g. Make it nighttime, and change the red dress to a blue coat.";
+    Object.assign(ta.style, { background: "#2a2a2a", color: "#ddd", border: "1px solid #444", borderRadius: "6px", padding: "8px 10px", fontSize: "13px", fontFamily: "inherit", resize: "vertical", outline: "none" });
+    if (window.innerWidth <= 767) ta.style.fontSize = "16px"; // no iOS zoom on focus
+    const btnRow = document.createElement("div");
+    Object.assign(btnRow.style, { display: "flex", gap: "8px", justifyContent: "flex-end" });
+    const ok = refineBtn("Refine", BRAND);
+    const cancel = refineBtn("Cancel", "#444");
+    const done = (v: string | null) => { ov.remove(); resolve(v); };
+    ok.addEventListener("click", () => done(ta.value.trim() || null));
+    cancel.addEventListener("click", () => done(null));
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ok.click(); if (e.key === "Escape") cancel.click(); });
+    btnRow.append(cancel, ok);
+    box.append(refineTitle("🔧 Refine prompt"),
+      Object.assign(document.createElement("div"), { textContent: "What should change in the current prompt?" }),
+      ta, btnRow);
+    ta.focus();
+  });
+}
+
+/** Word-level diff (longest common subsequence). Returns the original's tokens as
+ *  [{ text, changed }] — `changed` = removed or replaced by the refined text. */
+function diffOriginal(original: string, refined: string): { text: string; changed: boolean }[] {
+  const a = original.split(/(\s+)/).filter((x) => x !== "");
+  const words = (x: string) => x.split(/(\s+)/).filter((w) => w.trim() !== "");
+  const aw = words(original), bw = words(refined);
+  const n = aw.length, m = bw.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      lcs[i][j] = aw[i] === bw[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const kept = new Set<number>();
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (aw[i] === bw[j]) { kept.add(i); i++; j++; }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+    else j++;
+  }
+  let wi = 0;
+  return a.map((tok) => tok.trim() === "" ? { text: tok, changed: false } : { text: tok, changed: !kept.has(wi++) });
+}
+
+/** Original / refined comparison. Resolves the chosen action + the (possibly edited) refined text. */
+function showRefineCompare(original: string, refined: string): Promise<{ action: "apply" | "again" | "close"; text: string }> {
+  return new Promise((resolve) => {
+    const { ov, box } = refineOverlay();
+    const phone = window.innerWidth <= 767;
+    box.style.width = "min(1100px, 96vw)"; box.style.height = "min(680px, 90vh)";
+    const cols = document.createElement("div");
+    Object.assign(cols.style, { display: "flex", gap: "12px", flex: "1", minHeight: "0", flexDirection: phone ? "column" : "row" });
+    const colBox = () => {
+      const c = document.createElement("div");
+      Object.assign(c.style, { flex: "1", display: "flex", flexDirection: "column", gap: "4px", minWidth: "0", minHeight: "0" });
+      return c;
+    };
+    const head = (text: string) => {
+      const h = document.createElement("div");
+      h.textContent = text; Object.assign(h.style, { color: "#aaa", fontSize: "12px" });
+      return h;
+    };
+    // Original is a read-only block, not a textarea, so the changed words can be colored.
+    const origCol = colBox();
+    const origBody = document.createElement("div");
+    Object.assign(origBody.style, { flex: "1", background: "#161616", color: "#999", border: "1px solid #333", borderRadius: "6px", padding: "10px", fontSize: "13px", whiteSpace: "pre-wrap", overflowY: "auto", userSelect: "text", minHeight: "0" });
+    for (const w of diffOriginal(original, refined)) {
+      const sp = document.createElement("span");
+      sp.textContent = w.text;
+      if (w.changed) Object.assign(sp.style, { background: "rgba(255,90,90,0.28)", color: "#ffb3b3", borderRadius: "3px" });
+      origBody.appendChild(sp);
+    }
+    origCol.append(head("Original (changed or removed words highlighted)"), origBody);
+    const refCol = colBox();
+    const refinedTA = document.createElement("textarea");
+    refinedTA.value = refined;
+    Object.assign(refinedTA.style, { flex: "1", background: "#2a2a2a", color: "#fff", border: `1px solid ${BRAND}`, borderRadius: "6px", padding: "10px", fontSize: phone ? "16px" : "13px", fontFamily: "inherit", resize: "none", outline: "none", minHeight: "0" });
+    refCol.append(head("Refined (you can edit it before applying)"), refinedTA);
+    cols.append(origCol, refCol);
+    const btnRow = document.createElement("div");
+    Object.assign(btnRow.style, { display: "flex", gap: "8px", justifyContent: "flex-end" });
+    const again = refineBtn("Re:Refine", BRAND);
+    const apply = refineBtn("Apply", "#2e8b57");
+    const close = refineBtn("Close", "#444");
+    const done = (v: "apply" | "again" | "close") => { ov.remove(); resolve({ action: v, text: refinedTA.value }); };
+    again.addEventListener("click", () => done("again"));
+    apply.addEventListener("click", () => done("apply"));
+    close.addEventListener("click", () => done("close"));
+    btnRow.append(again, apply, close);
+    box.append(refineTitle("🔧 Prompt Refine result"), cols, btnRow);
+  });
+}
+
 function purpleBtn(text: string) {
   return el("button", {
     type: "button", text,
@@ -144,6 +299,15 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     if (file) loadImageFile(file);
   });
   fileInput.addEventListener("change", () => { if (fileInput.files?.[0]) loadImageFile(fileInput.files[0]); });
+  // Ctrl+V anywhere in the open popup: an image on the clipboard goes into the drop zone.
+  // Plain text pastes (into the prompt box etc.) are left alone.
+  ov.addEventListener("paste", (e) => {
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.kind === "file" && i.type.startsWith("image/"));
+    const f = item?.getAsFile();
+    if (!f) return;
+    e.preventDefault();
+    loadImageFile(f);
+  });
 
   const MAX_IMG_MP = 1_000_000;
   function resizeAndSetImage(src: string): Promise<void> {
@@ -248,7 +412,9 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const busyOv = el("div", {
     style: { position: "absolute", inset: "0", background: "rgba(0,0,0,0.6)", display: "none", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px", zIndex: "10" },
   });
-  const busyLabel = el("div", { text: "", style: { color: "#ccc", fontSize: "12px" } });
+  injectRingStyle();
+  const busyLabel = el("div", { text: "", style: { color: "#ccc", fontSize: "12px", letterSpacing: "0.03em" } });
+  busyOv.appendChild(el("div", { className: "tj-llm-ring" }));
   busyOv.appendChild(busyLabel);
   taWrap.append(promptTA, busyOv);
   function setBusy(on: boolean, label?: string) {
@@ -263,9 +429,13 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   btnWrite.style.flex = "1";
   const btnEnhance = purpleBtn("✨ Prompt Enhance");
   btnEnhance.style.flex = "1";
+  const btnRefine = purpleBtn("🔧 Refine");
+  btnRefine.style.flex = "1";
   const applyBtn = purpleBtn("✓ APPLY");
   applyBtn.style.flex = "1";
-  actionRow.append(btnWrite, btnEnhance, applyBtn);
+  // Four equal buttons: Image → Prompt Write / Prompt Enhance / Refine / APPLY.
+  actionRow.append(btnWrite, btnEnhance, btnRefine, applyBtn);
+  if (window.innerWidth <= 767) { actionRow.style.flexWrap = "wrap"; [btnWrite, btnEnhance, btnRefine, applyBtn].forEach((b) => { b.style.minWidth = "46%"; }); }
 
   function syncButtons() {
     (btnWrite as HTMLButtonElement).disabled = !imageB64;
@@ -273,6 +443,8 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     const hasText = promptTA.value.trim().length > 0;
     (btnEnhance as HTMLButtonElement).disabled = !hasText;
     btnEnhance.style.opacity = hasText ? "1" : "0.45";
+    (btnRefine as HTMLButtonElement).disabled = !hasText;
+    btnRefine.style.opacity = hasText ? "1" : "0.45";
   }
   promptTA.addEventListener("input", syncButtons);
 
@@ -439,6 +611,72 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   }
   btnEnhance.addEventListener("click", doEnhance);
 
+  // ── Refine ─────────────────────────────────────────────────────────────
+  // Same /llm/enhance route with `refine_instruction` (server builds the revise-only system text).
+  async function callRefine(prompt: string, instruction: string): Promise<string> {
+    applySeedControl();
+    const r = await cfg.fetchApi("/tj_studio_one/llm/enhance", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt, refine_instruction: instruction,
+        backend: llm.backend_text || llm.backend || "local",
+        or_model: llm.or_model_text || llm.or_model,
+        custom_base: llm.custom_base_text, custom_model: llm.custom_model_text, custom_ctx: llm.custom_ctx_text,
+        gguf_model: llm.gguf_model, text_encoder_name: llm.text_encoder_name, clip_loader_type: llm.clip_loader_type,
+        n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens,
+        temperature: llm.temperature, seed: llm.seed,
+        model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions,
+      }),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "error");
+    return d.result;
+  }
+  /** Whole Refine flow on `getText()`'s prompt; `setBusy` shows the caller's busy state, `onApply` gets the accepted text. */
+  async function runRefine(o: { getText: () => string; onApply: (t: string) => void; setBusy?: (on: boolean) => void }) {
+    const current = (o.getText() || "").trim();
+    if (!current) { alert("Nothing to refine yet — write a prompt first."); return; }
+    let instruction = await askRefineInstruction();
+    while (instruction) {
+      lastRefineInstruction = instruction;
+      let refined: string;
+      o.setBusy?.(true);
+      try { refined = await callRefine(current, instruction); }
+      catch (e: any) { alert("LLM error: " + (e.message || e)); return; }
+      finally { o.setBusy?.(false); }
+      const res = await showRefineCompare(current, refined);
+      if (res.action === "apply") { o.onApply(res.text); return; }
+      if (res.action === "close") return;
+      instruction = await askRefineInstruction();
+    }
+  }
+  // Inside Prompt Edit: works on the popup's own text; the accepted result lands back in it.
+  btnRefine.addEventListener("click", () => runRefine({
+    getText: () => promptTA.value,
+    onApply: (text) => { promptTA.value = text; syncButtons(); },
+    setBusy: (on) => { (btnRefine as HTMLButtonElement).disabled = on; setBusy(on, "Refining the prompt…"); if (!on) syncButtons(); },
+  }));
+  // Main PROMPT box (no Prompt Edit needed): reads/writes the current mode's prompt; the box is
+  // disabled and covered by an overlay while the LLM runs.
+  let mainBusy: ReturnType<typeof makeBusyOverlay> | null = null;
+  function setMainBusy(on: boolean) {
+    const pta = cfg.getPromptTA?.(); if (!pta?.parentElement) return;
+    if (!mainBusy) {
+      mainBusy = makeBusyOverlay("Prompt: Refine. The results window will appear shortly.");
+      pta.parentElement.style.position = "relative";
+      pta.parentElement.appendChild(mainBusy.el);
+    }
+    Object.assign(mainBusy.el.style, { inset: "auto", top: pta.offsetTop + "px", left: pta.offsetLeft + "px", width: pta.offsetWidth + "px", height: pta.offsetHeight + "px", borderRadius: "6px", display: on ? "flex" : "none" });
+    pta.disabled = on;
+  }
+  function refineMain() {
+    return runRefine({
+      setBusy: setMainBusy,
+      getText: () => cfg.getPrompt(),
+      onApply: (text) => { cfg.setPrompt(text); promptTA.value = text; cfg.persist(); syncButtons(); },
+    });
+  }
+
   // ── load model lists once ─────────────────────────────────────────────
   let modelsLoaded = false;
   function populateSelect(sel: HTMLSelectElement, opts: string[], current: string) {
@@ -492,5 +730,5 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     return promptTA.value;
   }
 
-  return { el: ov, show, hide, enhance };
+  return { el: ov, show, hide, enhance, refine: refineMain };
 }

@@ -193,10 +193,25 @@ export function pddFileForMode(state) {
   return pick && pick !== "none" ? pick : "";
 }
 
+/** 7+1 hi-res finish: the first 7 of the 8 turbo steps run at Start MP, the latent is scaled up, and the
+ *  last step refines it at Final MP. Only exists with Turbo LoRA (Basic) (turboMode "pdd" + a file set).
+ *  Port of the studio's hiresActive/hiresSizes (node 7d258f8). */
+export function hiresActive(state) {
+  return !!state.hiresFinish && state.turboMode === "pdd" && !!pddFileForMode(state);
+}
+
+/** Stage-1 size, the size the latent upscaler lands on (both 32-aligned), and the ratio between them. */
+export function hiresSizes(state) {
+  const start = resolveResolution(state.aspect, state.hiresStartMp ?? 0.5);
+  const final = resolveResolution(state.aspect, state.hiresFinalMp ?? state.megapixels);
+  return { start, final, scale: Math.round(final.width / start.width * 1000) / 1000 };
+}
+
 // ── Pipeline preset apply (SPEC_MINIMAX_H3_PRESETS.md + CONTINUE_AND_EXTEND §4) ──
 export const RECIPE_KEYS = [
   "steps", "sampler", "scheduler", "denoise", "shiftVideo", "shiftAudio",
   "turboSteps", "slaTurboSteps",
+  "hiresFinish", "hiresStartMp", "hiresFinalMp", "hiresChunkRows",
   "turboLora", "turboLoraReference", "pddFile", "pddFileReference",
   "unetFirstLast", "unetReference",
 ];
@@ -274,6 +289,7 @@ export function defaultState() {
     nativeVisionClip: "Qwen3\\qwen_3vl_8b_nvfp4.safetensors",
     nativeBriefClip: "LTX\\gemma4_e2b_it_bf16.safetensors",
     pddFile: "none", pddFileReference: "none", pddNfe: "8", pddLoraStrength: 1.0, pddHeadStrength: 1.0,
+    hiresFinish: false, hiresStartMp: 0.5, hiresFinalMp: null, hiresChunkRows: 2048,
     solTau: 1.3, solMinTokens: 4096, solStart: 0.2, solEnd: 0.9,
     specBlendWeight: 0.5, specDegree: 1, specRidgeLambda: 0.1, specWindowSize: 2.0, specFlexWindow: 0.75,
     specWarmupSteps: 1, specTailSteps: 1, specMaxHistory: 8, specHistoryStore: "system_ram",

@@ -82,6 +82,33 @@ const result = await generate(jobSpec, comfyConfig);
 | `seed` | `null` → random. |
 | `model` | Shorthand: sets `unetFirstLast` **and** `unetReference`. Or set them separately. Overrides the preset / config UNET. Omit → the model is picked by mode from the ComfyUI config (or from the preset, if it pins one). |
 
+### Turbo LoRA (Basic) and the 7+1 hi-res finish
+
+**Turbo LoRA (Basic)** (`turboMode: "pdd"`) is a plain model-only LoRA (core-native since ComfyUI v0.35.0; there is no apply node any more
+— the old `MiniMaxH3PDDAccApply` graph was replaced) sampled with a normal scheduler at `pddNfe` steps. If the server has no such LoRA set
+(or you give none) the run silently falls back to the normal step count — check `turboEffective` in the result (`"pdd"` = active).
+
+**7+1** (`hiresFinish: true`) = 7 of the 8 turbo steps run at `hiresStartMp`, the latent is scaled up, and the last step refines it at
+`hiresFinalMp`. It only exists with Turbo LoRA (Basic) — without `turboMode: "pdd"` + a LoRA file it is inactive (the result shows
+`hires: null`). Works in the clip modes and in `onetake` (the One-Take hand-off latent is the low-res stage-1 result). Needs the server nodes
+`MinimaxH3LatentUpscaler3D`, `H3MemoryOptimization` and `BlockSparseAttention`, otherwise the job fails with a clear message.
+
+| field | notes |
+|---|---|
+| `turboMode` | `"pdd"` (Turbo LoRA (Basic)) \| `"none"` \| `"larryvrh"` \| `"lightx2v"`. Omit → server config / preset. |
+| `pddFile` / `pddFileReference` | The Turbo LoRA file for fl2va/t2va/l2va, and for ref2va. Omit → server config / preset. |
+| `pddNfe`, `pddLoraStrength` | Steps (default `"8"`; 7+1 always uses 8) and LoRA strength (default 1.0). |
+| `hiresFinish` | `true` → 7+1. |
+| `hiresStartMp` | Stage-1 megapixels, default 0.5. |
+| `hiresFinalMp` | Final megapixels, default = `megapixels`. The studio's sweet spot is `0.5 → 1.6`. |
+| `hiresChunkRows` | H3 Memory Optimization "Activation chunk rows" of the last step, default 2048. |
+
+```json
+{ "mode": "t2va", "prompt": "…", "durationSeconds": 10, "turboMode": "pdd", "hiresFinish": true, "hiresStartMp": 0.5, "hiresFinalMp": 1.6 }
+```
+
+`resolution` in the result is the FINAL size; `hires` = `{ startW, startH, scale }` when 7+1 ran. A preset can carry the same keys.
+
 ### How the model is chosen
 
 1. ComfyUI config `unet_first_last` (t2va/fl2va) / `unet_reference` (ref2va) — the default, mode-aware.

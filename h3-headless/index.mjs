@@ -57,6 +57,17 @@ job.preset    (clip modes only) a name from the studio's saved presets (queried 
 job.prompt    { integrated_multimodal_description, overall_soundscape, non_diegetic_music }
               or a plain string. (clip modes)
 job.refImages absolute paths, in <Picture 1>, <Picture 2>, ... order (ref2va / ref2i / charsheet).
+Turbo LoRA (Basic) + 7+1 hi-res finish (clip modes + onetake; all optional, else the server config / preset applies)
+  turboMode            "pdd" selects Turbo LoRA (Basic): a plain model-only LoRA (core-native, ComfyUI >= v0.35.0),
+                       sampled with the step count pddNfe (default 8). Other values: none | larryvrh | lightx2v.
+  pddFile              the Turbo LoRA file for first/last-frame + text modes; pddFileReference: for ref2va.
+  pddNfe               steps for Turbo LoRA (Basic) as a string/number, default "8". (7+1 forces 8.)
+  pddLoraStrength      LoRA strength, default 1.0
+  hiresFinish          bool — 7+1: 7 turbo steps at hiresStartMp, latent upscale, the last step at hiresFinalMp.
+                       Needs turboMode "pdd" + a Turbo LoRA file; otherwise it is silently inactive (see meta.hires).
+  hiresStartMp         stage-1 megapixels, default 0.5
+  hiresFinalMp         final megapixels, default = job.megapixels (config default 1.0). E.g. 1.6.
+  hiresChunkRows       H3 Memory Optimization "Activation chunk rows" of the last step, default 2048
 job.model     shorthand: sets unetFirstLast AND unetReference. Or set them separately.
 
 job.mode:"facerefine" fields
@@ -171,7 +182,20 @@ async function submitAndCollect(client, graph, saveNode, { dryRun, outDir, onPol
   return { ok: true, promptId, outputs: outputsOut, localFiles, ...base };
 }
 
-// ── clip modes (ref2va/fl2va/l2va/t2va) — the original single-clip generator, unchanged ────
+// Turbo LoRA (Basic) + 7+1 job fields -> state. Applied after the preset so a job can override a preset.
+function applyTurboHiresJob(job, state) {
+  if (job.turboMode != null) state.turboMode = String(job.turboMode);
+  if (job.pddFile != null) state.pddFile = String(job.pddFile);
+  if (job.pddFileReference != null) state.pddFileReference = String(job.pddFileReference);
+  if (job.pddNfe != null) state.pddNfe = String(job.pddNfe);
+  if (job.pddLoraStrength != null) state.pddLoraStrength = Number(job.pddLoraStrength);
+  if (job.hiresFinish != null) state.hiresFinish = !!job.hiresFinish;
+  if (job.hiresStartMp != null) state.hiresStartMp = Number(job.hiresStartMp);
+  if (job.hiresFinalMp != null) state.hiresFinalMp = Number(job.hiresFinalMp);
+  if (job.hiresChunkRows != null) state.hiresChunkRows = Math.round(Number(job.hiresChunkRows));
+}
+
+// ── clip modes (ref2va/fl2va/l2va/t2va) — the original single-clip generator ────
 async function runClip(job, state, cfg, avail, client, { dryRun, outDir, onPoll }) {
   state.generationMode = jobModeToGenerationMode(job.mode);
 
@@ -180,6 +204,7 @@ async function runClip(job, state, cfg, avail, client, { dryRun, outDir, onPoll 
 
   if (job.megapixels != null) state.megapixels = Number(job.megapixels);
   if (job.aspect) state.aspect = job.aspect;
+  applyTurboHiresJob(job, state);
   if (job.durationSeconds != null) state.clipFrames = alignFrameCount(Number(job.durationSeconds) * FPS);
   else if (job.frames != null) state.clipFrames = alignFrameCount(Number(job.frames));
   const modelOverride = job.model || job.unet || null;
@@ -207,7 +232,7 @@ async function runClip(job, state, cfg, avail, client, { dryRun, outDir, onPoll 
     preset: presetInfo,
     model: { unetFirstLast: state.unetFirstLast, unetReference: state.unetReference, used: state.generationMode === "reference" ? state.unetReference : state.unetFirstLast },
     resolution: { width: meta.width, height: meta.height, megapixels: state.megapixels, aspect: state.aspect },
-    frames: meta.frames, seed, steps: meta.steps, sampler: meta.samplerUsed, turboEffective: meta.turboEffective,
+    frames: meta.frames, seed, steps: meta.steps, sampler: meta.samplerUsed, turboEffective: meta.turboEffective, hires: meta.hires,
   };
   return submitAndCollect(client, graph, meta.videoNode, { dryRun, outDir, onPoll, base });
 }
@@ -226,6 +251,7 @@ async function runOneTake(job, state, cfg, avail, client, { dryRun, outDir, onPo
 
   if (job.megapixels != null) state.megapixels = Number(job.megapixels);
   if (job.aspect) state.aspect = job.aspect;
+  applyTurboHiresJob(job, state);
   if (job.clipSeconds != null) state.clipFrames = alignFrameCount(Number(job.clipSeconds) * FPS);
   else if (job.clipFrames != null) state.clipFrames = alignFrameCount(Number(job.clipFrames));
   const modelOverride = job.model || job.unet || null;

@@ -9,7 +9,7 @@
 import {
   SUBFOLDER, FPS, resolveResolution, ONE_TAKE_OVERLAP_FRAMES, framesToSeconds,
   attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason,
-  pddFileForMode, computeRtxTarget, CHARSHEET_FRAMES,
+  pddFileForMode, computeRtxTarget, CHARSHEET_FRAMES, hiresActive, hiresSizes,
   CHARSHEET_DEFAULT_FRAME_INDICES, BUILTIN_PRESETS, applyPreset,
 } from "./core-helpers.mjs";
 
@@ -31,6 +31,11 @@ export const N = {
   refVid: (i) => `MM:refvid_${i}`, refAud: (i) => `MM:refaud_${i}`, refAudTrim: (i) => `MM:refaud_trim_${i}`,
   audioLock: "MM:audio_lock", lockAud: "MM:lock_audio", lockAudTrim: "MM:lock_audio_trim",
   chkLoad: "MM:h3_chk_load", continuation: "MM:h3_continuation", chkSave: "MM:h3_chk_save",
+  // 7+1 stage 2
+  hrSplit: "MM:hr_split_sigmas", hrSep: "MM:hr_separate", hrUp: "MM:hr_latent_upscale", hrCat: "MM:hr_concat",
+  hrLock: "MM:hr_audio_lock", hrShift: "MM:hr_sigma_shift", hrPdd: "MM:hr_turbo_lora", hrMem: "MM:hr_h3_mem",
+  hrSparse: "MM:hr_block_sparse", hrGuider: "MM:hr_guider", hrSampler: "MM:hr_sampler", hrCond: "MM:hr_cond",
+  hrLora: (i) => `MM:hr_lora${i}`,
 };
 export const TAIL_CANDIDATES = 8;
 
@@ -48,8 +53,9 @@ export function turboEffective(state, avail) {
     return "larryvrh";
   }
   if (state.turboMode === "pdd") {
+    // Turbo LoRA (Basic) is core-native since ComfyUI v0.35.0 (#15908): a plain model-only LoRA, no apply node
+    // and no dedicated pack, so only a missing file forces the fallback.
     if (!pddFileForMode(state)) return "none";
-    if (avail && Object.keys(avail).length && !avail.MiniMaxH3PDDAccApply) return "none";
     return "pdd";
   }
   return state.turboMode || "none";
@@ -57,6 +63,7 @@ export function turboEffective(state, avail) {
 
 export function effectiveSteps(state, avail) {
   const eff = turboEffective(state, avail);
+  if (eff === "pdd" && hiresActive(state)) return 8;
   if (eff === "larryvrh") return state.turboSteps ?? 4;
   if (eff === "lightx2v") return state.slaTurboSteps ?? 6;
   if (eff === "pdd") return Math.max(1, Math.round(Number(state.pddNfe) || 8));
@@ -172,8 +179,10 @@ function buildModelChain(g, state, avail) {
   if (turboWeights === "larryvrh" && has(avail, "MiniMaxH3TurboLoRA")) {
     g[N.turbo] = { class_type: "MiniMaxH3TurboLoRA", inputs: { model: m, lora_name: turboLoraForMode(state), strength: state.turboLoraStrength ?? 1.0, low_vram: !!state.turboLoraLowVram } };
     m = [N.turbo, 0];
-  } else if (turboWeights === "pdd" && has(avail, "MiniMaxH3PDDAccApply")) {
-    g[N.pdd] = { class_type: "MiniMaxH3PDDAccApply", inputs: { model: m, pdd_file: pddFileForMode(state), nfe: String(state.pddNfe ?? "8"), lora_strength: state.pddLoraStrength ?? 1.0, head_strength: state.pddHeadStrength ?? 1.0, on_off_grid: "error" } };
+  } else if (turboWeights === "pdd") {
+    // Core-native since ComfyUI v0.35.0: the ComfyUI-converted Acc checkpoint is an ordinary model-only LoRA whose
+    // head bank core picks per step off the sampler's own schedule — a plain BasicScheduler at the step count feeds it.
+    g[N.pdd] = { class_type: "LoraLoaderModelOnly", inputs: { model: m, lora_name: pddFileForMode(state), strength_model: state.pddLoraStrength ?? 1.0 } };
     m = [N.pdd, 0];
   }
 
@@ -192,7 +201,7 @@ function applySla(g, state, avail, modelLink) {
   return [N.sla, 0];
 }
 
-function buildConditioning(g, state, promptText, width, height, frames, opts, avail) {
+function buildConditioning(g, state, promptText, width, height, frames, opts, avail, key = N.cond) {
   const mode = state.generationMode || "t2v";
   const { firstFrame, lastFrame, refImages } = opts || {};
 
@@ -228,7 +237,7 @@ function buildConditioning(g, state, promptText, width, height, frames, opts, av
       }
       inputs[`ref_audios.ref_audio_${i}`] = link;
     });
-    g[N.cond] = { class_type: "MiniMaxH3ReferenceToVideo", inputs };
+    g[key] = { class_type: "MiniMaxH3ReferenceToVideo", inputs };
     return;
   }
 
@@ -243,7 +252,7 @@ function buildConditioning(g, state, promptText, width, height, frames, opts, av
       inputs.last_frame = resizeToMp(g, N.loadLastResize, [N.loadLast, 0], state.lastFrameMp);
     }
   }
-  g[N.cond] = { class_type: "MiniMaxH3ImageToVideo", inputs };
+  g[key] = { class_type: "MiniMaxH3ImageToVideo", inputs };
 }
 
 // Builds an RTXVideoSuperResolution node (+ an optional ImageCrop ahead of it for the "wh"
@@ -353,10 +362,64 @@ function buildOneTake(g, state, avail, clipIndex, prevCheckpointName, defaultLat
 
 // Saves this clip's sampled latent under checkpointName so the NEXT clip's buildOneTake() can
 // load it — server-side state keyed by name, nothing downloaded/re-uploaded between clips.
-function saveOneTakeCheckpoint(g, state, avail, checkpointName) {
+function saveOneTakeCheckpoint(g, state, avail, checkpointName, latent = [N.sampler, 0]) {
   if (state.continuityMode !== "onetake" || !checkpointName) return;
   if (!has(avail, "TJ_H3_SaveLatentCheckpoint")) return;
-  g[N.chkSave] = { class_type: "TJ_H3_SaveLatentCheckpoint", inputs: { latent: [N.sampler, 0], checkpoint_name: checkpointName } };
+  g[N.chkSave] = { class_type: "TJ_H3_SaveLatentCheckpoint", inputs: { latent, checkpoint_name: checkpointName } };
+}
+
+/**
+ * 7+1 stage 2. The stage-1 latent's video part goes up to the final size and the last sigma interval refines it on a
+ * model chain rebuilt for that one step: same UNET, user LoRAs and turbo LoRA, then H3 Memory Optimization and Sol-Attn
+ * block-sparse attention with fixed values. The conditioning is stage 1's (or its final-size copy). Returns the final
+ * latent link. Port of the studio's buildHiresStage (node 7d258f8 + chunk rows 988250d).
+ */
+function buildHiresStage(g, state, avail, hires, condLink, lowSigmas, lockAudio) {
+  for (const n of ["MinimaxH3LatentUpscaler3D", "H3MemoryOptimization", "BlockSparseAttention"])
+    if (!has(avail, n)) throw new Error(`7+1 hi-res finish needs ${n} — install it, or switch 7+1 off.`);
+
+  g[N.hrSep] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: [N.sampler, 1] } };
+  g[N.hrUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
+    latent: [N.hrSep, 0],
+    model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+    mode: "target dimensions", "mode.width": hires.final.width, "mode.height": hires.final.height,
+    align: 32, enable_temporal_chunking: true, force_unload: true, device: "cuda", precision: "fp16",
+  } };
+  g[N.hrCat] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [N.hrUp, 0], audio_latent: [N.hrSep, 1] } };
+  let latent = [N.hrCat, 0];
+  // The separate/concat round trip drops the lock's denoise mask, so lock the same audio again.
+  if (lockAudio) {
+    g[N.hrLock] = { class_type: "TJ_H3_AudioLock", inputs: { ...g[N.audioLock].inputs, av_latent: latent } };
+    latent = [N.hrLock, 0];
+  }
+
+  let m = [N.unet, 0];
+  (state.loras || []).forEach((lora, i) => {
+    if (!lora?.name || lora.name === "none" || lora.enabled === false) return;
+    const strength = parseFloat(String(lora.strength ?? 1.0));
+    if (!(strength > 0)) return;
+    g[N.hrLora(i)] = { class_type: "LoraLoaderModelOnly", inputs: { model: m, lora_name: lora.name, strength_model: strength } };
+    m = [N.hrLora(i), 0];
+  });
+  g[N.hrPdd] = { class_type: "LoraLoaderModelOnly", inputs: { model: m, lora_name: pddFileForMode(state), strength_model: state.pddLoraStrength ?? 1.0 } };
+  g[N.hrShift] = { class_type: "MiniMaxH3SigmaShift", inputs: { model: [N.hrPdd, 0], shift_video: 12, shift_audio: 3 } };
+  g[N.hrMem] = { class_type: "H3MemoryOptimization", inputs: {
+    model: [N.hrShift, 0],
+    fused_qkv: "auto", preserve_precision: true, embedding_memory_mode: "Auto",
+    mlp_memory: "auto", chunk_rows: Math.round(state.hiresChunkRows ?? 2048), precision_mode: "Preserve native",
+    qkv_streaming_mode: "Forced", kitchen_v_memory_mode: "Lower VRAM (slower)",
+  } };
+  g[N.hrSparse] = { class_type: "BlockSparseAttention", inputs: {
+    model: [N.hrMem, 0],
+    selection: "sol-attn", "selection.tau": 1.3,
+    start_percent: 0.2, end_percent: 1, dense_blocks: "",
+    min_tokens: 12288, extra_tokens: 256, sink_conditioning: "exact_kv_and_rows", verbose: false,
+  } };
+  g[N.hrGuider] = { class_type: "BasicGuider", inputs: { model: [N.hrSparse, 0], conditioning: condLink } };
+  g[N.hrSampler] = { class_type: "SamplerCustomAdvanced", inputs: {
+    noise: [N.noise, 0], guider: [N.hrGuider, 0], sampler: [N.sampSel, 0], sigmas: lowSigmas, latent_image: latent,
+  } };
+  return [N.hrSampler, 0];
 }
 
 /** Single-clip graph. opts: { nodeId, promptText, seed, firstFrame, lastFrame, refImages,
@@ -369,7 +432,11 @@ export function buildClipGraph(state, avail, opts) {
   const { nodeId = "1", promptText, seed, firstFrame = null, lastFrame = null, refImages = null, clipIndex = 0, prevCheckpointName = null, checkpointName = null } = opts || {};
 
   const frames = state.clipFrames || 192;
-  const { width, height } = resolveResolution(state.aspect, state.megapixels);
+  // 7+1: conditioning and stage 1 run at Start MP; everything after the latent upscale (decode, RTX target, the
+  // clip's recorded size) is the final size.
+  const hires = hiresActive(state) ? hiresSizes(state) : null;
+  const { width, height } = hires ? hires.start : resolveResolution(state.aspect, state.megapixels);
+  const outW = hires ? hires.final.width : width, outH = hires ? hires.final.height : height;
   const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
   const stem = state.filenamePrefix || "MMH3";
   const g = {};
@@ -382,12 +449,21 @@ export function buildClipGraph(state, avail, opts) {
   const modelLink = applySla(g, state, avail, modelLink0); // headless: preview always off
 
   const fullPrompt = String(promptText || "").trim();
-  buildConditioning(g, state, fullPrompt, width, height, frames, { firstFrame, lastFrame, refImages: refImages ?? state.refImages }, avail);
+  const condOpts = { firstFrame, lastFrame, refImages: refImages ?? state.refImages };
+  buildConditioning(g, state, fullPrompt, width, height, frames, condOpts, avail);
+  // 7+1: keyframe / reference images are encoded at the canvas size inside the conditioning, so stage 2 (a bigger
+  // latent) needs its own copy built at the final size. Plain text conditioning carries no image tokens and is shared.
+  const mode = state.generationMode || "t2v";
+  const hrCond = !!hires && (mode === "reference" || (mode === "firstlast" && !!(firstFrame || lastFrame)));
+  if (hrCond) buildConditioning(g, state, fullPrompt, outW, outH, frames, condOpts, avail, N.hrCond);
 
+  // With 7+1 the trigger is the stage-2 copy, so both encodes finish before the text encoder is freed.
   let condLink = [N.cond, 0];
+  let hrCondLink = hrCond ? [N.hrCond, 0] : condLink;
   if (has(avail, "TJ_FreeTextEncoderVRAM")) {
-    g[N.freeClipVram] = { class_type: "TJ_FreeTextEncoderVRAM", inputs: { clip: [N.clip, 0], trigger: condLink } };
-    condLink = [N.freeClipVram, 0];
+    g[N.freeClipVram] = { class_type: "TJ_FreeTextEncoderVRAM", inputs: { clip: [N.clip, 0], trigger: hrCond ? hrCondLink : condLink } };
+    if (hrCond) hrCondLink = [N.freeClipVram, 0];
+    else condLink = hrCondLink = [N.freeClipVram, 0];
   }
 
   const turboEff = turboEffective(state, avail);
@@ -413,11 +489,20 @@ export function buildClipGraph(state, avail, opts) {
   const preOneTakeLatent = lockAudio ? [N.audioLock, 0] : [N.cond, 1];
   const latentImage = buildOneTake(g, state, avail, clipIndex, prevCheckpointName, preOneTakeLatent);
 
-  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas: turboEff === "pdd" ? [N.pdd, 1] : [N.sched, 0], latent_image: latentImage } };
-  saveOneTakeCheckpoint(g, state, avail, checkpointName);
+  // Core-native Turbo LoRA (Basic) reads the sampler's own schedule per step, so BasicScheduler feeds it like any other
+  // run. 7+1 cuts that schedule after step 7: stage 1 takes the high part, stage 2 the last step.
+  let sigmas = [N.sched, 0];
+  if (hires) {
+    g[N.hrSplit] = { class_type: "SplitSigmas", inputs: { sigmas, step: 7 } };
+    sigmas = [N.hrSplit, 0];
+  }
+  g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas, latent_image: latentImage } };
+  // 7+1 One-Take hands the next clip the low-res stage-1 result (its x0 estimate).
+  saveOneTakeCheckpoint(g, state, avail, checkpointName, hires ? [N.sampler, 1] : [N.sampler, 0]);
+  const finalSamples = hires ? buildHiresStage(g, state, avail, hires, hrCondLink, [N.hrSplit, 1], lockAudio) : [N.sampler, 0];
 
-  g[N.decode] = { class_type: "VAEDecode", inputs: { samples: [N.sampler, 0], vae: [N.vaeV, 0] } };
-  g[N.decodeA] = { class_type: "VAEDecodeAudio", inputs: { samples: [N.sampler, 0], vae: [N.vaeA, 0] } };
+  g[N.decode] = { class_type: "VAEDecode", inputs: { samples: finalSamples, vae: [N.vaeV, 0] } };
+  g[N.decodeA] = { class_type: "VAEDecodeAudio", inputs: { samples: finalSamples, vae: [N.vaeA, 0] } };
 
   let images = [N.decode, 0];
   // Inline deblur / upscale — the studio's per-run left-panel controls. Off by default in a
@@ -433,7 +518,7 @@ export function buildClipGraph(state, avail, opts) {
     g[N.upApply] = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: [N.upModel, 0], image: images } };
     images = [N.upApply, 0];
   } else if (up === "rtx" && has(avail, "RTXVideoSuperResolution")) {
-    const r = buildRtxNode(g, { crop: N.rtxCrop, rtx: N.rtx }, images, state, width, height);
+    const r = buildRtxNode(g, { crop: N.rtxCrop, rtx: N.rtx }, images, state, outW, outH);
     images = r.images;
   } else if (up === "flashvsr" && has(avail, "FlashVSRNodeAdv")) {
     buildFlashVSR(g, N.fvsrPipe, N.fvsr, flashvsrParamsFromState(state), images);
@@ -447,7 +532,8 @@ export function buildClipGraph(state, avail, opts) {
 
   return {
     graph: g,
-    meta: { width, height, frames, steps, seed, samplerUsed, videoNode: N.save, turboEffective: turboEff },
+    meta: { width: outW, height: outH, frames, steps, seed, samplerUsed, videoNode: N.save, turboEffective: turboEff,
+      hires: hires ? { startW: width, startH: height, scale: hires.scale } : null },
   };
 }
 

@@ -23,6 +23,7 @@ import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore"
 function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 import { createMaskEditor } from "./maskEditor";
+import { withCurrent } from "../../shared/samplerLists";
 
 export function renderAnima(root: HTMLElement) {
   clear(root);
@@ -491,7 +492,7 @@ export function renderAnima(root: HTMLElement) {
     return el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } }, [
       turboLbl,
       row([col([label("Steps"), stepsF]), col([label("CFG"), cfgF])]),
-      row([col([label("Sampler"), select(SAMPLERS, state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(SCHEDULERS, state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
+      row([col([label("Sampler"), select(withCurrent(SAMPLERS, state.sampler), state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(withCurrent(SCHEDULERS, state.scheduler), state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
     ]);
   }
 

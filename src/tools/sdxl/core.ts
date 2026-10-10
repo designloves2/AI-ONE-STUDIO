@@ -108,8 +108,8 @@ export interface SDXLState {
   saveSubfolder: string;
 }
 
-export const SAMPLERS = ["euler", "euler_ancestral", "dpm_2", "dpm_2_ancestral", "dpm_pp_2m", "dpm_pp_2m_sde", "dpm_pp_sde", "heun", "lms", "dpm_fast", "dpm_adaptive", "ddim", "uni_pc"];
-export const SCHEDULERS = ["normal", "karras", "exponential", "sgm_uniform", "simple", "beta"];
+// ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
+export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
 export const LORA_UI_CAP = 5;
 
 export const SEEDVR2_ATTN_MODES = ["sdpa", "flash_attn_2", "flash_attn_3", "sageattn_2", "sageattn_3"];

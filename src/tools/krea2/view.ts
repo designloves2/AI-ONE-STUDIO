@@ -21,6 +21,7 @@ import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/pro
 import { comfyApi } from "./comfyClient";
 
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
+import { withCurrent } from "../../shared/samplerLists";
 function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 
@@ -669,7 +670,7 @@ export function renderKrea2(root: HTMLElement) {
   function samplingSection() {
     return el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } }, [
       row([col([label("Steps"), numberField(state.steps, (v) => { state.steps = Math.max(1, Math.min(50, Math.round(v) || 1)); persist(); })]), col([label("CFG"), numberField(state.cfg, (v) => { state.cfg = Math.max(0, Math.min(20, v || 0)); persist(); }, 0.25)])]),
-      row([col([label("Sampler"), select(SAMPLERS, state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(SCHEDULERS, state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
+      row([col([label("Sampler"), select(withCurrent(SAMPLERS, state.sampler), state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(withCurrent(SCHEDULERS, state.scheduler), state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
     ]);
   }
 

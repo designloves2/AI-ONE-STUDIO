@@ -161,8 +161,8 @@ export interface Q21State {
   poseSystemPrompt: string;
 }
 
-export const SAMPLERS = ["euler", "euler_ancestral", "er_sde", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "heun", "dpm_pp_2m"];
-export const SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uniform", "beta"];
+// ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
+export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
 export const LORA_UI_CAP = 3;
 export const MAX_REF_IMAGES = 10;
 export const MAX_EDIT_EXTRA = 9; // Images 2–10

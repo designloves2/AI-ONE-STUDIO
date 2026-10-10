@@ -24,6 +24,8 @@ import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/pro
 import { comfyApi } from "./comfyClient";
 
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
+// Node: Z-Image shows its own short list first, then ComfyUI's full KSampler lists once read (same source as the other image tools).
+import { SAMPLERS as FULL_SAMPLERS, SCHEDULERS as FULL_SCHEDULERS, LISTS_FROM_SERVER, withCurrent } from "../../shared/samplerLists";
 function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 
@@ -589,7 +591,7 @@ export function renderZImage(root: HTMLElement) {
         col([label("CFG"), numberField(state.cfg, (v) => { state.cfg = Math.max(0, Math.min(20, v || 0)); persist(); }, 0.25)]),
         col([label("Shift"), numberField(state.shift, (v) => { state.shift = Math.max(0, v || 0); persist(); }, 0.5)]),
       ]),
-      row([col([label("Sampler"), select(SAMPLERS, state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(SCHEDULERS, state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
+      row([col([label("Sampler"), select(withCurrent(LISTS_FROM_SERVER ? FULL_SAMPLERS : SAMPLERS, state.sampler), state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(withCurrent(LISTS_FROM_SERVER ? FULL_SCHEDULERS : SCHEDULERS, state.scheduler), state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
     ]);
   }
 

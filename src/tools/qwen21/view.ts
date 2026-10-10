@@ -24,6 +24,7 @@ import { openPoseCropOverlay, cropAndUploadPoseImage } from "./poseCrop";
 import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
 
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
+import { withCurrent } from "../../shared/samplerLists";
 function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 
@@ -573,7 +574,7 @@ export function renderQwen21(root: HTMLElement) {
         col([label("Steps"), numberField(state.steps, (v) => { state.steps = Math.max(1, Math.round(v) || 1); persist(); })]),
         col([label("CFG"), numberField(state.cfg, (v) => { state.cfg = Math.max(0, v || 0); persist(); }, 0.1)]),
       ]),
-      row([col([label("Sampler"), select(SAMPLERS, state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(SCHEDULERS, state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
+      row([col([label("Sampler"), select(withCurrent(SAMPLERS, state.sampler), state.sampler, (v) => { state.sampler = v; persist(); })]), col([label("Scheduler"), select(withCurrent(SCHEDULERS, state.scheduler), state.scheduler, (v) => { state.scheduler = v; persist(); })])]),
     ]);
   }
 

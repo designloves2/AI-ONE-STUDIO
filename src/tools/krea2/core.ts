@@ -35,8 +35,8 @@ export const RESOLUTIONS: ResolutionOption[] = [
   { label: "Custom", w: 0, h: 0 },
 ];
 
-export const SAMPLERS = ["euler", "dpmpp_2m_sde", "dpmpp_2m", "euler_ancestral", "heun"];
-export const SCHEDULERS = ["simple", "sgm_uniform", "karras", "normal", "exponential"];
+// ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
+export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
 export const LORA_MAX = 4;
 // 원본 UI(mountLoraSectionKrea2)가 실제로 강제하는 상한 — LORA_MAX 상수와 별개로 3까지만 추가 가능.
 export const LORA_UI_CAP = 3;

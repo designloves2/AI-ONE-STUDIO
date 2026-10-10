@@ -50,8 +50,8 @@ export const RESOLUTIONS: { label: string; w: number; h: number }[] = [
   { label: "Custom", w: 0, h: 0 },
 ];
 
-export const SAMPLERS = ["euler", "dpmpp_2m_sde", "dpmpp_2m", "euler_ancestral", "heun"];
-export const SCHEDULERS = ["simple", "sgm_uniform", "karras", "normal", "exponential"];
+// ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
+export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
 
 // LLLite 컨트롤 패치 파일명 — 공식 Anima 템플릿 기준.
 export const LLLITE_PATCH: Record<Exclude<AnimaMode, "t2i">, string> = {

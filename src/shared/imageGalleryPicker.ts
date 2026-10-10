@@ -7,6 +7,7 @@ import { el, clear } from "./ui";
 import { createCacheButton, applyThumb } from "./thumbCache";
 import { getComfyBase } from "./comfyBase";
 import { attachSensitiveToggle, mediaKey, isBlurred, wireRevealButton } from "./sensitiveMedia";
+import { mountGalleryLayout } from "./galleryLayout";
 
 const BASE = getComfyBase();
 
@@ -221,6 +222,7 @@ export function openImageGalleryPicker(onPick: (filename: string) => void, initi
   }, 5000);
 
   const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gridAutoRows: "min-content", gap: "6px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
+  mountGalleryLayout(grid, topRow, { colMin: 120, before: closeBtn, like: closeBtn });
   const statusEl = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
   const moreBtn = el("button", { type: "button", text: "Load more", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 10px", borderRadius: "6px", border: `1px solid ${C.border}`, background: C.bg2, color: C.text, flexShrink: "0" } });
   moreBtn.style.display = "none";

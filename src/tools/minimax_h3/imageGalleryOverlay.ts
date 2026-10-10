@@ -20,6 +20,7 @@ import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../
 import { queuePrompt } from "./comfyClient";
 import { buildImageUpscaleGraph } from "./graphBuilder";
 import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "../../shared/sensitiveMedia";
+import { mountGalleryLayout } from "../../shared/galleryLayout";
 
 // Named aspect ratios a real render is actually likely to land on — same table the video
 // gallery's own card badge uses.
@@ -366,6 +367,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))", gridAutoRows: "min-content", gap: "10px", alignContent: "start",
     paddingRight: "4px",
   } });
+  mountGalleryLayout(grid, hdr, { colMin: 168, before: refreshBtn, like: refreshBtn });
   const hint = el("div", { text: "No images yet.", style: { color: C.muted, fontSize: "12px", textAlign: "center", padding: "30px 0", display: "none" } });
   let filtered: GalleryImage[] = [];
 

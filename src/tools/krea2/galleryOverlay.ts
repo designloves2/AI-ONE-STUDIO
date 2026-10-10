@@ -8,6 +8,7 @@ import { sendImagesToMinimax } from "../../shared/minimaxSend";
 import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive, wireRevealButton } from "../../shared/sensitiveMedia";
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
+import { mountGalleryLayout } from "../../shared/galleryLayout";
 
 const SEND_TARGETS: { mode: string; field: string; label: string }[] = [
   { mode: "i2i", field: "i2iImage", label: "→ I2I" },
@@ -109,6 +110,7 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
   }
 
   const grid = el("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gridAutoRows: "min-content", gap: "6px", overflowY: "auto", flex: "1", minHeight: "0", alignContent: "start" } });
+  mountGalleryLayout(grid, topRow, { colMin: 110, before: refreshBtn, like: refreshBtn });
   const statusEl = el("div", { style: { color: C.muted, fontSize: "11px", flexShrink: "0" } });
   const moreBtn = btn("Load more", () => loadMore());
   moreBtn.style.display = "none";

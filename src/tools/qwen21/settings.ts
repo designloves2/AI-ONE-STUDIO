@@ -26,6 +26,17 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
     },
   });
 
+  // Every control below saves the moment it changes: the browser copy (persist) AND the server config, so a value
+  // set here is never lost to a reload, a restart or another browser. Text boxes are batched for 400 ms.
+  let pendingCfg: Record<string, any> = {};
+  let cfgTimer: ReturnType<typeof setTimeout> | undefined;
+  function changed(patch: Record<string, any>) {
+    ctx.persist();
+    Object.assign(pendingCfg, patch);
+    if (cfgTimer) clearTimeout(cfgTimer);
+    cfgTimer = setTimeout(() => { const p = pendingCfg; pendingCfg = {}; void saveConfig(p); }, 400);
+  }
+
   const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   topRow.appendChild(el("div", { text: "⚙ Settings — QWEN IMAGE 2.1 ONE STUDIO (TJ)", style: { color: "#ffffff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
   const saveAllBtn = button("💾 Save All", () => saveAll(), "primary");
@@ -42,13 +53,15 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
     const te = ["none", ...(data.text_encoders || [])];
     const vaes = ["none", ...(data.vaes || [])];
     const loras = ["none", ...(data.loras || [])];
+    // A saved name that is not (yet) in the loaded list stays selectable instead of silently showing "none".
+    if (state.poseLoraModel && state.poseLoraModel !== "none" && !loras.includes(state.poseLoraModel)) loras.splice(1, 0, state.poseLoraModel);
     if ((data.diffusion_models?.length || data.gguf?.length) && !diff.includes(state.model)) state.model = "none";
     if (data.text_encoders?.length && !te.includes(state.textEncoder)) state.textEncoder = "none";
     if (data.vaes?.length && !vaes.includes(state.vae)) state.vae = "none";
-    modelSel = searchableSelect(diff, state.model, (v) => { state.model = v; ctx.persist(); });
-    teSel = searchableSelect(te, state.textEncoder, (v) => { state.textEncoder = v; ctx.persist(); });
-    vaeSel = searchableSelect(vaes, state.vae, (v) => { state.vae = v; ctx.persist(); });
-    poseLoraSel = searchableSelect(loras, state.poseLoraModel || "none", (v) => { state.poseLoraModel = v; ctx.persist(); });
+    modelSel = searchableSelect(diff, state.model, (v) => { state.model = v; changed({ selected_model: v }); });
+    teSel = searchableSelect(te, state.textEncoder, (v) => { state.textEncoder = v; changed({ selected_text_encoder: v }); });
+    vaeSel = searchableSelect(vaes, state.vae, (v) => { state.vae = v; changed({ selected_vae: v }); });
+    poseLoraSel = searchableSelect(loras, state.poseLoraModel || "none", (v) => { state.poseLoraModel = v; changed({ pose_lora_model: v }); });
     modelWrap.appendChild(col([label("Diffusion Model (UNETLoader)"), modelSel.el]));
     teWrap.appendChild(col([label("Text Encoder (Qwen3-VL)"), teSel.el]));
     vaeWrap.appendChild(col([label("VAE"), vaeSel.el]));
@@ -72,18 +85,18 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
   ov.appendChild(panel([el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } }, [row([modelWrap, teWrap, vaeWrap]), modelNote, refreshBtn])]));
 
   // ── POSE — VNCCS PoseStudio LoRA + SAM3D model + editable/resettable system prompt ──
-  const poseStrengthIn = numberField(state.poseLoraStrength ?? 1, (v) => { state.poseLoraStrength = v; ctx.persist(); }, 0.05);
+  const poseStrengthIn = numberField(state.poseLoraStrength ?? 1, (v) => { state.poseLoraStrength = v; changed({ pose_lora_strength: v }); }, 0.05);
   poseStrengthIn.style.width = "90px";
   const poseSamIn = el("input", { type: "text", placeholder: POSE_SAM3D_MODEL_DEFAULT, style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } }) as HTMLInputElement;
   poseSamIn.value = state.poseSamModel || "";
-  poseSamIn.addEventListener("input", () => { state.poseSamModel = poseSamIn.value || POSE_SAM3D_MODEL_DEFAULT; ctx.persist(); });
+  poseSamIn.addEventListener("input", () => { state.poseSamModel = poseSamIn.value || POSE_SAM3D_MODEL_DEFAULT; changed({ pose_sam_model: state.poseSamModel }); });
   const poseSysTA = el("textarea", { style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", minHeight: "55px" } }) as HTMLTextAreaElement;
   poseSysTA.value = state.poseSystemPrompt || POSE_SYSTEM_PROMPT_DEFAULT;
-  poseSysTA.addEventListener("input", () => { state.poseSystemPrompt = poseSysTA.value; ctx.persist(); });
+  poseSysTA.addEventListener("input", () => { state.poseSystemPrompt = poseSysTA.value; changed({ pose_system_prompt: state.poseSystemPrompt }); });
   const poseSysResetBtn = button("↺ Reset to default", () => {
     state.poseSystemPrompt = POSE_SYSTEM_PROMPT_DEFAULT;
     poseSysTA.value = POSE_SYSTEM_PROMPT_DEFAULT;
-    ctx.persist();
+    changed({ pose_system_prompt: state.poseSystemPrompt });
   });
   ov.appendChild(panel([
     el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } }, [
@@ -97,13 +110,13 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
   // ── Cache / Sage Attention 토글 ────────────────────────────────────────────
   const cacheBtn = button(state.useCache !== false ? "Cache: ON" : "Cache: OFF", () => {
     state.useCache = state.useCache === false;
-    ctx.persist();
+    changed({ use_cache: state.useCache !== false });
     cacheBtn.textContent = state.useCache !== false ? "Cache: ON" : "Cache: OFF";
     ctx.onCacheOrSageChange?.();
   });
   const sageBtn = button(state.useSageAttention ? "Sage Attention: ON" : "Sage Attention: OFF", () => {
     state.useSageAttention = !state.useSageAttention;
-    ctx.persist();
+    changed({ use_sage_attention: !!state.useSageAttention });
     sageBtn.textContent = state.useSageAttention ? "Sage Attention: ON" : "Sage Attention: OFF";
     ctx.onCacheOrSageChange?.();
   });
@@ -111,17 +124,17 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
 
   const negTA = el("textarea", { placeholder: "Negative prompt…", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: "60px" } }) as HTMLTextAreaElement;
   negTA.value = state.negativePrompt || "";
-  negTA.addEventListener("input", () => (state.negativePrompt = negTA.value));
+  negTA.addEventListener("input", () => { state.negativePrompt = negTA.value; changed({ negative_prompt: state.negativePrompt }); });
   ov.appendChild(panel([label("Negative Prompt"), negTA]));
 
   const pathIn = el("input", { type: "text", placeholder: SUBFOLDER, style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit" } }) as HTMLInputElement;
   pathIn.value = state.saveSubfolder || "";
-  pathIn.addEventListener("input", () => (state.saveSubfolder = pathIn.value.trim()));
+  pathIn.addEventListener("input", () => { state.saveSubfolder = pathIn.value.trim(); changed({ save_subfolder: state.saveSubfolder }); });
   ov.appendChild(panel([label("Save Subfolder (optional)"), pathIn]));
 
   const suffixIn = el("input", { type: "text", placeholder: "e.g. high quality, sharp focus", style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "7px", fontSize: "12px", fontFamily: "inherit" } }) as HTMLInputElement;
   suffixIn.value = state.promptSuffix || "";
-  suffixIn.addEventListener("input", () => (state.promptSuffix = suffixIn.value));
+  suffixIn.addEventListener("input", () => { state.promptSuffix = suffixIn.value; changed({ prompt_suffix: state.promptSuffix }); });
   ov.appendChild(panel([label("Prompt Suffix (auto-appended for quality boost)"), suffixIn]));
 
   // Ref to Image / Edit 참조 이미지 자동 다운스케일 — 4K급 참조 이미지가 인코딩을 느리게
@@ -133,7 +146,7 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
     const mp = parseFloat(refMpIn.value) || 0;
     refMpHint.textContent = mp > 0 ? `≈ ${Math.round(Math.sqrt(mp * 1e6))}×${Math.round(Math.sqrt(mp * 1e6))}px (1:1 기준, 비율 유지)` : "";
   }
-  refMpIn.addEventListener("input", () => { state.refMaxMegapixels = parseFloat(refMpIn.value) || 0; updateRefMpHint(); });
+  refMpIn.addEventListener("input", () => { state.refMaxMegapixels = parseFloat(refMpIn.value) || 0; updateRefMpHint(); changed({ ref_max_megapixels: state.refMaxMegapixels }); });
   updateRefMpHint();
   ov.appendChild(panel([label("Reference Image Max Megapixels (Ref to Image / Edit, 0 = off)"), refMpIn, refMpHint]));
 
@@ -151,6 +164,8 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
       pose_lora_strength: state.poseLoraStrength ?? 1,
       pose_sam_model: state.poseSamModel || POSE_SAM3D_MODEL_DEFAULT,
       pose_system_prompt: state.poseSystemPrompt || POSE_SYSTEM_PROMPT_DEFAULT,
+      use_cache: state.useCache !== false,
+      use_sage_attention: !!state.useSageAttention,
     });
     saveAllBtn.textContent = "✓ Saved!";
     setTimeout(() => (saveAllBtn.textContent = "💾 Save All"), 1500);
@@ -171,6 +186,8 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
       if (cfg.pose_lora_strength !== undefined && state.poseLoraStrength === 1) { state.poseLoraStrength = cfg.pose_lora_strength; poseStrengthIn.value = String(cfg.pose_lora_strength); }
       if (cfg.pose_sam_model && !state.poseSamModel) { state.poseSamModel = cfg.pose_sam_model; poseSamIn.value = cfg.pose_sam_model; }
       if (cfg.pose_system_prompt && state.poseSystemPrompt === POSE_SYSTEM_PROMPT_DEFAULT) { state.poseSystemPrompt = cfg.pose_system_prompt; poseSysTA.value = cfg.pose_system_prompt; }
+      if (typeof cfg.use_cache === "boolean") { state.useCache = cfg.use_cache; cacheBtn.textContent = state.useCache !== false ? "Cache: ON" : "Cache: OFF"; }
+      if (typeof cfg.use_sage_attention === "boolean") { state.useSageAttention = cfg.use_sage_attention; sageBtn.textContent = state.useSageAttention ? "Sage Attention: ON" : "Sage Attention: OFF"; }
       ctx.persist();
       return getModels().then((d) => {
         rebuildModels(d);

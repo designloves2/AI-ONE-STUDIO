@@ -407,12 +407,17 @@ export function renderQwen21(root: HTMLElement) {
   wrap.appendChild(helpOv.el);
 
   async function resetAllSettings() {
-    if (!(await confirmDialog("Reset all settings? Model selection is preserved."))) return;
-    const { model, textEncoder, vae } = state;
+    if (!(await confirmDialog("Reset all settings? Model and POSE selections are preserved."))) return;
+    const { model, textEncoder, vae, poseLoraModel, poseLoraStrength, poseSamModel, poseSystemPrompt } = state;
     Object.assign(state, defaultState({}));
     if (model) state.model = model;
     if (textEncoder) state.textEncoder = textEncoder;
     if (vae) state.vae = vae;
+    // POSE settings are model selections too (node 346fd5a): the Reset keeps them.
+    state.poseLoraModel = poseLoraModel;
+    state.poseLoraStrength = poseLoraStrength;
+    state.poseSamModel = poseSamModel;
+    state.poseSystemPrompt = poseSystemPrompt;
     persist();
     renderModeBar();
     renderLeftPanel();

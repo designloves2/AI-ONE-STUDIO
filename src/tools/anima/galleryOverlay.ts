@@ -13,6 +13,7 @@ const SEND_TARGETS: { mode: string; field: string; label: string }[] = [
   { mode: "inpaint", field: "inpaintImage", label: "→ Inpainting" },
   { mode: "anycontrol", field: "anyControlImage", label: "→ Any Control" },
   { mode: "depthcontrol", field: "depthControlImage", label: "→ Depth Control" },
+  { mode: "upscale", field: "upscaleImage", label: "→ Upscale" },
 ];
 
 function btn(text: string, onClick: () => void, variant?: "primary" | "danger") {

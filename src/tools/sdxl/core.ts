@@ -11,7 +11,7 @@ export const LS_KEY = "sdxl_one_tj_state_v1";
 
 export type SDXLMode = "t2i" | "i2i" | "inpaint" | "outpaint" | "upscale";
 export type ModelLoaderMode = "checkpoint" | "separate";
-export type UpscaleMode = "esrgan" | "refiner" | "seedvr2";
+export type UpscaleMode = "esrgan" | "refiner" | "vosr" | "seedvr2";
 
 export interface LoraEntry {
   name: string;
@@ -84,6 +84,15 @@ export interface SDXLState {
 
   upscaleMode: UpscaleMode;
   upscaleImage: string | null;
+  upscaleMethod: "vosr" | "seedvr2";
+  vosrModel: string;
+  vosrDtype: string;
+  vosrScale: number;
+  vosrColorAlignment: string;
+  vosrTileSize: number;
+  vosrTileOverlap: number;
+  vosrVaeTileSize: number;
+  vosrVaeTileOverlap: number;
 
   esrganModel: string;
   esrganScale: number;
@@ -110,6 +119,7 @@ export interface SDXLState {
 
 // ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
 export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
+import { vosrState } from "../../shared/vosrUpscale";
 export const LORA_UI_CAP = 5;
 
 export const SEEDVR2_ATTN_MODES = ["sdpa", "flash_attn_2", "flash_attn_3", "sageattn_2", "sageattn_3"];
@@ -214,6 +224,7 @@ export function defaultState(saved: Partial<SDXLState> = {}): SDXLState {
 
     upscaleMode: saved.upscaleMode || "esrgan",
     upscaleImage: saved.upscaleImage || null,
+    ...vosrState(saved),
 
     esrganModel: saved.esrganModel || "",
     esrganScale: saved.esrganScale ?? 4,

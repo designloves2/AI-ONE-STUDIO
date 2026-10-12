@@ -3,6 +3,7 @@
 // (노드 id 문자열, 클래스명, 입력 필드명까지 원본과 동일하게 유지)
 import type { Krea2State, LoraEntry } from "./core";
 import { SUBFOLDER, safeDepthCkpt, buildPromptText, controlOutputSize, controlLoraForType } from "./core";
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 
 type Graph = Record<string, any>;
 type Link = [string, number];
@@ -257,6 +258,7 @@ export function buildIdentityGraph(state: Krea2State): Graph {
 // ── Upscale — SeedVR2 ──────────────────────────────────────────────────────
 export function buildUpscaleGraph(state: Krea2State): Graph {
   if (!state.upscaleImage) throw new Error("No source image uploaded for upscale.");
+  if (state.upscaleMethod !== "seedvr2") return buildVosrUpscaleGraph(state, `${state.saveSubfolder || SUBFOLDER}/K2_up`);
   if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a SeedVR2 DiT model in the UPSCALE panel.");
   if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a SeedVR2 VAE model in the UPSCALE panel.");
 

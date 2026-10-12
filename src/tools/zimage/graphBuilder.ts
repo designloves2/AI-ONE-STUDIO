@@ -4,6 +4,7 @@
 // (Krea2는 "krea2") — Z-Image는 Lumina2 계열 베이스 모델이라 다르다.
 import type { ZImageState } from "./core";
 import { SUBFOLDER } from "./core";
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 
 function buildPromptText(state: ZImageState): string {
   const modePrompt = state.mode in state.promptsByMode ? state.promptsByMode[state.mode] : state.prompt || "";
@@ -103,6 +104,7 @@ export function buildI2IGraph(state: ZImageState): Record<string, any> {
 // ── Upscale (SeedVR2) — Krea2와 동일한 SeedVR2 노드 세트, subfolder만 다름 ──────
 export function buildUpscaleGraph(state: ZImageState): Record<string, any> {
   if (!state.upscaleImage) throw new Error("Upload a source image.");
+  if (state.upscaleMethod !== "seedvr2") return buildVosrUpscaleGraph(state, state.saveSubfolder || "vosr");
   if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a DiT model.");
   if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a VAE model.");
   const g: Record<string, any> = {};

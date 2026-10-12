@@ -26,6 +26,7 @@ import { comfyApi } from "./comfyClient";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 // Node: Z-Image shows its own short list first, then ComfyUI's full KSampler lists once read (same source as the other image tools).
 import { SAMPLERS as FULL_SAMPLERS, SCHEDULERS as FULL_SCHEDULERS, LISTS_FROM_SERVER, withCurrent } from "../../shared/samplerLists";
+import { mountUpscaleMethodTabs, mountVosrPanel } from "../../shared/vosrUpscale";
 function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 
@@ -567,6 +568,17 @@ export function renderZImage(root: HTMLElement) {
     wrap.addEventListener("dragleave", () => { wrap.style.borderColor = C.border; });
     wrap.addEventListener("drop", (e) => { e.preventDefault(); wrap.style.borderColor = C.border; const f = e.dataTransfer?.files?.[0]; if (f) handleFile(f); });
 
+    // A saved file that no longer exists would show a broken-image icon: show the empty card instead,
+    // and forget the saved name when the server says the file is gone (404). (node c79a4c9)
+    img.addEventListener("error", async () => {
+      if (!img.getAttribute("src")) return;
+      const gone = await fetch(img.src, { method: "HEAD" }).then((r) => r.status === 404, () => false);
+      img.style.display = "none";
+      hint.style.display = "";
+      clearBtn.style.display = "none";
+      if (gone) onSet("");
+    });
+
     if (currentFilename) {
       const url = api.viewUrl(currentFilename, "", "input");
       img.src = url;
@@ -623,7 +635,11 @@ export function renderZImage(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "upscale") {
+      const vosrBody = mountVosrPanel(state, persist);
+      const seedBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+      mountUpscaleMethodTabs(leftScroll, state, persist, { vosr: vosrBody, seedvr2: seedBody });
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
+      leftScroll.appendChild(vosrBody); leftScroll.appendChild(seedBody);
       const ditSel = searchableSelect(["none"], state.upscaleDitModel, (v) => { state.upscaleDitModel = v; persist(); });
       const vaeSel = searchableSelect(["none"], state.upscaleVaeModel, (v) => { state.upscaleVaeModel = v; persist(); });
       api.getSeedVR2Models().then((d) => {
@@ -635,9 +651,9 @@ export function renderZImage(root: HTMLElement) {
           vaeSel.setValue(state.upscaleVaeModel);
         }
       });
-      leftScroll.appendChild(panel([label("DiT Model"), ditSel.el]));
-      leftScroll.appendChild(panel([label("VAE Model"), vaeSel.el, el("div", { text: "Models → models/SEEDVR2/", style: { fontSize: "10px", color: C.muted } })]));
-      leftScroll.appendChild(panel([
+      seedBody.appendChild(panel([label("DiT Model"), ditSel.el]));
+      seedBody.appendChild(panel([label("VAE Model"), vaeSel.el, el("div", { text: "Models → models/SEEDVR2/", style: { fontSize: "10px", color: C.muted } })]));
+      seedBody.appendChild(panel([
         label("Upscale Settings"),
         row([col([label("Resolution (short edge)"), numberField(state.upscaleResolution ?? 2048, (v) => { state.upscaleResolution = v; persist(); }, 2)]), col([label("Max Resolution"), numberField(state.upscaleMaxResolution ?? 4096, (v) => { state.upscaleMaxResolution = v; persist(); }, 2)])]),
         row([col([label("Batch Size (4n+1)"), numberField(state.upscaleBatchSize ?? 1, (v) => { state.upscaleBatchSize = v; persist(); }, 4)]), col([label("Blocks to Swap"), numberField(state.upscaleBlocksToSwap ?? 0, (v) => { state.upscaleBlocksToSwap = v; persist(); }, 1)])]),
@@ -775,7 +791,7 @@ export function renderZImage(root: HTMLElement) {
     if (!state.vae) { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
     if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
     if (state.mode === "upscale" && !state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
-    if (state.mode === "upscale" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
+    if (state.mode === "upscale" && state.upscaleMethod === "seedvr2" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     if (state.mode === "inpaint") {
       if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
       if (!state.inpaintMaskImage) {

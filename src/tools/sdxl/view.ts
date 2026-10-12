@@ -26,6 +26,7 @@ function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 import { createMaskEditor } from "./maskEditor";
 import { withCurrent } from "../../shared/samplerLists";
+import { mountVosrPanel } from "../../shared/vosrUpscale";
 
 export function renderSDXL(root: HTMLElement) {
   clear(root);
@@ -521,6 +522,17 @@ export function renderSDXL(root: HTMLElement) {
     wrap.addEventListener("dragleave", () => { wrap.style.borderColor = C.border; });
     wrap.addEventListener("drop", (e) => { e.preventDefault(); wrap.style.borderColor = C.border; const f = e.dataTransfer?.files?.[0]; if (f) handleFile(f); });
 
+    // A saved file that no longer exists would show a broken-image icon: show the empty card instead,
+    // and forget the saved name when the server says the file is gone (404). (node c79a4c9)
+    img.addEventListener("error", async () => {
+      if (!img.getAttribute("src")) return;
+      const gone = await fetch(img.src, { method: "HEAD" }).then((r) => r.status === 404, () => false);
+      img.style.display = "none";
+      hint.style.display = "";
+      clearBtn.style.display = "none";
+      if (gone) onSet("");
+    });
+
     if (currentFilename) {
       const url = api.viewUrl(currentFilename, "", "input");
       img.src = url;
@@ -594,14 +606,14 @@ export function renderSDXL(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection(() => state.loras)]));
     } else if (state.mode === "upscale") {
-      leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
-
       const subModeBar = row([
         button("ESRGAN", () => { state.upscaleMode = "esrgan"; persist(); renderLeftPanel(); }, state.upscaleMode === "esrgan" ? "primary" : "default"),
         button("Refiner", () => { state.upscaleMode = "refiner"; persist(); renderLeftPanel(); }, state.upscaleMode === "refiner" ? "primary" : "default"),
+        button("VOSR", () => { state.upscaleMode = "vosr"; persist(); renderLeftPanel(); }, state.upscaleMode === "vosr" ? "primary" : "default"),
         button("SEEDVR2", () => { state.upscaleMode = "seedvr2"; persist(); renderLeftPanel(); }, state.upscaleMode === "seedvr2" ? "primary" : "default"),
       ]);
       leftScroll.appendChild(panel([subModeBar]));
+      leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
 
       const mode: UpscaleMode = state.upscaleMode || "esrgan";
       if (mode === "esrgan") {
@@ -614,6 +626,8 @@ export function renderSDXL(root: HTMLElement) {
           }
         });
         leftScroll.appendChild(panel([label("ESRGAN Model"), esrganSel.el, el("div", { text: "Models → models/upscale_models/", style: { fontSize: "10px", color: C.muted } })]));
+      } else if (mode === "vosr") {
+        leftScroll.appendChild(mountVosrPanel(state, persist));
       } else if (mode === "refiner") {
         leftScroll.appendChild(panel([
           el("div", { text: "Set the Refiner Checkpoint in ⚙ Settings. Applies I2I to the source image with the Refiner model.", style: { fontSize: "11px", color: C.muted, lineHeight: "1.5" } }),

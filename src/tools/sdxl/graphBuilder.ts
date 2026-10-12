@@ -3,6 +3,7 @@
 // UNETLoader(or UnetLoaderGGUF)+DualCLIPLoader(type=sdxl)+VAELoader를 따로 구성한다.
 import type { SDXLState, LoraEntry } from "./core";
 import { SUBFOLDER } from "./core";
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 
 const P = "SX";
 
@@ -302,6 +303,11 @@ export function buildGraph(state: SDXLState): Record<string, any> {
       const m = state.upscaleMode || "esrgan";
       if (m === "esrgan") return buildESRGANGraph(state);
       if (m === "refiner") return buildRefinerUpscaleGraph(state);
+      if (m === "vosr") {
+        const g = buildVosrUpscaleGraph(state, `${state.saveSubfolder || SUBFOLDER}/SX`);
+        if (state.outputMode === "preview") g["UP:save"] = { class_type: "PreviewImage", inputs: { images: ["UP:run", 0] } };
+        return g;
+      }
       return buildSeedVR2Graph(state);
     }
     default: throw new Error(`Unknown mode: ${state.mode}`);

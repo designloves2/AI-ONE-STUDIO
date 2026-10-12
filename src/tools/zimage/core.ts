@@ -3,6 +3,7 @@
 // 백엔드 nodes.py의 ZIT_SUBFOLDER("one_z-image")/API 접두사("/z_image_turbo")와 반드시 일치해야 한다.
 export { C, BRAND } from "../../identity";
 export { el, clear } from "../../shared/ui";
+import { vosrState } from "../../shared/vosrUpscale";
 
 export const SUBFOLDER = "one_z-image";
 export const API = "/z_image_turbo";
@@ -104,6 +105,24 @@ export interface ZImageState {
   faceFeather: number;
 
   upscaleImage: string;
+
+  upscaleMethod: "vosr" | "seedvr2";
+
+  vosrModel: string;
+
+  vosrDtype: string;
+
+  vosrScale: number;
+
+  vosrColorAlignment: string;
+
+  vosrTileSize: number;
+
+  vosrTileOverlap: number;
+
+  vosrVaeTileSize: number;
+
+  vosrVaeTileOverlap: number;
   upscaleDitModel: string;
   upscaleVaeModel: string;
   upscaleResolution: number;
@@ -241,6 +260,7 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
     faceFeather: saved.faceFeather ?? 5,
 
     upscaleImage: saved.upscaleImage || "",
+    ...vosrState(saved),
     upscaleDitModel: saved.upscaleDitModel || "none",
     upscaleVaeModel: saved.upscaleVaeModel || "none",
     upscaleResolution: saved.upscaleResolution ?? 2048,

@@ -4,13 +4,14 @@
 import type { AnimaState, AnimaMode } from "./core";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS, SEND_TO,
-  BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG, LORA_UI_CAP,
+  SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG, LORA_UI_CAP,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed,
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
+import { mountUpscaleMethodTabs, mountVosrPanel } from "../../shared/vosrUpscale";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
-import { buildT2IGraph, buildInpaintGraph, buildAnyControlGraph, buildDepthControlGraph } from "./graphBuilder";
+import { buildT2IGraph, buildInpaintGraph, buildAnyControlGraph, buildDepthControlGraph, buildUpscaleGraph } from "./graphBuilder";
 import { queuePrompt } from "./comfyClient";
 import type { AppConfig } from "./settings";
 import { createSettingsOverlay } from "./settings";
@@ -137,6 +138,7 @@ export function renderAnima(root: HTMLElement) {
     if (state.mode === "inpaint") return state.inpaintImage;
     if (state.mode === "anycontrol") return state.anyControlImage;
     if (state.mode === "depthcontrol") return state.depthControlImage;
+    if (state.mode === "upscale") return state.upscaleImage;
     return "";
   }
 
@@ -465,6 +467,17 @@ export function renderAnima(root: HTMLElement) {
     wrap.addEventListener("dragleave", () => { wrap.style.borderColor = C.border; });
     wrap.addEventListener("drop", (e) => { e.preventDefault(); wrap.style.borderColor = C.border; const f = e.dataTransfer?.files?.[0]; if (f) handleFile(f); });
 
+    // A saved file that no longer exists would show a broken-image icon: show the empty card instead,
+    // and forget the saved name when the server says the file is gone (404). (node c79a4c9)
+    img.addEventListener("error", async () => {
+      if (!img.getAttribute("src")) return;
+      const gone = await fetch(img.src, { method: "HEAD" }).then((r) => r.status === 404, () => false);
+      img.style.display = "none";
+      hint.style.display = "";
+      clearImgBtn.style.display = "none";
+      if (gone) onSet("");
+    });
+
     if (currentFilename) {
       img.src = api.viewUrl(currentFilename, "", "input");
       img.style.display = "block";
@@ -619,6 +632,33 @@ export function renderAnima(root: HTMLElement) {
       ]));
       leftScroll.appendChild(panel([label("Sampling"), turboSection()]));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+    } else if (state.mode === "upscale") {
+      const vosrBody = mountVosrPanel(state, persist);
+      const seedBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+      mountUpscaleMethodTabs(leftScroll, state, persist, { vosr: vosrBody, seedvr2: seedBody });
+      leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
+      leftScroll.appendChild(vosrBody); leftScroll.appendChild(seedBody);
+      const ditSel = searchableSelect(["none"], state.upscaleDitModel, (v) => { state.upscaleDitModel = v; persist(); });
+      const vaeSel = searchableSelect(["none"], state.upscaleVaeModel, (v) => { state.upscaleVaeModel = v; persist(); });
+      api.getSeedVR2Models().then((d) => {
+        const opts = ["none", ...(d.models || []).filter((m) => m !== "none")];
+        if (opts.length > 1) {
+          (ditSel.el.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o })));
+          (vaeSel.el.querySelector("select") as HTMLSelectElement)?.replaceChildren(...opts.map((o) => el("option", { value: o, text: o })));
+          ditSel.setValue(state.upscaleDitModel);
+          vaeSel.setValue(state.upscaleVaeModel);
+        }
+      });
+      seedBody.appendChild(panel([label("DiT Model"), ditSel.el]));
+      seedBody.appendChild(panel([label("VAE Model"), vaeSel.el, el("div", { text: "Models → models/SEEDVR2/", style: { fontSize: "10px", color: C.muted } })]));
+      seedBody.appendChild(panel([
+        label("Upscale Settings"),
+        row([col([label("Resolution (short edge)"), numberField(state.upscaleResolution ?? 2048, (v) => { state.upscaleResolution = v; persist(); }, 2)]), col([label("Max Resolution"), numberField(state.upscaleMaxResolution ?? 4096, (v) => { state.upscaleMaxResolution = v; persist(); }, 2)])]),
+        row([col([label("Batch Size"), numberField(state.upscaleBatchSize ?? 1, (v) => { state.upscaleBatchSize = v; persist(); }, 1)]), col([label("Blocks to Swap"), numberField(state.upscaleBlocksToSwap ?? 0, (v) => { state.upscaleBlocksToSwap = v; persist(); }, 1)])]),
+        row([col([label("Attention Mode"), select(SEEDVR2_ATTN_MODES, state.upscaleAttentionMode, (v) => { state.upscaleAttentionMode = v; persist(); })]), col([label("Color Correction"), select(SEEDVR2_COLOR_MODES, state.upscaleColorCorrection, (v) => { state.upscaleColorCorrection = v; persist(); })])]),
+        col([label("Offload Device"), select(["cpu", "cuda:0"], state.upscaleOffloadDevice, (v) => { state.upscaleOffloadDevice = v; persist(); })]),
+        row([col([label("Input Noise Scale"), numberField(state.upscaleInputNoiseScale ?? 0, (v) => { state.upscaleInputNoiseScale = v; persist(); }, 0.01)]), col([label("Latent Noise Scale"), numberField(state.upscaleLatentNoiseScale ?? 0, (v) => { state.upscaleLatentNoiseScale = v; persist(); }, 0.01)])]),
+      ]));
     }
   }
   renderLeftPanel();
@@ -639,6 +679,10 @@ export function renderAnima(root: HTMLElement) {
     }
     if (state.mode === "anycontrol" && !state.anyControlImage) { warnTag.textContent = "Upload an Any Control source image"; return; }
     if (state.mode === "depthcontrol" && !state.depthControlImage) { warnTag.textContent = "Upload a Depth Control source image"; return; }
+    if (state.mode === "upscale") {
+      if (!state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
+      if (state.upscaleMethod === "seedvr2" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
+    }
     warnTag.textContent = "";
 
     if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
@@ -673,6 +717,7 @@ export function renderAnima(root: HTMLElement) {
         state.mode === "t2i" ? buildT2IGraph(state) :
         state.mode === "inpaint" ? buildInpaintGraph(state) :
         state.mode === "anycontrol" ? buildAnyControlGraph(state) :
+        state.mode === "upscale" ? buildUpscaleGraph(state) :
         buildDepthControlGraph(state);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {

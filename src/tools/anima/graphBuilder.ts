@@ -1,6 +1,7 @@
 // graphBuilder.ts — Anima 워크플로우 그래프 빌더.
 // 원본 근거: ComfyUI-TJ_NODE_STUDIO_ONE/web/anima/graph_builder_anima.js — 노드 ID/class_type 1:1 이식.
 // 공식 Anima 템플릿(image_anima_base_v1.json 등)을 직접 읽어 확정된 그래프. SPEC_ANIMA_ONE_STUDIO.md 참고.
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 import { SUBFOLDER, LLLITE_PATCH, BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG, type AnimaState, type AnimaMode } from "./core";
 
 function buildPromptText(state: AnimaState, modeKey?: string) {
@@ -112,7 +113,7 @@ export function buildT2IGraph(state: AnimaState) {
 // ── 공용 LLLite 컨트롤 모드 빌더 ───────────────────────────────────────────────
 function buildLLLiteGraph(
   state: AnimaState,
-  mode: Exclude<AnimaMode, "t2i">,
+  mode: Exclude<AnimaMode, "t2i" | "upscale">,
   opts: { image: string; mask: string | null; strength: number; start: number; end: number; promptKey: string }
 ) {
   const { image, mask, strength, start, end, promptKey } = opts;
@@ -189,4 +190,23 @@ export function buildDepthControlGraph(state: AnimaState) {
     strength: state.depthControlStrength, start: state.depthControlStart, end: state.depthControlEnd,
     promptKey: "depthcontrol",
   });
+}
+
+// ── Upscale (VOSR or SeedVR2) ─────────────────────────────────────────────────
+export function buildUpscaleGraph(state: AnimaState): Record<string, any> {
+  if (!state.upscaleImage) throw new Error("No source image uploaded for upscale.");
+  if (state.upscaleMethod !== "seedvr2") return buildVosrUpscaleGraph(state, `${state.saveSubfolder || SUBFOLDER}/Anima_up`);
+  if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a SeedVR2 DiT model.");
+  if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a SeedVR2 VAE model.");
+
+  const ditOffload = state.upscaleOffloadDevice && state.upscaleOffloadDevice !== "none" ? state.upscaleOffloadDevice : "cpu";
+  const folder = state.saveSubfolder || SUBFOLDER;
+
+  return {
+    "UP:dit": { class_type: "SeedVR2LoadDiTModel", inputs: { model: state.upscaleDitModel, device: "cuda:0", blocks_to_swap: state.upscaleBlocksToSwap ?? 0, swap_io_components: false, offload_device: ditOffload, cache_model: ditOffload !== "none", attention_mode: state.upscaleAttentionMode || "sdpa" } },
+    "UP:vae": { class_type: "SeedVR2LoadVAEModel", inputs: { model: state.upscaleVaeModel, device: "cuda:0", encode_tiled: true, encode_tile_size: 1024, encode_tile_overlap: 128, decode_tiled: true, decode_tile_size: 1024, decode_tile_overlap: 128, tile_debug: "false", offload_device: ditOffload, cache_model: false } },
+    "UP:load": { class_type: "LoadImage", inputs: { image: state.upscaleImage } },
+    "UP:run": { class_type: "SeedVR2VideoUpscaler", inputs: { image: ["UP:load", 0], dit: ["UP:dit", 0], vae: ["UP:vae", 0], seed: (state.seed ?? 42) % 4294967295, resolution: state.upscaleResolution ?? 2048, max_resolution: state.upscaleMaxResolution ?? 4096, batch_size: state.upscaleBatchSize ?? 1, uniform_batch_size: false, color_correction: state.upscaleColorCorrection || "lab", temporal_overlap: 0, prepend_frames: 0, input_noise_scale: state.upscaleInputNoiseScale ?? 0, latent_noise_scale: state.upscaleLatentNoiseScale ?? 0, offload_device: ditOffload, enable_debug: false } },
+    "UP:save": { class_type: "SaveImage", inputs: { images: ["UP:run", 0], filename_prefix: `${folder}/Anima_up` } },
+  };
 }

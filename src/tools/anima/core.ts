@@ -9,13 +9,14 @@ export const API = "/anima_one";
 export const LORA_UI_CAP = 3;
 export const LS_KEY = "anima_one_state_v1";
 
-export type AnimaMode = "t2i" | "inpaint" | "anycontrol" | "depthcontrol";
+export type AnimaMode = "t2i" | "inpaint" | "anycontrol" | "depthcontrol" | "upscale";
 
 export const MODES: { key: AnimaMode; label: string }[] = [
   { key: "t2i", label: "T2I" },
   { key: "inpaint", label: "INPAINTING" },
   { key: "anycontrol", label: "ANY CONTROL" },
   { key: "depthcontrol", label: "DEPTH CONTROL" },
+  { key: "upscale", label: "UPSCALE" },
 ];
 
 // T2I는 자기 자신에게 이미지 입력이 없으므로 Send-to 대상에서 제외.
@@ -24,18 +25,27 @@ export const SEND_TO: Record<AnimaMode, { mode: AnimaMode; label: string; field:
     { mode: "inpaint", label: "→ Inpainting", field: "inpaintImage" },
     { mode: "anycontrol", label: "→ Any Control", field: "anyControlImage" },
     { mode: "depthcontrol", label: "→ Depth Control", field: "depthControlImage" },
+    { mode: "upscale", label: "→ Upscale", field: "upscaleImage" },
   ],
   inpaint: [
     { mode: "anycontrol", label: "→ Any Control", field: "anyControlImage" },
     { mode: "depthcontrol", label: "→ Depth Control", field: "depthControlImage" },
+    { mode: "upscale", label: "→ Upscale", field: "upscaleImage" },
   ],
   anycontrol: [
     { mode: "inpaint", label: "→ Inpainting", field: "inpaintImage" },
     { mode: "depthcontrol", label: "→ Depth Control", field: "depthControlImage" },
+    { mode: "upscale", label: "→ Upscale", field: "upscaleImage" },
   ],
   depthcontrol: [
     { mode: "inpaint", label: "→ Inpainting", field: "inpaintImage" },
     { mode: "anycontrol", label: "→ Any Control", field: "anyControlImage" },
+    { mode: "upscale", label: "→ Upscale", field: "upscaleImage" },
+  ],
+  upscale: [
+    { mode: "inpaint", label: "→ Inpainting", field: "inpaintImage" },
+    { mode: "anycontrol", label: "→ Any Control", field: "anyControlImage" },
+    { mode: "depthcontrol", label: "→ Depth Control", field: "depthControlImage" },
   ],
 };
 
@@ -52,9 +62,10 @@ export const RESOLUTIONS: { label: string; w: number; h: number }[] = [
 
 // ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
 export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
+import { vosrState } from "../../shared/vosrUpscale";
 
 // LLLite 컨트롤 패치 파일명 — 공식 Anima 템플릿 기준.
-export const LLLITE_PATCH: Record<Exclude<AnimaMode, "t2i">, string> = {
+export const LLLITE_PATCH: Record<Exclude<AnimaMode, "t2i" | "upscale">, string> = {
   inpaint: "anima-lllite-inpainting-v2.safetensors",
   anycontrol: "anima-lllite-any-test-like-v2.safetensors",
   depthcontrol: "anima-lllite-depth-1.safetensors",
@@ -119,6 +130,29 @@ export interface AnimaState {
   depthControlEnd: number;
   depthCkpt: string;
   preprocResolution: number;
+
+  // Upscale — VOSR or SeedVR2 (upscaleMethod), same fields as the other image tools
+  upscaleImage: string;
+  upscaleMethod: "vosr" | "seedvr2";
+  vosrModel: string;
+  vosrDtype: string;
+  vosrScale: number;
+  vosrColorAlignment: string;
+  vosrTileSize: number;
+  vosrTileOverlap: number;
+  vosrVaeTileSize: number;
+  vosrVaeTileOverlap: number;
+  upscaleDitModel: string;
+  upscaleVaeModel: string;
+  upscaleResolution: number;
+  upscaleMaxResolution: number;
+  upscaleBatchSize: number;
+  upscaleBlocksToSwap: number;
+  upscaleAttentionMode: string;
+  upscaleColorCorrection: string;
+  upscaleOffloadDevice: string;
+  upscaleInputNoiseScale: number;
+  upscaleLatentNoiseScale: number;
 
   outputMode: string; // "save" | "preview"
   saveSubfolder: string;
@@ -192,6 +226,21 @@ export function defaultState(saved: Partial<AnimaState> = {}): AnimaState {
     depthCkpt: saved.depthCkpt || "depth_anything_v2_vitl.pth",
     preprocResolution: saved.preprocResolution ?? 512,
 
+    // Upscale — VOSR or SeedVR2 (state.upscaleMethod), same fields as the other image tools
+    upscaleImage: saved.upscaleImage || "",
+    ...vosrState(saved),
+    upscaleDitModel: saved.upscaleDitModel || "none",
+    upscaleVaeModel: saved.upscaleVaeModel || "none",
+    upscaleResolution: saved.upscaleResolution ?? 2048,
+    upscaleMaxResolution: saved.upscaleMaxResolution ?? 4096,
+    upscaleBatchSize: saved.upscaleBatchSize ?? 1,
+    upscaleBlocksToSwap: saved.upscaleBlocksToSwap ?? 0,
+    upscaleAttentionMode: saved.upscaleAttentionMode || "sdpa",
+    upscaleColorCorrection: saved.upscaleColorCorrection || "lab",
+    upscaleOffloadDevice: saved.upscaleOffloadDevice && saved.upscaleOffloadDevice !== "none" ? saved.upscaleOffloadDevice : "cpu",
+    upscaleInputNoiseScale: saved.upscaleInputNoiseScale ?? 0,
+    upscaleLatentNoiseScale: saved.upscaleLatentNoiseScale ?? 0,
+
     outputMode: saved.outputMode || "save",
     saveSubfolder: saved.saveSubfolder || "",
   };
@@ -235,3 +284,6 @@ Inpainting / Any Control / Depth Control do NOT use a standard ControlNet — th
 Depth Control in this app reuses the DepthAnythingV2 preprocessor already installed for other tools in this pack (instead of the official template's Depth-Anything-3 pipeline), so no extra model download is required beyond what Krea2's ControlNet setup already uses.
 
 All files download from the HuggingFace repos: circlestone-labs/Anima, circlestone-labs/Anima-Official-LoRAs, Comfy-Org/Anima-LLLite.`;
+
+export const SEEDVR2_ATTN_MODES = ["sdpa", "flash_attn_2", "flash_attn_3", "sageattn_2", "sageattn_3"];
+export const SEEDVR2_COLOR_MODES = ["lab", "wavelet", "wavelet_adaptive", "hsv", "adain", "none"];

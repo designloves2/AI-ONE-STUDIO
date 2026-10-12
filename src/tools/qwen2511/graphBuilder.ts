@@ -3,6 +3,7 @@
 // (Klein처럼 사전 제작 워크플로우 JSON을 fetch+patch하지 않는다).
 import type { QEState, LoraEntry } from "./core";
 import { SUBFOLDER, buildAnglePrompt } from "./core";
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 
 const P = "QE";
 
@@ -276,6 +277,7 @@ export function buildAngleGraph(state: QEState): Record<string, any> {
 // ── UPSCALE (SeedVR2) — Krea2/Z-Image/Klein과 동일한 노드 세트 ────────────
 export function buildUpscaleGraph(state: QEState): Record<string, any> {
   if (!state.upscaleImage) throw new Error("No source image uploaded for upscale.");
+  if (state.upscaleMethod !== "seedvr2") return buildVosrUpscaleGraph(state, `${state.saveSubfolder || SUBFOLDER}/QE_up`);
   if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a SeedVR2 DiT model.");
   if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a SeedVR2 VAE model.");
 

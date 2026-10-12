@@ -26,6 +26,7 @@ function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 import { createMaskEditor } from "./maskEditor";
 import { createAngleScene, ANGLE_H_OPTS, ANGLE_V_OPTS, ANGLE_Z_OPTS } from "./angleScene";
 import { withCurrent } from "../../shared/samplerLists";
+import { mountUpscaleMethodTabs, mountVosrPanel } from "../../shared/vosrUpscale";
 
 export function renderQwen2511(root: HTMLElement) {
   clear(root);
@@ -583,6 +584,17 @@ export function renderQwen2511(root: HTMLElement) {
     wrap.addEventListener("dragleave", () => { wrap.style.borderColor = C.border; });
     wrap.addEventListener("drop", (e) => { e.preventDefault(); wrap.style.borderColor = C.border; const f = e.dataTransfer?.files?.[0]; if (f) handleFile(f); });
 
+    // A saved file that no longer exists would show a broken-image icon: show the empty card instead,
+    // and forget the saved name when the server says the file is gone (404). (node c79a4c9)
+    img.addEventListener("error", async () => {
+      if (!img.getAttribute("src")) return;
+      const gone = await fetch(img.src, { method: "HEAD" }).then((r) => r.status === 404, () => false);
+      img.style.display = "none";
+      hint.style.display = "";
+      clearBtn.style.display = "none";
+      if (gone) onSet("");
+    });
+
     if (currentFilename) {
       const url = api.viewUrl(currentFilename, "", "input");
       img.src = url;
@@ -773,7 +785,11 @@ export function renderQwen2511(root: HTMLElement) {
       leftScroll.appendChild(panel([label("Sampling"), samplingSection()]));
       leftScroll.appendChild(el("div", { text: "⚠ Camera Angle LoRA, once selected in Settings, is applied automatically to ANGLE-mode generation.", style: { color: "#FFD700", fontSize: "11px", fontWeight: "600", padding: "6px 8px", background: "rgba(255,215,0,0.08)", border: "1px solid rgba(255,215,0,0.3)", borderRadius: "6px" } }));
     } else if (state.mode === "upscale") {
+      const vosrBody = mountVosrPanel(state, persist);
+      const seedBody = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+      mountUpscaleMethodTabs(leftScroll, state, persist, { vosr: vosrBody, seedvr2: seedBody });
       leftScroll.appendChild(panel([label("Source Image"), imageUploadSlot(state.upscaleImage, (name) => { state.upscaleImage = name; persist(); })]));
+      leftScroll.appendChild(vosrBody); leftScroll.appendChild(seedBody);
       const ditSel = searchableSelect(["none"], state.upscaleDitModel, (v) => { state.upscaleDitModel = v; persist(); });
       const vaeSel = searchableSelect(["none"], state.upscaleVaeModel, (v) => { state.upscaleVaeModel = v; persist(); });
       api.getSeedVR2Models().then((d) => {
@@ -785,9 +801,9 @@ export function renderQwen2511(root: HTMLElement) {
           vaeSel.setValue(state.upscaleVaeModel);
         }
       });
-      leftScroll.appendChild(panel([label("DiT Model"), ditSel.el]));
-      leftScroll.appendChild(panel([label("VAE Model"), vaeSel.el, el("div", { text: "Models → models/SEEDVR2/", style: { fontSize: "10px", color: C.muted } })]));
-      leftScroll.appendChild(panel([
+      seedBody.appendChild(panel([label("DiT Model"), ditSel.el]));
+      seedBody.appendChild(panel([label("VAE Model"), vaeSel.el, el("div", { text: "Models → models/SEEDVR2/", style: { fontSize: "10px", color: C.muted } })]));
+      seedBody.appendChild(panel([
         label("Upscale Settings"),
         row([col([label("Resolution (short edge)"), numberField(state.upscaleResolution ?? 2048, (v) => { state.upscaleResolution = v; persist(); }, 2)]), col([label("Max Resolution"), numberField(state.upscaleMaxResolution ?? 4096, (v) => { state.upscaleMaxResolution = v; persist(); }, 2)])]),
         row([col([label("Batch Size (4n+1)"), numberField(state.upscaleBatchSize ?? 1, (v) => { state.upscaleBatchSize = v; persist(); }, 4)]), col([label("Blocks to Swap"), numberField(state.upscaleBlocksToSwap ?? 0, (v) => { state.upscaleBlocksToSwap = v; persist(); }, 1)])]),
@@ -847,7 +863,7 @@ export function renderQwen2511(root: HTMLElement) {
     }
     if (state.mode === "upscale") {
       if (!state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }
-      if (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none") { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
+      if (state.upscaleMethod === "seedvr2" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     }
     warnTag.textContent = "";
 

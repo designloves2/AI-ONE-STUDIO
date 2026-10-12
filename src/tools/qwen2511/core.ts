@@ -106,6 +106,24 @@ export interface QEState {
   angleLora: SimpleLora;
 
   upscaleImage: string | null;
+
+  upscaleMethod: "vosr" | "seedvr2";
+
+  vosrModel: string;
+
+  vosrDtype: string;
+
+  vosrScale: number;
+
+  vosrColorAlignment: string;
+
+  vosrTileSize: number;
+
+  vosrTileOverlap: number;
+
+  vosrVaeTileSize: number;
+
+  vosrVaeTileOverlap: number;
   upscaleDitModel: string;
   upscaleVaeModel: string;
   upscaleResolution: number;
@@ -124,6 +142,7 @@ export interface QEState {
 
 // ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
 export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
+import { vosrState } from "../../shared/vosrUpscale";
 export const LORA_UI_CAP = 3;
 export const MAX_EDIT_REFS = 5;
 
@@ -283,6 +302,7 @@ export function defaultState(saved: Partial<QEState> = {}): QEState {
       : { name: "none", strength: 1, enabled: true },
 
     upscaleImage: saved.upscaleImage || null,
+    ...vosrState(saved),
     upscaleDitModel: saved.upscaleDitModel || "none",
     upscaleVaeModel: saved.upscaleVaeModel || "none",
     upscaleResolution: saved.upscaleResolution ?? 2048,

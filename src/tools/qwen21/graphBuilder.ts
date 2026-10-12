@@ -7,6 +7,7 @@
 // PathchSageAttentionKJ 토글이 있다.
 import type { Q21State, LoraEntry } from "./core";
 import { SUBFOLDER, POSE_SYSTEM_PROMPT_DEFAULT, POSE_SAM3D_MODEL_DEFAULT } from "./core";
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 
 const P = "Q21";
 
@@ -273,6 +274,7 @@ export function buildOutpaintGraph(state: Q21State): Record<string, any> {
 // ── UPSCALE (SeedVR2) — 모델 계열 독립, 2511과 동일 노드 세트 ────────────────
 export function buildUpscaleGraph(state: Q21State): Record<string, any> {
   if (!state.upscaleImage) throw new Error("No source image uploaded for upscale.");
+  if (state.upscaleMethod !== "seedvr2") return buildVosrUpscaleGraph(state, `${state.saveSubfolder || SUBFOLDER}/Q21_up`);
   if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a SeedVR2 DiT model.");
   if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a SeedVR2 VAE model.");
 

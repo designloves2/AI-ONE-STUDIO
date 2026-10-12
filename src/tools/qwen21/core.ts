@@ -122,6 +122,15 @@ export interface Q21State {
 
   // Upscale (SeedVR2)
   upscaleImage: string | null;
+  upscaleMethod: "vosr" | "seedvr2";
+  vosrModel: string;
+  vosrDtype: string;
+  vosrScale: number;
+  vosrColorAlignment: string;
+  vosrTileSize: number;
+  vosrTileOverlap: number;
+  vosrVaeTileSize: number;
+  vosrVaeTileOverlap: number;
   upscaleDitModel: string;
   upscaleVaeModel: string;
   upscaleResolution: number;
@@ -163,6 +172,7 @@ export interface Q21State {
 
 // ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
 export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
+import { vosrState } from "../../shared/vosrUpscale";
 export const LORA_UI_CAP = 3;
 export const MAX_REF_IMAGES = 10;
 export const MAX_EDIT_EXTRA = 9; // Images 2–10
@@ -279,6 +289,7 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
     outpaintPadB: saved.outpaintPadB ?? 0,
 
     upscaleImage: saved.upscaleImage || null,
+    ...vosrState(saved),
     upscaleDitModel: saved.upscaleDitModel || "none",
     upscaleVaeModel: saved.upscaleVaeModel || "none",
     upscaleResolution: saved.upscaleResolution ?? 2048,

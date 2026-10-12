@@ -37,6 +37,7 @@ export const RESOLUTIONS: ResolutionOption[] = [
 
 // ComfyUI's full KSampler lists (node bd435ee) — read once from /object_info, short lists only as a fallback.
 export { SAMPLERS, SCHEDULERS } from "../../shared/samplerLists";
+import { vosrState } from "../../shared/vosrUpscale";
 export const LORA_MAX = 4;
 // 원본 UI(mountLoraSectionKrea2)가 실제로 강제하는 상한 — LORA_MAX 상수와 별개로 3까지만 추가 가능.
 export const LORA_UI_CAP = 3;
@@ -158,6 +159,15 @@ export interface Krea2State {
 
   // Upscale (SeedVR2)
   upscaleImage: string;
+  upscaleMethod: "vosr" | "seedvr2";
+  vosrModel: string;
+  vosrDtype: string;
+  vosrScale: number;
+  vosrColorAlignment: string;
+  vosrTileSize: number;
+  vosrTileOverlap: number;
+  vosrVaeTileSize: number;
+  vosrVaeTileOverlap: number;
   upscaleDitModel: string;
   upscaleVaeModel: string;
   upscaleResolution: number;
@@ -272,6 +282,7 @@ export function defaultState(saved: Partial<Krea2State> = {}): Krea2State {
     identityLoraStrength: saved.identityLoraStrength ?? 1.0,
 
     upscaleImage: saved.upscaleImage || "",
+    ...vosrState(saved),
     upscaleDitModel: saved.upscaleDitModel || "none",
     upscaleVaeModel: saved.upscaleVaeModel || "none",
     upscaleResolution: saved.upscaleResolution ?? 2048,

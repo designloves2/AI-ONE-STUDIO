@@ -6,6 +6,7 @@
 import { comfyApi } from "./comfyClient";
 import type { KleinState, LoraEntry } from "./core";
 import { SUBFOLDER, getUseKV } from "./core";
+import { buildVosrUpscaleGraph } from "../../shared/vosrUpscale";
 
 function resolveModels(state: KleinState) {
   return {
@@ -347,6 +348,7 @@ export async function buildFaceswapGraph(state: KleinState): Promise<Record<stri
 // ── SeedVR2 Upscale — Krea2/Z-Image와 동일한 노드 세트 ──────────────────
 export function buildUpscaleGraph(state: KleinState): Record<string, any> {
   if (!state.upscaleImage) throw new Error("Upload a source image.");
+  if (state.upscaleMethod !== "seedvr2") return buildVosrUpscaleGraph(state, state.saveSubfolder || "vosr");
   if (!state.upscaleDitModel || state.upscaleDitModel === "none") throw new Error("Select a DiT model.");
   if (!state.upscaleVaeModel || state.upscaleVaeModel === "none") throw new Error("Select a VAE model.");
   const g: Record<string, any> = {};

@@ -10,11 +10,13 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/three": "0.170.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   },
   "dependencies": {
-    "motion": "^13.1.0"
+    "motion": "^13.1.0",
+    "three": "0.170.0"
   }
 }

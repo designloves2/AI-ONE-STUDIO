@@ -133,6 +133,30 @@ export async function copyOutputToInput(filename: string, subfolder: string, typ
   return d.filename;
 }
 
+export interface PoseFile { name: string; mtime: number; size: number; thumb: boolean }
+export async function listPoseModels(subfolder: string): Promise<PoseFile[]> {
+  const d = await jsonFetch(`${API}/pose_models?subfolder=${encodeURIComponent(subfolder)}`);
+  return d.files || [];
+}
+export async function uploadPoseThumb(blob: Blob, subfolder: string, name: string): Promise<void> {
+  const fd = new FormData();
+  fd.append("file", blob, "thumb.png"); fd.append("subfolder", subfolder); fd.append("name", name);
+  await comfyApi.fetchApi(`${API}/pose_thumb`, { method: "POST", body: fd });
+}
+export async function cleanupPoseInput(filename: string): Promise<void> {
+  await comfyApi.fetchApi(`${API}/pose_input_cleanup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename }) });
+}
+export async function deletePoseModel(subfolder: string, name: string): Promise<void> {
+  await comfyApi.fetchApi(`${API}/pose_delete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subfolder, name }) });
+}
+export async function uploadPoseModel(file: File, subfolder: string): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file); fd.append("subfolder", subfolder);
+  const d = await (await comfyApi.fetchApi(`${API}/pose_upload`, { method: "POST", body: fd })).json();
+  if (!d.ok) throw new Error(d.error || "upload failed");
+  return d.name;
+}
+
 export async function setLastImage(filename: string, subfolder: string): Promise<void> {
   await jsonFetch(`${API}/set_last_image`, {
     method: "POST",

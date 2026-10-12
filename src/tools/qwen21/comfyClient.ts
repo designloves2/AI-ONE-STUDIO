@@ -66,6 +66,7 @@ export function queuePrompt(promptGraph: Record<string, any>, opts?: { onProgres
   return new Promise(async (resolve, reject) => {
     await connect();
     let promptId: string | null = null;
+    let poll: ReturnType<typeof setInterval> | undefined;
     const outputs: Record<string, any> = {};
 
     const onProgress = (d: any) => {
@@ -93,6 +94,7 @@ export function queuePrompt(promptGraph: Record<string, any>, opts?: { onProgres
       reject(new Error("cancelled"));
     };
     function cleanup() {
+      clearInterval(poll);
       comfyApi.removeEventListener("progress", onProgress);
       comfyApi.removeEventListener("executed", onExecuted);
       comfyApi.removeEventListener("execution_success", onSuccess);
@@ -121,6 +123,15 @@ export function queuePrompt(promptGraph: Record<string, any>, opts?: { onProgres
         return;
       }
       promptId = data.prompt_id;
+      // The websocket events can be missed (reload, reconnect); the history says the same thing (node 99bb7e7).
+      poll = setInterval(async () => {
+        try {
+          const e = (await (await comfyApi.fetchApi(`/history/${promptId}`)).json())[promptId as string];
+          if (!e) return;
+          if (e.status?.status_str === "error") { cleanup(); reject(new Error("generation failed")); return; }
+          if (e.status?.completed && e.outputs && Object.keys(e.outputs).length) { cleanup(); resolve({ byNode: { ...e.outputs, ...outputs } }); }
+        } catch { /* try again on the next tick */ }
+      }, 2500);
     } catch (e) {
       cleanup();
       reject(e);

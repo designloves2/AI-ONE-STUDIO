@@ -291,15 +291,13 @@ export function buildUpscaleGraph(state: Q21State): Record<string, any> {
 }
 
 // ── POSE (VNCCS PoseStudio LoRA) ────────────────────────────────────────────────
-// Phase 1: extract a SAM3D-Body render from the (already client-side cropped/resized) pose
-// image. Queued and awaited BEFORE the main generation (in view.ts's generate()) — its
-// result becomes <image1>. Mirrors the reference workflow's own node chain and parameter
-// values (method="gaussian" for Smooth, mesh/default/full_body for Render) 1:1.
-export function buildPoseExtractGraph(state: Q21State): Record<string, any> {
-  if (!state.poseImage) throw new Error("Crop the pose image first (✂ Crop Pose Image).");
-  const folder = state.saveSubfolder || SUBFOLDER;
-  const g: Record<string, any> = {};
-  g[`${P}:loadPose`] = { class_type: "LoadImage", inputs: { image: state.poseImage } };
+// Phase 1: extract a SAM3D-Body render from the pose image. Queued and awaited BEFORE the main
+// generation — its result becomes <image1>. Mirrors the user-supplied reference workflow's own node
+// chain and parameter values (method="gaussian" for Smooth, mesh/default/full_body for Render) 1:1.
+// "Preview & Angle" runs the same chain up to a GLB (buildPoseMeshGraph) that the 3D viewer
+// shows; the viewer's capture then replaces this render as <image1>. (node 6e11eae, 460eee9, 9e50f1c)
+function addPoseSam(g: Record<string, any>, state: Q21State) {
+  g[`${P}:loadPose`] = { class_type: "LoadImage", inputs: { image: state.poseImageRaw } };
   g[`${P}:samLoader`] = { class_type: "SAM3DBody_Loader", inputs: { model_file: state.poseSamModel || POSE_SAM3D_MODEL_DEFAULT } };
   g[`${P}:samPredict`] = {
     class_type: "SAM3DBody_Predict",
@@ -309,6 +307,29 @@ export function buildPoseExtractGraph(state: Q21State): Record<string, any> {
     class_type: "SAM3DBody_Smooth",
     inputs: { mhr_pose_data: [`${P}:samPredict`, 0], strength: 1, method: "gaussian", window: 7, rotation_threshold_degrees: 15 },
   };
+}
+
+export function buildPoseMeshGraph(state: Q21State): Record<string, any> {
+  if (!state.poseImageRaw) throw new Error("Upload the pose image first (Image 1).");
+  const g: Record<string, any> = {};
+  addPoseSam(g, state);
+  g[`${P}:meshFile`] = {
+    class_type: "BuildPoseFile",
+    inputs: {
+      pose_data: [`${P}:samSmooth`, 0], format: "glb", "format.mesh_style": "body_mesh",
+      "format.mesh_style.bone_vis": "off", "format.mesh_style.shader": "default", "format.bone_smooth_window": 0,
+      fps: 24, camera_translation: "off", track_index: -1, sam3d_body_model: [`${P}:samLoader`, 0],
+    },
+  };
+  g[`${P}:meshSave`] = { class_type: "SaveGLB", inputs: { mesh: [`${P}:meshFile`, 0], filename_prefix: `${state.saveSubfolder || SUBFOLDER}/pose/Q21_pose3d` } };
+  return g;
+}
+
+export function buildPoseExtractGraph(state: Q21State): Record<string, any> {
+  if (!state.poseImageRaw) throw new Error("Upload the pose image first (Image 1).");
+  const folder = state.saveSubfolder || SUBFOLDER;
+  const g: Record<string, any> = {};
+  addPoseSam(g, state);
   g[`${P}:samRender`] = {
     class_type: "SAM3DBody_Render",
     inputs: {
@@ -348,6 +369,13 @@ function buildPoseBaseGraph(state: Q21State) {
   };
   let modelOut: any = [`${P}:poseLora`, 0];
 
+  (state.loras || []).forEach((lora: LoraEntry, i: number) => {
+    if (!lora.name || lora.name === "none" || lora.enabled === false || !(+(lora.strength || 0) > 0)) return;
+    const id = `${P}:lora${i}`;
+    g[id] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelOut, lora_name: lora.name, strength_model: +(lora.strength ?? 1) } };
+    modelOut = [id, 0];
+  });
+
   if (state.useCache !== false) {
     g[`${P}:cache`] = { class_type: "QwenImage21Cache", inputs: { model: modelOut, device: "auto", dtype: "default" } };
     modelOut = [`${P}:cache`, 0];
@@ -359,7 +387,7 @@ function buildPoseBaseGraph(state: Q21State) {
   return { g, modelLink: modelOut, clipLink: [`${P}:clip`, 0], vaeLink: [`${P}:vae`, 0] };
 }
 
-export function buildPoseGraph(state: Q21State, poseRenderFilename: string): Record<string, any> {
+export function buildPoseGraph(state: Q21State, poseRenderFilename: string, latentSize: { w: number; h: number } | null = null): Record<string, any> {
   if (!state.poseCharacterImage) throw new Error("Upload the character image (Image 2).");
   if (!poseRenderFilename) throw new Error("Pose extraction failed — no render produced.");
   const { g, modelLink, clipLink, vaeLink } = buildPoseBaseGraph(state);
@@ -375,8 +403,13 @@ export function buildPoseGraph(state: Q21State, poseRenderFilename: string): Rec
     resizeToMp(g, `${P}:characterMp`, [`${P}:loadCharacter`, 0], state.refMaxMegapixels),
   ];
 
-  const { posLink, negLink, latentLink } = addConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", state.resolution || state.width || 1024, imageLinks);
-  addKSampler(g, modelLink, latentLink, state, 1.0, posLink, negLink);
+  const cond = addConditioning(g, clipLink, vaeLink, promptText, state.negativePrompt || "", state.resolution || state.width || 1024, imageLinks);
+  let latentLink = cond.latentLink;
+  if (latentSize) {
+    g[`${P}:emptyLatent`] = { class_type: "EmptyLatentImage", inputs: { width: latentSize.w, height: latentSize.h, batch_size: 1 } };
+    latentLink = [`${P}:emptyLatent`, 0];
+  }
+  addKSampler(g, modelLink, latentLink, state, 1.0, cond.posLink, cond.negLink);
   addDecodeAndSave(g, vaeLink, state);
   return g;
 }

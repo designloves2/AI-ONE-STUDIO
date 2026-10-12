@@ -148,19 +148,21 @@ export interface Q21State {
   outputMode: string;
   saveSubfolder: string;
 
-  // POSE mode (VNCCS PoseStudio LoRA) — Image 1 is a SAM3D-Body render of the pose image
-  // (cropped/resized client-side, extracted server-side before generation), Image 2 is the
-  // character. poseImage is the CROPPED/RESIZED file actually sent to SAM3D; poseImageRaw is
-  // the original upload the crop tool re-opens on. poseRenderImage is the SAM3D render result
-  // (becomes <image1>, and the Compare view's "before").
+  // POSE mode (VNCCS PoseStudio LoRA) — Image 1 is the pose picture: either a 3D view of the SAM3D-Body pose
+  // (Preview & Angle / Load 3D Pose, captured when you Generate) or, without it, an automatic SAM3D render of
+  // poseImageRaw. Image 2 is the character. poseMeshFile/poseMeshSub is the GLB shown in the 3D viewer,
+  // poseCamera its orbit/zoom state. The result size is Image 1's, Image 2's, or poseCustomW x poseCustomH.
   poseImageRaw: string | null;
-  poseImage: string | null;
-  poseCropBox: { x: number; y: number; w: number; h: number } | null;
-  poseCropRatioLabel: string | null;
-  poseOutW: number;
-  poseOutH: number;
-  poseLockRatio: boolean;
-  poseRenderImage: string | null;
+  poseSizeMode: "image1" | "image2" | "custom";
+  posePicW: number | null;
+  posePicH: number | null;
+  poseCustomW: number;
+  poseCustomH: number;
+  poseCharW: number | null;
+  poseCharH: number | null;
+  poseMeshFile: string | null;
+  poseMeshSub: string;
+  poseCamera: { position: [number, number, number]; target: [number, number, number] } | null;
   poseCharacterImage: string | null;
 
   // Settings — VNCCS PoseStudio LoRA + SAM3D model file + editable/resettable system prompt.
@@ -308,13 +310,16 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
     saveSubfolder: saved.saveSubfolder || "",
 
     poseImageRaw: saved.poseImageRaw || null,
-    poseImage: saved.poseImage || null,
-    poseCropBox: saved.poseCropBox || null,
-    poseCropRatioLabel: saved.poseCropRatioLabel || null,
-    poseOutW: saved.poseOutW || 1024,
-    poseOutH: saved.poseOutH || 1024,
-    poseLockRatio: saved.poseLockRatio ?? true,
-    poseRenderImage: saved.poseRenderImage || null,
+    poseSizeMode: saved.poseSizeMode === "image1" || saved.poseSizeMode === "custom" ? saved.poseSizeMode : "image2",   // result size: Image 1's / Image 2's size, or poseCustomW x poseCustomH
+    posePicW: saved.posePicW || null,   // natural size of Image 1
+    posePicH: saved.posePicH || null,
+    poseCustomW: saved.poseCustomW || 1024,
+    poseCustomH: saved.poseCustomH || 1536,
+    poseCharW: saved.poseCharW || null,   // natural size of Image 2
+    poseCharH: saved.poseCharH || null,
+    poseMeshFile: saved.poseMeshFile || null,
+    poseMeshSub: saved.poseMeshSub || "",
+    poseCamera: saved.poseCamera || null,
     poseCharacterImage: saved.poseCharacterImage || null,
 
     poseLoraModel: saved.poseLoraModel || "none",

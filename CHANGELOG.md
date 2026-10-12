@@ -3,6 +3,16 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.8.1] — 2026-10-12
+
+ITDA ONE STUDIO catch-up with the node (`0165d77`, `a327888`). See `PORT_LEDGER.md` rows 37–38.
+
+### Changed
+- Render button reads `⏺ Render`; gallery empty text points to it.
+- Clip title thumbnail 20x20 with border, normal font weight; media names normal weight.
+- All ITDA text 12px except the timeline; visible range-slider track and 8px thumb in Properties.
+- App Settings > Gallery Path placeholder is `output/[Enter folder name]`.
+
 ## [0.8.0] — 2026-10-12
 
 Ledger rows 29–36 (node `e14b6a9` .. `6056b8a`, `f09f062`).

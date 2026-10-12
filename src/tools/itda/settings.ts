@@ -68,7 +68,7 @@ export function createItdaSettingsOverlay(): SettingsHandle {
   // folder — see paths.py's gallery_dir()).
   const galleryDirInput = el("input", {
     type: "text",
-    placeholder: "(default: ComfyUI/output/one_minimax_h3 — shared with MiniMax H3)",
+    placeholder: "output/[Enter folder name]",
     style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "12px" },
   }) as HTMLInputElement;
 

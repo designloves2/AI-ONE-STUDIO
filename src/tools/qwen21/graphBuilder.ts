@@ -338,7 +338,7 @@ export function buildPoseExtractGraph(state: Q21State): Record<string, any> {
       "render_style.person_palette_falloff": 0.6, "render_style.region": "full_body",
     },
   };
-  g[`${P}:samSave`] = { class_type: "SaveImage", inputs: { images: [`${P}:samRender`, 0], filename_prefix: `${folder}/Q21_pose_render` } };
+  g[`${P}:samSave`] = { class_type: "SaveImage", inputs: { images: [`${P}:samRender`, 0], filename_prefix: `${folder}/pose/Q21_pose_render` } };
   return g;
 }
 

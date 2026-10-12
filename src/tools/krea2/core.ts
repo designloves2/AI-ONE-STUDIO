@@ -55,7 +55,7 @@ export const MODES: { key: Krea2Mode; label: string }[] = [
   { key: "t2i", label: "Text → Image" },
   { key: "i2i", label: "Image → Image" },
   { key: "identity", label: "Identity Edit" },
-  { key: "upscale", label: "Upscale (SeedVR2)" },
+  { key: "upscale", label: "Upscale" },
 ];
 
 // 원본 one_node_krea2.js의 SEND_TO 맵 — T2I는 나머지 3모드 전부, 그 외는 T2I·현재모드 제외한 나머지.

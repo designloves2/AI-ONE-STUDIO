@@ -918,7 +918,7 @@ function createHelpOverlay() {
   hdr.append(el("div", { text: "❔ Krea 2 Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>Modes</b>: Text→Image, Image→Image, Identity Edit (scene + person composite), Upscale (SeedVR2).<br>
+    <b>Modes</b>: Text→Image, Image→Image, Identity Edit (scene + person composite), Upscale.<br>
     <b>ControlNet</b>: enable a Depth or Canny control image in the T2I/I2I left panel. Register the LoRA file once in ⚙ Settings.<br>
     <b>Identity Edit</b>: set the Identity Edit LoRA in ⚙ Settings first. Write the prompt as an instruction.<br>
     <b>Prompt</b>: apply a style/angle/lighting template from 📋 Templates, or expand it with a local LLM (including Model Format/Aesthetic/Seed) or convert an image to a prompt via ⤢ Expand/LLM.<br>

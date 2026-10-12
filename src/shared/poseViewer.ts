@@ -96,7 +96,9 @@ export async function createPoseViewer({ aspect = 1, onCameraChange }: { aspect?
   ro.observe(el);
 
   async function load(url: string) {
-    const gltf = await new GLTFLoader().loadAsync(url);
+    const loader = new GLTFLoader();
+    loader.setWithCredentials(true);   // behind Cloudflare Access the .glb fetch needs the login cookie (phone / external access)
+    const gltf = await loader.loadAsync(url);
     if (root) scene.remove(root);
     root = gltf.scene;
     scene.add(root);

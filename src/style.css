@@ -151,6 +151,11 @@ body {
     row-gap: 6px !important;
   }
 
+  /* 갤러리 상단 버튼은 오른쪽 정렬(줄바꿈된 줄도 오른쪽 끝에 붙는다). */
+  .aos-gallery-hdr {
+    justify-content: flex-end !important;
+  }
+
   /* 상단바를 휴대폰에서 2줄로 재배치: "메뉴 | 재시작" 위, "실시간 모니터링 | 콘솔" 아래.
      데스크톱은 이 블록 밖이라 전혀 영향 없음 — DOM 순서 그대로(브랜드,메뉴,콘솔,모니터,재시작)
      한 줄에 다 보인다. .aos-topbar-break는 평소엔 display:none이라 아무 자리도 안 차지하다가,
@@ -292,3 +297,5 @@ body {
   text-align: center;
   color: var(--color-muted);
 }
+
+.aos-gallery-hdr { justify-content: flex-end; }

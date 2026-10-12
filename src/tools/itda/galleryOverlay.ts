@@ -165,7 +165,7 @@ export function createItdaGalleryOverlay(root: HTMLElement, ctx: ItdaGalleryOver
     countTag.textContent = `${items.length} render${items.length === 1 ? "" : "s"}`;
     if (!items.length) {
       grid.appendChild(el("div", {
-        text: 'Nothing rendered yet — use "Render…" to add the first one.',
+        text: 'Nothing rendered yet — use "⏺ Render" to add the first one.',
         style: { color: C.muted, fontSize: "12px", gridColumn: "1 / -1", textAlign: "center", padding: "30px 0" } }));
       return;
     }

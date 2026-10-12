@@ -299,3 +299,9 @@ body {
 }
 
 .aos-gallery-hdr { justify-content: flex-end; }
+
+/* ITDA ONE STUDIO (node 0165d77): every text 12px except the timeline; visible range-slider track, 8px thumb. */
+.itda-root *:not(.itda-timeline):not(.itda-timeline *) { font-size: 12px !important; }
+.itda-root input[type="range"].itda-range { background: #4a5062 !important; border: 1px solid #5a6175 !important; }
+.itda-root input[type="range"].itda-range::-webkit-slider-thumb { width: 8px !important; height: 8px !important; }
+.itda-root input[type="range"].itda-range::-moz-range-thumb { width: 8px !important; height: 8px !important; }

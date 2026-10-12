@@ -65,7 +65,7 @@ export function renderItda(container: HTMLElement) {
     });
   }
 
-  const root = el("div", { style: { display: "flex", flexDirection: "column", height: "100%", background: C.bg0, boxSizing: "border-box", overflow: "hidden", fontFamily: "inherit" } });
+  const root = el("div", { class: "itda-root", style: { display: "flex", flexDirection: "column", height: "100%", background: C.bg0, boxSizing: "border-box", overflow: "hidden", fontFamily: "inherit" } });
   container.appendChild(root);
 
   // ── App Settings (system-wide — Gallery Path + LLM backend/model) ────────
@@ -188,7 +188,7 @@ export function renderItda(container: HTMLElement) {
     else document.exitFullscreen?.();
   }, "Fullscreen");
 
-  const renderTopBtn = pillBtn("▶ Render", () => openRenderModal()) as HTMLButtonElement;
+  const renderTopBtn = pillBtn("⏺ Render", () => openRenderModal()) as HTMLButtonElement;
 
   header.append(
     statusDot,
@@ -729,7 +729,7 @@ export function renderItda(container: HTMLElement) {
     } catch { upperPane.style.height = "56%"; }
   }
 
-  const timelineScroll = el("div", { style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative", userSelect: "none" } });
+  const timelineScroll = el("div", { class: "itda-timeline", style: { flex: "1", minHeight: "0", overflow: "auto", background: C.bg0, position: "relative", userSelect: "none" } });
   timelinePanel.appendChild(timelineScroll);
 
   const timelineInner = el("div", { style: { position: "relative" } });
@@ -1047,7 +1047,7 @@ export function renderItda(container: HTMLElement) {
     // per the node's own prior bug: flattening them made the name drift away from
     // the thumbnail as horizontal zoom increased.
     const clipTitle = el("div", {
-      style: { display: "flex", alignItems: "center", justifyContent: "space-between", height: "16px", padding: "0 5px", background: "rgba(0,0,0,0.28)", gap: "4px", overflow: "hidden" },
+      style: { display: "flex", alignItems: "center", justifyContent: "space-between", height: "24px", padding: "0 5px", background: "rgba(0,0,0,0.28)", gap: "4px", overflow: "hidden" },
     });
     const titleLeft = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", minWidth: "0", flex: "1" } });
     const media = state.media.find((m) => m.path === clip.media_path);
@@ -1055,7 +1055,7 @@ export function renderItda(container: HTMLElement) {
     if (!isStitched && media?.thumb_url) {
       titleLeft.appendChild(el("img", {
         src: api.resolveUrl(media.thumb_url),
-        style: { width: "14px", height: "14px", objectFit: "cover", borderRadius: "2px", flexShrink: "0" },
+        style: { width: "20px", height: "20px", minWidth: "20px", objectFit: "cover", borderRadius: "3px", border: "1px solid rgba(255,255,255,.25)", flexShrink: "0" },
         alt: "",
         onerror: (ev: Event) => { (ev.target as HTMLElement).style.display = "none"; },
       }));
@@ -1065,7 +1065,7 @@ export function renderItda(container: HTMLElement) {
     const rawName = clip.label || clip.media_path.split(/[\\/]/).pop() || "";
     titleLeft.appendChild(el("span", {
       text: rawName.length > 24 ? rawName.slice(0, 24) + "…" : rawName,
-      style: { fontWeight: "700", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" },
+      style: { fontWeight: "400", whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden" },
     }));
     clipTitle.appendChild(titleLeft);
 
@@ -1077,7 +1077,7 @@ export function renderItda(container: HTMLElement) {
       }
       titleRight.appendChild(el("span", {
         text: `${clip.source_in || 0}f to ${clip.source_out || clip.duration}f / ${fmtTime(clip.duration)}`,
-        style: { fontSize: "8px", color: "rgba(255,255,255,0.65)", whiteSpace: "nowrap" },
+        style: { fontSize: "8px", fontWeight: "400", color: "rgba(255,255,255,0.65)", whiteSpace: "nowrap" },
       }));
       clipTitle.appendChild(titleRight);
     }
@@ -1578,7 +1578,7 @@ export function renderItda(container: HTMLElement) {
 
     const info = el("div", { style: { padding: "5px 6px" } });
     info.append(
-      el("div", { text: m.name || m.path.split(/[\\/]/).pop() || "", style: { fontSize: "10px", fontWeight: "700", color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }),
+      el("div", { text: m.name || m.path.split(/[\\/]/).pop() || "", style: { fontSize: "10px", fontWeight: "400", color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }),
       el("div", { text: `${kind} · ${(m.fps || state.fps).toFixed(2)}fps · ${Math.round((m.duration || 0) * 10) / 10}s`, style: { fontSize: "9px", color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } })
     );
     card.appendChild(info);
@@ -1650,7 +1650,7 @@ export function renderItda(container: HTMLElement) {
   // row (a range input paired with its own numeric readout/entry field).
   function propGainField(value: number, onCommit: (v: number) => void) {
     const wrap = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
-    const slider = el("input", { type: "range", min: "0", max: "200", step: "1", value: String(value), style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
+    const slider = el("input", { type: "range", min: "0", max: "200", step: "1", value: String(value), class: "itda-range", style: { flex: "1", accentColor: BRAND } }) as HTMLInputElement;
     const num = el("input", {
       type: "number", min: "0", max: "200", value: String(value),
       style: { width: "48px", boxSizing: "border-box", background: "#0d0e12", color: C.text, border: `1px solid ${C.border}`, borderRadius: "5px", padding: "4px 5px", fontSize: "11px" },
@@ -1742,7 +1742,7 @@ export function renderItda(container: HTMLElement) {
 
   async function doRender(mode: "video_audio" | "video_only" | "audio_only") {
     const renderBtn = renderTopBtn;
-    const label0 = renderBtn.textContent || "▶ Render";
+    const label0 = renderBtn.textContent || "⏺ Render";
     renderBtn.disabled = true;
     renderBtn.textContent = "⏺ Rendering…";
 

@@ -3,6 +3,24 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.8.0] — 2026-10-12
+
+Ledger rows 29–36 (node `e14b6a9` .. `6056b8a`, `f09f062`).
+
+### Added
+- **UPSCALE: VOSR** tab next to SEEDVR2 on every image tool (SDXL: new VOSR sub-mode); **Anima UPSCALE mode** with Send-to / gallery targets.
+- **Qwen 2.1 POSE** rework: Preview & Angle with a live 3D viewer (three.js), Load 3D Pose list (thumbnails, delete, Open file), Image Size panel (Image 1 / Image 2 / Custom), LoRA list; pose renders saved in `<folder>/pose`; crop removed.
+- **Image-prompt Refine** on all 7 image tools, Prompt Edit image paste.
+- **Gallery Grid / Masonry** switch; **full KSampler sampler / scheduler lists** in the image tools.
+- **One zoom / pan / fit gesture set** in every image viewer (wheel, drag, double-click; pinch / one-finger pan / double-tap on phones).
+- Qwen 2.1 Settings: every control saves on change; Reset keeps the POSE settings.
+- `h3-headless`: 7+1 and core-native Turbo LoRA (Basic).
+
+### Fixed
+- Image cards forget a saved file that no longer exists (empty card instead of a broken image).
+- Gallery header buttons wrap and right-align, so Close stays reachable on phones.
+- Krea2 mode label is "Upscale".
+
 ## [Unreleased]
 
 Image-prompt Refine on all 7 image tools, Prompt Edit image paste (node `5a52038`..`9bac1a5`). See `PORT_LEDGER.md` row 30.

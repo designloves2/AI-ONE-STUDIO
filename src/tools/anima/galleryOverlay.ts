@@ -8,6 +8,7 @@ import { attachSensitiveToggle, mediaKey, isBlurred, isSensitive, setSensitive, 
 import type { GalleryImage } from "./api";
 import { getGallery, updateImageMeta, deleteImage, openImageFolder, loadMeta, copyOutputToInput, outputViewUrl } from "./api";
 import { mountGalleryLayout } from "../../shared/galleryLayout";
+import { attachPanZoom } from "../../shared/panZoom";
 
 const SEND_TARGETS: { mode: string; field: string; label: string }[] = [
   { mode: "inpaint", field: "inpaintImage", label: "→ Inpainting" },
@@ -157,6 +158,8 @@ export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: 
       renderBig();
     });
     bigBox.appendChild(eyeBtn);
+    bigBox.style.overflow = "hidden";   // zoomed picture stays inside the box
+    attachPanZoom(bigBox, () => bigBox.querySelectorAll("img"));
     const counter = el("div", { text: `${imgIdx + 1} / ${loadedImages.length}`, style: { color: C.muted, fontSize: "11px" } });
     const promptTxt = el("div", { text: img.prompt ? img.prompt.slice(0, 240) : "", style: { color: C.muted, fontSize: "11px", maxWidth: "70vw", textAlign: "center", whiteSpace: "pre-wrap" } });
 

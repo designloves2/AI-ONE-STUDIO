@@ -10,7 +10,7 @@ import {
   LORA_UI_CAP, MAX_REF_IMAGES, MAX_EDIT_EXTRA, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, openFullscreen, confirmDialog, alertDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, alertDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { imageSlot } from "../minimax_h3/imagesPanel";
@@ -26,6 +26,7 @@ import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/pro
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { withCurrent } from "../../shared/samplerLists";
 import { mountUpscaleMethodTabs, mountVosrPanel } from "../../shared/vosrUpscale";
+import { attachPanZoom, createCompareView as createSharedCompareView } from "../../shared/panZoom";
 function loadLlmState(): PromptEditLlmState { return loadLLMSettings(); }
 function saveLlmState(s: PromptEditLlmState) { saveLLMSettings(s); }
 
@@ -110,7 +111,6 @@ export function renderQwen21(root: HTMLElement) {
   const previewBox = el("div", { class: "aos-preview-box", style: { flex: "1", minHeight: "0", background: "#000", border: `1px solid ${C.border}`, borderRadius: "10px", position: "relative", overflow: "hidden" } });
   const placeholderTxt = el("div", { text: "Result image appears here", style: { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", color: C.muted, fontSize: "13px" } });
   const resultImg = el("img", { style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain", display: "none" } }) as HTMLImageElement;
-  resultImg.addEventListener("dblclick", () => { if (resultImg.src) openFullscreen(resultImg.src, "image"); });
   const clearBtn = el("button", { type: "button", text: "✕", title: "Clear result", style: { position: "absolute", top: "6px", right: "6px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "12px", padding: "0", display: "none" } });
   const zoomLockBtn = el("button", { type: "button", text: "🔓", title: "Scroll zoom on/off", style: { position: "absolute", top: "6px", right: "32px", zIndex: "5", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", width: "22px", height: "22px", cursor: "pointer", fontSize: "11px", padding: "0", display: "none" } });
   // "Generating…" overlay directly on the preview box, shown while sampling — was missing
@@ -129,27 +129,11 @@ export function renderQwen21(root: HTMLElement) {
   rightPanel.appendChild(previewBox);
 
   // ── Zoom / Pan ──────────────────────────────────────────────────────────
-  let zoomEnabled = true, zoomScale = 1, panX = 0, panY = 0, isPanning = false, panSX = 0, panSY = 0, pSTX = 0, pSTY = 0;
-  function applyZoom() {
-    resultImg.style.transform = `scale(${zoomScale}) translate(${panX}px,${panY}px)`;
-    resultImg.style.transformOrigin = "center center";
-    resultImg.style.cursor = zoomScale > 1 ? "grab" : "default";
-  }
-  function resetZoom() { zoomScale = 1; panX = 0; panY = 0; applyZoom(); }
+  let zoomEnabled = true;
+  // One gesture set for every image viewer (node 6056b8a): wheel = zoom at the cursor, left-drag = pan, double-click = fit.
+  const panZoom = attachPanZoom(previewBox, () => [resultImg], { enabled: () => zoomEnabled && !!modeResults[resultKey()] });
+  function resetZoom() { panZoom.reset(); }
   zoomLockBtn.addEventListener("click", () => { zoomEnabled = !zoomEnabled; zoomLockBtn.textContent = zoomEnabled ? "🔓" : "🔒"; if (!zoomEnabled) resetZoom(); });
-  previewBox.addEventListener("wheel", (e) => {
-    if (!zoomEnabled || !modeResults[resultKey()] || compareViewEl) return;
-    e.preventDefault();
-    zoomScale = Math.max(1, Math.min(8, zoomScale * (e.deltaY < 0 ? 1.12 : 0.9)));
-    if (zoomScale === 1) { panX = 0; panY = 0; }
-    applyZoom();
-  }, { passive: false });
-  previewBox.addEventListener("mousedown", (e) => {
-    if (!zoomEnabled || zoomScale <= 1 || e.button !== 0 || compareViewEl) return;
-    isPanning = true; panSX = e.clientX; panSY = e.clientY; pSTX = panX; pSTY = panY; resultImg.style.cursor = "grabbing"; e.preventDefault();
-  });
-  document.addEventListener("mousemove", (e) => { if (!isPanning) return; panX = pSTX + (e.clientX - panSX) / zoomScale; panY = pSTY + (e.clientY - panSY) / zoomScale; applyZoom(); });
-  document.addEventListener("mouseup", () => { if (isPanning) { isPanning = false; resultImg.style.cursor = zoomScale > 1 ? "grab" : "default"; } });
 
   function resultKey(): string {
     return state.mode === "inpaint" ? `inpaint:${state.paintSubMode}` : state.mode === "i2i" ? `i2i:${state.i2iSubMode}` : state.mode;
@@ -216,26 +200,9 @@ export function renderQwen21(root: HTMLElement) {
   // ── Compare view — clip-path 방식 ──────────────────────────────────────
   let compareViewEl: HTMLElement | null = null;
   function createCompareView(originalURL: string, resultURL: string) {
-    const container = el("div", { style: { position: "absolute", inset: "0", overflow: "hidden", borderRadius: "10px", background: "#000" } });
-    const rImg = el("img", { src: resultURL, style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain" } });
-    const origImg = el("img", { src: originalURL, style: { position: "absolute", inset: "0", width: "100%", height: "100%", objectFit: "contain" } });
-    const divider = el("div", { style: { position: "absolute", top: "0", bottom: "0", left: "0%", width: "3px", background: "rgba(255,255,255,0.85)", cursor: "ew-resize", zIndex: "10" } });
-    const handle = el("div", { text: "⟺", style: { position: "absolute", top: "50%", left: "-10px", transform: "translateY(-50%)", width: "20px", height: "40px", borderRadius: "10px", background: BRAND, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "11px", userSelect: "none" } });
-    divider.appendChild(handle);
-    function update(p: number) {
-      const pos = Math.max(0, Math.min(100, p));
-      origImg.style.clipPath = `inset(0 ${100 - pos}% 0 0)`;
-      divider.style.left = pos + "%";
-    }
-    update(0);
-    divider.addEventListener("pointerdown", (e) => {
-      divider.setPointerCapture(e.pointerId);
-      const mv = (e2: PointerEvent) => { const r = container.getBoundingClientRect(); update(((e2.clientX - r.left) / r.width) * 100); };
-      const up = () => { divider.removeEventListener("pointermove", mv); divider.removeEventListener("pointerup", up); };
-      divider.addEventListener("pointermove", mv); divider.addEventListener("pointerup", up);
-    });
-    container.append(rImg, origImg, divider);
-    return container;
+    const c = createSharedCompareView(originalURL, resultURL, BRAND);
+    Object.assign(c.style, { position: "absolute", inset: "0", width: "auto", height: "auto" });
+    return c;
   }
 
   // ── Send to / Output toggle / Status ───────────────────────────────────

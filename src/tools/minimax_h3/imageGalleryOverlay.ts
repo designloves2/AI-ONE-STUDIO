@@ -21,6 +21,7 @@ import { queuePrompt } from "./comfyClient";
 import { buildImageUpscaleGraph } from "./graphBuilder";
 import { makeSensitiveControl, mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "../../shared/sensitiveMedia";
 import { mountGalleryLayout } from "../../shared/galleryLayout";
+import { attachPanZoom } from "../../shared/panZoom";
 
 // Named aspect ratios a real render is actually likely to land on — same table the video
 // gallery's own card badge uses.
@@ -562,36 +563,8 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     im.addEventListener("dragstart", (e) => e.preventDefault());
     imgWrap.appendChild(im);
 
-    let zoom = 1, panX = 0, panY = 0;
-    const applyTransform = () => { im.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`; };
-    const resetTransform = () => { zoom = 1; panX = 0; panY = 0; applyTransform(); im.style.cursor = "default"; };
-    imgWrap.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      const rect = imgWrap.getBoundingClientRect();
-      const cx = e.clientX - rect.left - rect.width / 2;
-      const cy = e.clientY - rect.top - rect.height / 2;
-      const prevZoom = zoom;
-      zoom = Math.min(6, Math.max(1, zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      const ratio = zoom / prevZoom;
-      panX = cx - (cx - panX) * ratio; panY = cy - (cy - panY) * ratio;
-      if (zoom === 1) { panX = 0; panY = 0; }
-      im.style.cursor = zoom > 1 ? "grab" : "default";
-      applyTransform();
-    }, { passive: false });
-    let dragging = false, dragStartX = 0, dragStartY = 0, dragPanX = 0, dragPanY = 0;
-    imgWrap.addEventListener("pointerdown", (e) => {
-      if (zoom <= 1) return;
-      dragging = true; dragStartX = e.clientX; dragStartY = e.clientY; dragPanX = panX; dragPanY = panY;
-      imgWrap.setPointerCapture(e.pointerId);
-      im.style.cursor = "grabbing";
-    });
-    imgWrap.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      panX = dragPanX + (e.clientX - dragStartX); panY = dragPanY + (e.clientY - dragStartY);
-      applyTransform();
-    });
-    imgWrap.addEventListener("pointerup", () => { dragging = false; if (zoom > 1) im.style.cursor = "grab"; });
-    imgWrap.addEventListener("dblclick", resetTransform);
+    // wheel = zoom · left-drag = pan · double-click = fit (shared/panZoom.ts)
+    attachPanZoom(imgWrap, [im]);
 
     const prevBtn = el("button", { type: "button", text: "‹ Previous Image", title: "Previous image (←)", style: {
       cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px",
@@ -668,8 +641,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
       posEl.textContent = `${i + 1} / ${filtered.length}`;
       const lines = buildInfoLines(v);
       infoBox.textContent = lines.length ? lines.join("\n") : "No settings saved for this image.";
-      resetTransform();
-      clear(imgWrap); imgWrap.appendChild(im);
+      clear(imgWrap); imgWrap.appendChild(im);   // a new picture starts fitted (panZoom resets on this)
       const { eye, shade } = makeSensitiveControl(im, key, () => {
         if (isBlurred(key)) { im.removeAttribute("src"); }
         else if (!im.getAttribute("src")) { im.src = imageURL(v); }

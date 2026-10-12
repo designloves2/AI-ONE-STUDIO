@@ -1414,6 +1414,11 @@ export interface ClipAssets {
  * Prompt Edit attachment area (which Enhance's vision step also reads from, so vision and
  * rendering can never disagree about which images a clip used), and saved metadata all go
  * through this. All-or-nothing per SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §1. */
+/** First/Last with the Asset Library as the source: the file frames are not used (node 1e46dc7). */
+export function flLibrarySource(state: MinimaxState): boolean {
+  return state.generationMode === "firstlast" && state.refSource === "library";
+}
+
 export function clipAssets(state: MinimaxState, i: number): ClipAssets {
   const p = (state.prompts || [])[i];
   if (promptOverrides(p)) {
@@ -1435,7 +1440,8 @@ export function clipAssets(state: MinimaxState, i: number): ClipAssets {
     refImagesMp: state.refImagesMp || [],
     refVideos: state.refVideos || [],
     refAudios: state.refAudios || [],
-    lastFrame: state.lastFrameImage || "",
+    // First/Last with the Asset Library as the source: the file frames are not used.
+    lastFrame: flLibrarySource(state) ? "" : state.lastFrameImage || "",
   };
 }
 
@@ -1857,7 +1863,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     // Library assets / project the whole node uses (Asset tab). When set for the current mode
     // they replace the file slots; empty = the file slots work as before.
     assetRef: normalizeAssetRef(saved.assetRef),
-    refSource: saved.refSource === "library" ? "library" : "files",
+    refSource: saved.refSource === "library" || normalizeAssetRef(saved.assetRef) ? "library" : "files",
     refVideos: Array.isArray(saved.refVideos) ? saved.refVideos.slice(0, 3).map((v) => ({ file: v.file || "", start: v.start ?? 0, end: v.end ?? 5, withAudio: v.withAudio !== false, mp: v.mp ?? 0, srcW: v.srcW ?? 0, srcH: v.srcH ?? 0 })) : [],
     refAudios: Array.isArray(saved.refAudios) ? saved.refAudios.slice(0, 3).map((a) => ({ file: a.file || "", start: a.start ?? 0, end: a.end ?? 5 })) : [],
     refTypes: { images: saved.refTypes?.images !== false, videos: saved.refTypes?.videos ?? false, audios: saved.refTypes?.audios ?? false },

@@ -55,6 +55,7 @@ import {
   composeStitchedPrompt,
   buildAgentJob,
   clipAssets,
+  flLibrarySource,
   promptOverrides,
   promptEnabled,
   promptText,
@@ -5552,7 +5553,8 @@ export function renderMinimaxH3(container: HTMLElement) {
         // separate, always-on mechanism, ungated by the §1 override checkbox.
         const assets = clipAssets(rs, i);
         const isRef = rs.generationMode === "reference";
-        let firstFrame: string | null = isRef ? null : rs.firstFrameImage || null;
+        const libFrames = flLibrarySource(rs);   // First/Last from the Asset Library: file frames stay out
+        let firstFrame: string | null = isRef || libFrames ? null : rs.firstFrameImage || null;
         let refImages: string[] = assets.refImages;
         const continued = pos > 0 && rs.continuityMode === "lastframe" && !!chainFrame;
         if (pos > 0) firstFrame = continued ? chainFrame : null;
@@ -5582,7 +5584,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           promptText: promptForClip(rs, i),
           seed: seedForClip(rs, i),
           firstFrame,
-          lastFrame: pos === active.length - 1 ? (assets.lastFrame || rs.lastFrameImage || null) : null,
+          lastFrame: pos === active.length - 1 && !libFrames ? (assets.lastFrame || rs.lastFrameImage || null) : null,
           refImages,
           clipIndex: i,
           saveLastFrame: true,

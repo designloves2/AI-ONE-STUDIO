@@ -5,6 +5,7 @@
 import type { MinimaxState, PromptEntry } from "./core";
 import {
   clipAssets,
+  flLibrarySource,
   clipFraming,
   evenBreaks,
   groupShotsWithBreaks,
@@ -20,6 +21,7 @@ import {
 import { mountLibraryRefs, emptyAssetRef, sourceToggle } from "../../shared/reflibRefpanel";
 import { libraryRefFor, libraryContextCached } from "../../shared/reflibLlm";
 import { attachAtComplete } from "../../shared/reflibAt";
+import { reflib } from "../../shared/reflibApi";
 import { button, clear, el, confirmDialog, promptDialog, promptTextareaDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
@@ -793,20 +795,22 @@ export function createPromptEditOverlay(
     // second place to edit them.
     if (state.briefImageMode === "fl") {
       const flModelLine = el("div", { style: { minWidth: "220px" } });
-      const ff = promptFirstFrame(state.prompts[selected]) || state.firstFrameImage || "";
-      const lf = clipAssets(state, selected).lastFrame || state.lastFrameImage || "";
-      const thumb = (src: string, tag: string) => {
+      const libIds = flLibraryIds();
+      const ff = promptFirstFrame(state.prompts[selected]) || (flLibrarySource(state) ? "" : state.firstFrameImage || "");
+      const lf = clipAssets(state, selected).lastFrame || (flLibrarySource(state) ? "" : state.lastFrameImage || "");
+      const thumb = (src: string, tag: string, libId?: string | null) => {
         const box = el("div", {
           class: "w-[72px] h-[72px] rounded-md flex items-center justify-center overflow-hidden shrink-0",
           style: { border: `1px solid ${C.border}`, background: "#000" },
         });
-        if (src) box.appendChild(el("img", { src: viewUrl(src), class: "w-full h-full object-cover" }));
+        if (libId) box.appendChild(el("img", { src: reflib.memberThumbUrl(libId), class: "w-full h-full object-cover" }));
+        else if (src) box.appendChild(el("img", { src: viewUrl(src), class: "w-full h-full object-cover" }));
         else box.appendChild(el("div", { text: "none", class: "text-[10px]", style: { color: C.muted } }));
         return el("div", { class: "flex flex-col gap-1 items-center" }, [box, el("div", { text: tag, class: "text-[9.5px]", style: { color: C.muted } })]);
       };
       imgRow.append(
-        el("div", { text: "First/Last frame — set on the main screen, or via \"Continue generating the clip\" below.", class: "text-[10px] leading-relaxed", style: { color: C.muted } }),
-        el("div", { class: "flex gap-3" }, [thumb(ff, "Start"), thumb(lf, "End")]),
+        el("div", { text: (libIds.first || libIds.last ? "First/Last frame (Asset Library)" : "First/Last frame") + " — set on the main screen, or via \"Continue generating the clip\" below.", class: "text-[10px] leading-relaxed", style: { color: C.muted } }),
+        el("div", { class: "flex gap-3" }, [thumb(ff, "Start", libIds.first), thumb(lf, "End", libIds.last)]),
         flModelLine,
       );
       renderModelLine(flModelLine);
@@ -1194,6 +1198,36 @@ export function createPromptEditOverlay(
     return { briefOR, briefLlama, briefCustom };
   }
 
+  // First/Last frames picked from the Asset Library for the clip being edited (null = file frames).
+  function flLibraryIds(): { first: string | null; last: string | null } {
+    const a = clipAssets(state, selected);
+    const p: any = (state.prompts || [])[selected] || {};
+    const lib: any = (a.own ? p.refSource : state.refSource) === "library" ? a.assetRef : null;
+    return { first: lib?.first || null, last: lib?.last || null };
+  }
+
+  // The vision pass reads pictures from input/, so a library frame is copied there first, scaled
+  // to 1 MP like every other picture sent to the vision model (one fixed name per asset, overwritten each time).
+  async function libraryFrameFile(id: string): Promise<string> {
+    const bitmap = await createImageBitmap(await (await fetch(reflib.fileUrl({ id }))).blob());
+    const scale = Math.min(1, Math.sqrt(1024 * 1024 / (bitmap.width * bitmap.height)));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const jpg = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b as Blob), "image/jpeg", 0.92));
+    return uploadImage(new File([jpg], `h3lib_${id}.jpg`, { type: "image/jpeg" }));
+  }
+
+  // attachedImages() plus the First/Last frames of the Asset Library, which are not file names.
+  async function attachedImagesResolved(): Promise<string[]> {
+    if (enhMode === "image" && state.briefImageMode === "fl") {
+      const { first, last } = flLibraryIds();
+      if (first || last) return Promise.all([first, last].filter(Boolean).map((x) => libraryFrameFile(x as string)));
+    }
+    return attachedImages();
+  }
+
   // The pictures this clip will actually be made from — the First/Last pair shown in the
   // preview row, or the reference set (this clip's own, or the main screen's).
   function attachedImages(): string[] {
@@ -1201,8 +1235,8 @@ export function createPromptEditOverlay(
     // Library assets are described from their library record instead (see libraryContext).
     if (libraryRefFor(clipAssets(state, selected), state.generationMode)) return [];
     if (state.briefImageMode === "fl") {
-      const ff = promptFirstFrame(state.prompts[selected]) || state.firstFrameImage || "";
-      const lf = clipAssets(state, selected).lastFrame || state.lastFrameImage || "";
+      const ff = promptFirstFrame(state.prompts[selected]) || (flLibrarySource(state) ? "" : state.firstFrameImage || "");
+      const lf = clipAssets(state, selected).lastFrame || (flLibrarySource(state) ? "" : state.lastFrameImage || "");
       return [ff, lf].filter(Boolean);
     }
     return clipAssets(state, selected).refImages.slice(0, imageBriefMax(state.briefImageMode)).filter(Boolean);
@@ -1274,7 +1308,7 @@ export function createPromptEditOverlay(
   async function doWrite() {
     if (busy) return;
     deriveModes(); renderImageRow();
-    const images = attachedImages();
+    const images = await attachedImagesResolved();
     const lib = await libraryContextForClip();
     if (lib?.error) { ctx.showPopup(`Library references: ${lib.error}`, true); return; }
 
@@ -1357,7 +1391,7 @@ export function createPromptEditOverlay(
     if (!instruction || !instruction.trim()) return;
     lastRefineInstruction = instruction.trim();
 
-    const images = includeImagesChk?.checked ? attachedImages() : [];
+    const images = includeImagesChk?.checked ? await attachedImagesResolved() : [];
     const lib = await libraryContextForClip();
     if (lib?.error) { ctx.showPopup(`Library references: ${lib.error}`, true); return; }
     if (includeImagesChk?.checked && !images.length && !lib) { ctx.showPopup("Include Images is on, but no image is attached.", true); return; }

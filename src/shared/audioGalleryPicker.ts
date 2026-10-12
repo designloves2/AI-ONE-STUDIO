@@ -35,7 +35,7 @@ export function openAudioGalleryPicker(onPick: (name: string) => void, copyApi =
   const ov = el("div", { style: { position: "fixed", inset: "0", background: "rgba(0,0,0,0.75)", zIndex: "100000", display: "flex", alignItems: "center", justifyContent: "center" } });
   const box = el("div", { style: { background: C.bg1, border: `1px solid ${C.border}`, borderRadius: "10px", padding: "12px", width: "min(720px, 96vw)", height: "min(760px, 92vh)", minHeight: "0", boxShadow: "0 10px 40px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: "10px" } });
 
-  const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
+  const topRow = el("div", { class: "aos-gallery-hdr", style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   topRow.appendChild(el("div", { text: "🎵 Pick a track from the MusicMaker playlist", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
   const closeBtn = el("button", { type: "button", text: "✕", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "5px 10px", borderRadius: "6px", border: "none", background: "#c0392b", color: "#fff" } });
   closeBtn.addEventListener("click", () => close());

@@ -43,20 +43,59 @@ export function attachPanZoom(host: HTMLElement, targets: Targets, { max = 8, en
     clampPan(); apply();
   }, { passive: false });
 
+  // Pointers: one finger / left mouse button pans (when zoomed), two fingers pinch-zoom around their midpoint,
+  // a double tap fits (touch screens do not always fire dblclick with touch-action none).
+  const pts = new Map<number, { x: number; y: number }>();
+  let pinch: { d: number; z: number; px: number; py: number; mx: number; my: number } | null = null;
+  let lastTap = 0, tapMoved = false;
+  const dist = () => { const [a, b] = [...pts.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  const mid = () => { const [a, b] = [...pts.values()]; const r = host.getBoundingClientRect(); return { x: (a.x + b.x) / 2 - r.left - r.width / 2, y: (a.y + b.y) / 2 - r.top - r.height / 2 }; };
+
   host.addEventListener("pointerdown", (e) => {
-    if (!on() || e.button !== 0 || (e.target as HTMLElement).closest("[data-pz-ignore], button")) return;
+    if (!on() || (e.pointerType === "mouse" && e.button !== 0) || (e.target as HTMLElement).closest("[data-pz-ignore], button")) return;
     e.preventDefault(); e.stopPropagation();          // no native image drag, no text selection, nothing underneath reacts
-    if (z <= 1) return;
-    drag = { x: e.clientX, y: e.clientY, px, py };
-    host.setPointerCapture(e.pointerId);
-    apply();
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (pts.size === 2) {
+      drag = null; const m = mid();
+      pinch = { d: dist(), z, px, py, mx: m.x, my: m.y };
+    } else if (pts.size === 1) {
+      tapMoved = false;
+      if (z > 1) { drag = { x: e.clientX, y: e.clientY, px, py }; apply(); }
+    }
   });
   host.addEventListener("pointermove", (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pts.size >= 2) {
+      tapMoved = true;
+      const m = mid();
+      const nz = Math.min(max, Math.max(1, pinch.z * dist() / pinch.d));
+      const k = nz / pinch.z;
+      z = nz;
+      px = m.x - (pinch.mx - pinch.px) * k; py = m.y - (pinch.my - pinch.py) * k;
+      if (z === 1) { px = 0; py = 0; }
+      clampPan(); apply();
+      return;
+    }
     if (!drag) return;
+    if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 6) tapMoved = true;
     px = drag.px + (e.clientX - drag.x); py = drag.py + (e.clientY - drag.y);
     clampPan(); apply();
   });
-  const end = () => { if (drag) { drag = null; apply(); } };
+  const end = (e: PointerEvent) => {
+    if (!pts.has(e.pointerId)) return;
+    const wasSingle = pts.size === 1;
+    pts.delete(e.pointerId);
+    pinch = null;
+    if (pts.size === 1) { const [p] = [...pts.values()]; drag = z > 1 ? { x: p.x, y: p.y, px, py } : null; }
+    else if (drag) { drag = null; }
+    apply();
+    if (e.type === "pointerup" && e.pointerType !== "mouse" && wasSingle && !tapMoved) {
+      const now = Date.now();
+      if (now - lastTap < 320) { reset(); lastTap = 0; } else lastTap = now;
+    }
+  };
   host.addEventListener("pointerup", end);
   host.addEventListener("pointercancel", end);
   host.addEventListener("dblclick", (e) => { if (!on()) return; e.preventDefault(); e.stopPropagation(); reset(); });

@@ -33,7 +33,7 @@ function btn(text: string, onClick: () => void, variant?: "primary" | "danger") 
 export function createGalleryOverlay(state: { saveSubfolder: string }, onReuse: (meta: any) => void, onSendTo: (mode: string, field: string, filename: string) => void) {
   const ov = el("div", { style: { position: "absolute", inset: "0", zIndex: "55", background: "rgba(11,11,11,0.97)", borderRadius: "inherit", display: "none", flexDirection: "column", padding: "12px", gap: "8px", boxSizing: "border-box" } });
 
-  const topRow = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
+  const topRow = el("div", { class: "aos-gallery-hdr", style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   topRow.appendChild(el("div", { text: "🖼 Gallery — Anima", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }));
   const favBtn = btn("☆ Favs", () => { favOnly = !favOnly; favBtn.textContent = favOnly ? "★ Favs (ON)" : "☆ Favs"; reset(); });
   const selectModeBtn = btn("Select", () => toggleSelectMode());

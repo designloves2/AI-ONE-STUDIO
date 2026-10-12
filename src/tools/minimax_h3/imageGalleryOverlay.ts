@@ -178,7 +178,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   }
 
   // ── header ───────────────────────────────────────────────────────────────────────
-  const hdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
+  const hdr = el("div", { class: "aos-gallery-hdr", style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
   hdr.appendChild(el("div", { text: "🖼 Image Gallery", style: { color: "#fff", fontSize: "14px", fontWeight: "700" } }));
   const countTag = el("div", { style: { fontSize: "10.5px", color: C.muted, flex: "1" } });
   hdr.appendChild(countTag);

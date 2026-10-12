@@ -3,6 +3,14 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.8.2] — 2026-10-13
+
+H3 Image to Video (F/L): Files / Gallery or Asset Library as one source (node `1e46dc7`). See `PORT_LEDGER.md` row 39.
+
+### Changed
+- **First / Last Keyframes** has the same source toggle as Reference: with the Asset Library only the library block shows and the file slots are neither shown nor sent.
+- Prompt Edit shows the library first/last frames, and Prompt Write / Refine send them to the Vision model (scaled to 1 MP, uploaded as `input/h3lib_<id>.jpg`).
+
 ## [0.8.1] — 2026-10-12
 
 ITDA ONE STUDIO catch-up with the node (`0165d77`, `a327888`). See `PORT_LEDGER.md` rows 37–38.

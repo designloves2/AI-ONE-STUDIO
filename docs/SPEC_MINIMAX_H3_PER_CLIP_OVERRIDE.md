@@ -640,3 +640,17 @@ const chunkCount = (totalFrames > 0 && chunkFrames > 0)
 
 **고친 기능 안에서 고장을 발견하면 그 자리에서 고칠 것.** 범위를 이유로 남겨두고 완료
 보고하지 말 것.
+
+## 12. 클립 시간 오버라이드 (v0.9.0)
+
+프롬프트 엔트리에 `timeOverride` / `timeSec`이 추가됩니다. 켜면 그 클립은 전역 클립 길이 대신 `timeSec`초를 렌더합니다.
+
+- 모델은 17k+5 프레임만 받으므로 입력 시간은 가장 가까운 17k+5 프레임으로 바뀝니다(1초 = 22프레임, 최대 `CLIP_MAX_FRAMES` = 362). 저장되는 값은 그 **실제 길이를 0.5초 단위로 정리한 값**입니다(12초 → 294프레임 12.25초 → 12.5, 11.75초 → 277프레임 → 11.5). 상자, CLIPS 목록, 렌더가 항상 같은 값을 봅니다.
+- 렌더 루프는 `clipState.clipFrames = clipFramesFor(state, i)`로 클립마다 프레임을 넣고, 메타의 `frames`도 그 값입니다. 합계 시간(`clipPlan.actualSeconds`)과 One-Take 합본 길이는 활성 클립별 길이의 합에서 겹침을 뺀 값입니다.
+- CLIPS 목록의 시계(`clipTimeline`)는 0.5초 단위 누적 시간이고, One-Take에서는 첫 클립 이후 1.625초(39프레임)를 뺀 `stitched` 시간을 함께 보여 줍니다.
+- 본문의 샷 시간(`At MM:SS.mmm`)은 `snapShotTimes`로 0.5초 단위로 정리합니다. 한가운데 값(x.25 / x.75)은 클립의 실제 길이가 0.5초 값으로 반올림된 방향을 따르고, 샷 사이는 최소 0.5초입니다. 분리된 클립마다 `rebaseShots`가 `[Shot 1]`(시간 없음)부터 다시 번호를 매깁니다.
+- "override for this clip" 체크는 클립 시간 줄의 오른쪽 끝에 있고, 켜면 접혀 있는 LOCAL ENHANCE를 펼칩니다.
+
+## 13. 원테이크 프롬프트 규칙 (v0.9.0)
+
+`state.oneTakeLlm`(기본 꺼짐)과 Continuity = One-Take일 때(`oneTakeLlmOn`) Prompt Write / Refine 요청에 `oneTakeRules(길이들, 앞 클립의 끝 상태)`가 붙습니다: 클립당 `[Shot 1]`만, 2.0초 전개는 같은 문단에서 `At 00:02.000, …`, 클립 끝 상태를 정확히 쓰고 다음 클립 시작에 그대로 복사("is already …" / "still"), 빠른 동작은 클립 끝 1.7초 전에 마감, 클립은 움직임 속에서 끝내기, "single uninterrupted shot" 문장. 결과의 추가 `[Shot N]`은 `oneTakeFixShots`가 `[Shot 1]` 문단에 합치고, `oneTakeIssues`가 이음매가 빠진 클립을 리뷰에서 경고합니다. 프롬프트나 Refine 지시에 `원테이크` / `one take`가 있으면 Continuity = One-Take와 이 옵션이 자동으로 켜집니다(One-Take를 쓸 수 없으면 경고).

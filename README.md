@@ -78,6 +78,16 @@ more recently and haven't been battle-tested as thoroughly as the rest.
 The image tools can browse each other's galleries and send an image straight into another
 tool's source-image slot, or directly into MiniMax H3's First/Last Frame or Reference slots.
 
+### MiniMax H3 — Prompt Edit · 왼쪽 메뉴 (v0.9.0) / Prompt Edit and left menu
+- **클립별 시간 오버라이드**: Prompt Edit의 `clip time override` 체크 + 초(1~15, 0.5초 단위). 입력한 시간을 모델이 만들 수 있는 프레임 수(17k+5, 22~362프레임)로 바꾼 뒤 그 실제 길이를 0.5초로 정리해 저장합니다(12초 → 294프레임 → 12.5). 렌더 큐 · 합계 · 메타의 프레임 수가 클립마다 그 길이를 따릅니다. **CLIPS** 목록에는 누적 시간, 샷 범위, One-Take에서는 겹침을 뺀 `stitched` 시간이 보이고, 클립보다 늦게 시작하는 샷은 빨간색입니다. 클립별 설정이 있으면 주황색, 에셋 라이브러리면 분홍색입니다. `override for this clip` 체크는 이 줄 오른쪽 끝에 있습니다.
+  <sub>`clip time override` in Prompt Edit (1-15 s, half-second steps; the typed time becomes the frame count the model can render and the real length is stored in half seconds). The render queue, totals and saved frame counts follow each clip; the **CLIPS** list shows the running clock, shot ranges and the `stitched` time in One-Take; late shots are red; own-override clips are orange, Asset-Library ones pink.</sub>
+- **클립 분리 · 샷 시간**: 나눈 클립은 `[Shot 1]`(시간 없음)부터 다시 시작하고 본문의 샷 시간은 0.5초 단위로 정리됩니다. Prompt Write의 "split into all clips"는 클립마다 전체 브리프를 요청하고 Auto Split이 클립별 헤더 · 본문 · 사운드로 나눕니다.
+  <sub>Shots restart at `[Shot 1]` in every clip and shot times are tidied to half seconds; "split into all clips" asks for a full brief per clip and Auto Split puts each into its own header / text / sound.</sub>
+- **원테이크 프롬프트 규칙**: Continuity ▸ One-Take (latent) ▸ `Write prompts with the One-Take rules` 를 켜면 LLM 요청에 규칙(클립당 `[Shot 1]`, 끝 상태를 다음 클립 시작에 복사, 빠른 동작은 끝 1.7초 전에 마감)이 붙습니다. "원테이크 / one take"가 프롬프트에 있으면 자동으로 켜집니다.
+  <sub>The One-Take rules (one `[Shot 1]` per clip, end state copied into the next opening, fast actions finished 1.7 s early) go into the request; a prompt containing "원테이크 / one take" turns them on by itself.</sub>
+- **왼쪽 메뉴 아코디언**: Text To Video · Image to Video (F/L) · Reference to Video의 Canvas · Clip length · Preset · Steps가 접이식이고 접힌 줄에 현재 값이 보입니다. F/L의 에셋 라이브러리는 First / Last 두 카드(58px)이며, LOCAL ENHANCE에도 Files / Asset Library 전환이 있습니다. Postprocess 모드에서는 Picture/Subject/Shot, Refine, Prompt Write, Prompt Edit 버튼이 숨겨집니다.
+  <sub>Canvas, Clip length, Preset and Steps are accordions with live summaries; F/L Asset Library shows First / Last cards and LOCAL ENHANCE has the Files / Asset Library switch; Postprocess hides the prompt buttons.</sub>
+
 ### 에셋 라이브러리 / Asset Library (MiniMax H3)
 H3 상단 첫 번째 **Asset** 탭("+ Add ▾" 메뉴: Single Image / Images as a set / Video / Audio / From Gallery)에서 ComfyUI-TJ_NODE의 레퍼런스 에셋 라이브러리(이미지·영상·오디오·세트, 프로젝트)를
 보고 등록·교체·저장·삭제할 수 있습니다. Reference / First-Last 패널의 "Files / Gallery | Asset Library" 스위치와

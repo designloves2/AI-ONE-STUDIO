@@ -3,6 +3,22 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.9.0] — 2026-10-13
+
+H3 Prompt Edit and left menu (node `13f9ea4`..`c037056`, node v1.40.0). See `PORT_LEDGER.md` row 40.
+
+### Added
+- **Clip time override** in Prompt Edit (1-15 s, half-second steps, nearest 17k+5 frames); the render queue, totals and metadata follow each clip's own length.
+- **CLIPS list**: running clock, One-Take `stitched` clock, shot ranges (late shots red), override colours (orange / pink for the Asset Library).
+- **Shot times restart in every clip** and are written in half-second steps; Prompt Write asks for one full brief per clip and Auto Split gives each clip its own header / sound.
+- **One-Take prompt rules** (checkbox, auto-detected from 원테이크 / one take), folding of extra `[Shot N]`, seam warnings in the review.
+- F/L **Source switch** in LOCAL ENHANCE; F/L Asset Library as two 58 px cards; Asset Library block full width with the Load result beside it.
+- Left menu **accordions** for Canvas / Clip length / Preset / Steps with live summaries and "?" tooltips; Continuity explanations as tooltips.
+
+### Changed
+- Prompt Write / Refine sit beside Done; header / footer boxes keep the dragged height; Postprocess hides Picture/Subject/Shot, Refine, Prompt Write and Prompt Edit.
+- Brief parsing accepts `[shot 1]`, `[[Shot 2] ...]` and markdown-prefixed shot lines, and the structured audio tail wins over a shot's own `Audio:` line.
+
 ## [0.8.2] — 2026-10-13
 
 H3 Image to Video (F/L): Files / Gallery or Asset Library as one source (node `1e46dc7`). See `PORT_LEDGER.md` row 39.

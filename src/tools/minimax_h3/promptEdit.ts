@@ -1887,7 +1887,7 @@ export function createPromptEditOverlay(
       }
     }
     if (reviewMode !== "one" && oneTakeLlmOn(state)) {
-      const fold = (i: number) => { const cl = state.prompts[i]; if (cl && typeof cl === "object") cl.text = oneTakeFixShots(cl.text); };
+      const fold = (i: number) => { const cl = state.prompts[i]; if (cl && typeof cl === "object") cl.text = oneTakeFixShots(cl.text, (cl as PromptEntry).header); };
       if (reviewTarget === "all") (state.prompts || []).forEach((_, i) => fold(i)); else fold(selected);
     }
     if (reviewMode !== "one") {

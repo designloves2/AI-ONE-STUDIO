@@ -3,6 +3,14 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.9.2] — 2026-10-13
+
+H3 brief split and One-Take single-shot sentence (node v1.40.2: `bdc2409`, `7d85450`, `c1b4135`). See `PORT_LEDGER.md` row 42.
+
+### Fixed
+- A `[Shot N]` marker written on the same line after a sentence now starts its own line, so header / shots / sound are split correctly.
+- One-Take clips without the "single uninterrupted shot" sentence (neither in the clip header nor in the text) get it right after `[Shot 1]` when a brief is applied.
+
 ## [0.9.1] — 2026-10-13
 
 OpenRouter brief writing with a reasoning model (node `c8440b9`, node v1.40.1). See `PORT_LEDGER.md` row 41.

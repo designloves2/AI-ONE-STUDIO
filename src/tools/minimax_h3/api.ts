@@ -914,11 +914,11 @@ export async function analyzeImagesOpenRouter(images: string[], promptText: stri
   return d.text;
 }
 
-export async function writeBriefOpenRouter(systemPrompt: string, userPrompt: string, orModel?: string): Promise<string> {
+export async function writeBriefOpenRouter(systemPrompt: string, userPrompt: string, orModel?: string, maxTokens = 2000): Promise<string> {
   const r = await fetchApi(`${API}/llm/write_brief`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system: systemPrompt, user: userPrompt, or_model: orModel || "" }),
+    body: JSON.stringify({ system: systemPrompt, user: userPrompt, or_model: orModel || "", max_tokens: maxTokens }),
   });
   const d = await r.json();
   if (!d.ok) throw new Error(d.error || "OpenRouter brief failed");

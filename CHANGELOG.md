@@ -3,6 +3,13 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.9.1] — 2026-10-13
+
+OpenRouter brief writing with a reasoning model (node `c8440b9`, node v1.40.1). See `PORT_LEDGER.md` row 41.
+
+### Fixed
+- Prompt Write over OpenRouter sends `max_tokens` (default 2000); with several clips the room for the answer grows (`min(16000, 2200 x clips + 1500)`), so a reasoning model no longer runs out of tokens while still thinking. Refine keeps the default. The server side (low reasoning effort, cut-off thinking reported as an error instead of being returned as the brief) is shared with the node.
+
 ## [0.9.0] — 2026-10-13
 
 H3 Prompt Edit and left menu (node `13f9ea4`..`c037056`, node v1.40.0). See `PORT_LEDGER.md` row 40.

@@ -78,7 +78,7 @@ export function sourceToggle(source, onChange) {
  * @param getRef   () => assetRef object (the caller's own, created if missing)
  * @param onChange (ref) => void   persist + refresh whatever depends on it
  */
-export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt = null as any }) {
+export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt = null as any, sideReport = false }) {
   let lastReport = "(press Load to check the prompt against these references)";
   const root = el("div", { className: "rl-root", style: { display: "flex", flexDirection: "column", gap: "6px", padding: "6px",
     border: `1px solid ${C.border}`, borderRadius: "8px", background: C.bg2 } });
@@ -96,24 +96,41 @@ export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt 
     const apply = (patch) => { Object.assign(ref, patch); onChange(ref); render(); };
 
     if (mode === "firstlast") {
-      const slot = (label, key) => {
+      // Two cards side by side: a large picture (✕ in its corner), the asset's name under it, and the
+      // picker button under that. Clicking the picture opens the picker too.
+      const card = (label, key) => {
         const id = ref[key];
         const a = id ? index.get(id) : null;
-        return el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } },
-          el("span", { text: label, style: { width: "40px", color: C.muted, fontSize: "11px" } }),
-          id ? thumb(a, 36) : null,
-          el("span", { text: id ? (a ? `#${a.id} ${a.name}` : `#${id} (missing asset)`) : "none", style: {
-            flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px",
-            color: id && !a ? C.err : C.text } }),
-          btn("From Asset…", () => openAssetPicker({ title: `Pick the ${label.toLowerCase()} frame`, kinds: ["image"], multi: false,
-            onPick: ids => apply({ [key]: ids[0] }) }), small),
-          id ? btn("✕", () => apply({ [key]: null }), small) : null);
+        const pick = () => openAssetPicker({ title: `Pick the ${label.toLowerCase()} frame`, kinds: ["image"], multi: false,
+          onPick: ids => apply({ [key]: ids[0] }) });
+        const box = el("div", { style: { position: "relative", width: "58px", height: "58px", alignSelf: "center",
+          background: "#000", border: `1px solid ${id && !a ? C.err : C.border}`, borderRadius: "6px", overflow: "hidden",
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" } });
+        box.addEventListener("click", pick);
+        if (a) box.append(el("img", { src: reflib.thumbUrl(a), style: { width: "100%", height: "100%", objectFit: "contain" } }));
+        else box.append(el("div", { text: id ? "missing" : "+", style: { color: C.muted, fontSize: id ? "9px" : "18px" } }));
+        if (id) {
+          const x = el("div", { text: "✕", title: "Remove", style: { position: "absolute", top: "1px", right: "1px", background: "rgba(0,0,0,0.75)",
+            color: "#fff", borderRadius: "3px", width: "14px", height: "14px", lineHeight: "14px", textAlign: "center", fontSize: "10px", cursor: "pointer" } });
+          x.addEventListener("click", (e) => { e.stopPropagation(); apply({ [key]: null }); });
+          box.append(x);
+        }
+        return el("div", { style: { width: "96px", flexShrink: "0", display: "flex", flexDirection: "column", gap: "4px", alignItems: "stretch" } },
+          el("div", { text: label, style: { textAlign: "center", fontSize: "11px", fontWeight: "700", color: C.text } }),
+          box,
+          el("div", { text: id ? (a ? `#${a.id} ${a.name}` : `#${id}`) : "none", style: { textAlign: "center", fontSize: "11px", overflow: "hidden",
+            textOverflow: "ellipsis", whiteSpace: "nowrap", color: id && !a ? C.err : (id ? C.text : C.muted) } }),
+          btn("From Asset…", pick, { ...small, width: "100%" }));
       };
-      root.append(slot("First", "first"), slot("Last", "last"));
+      root.append(el("div", { style: { display: "flex", gap: "14px", justifyContent: "flex-start" } }, card("First", "first"), card("Last", "last")));
       return;
     }
 
-    // Reference mode: a project, or an ordered list of assets
+    // Reference mode: a project, or an ordered list of assets. With `sideReport` the picking controls
+    // sit on the left and the Load result on the right, instead of the result going underneath.
+    const left = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", minWidth: "0", flex: sideReport ? "0 0 46%" : "1" } });
+    const right = el("div", { style: { flex: "1", minWidth: "0", display: "flex" } });
+    root.append(sideReport ? el("div", { style: { display: "flex", gap: "10px", alignItems: "stretch" } }, left, right) : left);
     let shown = [];
     let summary = "No library assets — the file slots below are used.";
     if (ref.project) {
@@ -126,9 +143,9 @@ export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt 
       shown = ref.ids.map(id => ({ id }));
       summary = `${shown.length} asset${shown.length === 1 ? "" : "s"} picked — the file slots below are ignored`;
     }
-    root.append(el("div", { text: summary, style: { fontSize: "11px", color: shown.length ? C.ok : C.muted } }));
+    left.append(el("div", { text: summary, style: { fontSize: "11px", color: shown.length ? C.ok : C.muted } }));
     if (shown.length) {
-      root.append(el("div", { style: { display: "flex", flexWrap: "wrap", gap: "5px" } }, ...shown.map((it, i) => {
+      left.append(el("div", { style: { display: "flex", flexWrap: "wrap", gap: "5px" } }, ...shown.map((it, i) => {
         const a = index.get(it.id);
         const cell = el("div", { title: a ? `#${a.id} ${a.name}${it.alias ? `  @${it.alias}` : ""}` : `#${it.id} (missing asset)`, style: {
           position: "relative", width: "58px", borderRadius: "6px", overflow: "hidden", border: `1px solid ${a ? C.border : C.err}`, background: "#000" } },
@@ -144,7 +161,7 @@ export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt 
         return cell;
       })));
     }
-    root.append(el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
+    left.append(el("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" } },
       btn("From Asset…", () => openAssetPicker({ title: "Pick reference assets", kinds: ["image", "video", "audio", "set"],
         multi: true, initial: ref.project ? [] : ref.ids || [], onPick: ids => apply({ ids, project: null }) }), small),
       btn("Project…", () => openProjectPicker({ onPick: (id) => apply({ project: id, ids: [] }) }), small),
@@ -153,11 +170,11 @@ export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt 
     // Prompt check, as on the TJ_H3Reference node: Load resolves the clip's prompt against these
     // references and lists what is attached, the limits, unknown @tokens and unused assets.
     if (getPrompt && shown.length) {
-      const info = el("textarea", { readOnly: true, spellcheck: false, style: { width: "100%", height: "130px", boxSizing: "border-box",
+      const info = el("textarea", { readOnly: true, spellcheck: false, style: { width: "100%", height: sideReport ? "auto" : "130px", minHeight: "130px", boxSizing: "border-box",
         resize: "vertical", font: "11px/1.45 Consolas,monospace", background: "#1b1b1b", color: "#ddd", border: "1px solid #333",
         borderRadius: "4px", padding: "6px", whiteSpace: "pre", overflow: "auto" } });
       info.value = lastReport;
-      root.append(el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } },
+      left.append(el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } },
         btn("Load", async () => {
           info.value = "…";
           const body = ref.project ? { mode: "project", project: ref.project, prompt: getPrompt() }
@@ -165,7 +182,8 @@ export function mountLibraryRefs({ mode, getRef, onChange, note = "", getPrompt 
           lastReport = formatReport(await reflib.resolve(body));
           info.value = lastReport;
         }, small),
-        el("span", { text: "match check: prompt @tokens vs these references", style: { fontSize: "10px", color: C.muted } })), info);
+        el("span", { text: "match check: prompt @tokens vs these references", style: { fontSize: "10px", color: C.muted } })));
+      (sideReport ? right : left).append(info);
     }
   }
 

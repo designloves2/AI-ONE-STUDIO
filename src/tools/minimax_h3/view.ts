@@ -56,6 +56,8 @@ import {
   buildAgentJob,
   clipAssets,
   flLibrarySource,
+  clipFramesFor,
+  clipSecondsFor,
   promptOverrides,
   promptEnabled,
   promptText,
@@ -64,7 +66,7 @@ import {
   saveState,
   turboModesFor,
 } from "./core";
-import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
+import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, helpDot, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
@@ -142,11 +144,11 @@ export function renderMinimaxH3(container: HTMLElement) {
   }
   // bodyThunk only runs while the section is (or becomes) open, so a collapsed section builds
   // nothing — matters for the heavier ones (Images/LoRA mount their own sub-panels).
-  function accordion(key: string, title: string, summary: string, bodyThunk: () => (Node | null | undefined)[]) {
+  function accordion(key: string, title: string, summary: string, bodyThunk: () => (Node | null | undefined)[], help = "") {
     const det = el("details", {}) as HTMLDetailsElement;
     det.open = accordionOpen[key] === true; // default collapsed
     const sum = el("summary", { style: { cursor: "pointer", fontSize: "11px", color: C.text, fontWeight: "700", userSelect: "none" } });
-    sum.append(el("span", { text: title }), el("span", { text: `  —  ${summary}`, "data-summary-for": key, style: { color: C.muted, fontWeight: "400", textTransform: "none" } }));
+    sum.append(el("span", { text: title }), ...(help ? [helpDot(help)] : []), el("span", { text: `  —  ${summary}`, "data-summary-for": key, style: { color: C.muted, fontWeight: "400", textTransform: "none" } }));
     const bodyWrap = el("div", { style: { marginTop: "6px" } });
     if (det.open) bodyWrap.append(...bodyThunk().filter((b): b is Node => !!b));
     det.addEventListener("toggle", () => {
@@ -1844,6 +1846,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     refineBtn.style.display = hidesShotList ? "none" : "";
     writeBtn.style.display = hidesShotList ? "none" : "";
     tagBtnRow.style.display = hidesShotList ? "none" : "";
+    // Postprocess has no prompt at all, so the tag row, Refine, Prompt Write and Prompt Edit are hidden there too.
+    const isPostprocess = state.generationMode === "postprocess";
+    if (isPostprocess) { refineBtn.style.display = "none"; writeBtn.style.display = "none"; tagBtnRow.style.display = "none"; }
     const isImageGen = state.generationMode === "imagegen";
     if (isImageGen) {
       commonBtn.style.display = "none"; splitBtn.style.display = "none"; addBtn.style.display = "none";
@@ -1852,7 +1857,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     const isCharSheetHdr = isImageGen && state.imageGenMode === "charsheet";
     // editBtn is repurposed as t2i/ref2i's own "🔍 Prompt Edit" (see its click handler's imagegen branch) — only truly
     // hidden for Character Sheet, which uses sysPromptSaveBtn/ResetBtn in this same slot instead.
-    editBtn.style.display = isCharSheetHdr ? "none" : "";
+    editBtn.style.display = isCharSheetHdr || isPostprocess ? "none" : "";
     tplBtn.style.display = isImageGen && !isCharSheetHdr ? "" : "none";
     sysPromptSaveBtn.style.display = isCharSheetHdr ? "" : "none";
     sysPromptResetBtn.style.display = isCharSheetHdr ? "" : "none";
@@ -1980,6 +1985,12 @@ export function renderMinimaxH3(container: HTMLElement) {
         ` · est. <b>${formatDuration(p.estimateMinutes)}</b>` +
         `<br><span style="color:${C.muted}">${width}×${height} · ${p.clipSec.toFixed(2)}s/clip · ${state.clipFrames} frames</span>`;
     }
+    const setSummary = (key: string, text: string) => {
+      const sumEl = leftPanel.querySelector(`[data-summary-for="${key}"]`);
+      if (sumEl) { sumEl.textContent = `  —  ${text}`; (sumEl as HTMLElement).title = text; }
+    };
+    setSummary("canvas", `${state.aspect} · ${state.megapixels ?? 1.0} MP`);
+    setSummary("cliplen", `${p.clipSec.toFixed(2)}s × ${p.count} · ${(p.isOneTakeStitched && p.count > 1 ? p.stitchedSeconds : p.actualSeconds).toFixed(2)}s total`);
     renderPrompts();
   }
 
@@ -4089,8 +4100,7 @@ export function renderMinimaxH3(container: HTMLElement) {
 
     // Canvas
     leftPanel.appendChild(
-      panel([
-        label("Canvas"),
+      accordion("canvas", "Canvas", `${state.aspect} · ${state.megapixels ?? 1.0} MP`, () => [
         row([
           col([label("Aspect"), select(ASPECTS.map((a) => ({ value: a.label, label: a.label })), state.aspect, (v) => { state.aspect = v; persist(); refreshPlan(); })]),
           col([label("Megapixels"), (() => {
@@ -4108,9 +4118,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     // Clip length
     planLine = el("div", { style: { fontSize: "11px", lineHeight: "1.65", color: C.text } });
     totalLine = el("div", { style: { textAlign: "center", padding: "6px 0 2px", lineHeight: "1.1", borderBottom: `1px solid ${C.border}`, marginBottom: "5px" } });
+    const planNow = currentPlan();
     leftPanel.appendChild(
-      panel([
-        labelHelp("Clip length", "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer. Clips are saved separately — combine them afterward from 🖼 Gallery."),
+      accordion("cliplen", "Clip length", `${planNow.clipSec.toFixed(2)}s × ${planNow.count} · ${(planNow.isOneTakeStitched && planNow.count > 1 ? planNow.stitchedSeconds : planNow.actualSeconds).toFixed(2)}s total`, () => [
         select(
           [...CLIP_LENGTHS.map((c) => ({ value: String(c.frames), label: c.label })), { value: "custom", label: "Custom (seconds)…" }],
           state.clipLengthCustom ? "custom" : String(state.clipFrames),
@@ -4137,8 +4147,8 @@ export function renderMinimaxH3(container: HTMLElement) {
             ])
           : null,
         totalLine,
-        planLine,
-      ])
+        planLine
+      ], "Length follows the prompts: one prompt is one clip. Add a prompt (or split the brief into shots) to make the piece longer. Clips are saved separately — combine them afterward from 🖼 Gallery.")
     );
     refreshPlan();
 
@@ -4211,8 +4221,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       (settingBtn as HTMLElement).style.width = "100%";
 
       leftPanel.appendChild(
-        panel([
-          label("Preset"),
+        accordion("preset", "Preset", userMatch ? `★ ${userMatch.name}` : sysMatch ? `${sysMatch.id}. ${sysMatch.label}` : "Custom", () => [
           select(options, selected, (v) => {
             if (v === "__sep_user__" || v === "__sep_sys__") return; // disabled — select() shouldn't land here, but never apply a separator
             if (!v) return; // "— Custom —" itself changes nothing — there's nothing to apply
@@ -4229,10 +4238,9 @@ export function renderMinimaxH3(container: HTMLElement) {
             renderLeft();
           }),
           btnRow,
-          el("div", { text: "Hover a preset to see what it turns on.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5", marginTop: "4px" } }),
           noteText ? el("div", { text: noteText, style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }) : null,
           !userPresetsLoaded ? el("div", { text: "Loading saved presets…", style: { fontSize: "10px", color: C.muted } }) : null,
-        ])
+        ], "Hover a preset to see what it turns on.")
       );
     }
 
@@ -4404,13 +4412,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftPanel.appendChild(
       accordion("continuity", "Continuity", contModes.find((m) => m.key === state.continuityMode)?.label || "None", () => [
         col([
+          labelHelp("Continuity between clips", [(contModes.find((m) => m.key === state.continuityMode) || ({} as any)).hint || "", "One prompt renders one clip. To make a longer piece that holds together, split the brief into shots — each shot becomes a clip and continuity carries the look forward."].filter(Boolean).join("\n\n")),
           select(contModes.map((m) => ({ value: m.key, disabled: m.disabled, label: m.disabled ? `${m.label} — ${m.reason}` : m.label })), state.continuityMode, (v) => { state.continuityMode = v; persist(); renderLeft(); }),
         ]),
-        el("div", { text: (contModes.find((m) => m.key === state.continuityMode) || ({} as any)).hint || "", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-        el("div", {
-          text: "One prompt renders one clip. To make a longer piece that holds together, split the brief into shots — each shot becomes a clip and continuity carries the look forward.",
-          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5", marginTop: "2px" },
-        }),
         ...(state.continuityMode === "onetake"
           ? (() => {
               const onetakeAvailable = !!ctx.availability?.TJ_H3_LatentContinuation;
@@ -4421,32 +4425,25 @@ export function renderMinimaxH3(container: HTMLElement) {
                       html: "⚠ <code>TJ_H3_LatentContinuation</code> not installed — update the TJ_NODE pack, or switch Continuity to something else.",
                       style: { fontSize: "10px", color: C.warn, lineHeight: "1.5", marginTop: "4px" },
                     })]),
+                // The explanations are tooltips on the checkbox and its text, not paragraphs under them.
+                checkboxRow("Write prompts with the One-Take rules (Prompt Write / Refine)", !!state.oneTakeLlm, (v) => {
+                  state.oneTakeLlm = v; persist(); renderLeft();
+                }, { title: "On: the LLM follows the ONE_TAKE guide - one [Shot 1] per clip, the end state of each clip copied into the start of the next, fast actions finished 1.7 s before a clip ends. Extra [Shot N] in a result are folded into [Shot 1]; broken seams are flagged in the review.\nOff: prompts are written as usual.\nA prompt that says \"원테이크\" / \"one take\" turns this on by itself." }),
                 checkboxRow("Lock the whole audio stream (with Latent Continuation)", !!state.oneTakeLockAudio, (v) => {
                   state.oneTakeLockAudio = v; persist();
                 }),
                 checkboxRow("Auto-stitch into one clip when the run finishes (overlap trimmed)", state.oneTakeAutoStitch !== false, (v) => {
                   state.oneTakeAutoStitch = v; persist(); renderLeft();
-                }),
-                el("div", {
-                  text: state.oneTakeAutoStitch !== false
-                    ? "The stitched result (overlap trimmed) is what lands in the Gallery. Per-clip files and checkpoints stay on disk too, for resuming a stopped run."
-                    : "Off — clips stay separate, same as any other run; nothing gets auto-combined.",
-                  style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
-                }),
+                }, { title: "On: the stitched result (overlap trimmed) is what lands in the Gallery. Per-clip files and checkpoints stay on disk too, for resuming a stopped run.\nOff: clips stay separate, same as any other run; nothing gets auto-combined." }),
                 ...(state.oneTakeAutoStitch !== false
                   ? [
                       checkboxRow(
                         "Replace with Audio Lock source (skip generated audio)",
                         !!state.oneTakeAudioOverride,
                         (v) => { state.oneTakeAudioOverride = v; persist(); },
-                        { disabled: !state.audioLock || !state.lockAudioFile }
+                        { disabled: !state.audioLock || !state.lockAudioFile,
+                          title: "The stitched result's audio track is swapped for the locked source file itself (trimmed to match), instead of the model's generated audio.\nNeeds Audio Lock on with a file selected." }
                       ),
-                      el("div", {
-                        text: state.audioLock && state.lockAudioFile
-                          ? "The stitched result's audio track is swapped for the locked source file itself (trimmed to match), instead of the model's generated audio."
-                          : "Needs Audio Lock on with a file selected.",
-                        style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" },
-                      }),
                     ]
                   : []),
               ];
@@ -4496,7 +4493,8 @@ export function renderMinimaxH3(container: HTMLElement) {
           stepsInput.style.opacity = "0.4";
         }
         baseStepsRefs = { input: stepsInput as HTMLInputElement, hint: stepsHint };
-        return panel([label("Steps"), stepsInput, stepsHint]);
+        // The explanation is a "?" tooltip on the title (node c037056).
+        return accordion("steps", "Steps", turboActive ? `${effectiveSteps(state, ctx.availability)} (turbo)` : String(state.steps ?? 20), () => [stepsInput], stepsHint.textContent || "");
       })()
     );
 
@@ -5568,7 +5566,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         // Per-clip refImagesMp/refVideos/refAudios ride along on this shallow-copied clipState —
         // buildConditioning() already reads all three straight off `state`, so no graphBuilder.ts
         // change is needed to make the per-clip set actually render.
-        const clipState: MinimaxState = { ...rs, generationMode: modeForClip, refImagesMp: assets.refImagesMp, refVideos: assets.refVideos, refAudios: assets.refAudios };
+        const clipState: MinimaxState = { ...rs, generationMode: modeForClip, clipFrames: clipFramesFor(rs, i), refImagesMp: assets.refImagesMp, refVideos: assets.refVideos, refAudios: assets.refAudios };
         // Library assets / project of this clip (its own when overriding, else the node's). A
         // chained clip starts from the previous clip's last frame, so a library First frame
         // does not apply to it.
@@ -5657,6 +5655,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           // The library set this clip actually used (its own when overriding; a chained clip has `first` dropped),
           // not the node-wide one metaForVideo() records by default.
           clipMeta.assetRef = clipState.assetRef ? { ...clipState.assetRef, ids: [...(clipState.assetRef.ids || [])] } : null;
+          clipMeta.frames = clipState.clipFrames;   // this clip's own length, not the global one
           // An inline upscale changes the frame size metaForVideo() can't predict, so re-probe
           // the file. Deblur alone never resizes — skip the round trip for it.
           if (built.meta.upscale || built.meta.hires) await reconcileGeometry(clipMeta, vid);
@@ -5722,7 +5721,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             : null;
           const out = await stitchClips(clipRecords, `${folder}/${rs.filenamePrefix || "MMH3"}_full`, null, overlapSec, audioOverride);
           const url = outputViewUrl(out.filename, out.subfolder || "", "output");
-          const totalSeconds = clipRecords.length * framesToSeconds(rs.clipFrames || 192) - (clipRecords.length - 1) * overlapSec;
+          const totalSeconds = active.slice(0, clipRecords.length).reduce((sum, { i }) => sum + clipSecondsFor(rs, i), 0) - (clipRecords.length - 1) * overlapSec;
           const oneTakeMeta = metaForVideo(
             rs,
             composeStitchedPrompt(active.map(({ i }) => promptForClip(rs, i))),

@@ -7,6 +7,19 @@ import {
   clipAssets,
   flLibrarySource,
   clipFraming,
+  activePrompts,
+  clipSecondsFor,
+  clipFramesFor,
+  clipTimeline,
+  snapHalf,
+  clipSecForTyped,
+  shotRanges,
+  rebaseShots,
+  snapShotTimes,
+  oneTakeLlmOn,
+  oneTakeRules,
+  oneTakeFixShots,
+  oneTakeIssues,
   evenBreaks,
   groupShotsWithBreaks,
   imageBriefMax,
@@ -280,11 +293,17 @@ export function createPromptEditOverlay(
   });
 
   // ── common header/footer ───────────────────────────────────────────────
-  function commonField(placeholder: string, get: () => string, set: (v: string) => void) {
+  function commonField(placeholder: string, get: () => string, set: (v: string) => void, sizeKey: string) {
     const ta = el("textarea", {
       placeholder,
-      style: { width: "100%", boxSizing: "border-box", minHeight: "120px", maxHeight: "210px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "11.5px", lineHeight: "1.5", fontFamily: "inherit", outline: "none", resize: "vertical" },
+      style: { width: "100%", boxSizing: "border-box", minHeight: "120px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px 8px", fontSize: "11.5px", lineHeight: "1.5", fontFamily: "inherit", outline: "none", resize: "vertical" },
     });
+    // The box keeps the height the user dragged it to (remembered across sessions); it is never resized to its text.
+    try { const h = localStorage.getItem(sizeKey); if (h) ta.style.height = h; } catch { /* default height */ }
+    new ResizeObserver(() => {
+      if (!ta.offsetHeight) return;   // popup hidden
+      try { localStorage.setItem(sizeKey, `${ta.offsetHeight}px`); } catch { /* not remembered */ }
+    }).observe(ta);
     ta.value = get() || "";
     ta.addEventListener("input", () => {
       set(ta.value);
@@ -337,6 +356,7 @@ export function createPromptEditOverlay(
   // reference video/audio all follow the same clip's own override flag — an override clip that
   // kept the common header/tail would render the previous shot's visual style and music over
   // the new scene, silently, which is exactly the bug this all-or-nothing rule exists to avoid.
+  const ownFraming = () => promptOverrides(state.prompts[selected]);
   const headerTA = commonField(
     "Common opening — visual style, grade, opening composition… (sent with every clip)",
     () => clipFraming(state, selected).header,
@@ -344,7 +364,8 @@ export function createPromptEditOverlay(
       const p = state.prompts[selected];
       if (promptOverrides(p)) (p as PromptEntry).header = v;
       else state.promptHeader = v;
-    }
+    },
+    "mmh3_pe_header_h"
   );
   const footerTA = commonField(
     "Common tail — Ambient sound: … / Music: … (sent with every clip)",
@@ -353,7 +374,8 @@ export function createPromptEditOverlay(
       const p = state.prompts[selected];
       if (promptOverrides(p)) (p as PromptEntry).footer = v;
       else state.promptFooter = v;
-    }
+    },
+    "mmh3_pe_footer_h"
   );
   const headerLabel = el("div", { text: "COMMON — HEADER", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
   const footerLabel = el("div", { text: "COMMON — SOUND / MUSIC", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
@@ -537,16 +559,59 @@ export function createPromptEditOverlay(
     // all edit the same underlying state.prompts.
     ctx.setPromptBusy?.(isBusy, busyLabel);
   }
-  editCol.append(editHdr, editorWrap, firstFrameRow, firstFrameHint);
-  body.append(listCol, editCol);
-
+  // Clip time override: the clip renders its own length instead of the global clip length. The
+  // seconds snap to the model's frame grid (17k+5), so the note shows what is really rendered.
+  const timeRow = el("div", { class: "flex items-center gap-2 shrink-0 flex-wrap" });
+  const timeChk = el("input", { type: "checkbox" }) as HTMLInputElement;
+  timeChk.style.cursor = "pointer";
+  const timeChkLbl = el("label", { class: "flex items-center gap-1.5 text-[10.5px] cursor-pointer" }, [timeChk, el("span", { text: "clip time override" })]);
+  const timeIn = el("input", { type: "number", min: "1", max: "15", step: "0.5", style: {
+    width: "64px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
+    borderRadius: "6px", padding: "3px 6px", fontSize: "11px", fontFamily: "inherit", outline: "none", textAlign: "center",
+  } }) as HTMLInputElement;
+  const timeNote = el("div", { class: "text-[10px]", style: { color: C.muted } });
+  function renderTimeRow() {
+    const p = normPrompt((state.prompts || [])[selected] || "") as PromptEntry;
+    const on = !!p.timeOverride;
+    timeChk.checked = on;
+    timeChkLbl.style.color = on ? "#ffb020" : C.muted;
+    timeIn.disabled = !on;
+    timeIn.style.opacity = on ? "1" : "0.4";
+    if (on) timeIn.value = String(Number((p.timeSec || 0).toFixed(2)));
+    else timeIn.value = "";
+    renderOverrideRow();
+    const global = state.clipFrames ?? 192;
+    timeNote.textContent = on
+      ? `renders ${clipSecondsFor(state, selected).toFixed(2)}s (${clipFramesFor(state, selected)} frames)`
+      : `global ${(global / 24).toFixed(2)}s`;
+  }
+  function timeChanged() {
+    snapClipText(selected);
+    editor.value = promptText(normPrompt(state.prompts[selected]));
+    ctx.persist(); renderTimeRow(); renderList(); refreshPlanTag(); refreshPreviewTag(); ctx.refreshModes?.();
+  }
+  timeChk.addEventListener("change", () => {
+    state.prompts[selected] = normPrompt(state.prompts[selected]);
+    const p = state.prompts[selected] as PromptEntry;
+    p.timeOverride = timeChk.checked;
+    if (timeChk.checked && !(Number(p.timeSec) > 0)) p.timeSec = clipSecForTyped((state.clipFrames ?? 192) / 24);
+    timeChanged();
+  });
+  timeIn.addEventListener("change", () => {
+    state.prompts[selected] = normPrompt(state.prompts[selected]);
+    const v = parseFloat(timeIn.value);
+    if (v > 0) (state.prompts[selected] as PromptEntry).timeSec = clipSecForTyped(v);   // the real render length, in half seconds
+    timeChanged();
+  });
   function updateCount() {
     refreshPreviewTag();
   }
 
+  const fmtSec = (sec: number) => String(snapHalf(sec));   // list times in half-second steps
   function renderList() {
     clear(listBox);
     let onCount = 0;
+    const timeline = clipTimeline(state);
     (state.prompts || []).forEach((raw, i) => {
       const p = normPrompt(raw);
       if (promptEnabled(p)) onCount++;
@@ -589,7 +654,32 @@ export function createPromptEditOverlay(
         renderList();
       });
       const num = el("div", { text: String(i + 1), class: "w-4 shrink-0 text-center text-[10px] font-bold", style: { color: active ? BRAND : C.muted } });
-      const prev = el("div", { text: `${i + 1} - Clip Prompt #${i + 1}`, class: "flex-1 text-[10.5px] truncate", style: { color: C.text } });
+      // A clip with its own override reads orange-yellow in the list; one whose override is the Asset Library
+      // reads pink. The running clock and each shot's range sit under / beside it.
+      const ownClip = promptOverrides(p);
+      const libClip = ownClip && p.refSource === "library";
+      const labelColor = libClip ? "#ff6fb5" : ownClip ? "#ffb020" : C.text;
+      const tl = timeline[i];
+      const shots = shotRanges(promptText(p), tl.sec);
+      const prev = el("div", { class: "flex-1 min-w-0 flex flex-col", style: { gap: "1px" } }, [
+        el("div", { text: `${i + 1} - Clip Prompt #${i + 1}`, class: "text-[10.5px] truncate", style: { color: labelColor, fontWeight: ownClip ? "700" : "400" } }),
+        el("div", { text: tl.start == null ? "off" : `${fmtSec(tl.start as number)}~${fmtSec(tl.end as number)} sec${p.timeOverride ? " ⏱" : ""}`,
+          title: p.timeOverride ? "This clip has its own length" : "Global clip length",
+          class: "text-[9.5px]", style: { color: p.timeOverride ? "#ffb020" : C.muted } }),
+        // One-Take: each clip after the first overlaps the one before by 1.625 s, so its place in the stitched video is earlier-shorter.
+        ...(tl.fstart != null ? [el("div", { text: `stitched ${fmtSec(tl.fstart)}~${fmtSec(tl.fend as number)} sec`,
+          title: "Place in the finished One-Take video (1.625 s overlap with the previous clip removed)",
+          class: "text-[9.5px]", style: { color: C.ok } })] : []),
+      ]);
+      const shotCol = shots.length ? el("div", { class: "flex flex-col shrink-0", style: { gap: "1px" } },
+        shots.map((sh) => {
+          // A shot that starts after the clip has ended is cut off: shown in red until the clip is longer
+          // (clip time override) or the shots are re-timed.
+          const late = sh.start >= tl.sec - 0.05;
+          return el("div", { text: `[shot ${sh.n}] ${fmtSec(sh.start)}~${fmtSec(late ? sh.start : sh.end)}`,
+            title: late ? `Starts at ${fmtSec(sh.start)}s, after this clip ends (${fmtSec(tl.sec)}s)` : "",
+            class: "text-[9.5px] whitespace-nowrap", style: { color: late ? C.err : C.muted } });
+        })) : null;
       const del = el("button", { type: "button", text: "✕", title: "Remove", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "10px", padding: "0 2px" } });
       del.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -605,7 +695,7 @@ export function createPromptEditOverlay(
         renderList();
         loadSelected();
       });
-      item.append(cb, num, prev, del);
+      item.append(cb, num, prev, ...(shotCol ? [shotCol] : []), del);
       listBox.appendChild(item);
     });
     onCountTag.textContent = onCount < (state.prompts || []).length ? `${onCount}/${(state.prompts || []).length} on` : "";
@@ -617,6 +707,7 @@ export function createPromptEditOverlay(
     const p = normPrompt(list[selected]) as PromptEntry;
     editor.value = promptText(p);
     editTitle.textContent = `Clip ${selected + 1}`;
+    renderTimeRow();
     editorUndoClear.resetStack(); // node v1.22.1 — the shot field's Undo stays within one clip
     refreshFraming();
     renderFirstFrameRow();
@@ -716,7 +807,7 @@ export function createPromptEditOverlay(
   function targetPlan() {
     const plan = ctx.currentPlan();
     const secs = parseTargetSeconds(lenIn.value);
-    if (!(secs > 0)) return { shots: plan.count, seconds: plan.count * plan.clipSec, clipSec: plan.clipSec, fromField: false };
+    if (!(secs > 0)) return { shots: plan.count, seconds: plan.actualSeconds ?? plan.count * plan.clipSec, clipSec: plan.clipSec, fromField: false };
     const shots = Math.max(1, Math.round(secs / plan.clipSec));
     return { shots, seconds: shots * plan.clipSec, clipSec: plan.clipSec, fromField: true };
   }
@@ -740,11 +831,11 @@ export function createPromptEditOverlay(
   // First/Last|Reference mode buttons in row ③ below — those two are unrelated axes (how many
   // images vision reads vs. whether this clip has its own set at all).
   const overrideStatusText = el("span", { text: "Common (shared by all clips)", class: "text-[10.5px] font-semibold" });
-  const overrideLabel = el("label", { class: "flex items-center gap-1.5 cursor-pointer text-[10.5px]", style: { color: C.muted } });
+  const overrideLabel = el("label", { class: "flex items-center gap-1.5 cursor-pointer text-[10.5px]", style: { color: C.muted, marginLeft: "auto", flexShrink: "0" } });
   const overrideCb = el("input", { type: "checkbox" }) as HTMLInputElement;
   overrideCb.style.cursor = "pointer";
   overrideLabel.append(overrideCb, el("span", { text: "override for this clip" }));
-  const overrideRow = el("div", { class: "flex items-center justify-between gap-2" }, [overrideStatusText, overrideLabel]);
+  const overrideRow = el("div", { class: "flex items-center justify-between gap-2" }, [overrideStatusText]);
   overrideCb.addEventListener("change", () => {
     const p = normPrompt(state.prompts[selected]) as PromptEntry;
     state.prompts[selected] = p;
@@ -764,9 +855,13 @@ export function createPromptEditOverlay(
     } else {
       p.override = overrideCb.checked;
     }
+    // Ticking it unfolds LOCAL ENHANCE (where the references are edited) if it is folded; an unfolded one stays as it is.
+    if (overrideCb.checked && state.enhCollapsed) { state.enhCollapsed = false; renderEnhCollapse(); }
     ctx.persist();
     refreshFraming();
     renderImageRow();
+    renderList();
+    renderOverrideRow();
     ctx.refreshModes?.();
   });
   function renderOverrideRow() {
@@ -778,9 +873,14 @@ export function createPromptEditOverlay(
     // the clip" won't render, so its per-clip override is meaningless: grey the checkbox.
     const offForResume = normPrompt(state.prompts[selected]).enabled === false;
     overrideCb.disabled = offForResume;
+    overrideLabel.style.color = own ? BRAND : C.text;
     overrideLabel.style.opacity = offForResume ? "0.4" : "1";
     overrideLabel.style.cursor = offForResume ? "not-allowed" : "pointer";
   }
+
+  timeRow.append(timeChkLbl, timeIn, el("div", { text: "sec", class: "text-[10px]", style: { color: C.muted } }), timeNote, overrideLabel);
+  editCol.append(editHdr, timeRow, editorWrap, firstFrameRow, firstFrameHint);
+  body.append(listCol, editCol);
 
   const imgRow = el("div", { style: { display: "none", flexDirection: "column", gap: "6px" } });
   function renderImageRow() {
@@ -794,25 +894,51 @@ export function createPromptEditOverlay(
     // this is a read-only preview of what Prompt Write/Refine will actually send, not a
     // second place to edit them.
     if (state.briefImageMode === "fl") {
+      // First/Last gets the same Source switch as Reference, kept in step with the main screen
+      // (state.refSource): Files / Gallery shows the main screen's frames (read-only here, they are
+      // set there or via "Continue generating the clip"); Asset Library shows the frames picked from
+      // the Asset tab - the common ones, or this clip's own with the override ticked.
+      renderOverrideRow();
       const flModelLine = el("div", { style: { minWidth: "220px" } });
-      const libIds = flLibraryIds();
-      const ff = promptFirstFrame(state.prompts[selected]) || (flLibrarySource(state) ? "" : state.firstFrameImage || "");
-      const lf = clipAssets(state, selected).lastFrame || (flLibrarySource(state) ? "" : state.lastFrameImage || "");
-      const thumb = (src: string, tag: string, libId?: string | null) => {
-        const box = el("div", {
-          class: "w-[72px] h-[72px] rounded-md flex items-center justify-center overflow-hidden shrink-0",
-          style: { border: `1px solid ${C.border}`, background: "#000" },
-        });
-        if (libId) box.appendChild(el("img", { src: reflib.memberThumbUrl(libId), class: "w-full h-full object-cover" }));
-        else if (src) box.appendChild(el("img", { src: viewUrl(src), class: "w-full h-full object-cover" }));
-        else box.appendChild(el("div", { text: "none", class: "text-[10px]", style: { color: C.muted } }));
-        return el("div", { class: "flex flex-col gap-1 items-center" }, [box, el("div", { text: tag, class: "text-[9.5px]", style: { color: C.muted } })]);
-      };
-      imgRow.append(
-        el("div", { text: (libIds.first || libIds.last ? "First/Last frame (Asset Library)" : "First/Last frame") + " — set on the main screen, or via \"Continue generating the clip\" below.", class: "text-[10px] leading-relaxed", style: { color: C.muted } }),
-        el("div", { class: "flex gap-3" }, [thumb(ff, "Start", libIds.first), thumb(lf, "End", libIds.last)]),
-        flModelLine,
-      );
+      const ownFL = promptOverrides(state.prompts[selected]);
+      const pFL = normPrompt(state.prompts[selected]) as PromptEntry;
+      state.prompts[selected] = pFL;
+      const useLibFL = (ownFL ? pFL.refSource : state.refSource) === "library";
+      const srcToggleFL = sourceToggle(useLibFL ? "library" : "files", (src: string) => {
+        if (ownFL) { pFL.refSource = src as "files" | "library"; if (src === "files") pFL.assetRef = null; }
+        else { state.refSource = src as "files" | "library"; if (src === "files") state.assetRef = null; }
+        ctx.persist(); renderImageRow(); ctx.refreshModes?.();
+      });
+      let flBody: HTMLElement;
+      if (useLibFL) {
+        flBody = mountLibraryRefs({
+          mode: "firstlast",
+          note: ownFL ? "This clip only: First / Last frames from the Asset tab." : "Common: First / Last frames from the Asset tab.",
+          getRef: () => (ownFL ? pFL.assetRef : state.assetRef) || emptyAssetRef(),
+          onChange: (ref: any) => {
+            const n = normalizeAssetRef(ref);
+            if (ownFL) pFL.assetRef = n; else state.assetRef = n;
+            ctx.persist(); ctx.refreshModes?.();
+          },
+        }).el;
+      } else {
+        const ff = promptFirstFrame(state.prompts[selected]) || (flLibrarySource(state) ? "" : state.firstFrameImage || "");
+        const lf = clipAssets(state, selected).lastFrame || (flLibrarySource(state) ? "" : state.lastFrameImage || "");
+        const thumb = (src: string, tag: string) => {
+          const box = el("div", {
+            class: "w-[72px] h-[72px] rounded-md flex items-center justify-center overflow-hidden shrink-0",
+            style: { border: `1px solid ${C.border}`, background: "#000" },
+          });
+          if (src) box.appendChild(el("img", { src: viewUrl(src), class: "w-full h-full object-cover" }));
+          else box.appendChild(el("div", { text: "none", class: "text-[10px]", style: { color: C.muted } }));
+          return el("div", { class: "flex flex-col gap-1 items-center" }, [box, el("div", { text: tag, class: "text-[9.5px]", style: { color: C.muted } })]);
+        };
+        flBody = el("div", { class: "flex flex-col gap-1.5" }, [
+          el("div", { text: "First/Last frame — set on the main screen, or via \"Continue generating the clip\" below.", class: "text-[10px] leading-relaxed", style: { color: C.muted } }),
+          el("div", { class: "flex gap-3" }, [thumb(ff, "Start"), thumb(lf, "End")]),
+        ]);
+      }
+      imgRow.append(overrideRow, srcToggleFL, flBody, flModelLine);
       renderModelLine(flModelLine);
       return;
     }
@@ -933,7 +1059,7 @@ export function createPromptEditOverlay(
     const pOwn = normPrompt(state.prompts[selected]) as PromptEntry;
     state.prompts[selected] = pOwn;
     const libBlock = mountLibraryRefs({
-      mode: "reference",
+      mode: "reference", sideReport: true,
       note: own ? "This clip only: assets or a project from the Asset tab." : "Common: assets or a project from the Asset tab.",
       getRef: () => (own ? pOwn.assetRef : state.assetRef) || emptyAssetRef(),
       getPrompt: () => editor.value || "",
@@ -951,7 +1077,11 @@ export function createPromptEditOverlay(
       else { state.refSource = src as "files" | "library"; if (src === "files") state.assetRef = null; }
       ctx.persist(); renderImageRow(); ctx.refreshModes?.();
     });
-    if (useLib) imgCol.append(srcToggle, libBlock.el);
+    if (useLib) {
+      // The Asset Library block takes the whole width: the picker on the left, the Load result beside it.
+      imgCol.style.width = "100%"; imgCol.style.flex = "1";
+      imgCol.append(srcToggle, libBlock.el);
+    }
     else imgCol.append(srcToggle, grid, note);
     cols.appendChild(imgCol);
 
@@ -982,7 +1112,7 @@ export function createPromptEditOverlay(
   }
 
   const enhBottom = el("div", { class: "flex items-center gap-2 flex-wrap" });
-  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag, enhBtn, refineBtn, enhStopBtn);
+  enhBottom.append(targetSel, el("div", { text: "Length", class: "text-[11px]", style: { color: C.muted } }), lenIn, lenTag);
   enhWrap.append(enhTop, imgRow, enhBottom);
 
   // Brief / Vision line — full model names, one per row, clickable: opens the LLM Setting
@@ -1066,15 +1196,59 @@ export function createPromptEditOverlay(
   // own output shape (shot-separated brief text, not their 6-section MiniMax H3 schema — our
   // own system prompt already governs that, this is just the same technique for framing
   // the request).
+  // "원테이크 / 원 테이크 / onetake / one take / one-take" in the prompt switches on the One-Take mode and its prompt
+  // rules by itself (Continuity = One-Take (latent), "Write prompts with the One-Take rules" ticked).
+  const ONE_TAKE_WORD = /원\s*테이크|one[\s-]*take/i;
+  function autoOneTake(text: string) {
+    if (oneTakeLlmOn(state) || !ONE_TAKE_WORD.test(text || "")) return;
+    state.continuityMode = "onetake";
+    state.oneTakeLlm = true;
+    ctx.persist();
+    ctx.refreshModes?.();   // redraws the Continuity panel; it falls back to None when One-Take cannot run here
+    if (state.continuityMode === "onetake") {
+      ctx.showPopup("One-Take found in the prompt: Continuity is now One-Take (latent) and the One-Take prompt rules are on.", false);
+    } else {
+      ctx.showPopup("One-Take found in the prompt, but One-Take (latent) is not available here (update the TJ_NODE pack) - writing without it.", true);
+    }
+  }
+
+  let writeTarget = "all";   // set by doWrite: "one" = this clip, "all" = split into all clips
   function buildUserPrompt(baseText: string, imageSummary: string, lib: any = null) {
-    const t = targetPlan();
+    const one = writeTarget === "one";
+    const t0 = targetPlan();
+    // Each clip has its own length (clip time override), so the request lists them.
+    const lens = one ? [clipSecondsFor(state, selected)]
+      : t0.fromField ? Array.from({ length: t0.shots }, (_, k) => clipSecondsFor(state, k))
+      : activePrompts(state).map(({ i }: { i: number }) => clipSecondsFor(state, i));
+    const t = { shots: one ? 1 : t0.shots, seconds: lens.reduce((a, b) => a + b, 0) || t0.seconds, clipSec: lens[0] || t0.clipSec };
+    const sameLen = lens.every((sec) => Math.abs(sec - lens[0]) < 0.001);
     const modeLabel = state.generationMode === "reference" ? "Reference"
       : state.briefImageMode === "fl" ? "First/Last frame" : "Text/Image → Brief";
     const lines = [
       `Mode: ${modeLabel}`,
-      `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} shot(s) of ~${t.clipSec.toFixed(2)}s each.`,
+      sameLen
+        ? `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} shot(s) of ~${t.clipSec.toFixed(2)}s each.`
+        : `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} clips of ${lens.map((sec) => `${sec.toFixed(2)}s`).join(", ")}.`,
     ];
-    if (t.shots > 1) lines.push(`Write exactly ${t.shots} shots, separated by a line containing only ---, one shot per clip.`);
+    if (t.shots > 1) {
+      lines.push(
+        `Write exactly ${t.shots} clips, separated by a line containing only ---. Every clip is its own video: write each one `
+        + "as a full brief with the labels subject_definitions:, summary:, retention_analysis:, SCENARIO:, technical_settings:, "
+        + "detailed_description: (followed by the [Shot N] blocks), overall_soundscape: and non_diegetic_music:.",
+        "Time restarts in every clip: each clip begins at [Shot 1] with no timestamp, and the later shots of the SAME clip use "
+        + "\"At MM:SS.mmm\" counted from that clip's own start. Never continue the time or the shot numbers from one clip to the next. "
+        + "The shots of a clip must add up to that clip's own length.",
+      );
+    }
+    if (oneTakeLlmOn(state)) {
+      // The clip before the one being written (target "one"): how it ends is what this one has to open with.
+      let prevEnding = "";
+      if (one && selected > 0) {
+        const prev = promptText(normPrompt(state.prompts[selected - 1])).trim();
+        prevEnding = (prev.split(/\n\s*\n/).pop() || "").replace(/\s+/g, " ").slice(-600);
+      }
+      lines.push("", oneTakeRules(lens, prevEnding));
+    }
     // Library references are named by @token (the library node turns them into the model's tags),
     // so the numbered-tag manifest is replaced by the token list.
     const refCount = lib ? 0 : state.generationMode === "reference" ? (state.refImages || []).length : 0;
@@ -1142,6 +1316,11 @@ export function createPromptEditOverlay(
       );
     }
     if (lib) lines.push(lib.text, "");
+    if (oneTakeLlmOn(state)) {
+      lines.push("This brief is one clip of a One-Take run: keep a single [Shot 1] (later beats as \"At 00:02.000, ...\" in the same paragraph), "
+        + "keep the clip ending in motion with its exact end state, and keep the opening that copies the previous clip's end state, "
+        + "unless the instruction asks otherwise.", "");
+    }
     lines.push(
       "Revision instruction:",
       instruction,
@@ -1316,11 +1495,16 @@ export function createPromptEditOverlay(
     if (!backends) return;
     const { briefOR, briefLlama, briefCustom } = backends;
     if (images.length && !visionBackendCheck()) return;
-    const base = (editor.value || "").trim();
+    const target = targetSel.value;
+    writeTarget = target;
+    // A clip that already has its own header and sound / music is written from all three together.
+    const clipOwn = target === "one" && ownFraming() ? (state.prompts[selected] as PromptEntry) : null;
+    const base = [clipOwn?.header, editor.value, clipOwn?.footer].map((x) => (x || "").trim()).filter(Boolean).join("\n\n");
     if (!base && !images.length && !lib) {
       ctx.showPopup("Write something first (or add an image).", true);
       return;
     }
+    autoOneTake(base);
     busy = true;
     enhBtn.setAttribute("disabled", "true");
     refineBtn.setAttribute("disabled", "true");
@@ -1390,6 +1574,7 @@ export function createPromptEditOverlay(
     });
     if (!instruction || !instruction.trim()) return;
     lastRefineInstruction = instruction.trim();
+    autoOneTake(`${current}\n${lastRefineInstruction}`);
 
     const images = includeImagesChk?.checked ? await attachedImagesResolved() : [];
     const lib = await libraryContextForClip();
@@ -1554,28 +1739,82 @@ export function createPromptEditOverlay(
     if (reviewMode === "one") {
       rvBody.appendChild(reviewCard("one", `→ CLIP ${selected + 1} (whole brief, one paragraph)`, reviewText));
     } else {
-      if (p.header) rvBody.appendChild(reviewCard("header", "COMMON — HEADER", p.header));
-      const shots = p.shots.length ? p.shots : [reviewText];
-      shots.forEach((s, i) => rvBody.appendChild(reviewCard(`shot:${i}`, `CLIP ${i + 1}`, s)));
-      if (p.footer) rvBody.appendChild(reviewCard("footer", "COMMON — SOUND / MUSIC", p.footer));
+      const briefs = reviewMode === "split" && reviewTarget === "all" ? clipBriefs(reviewText) : null;
+      if (briefs) {
+        briefs.forEach((b, i) => {
+          if (b.header) rvBody.appendChild(reviewCard("header", `CLIP ${i + 1} — THIS CLIP — HEADER`, b.header));
+          rvBody.appendChild(reviewCard(`shot:${i}`, `CLIP ${i + 1}`, rebaseShots(b.shots.join("\n\n"))));
+          if (b.footer) rvBody.appendChild(reviewCard("footer", `CLIP ${i + 1} — THIS CLIP — SOUND / MUSIC`, b.footer));
+        });
+      } else {
+        const own = reviewTarget !== "all" && ownFraming();
+        if (p.header) rvBody.appendChild(reviewCard("header", own ? "THIS CLIP — HEADER" : "COMMON — HEADER", p.header));
+        const shots = p.shots.length ? p.shots : [reviewText];
+        shots.forEach((s, i) => rvBody.appendChild(reviewCard(`shot:${i}`, `CLIP ${i + 1}`, s)));
+        if (p.footer) rvBody.appendChild(reviewCard("footer", own ? "THIS CLIP — SOUND / MUSIC" : "COMMON — SOUND / MUSIC", p.footer));
+      }
     }
 
-    const got = p.shots.length || 1;
+    // Info line — for "all" enhance, call out when the model wrote a different shot count
+    // than the target asked for (the small brief model often does).
+    const structured = reviewTarget === "all" ? clipBriefs(reviewText) : null;
+    const got = structured ? structured.length : (p.shots.length || 1);
     let info = `${reviewText.length} chars`;
     if (reviewTarget === "all") {
       const want = targetPlan().shots;
-      info += ` · ${got} shot${got > 1 ? "s" : ""}`;
+      info += structured ? ` · ${got} clips` : ` · ${got} shot${got > 1 ? "s" : ""}`;
       if (want && got !== want) info += `  ⚠ asked for ${want} — use ✂ Split into clips or ↻ Prompt Write again`;
     } else {
       info += ` → clip ${selected + 1}`;
+    }
+    if (oneTakeLlmOn(state) && reviewMode !== "one") {
+      const clips: string[] = structured ? structured.map((b) => [b.header, ...b.shots, b.footer].join("\n"))
+        : reviewTarget === "all" ? (p.shots.length ? p.shots : [reviewText]).map((s, i) => (i === 0 ? [p.header, s] : [s]).join("\n"))
+        : [[p.header, ...p.shots, p.footer].join("\n")];
+      const issues = oneTakeIssues(clips);
+      if (issues.length) info += `  ⚠ One-Take: ${issues.slice(0, 3).map((x) => `clip ${x.clip} ${x.msg}`).join("; ")}${issues.length > 3 ? ` (+${issues.length - 3} more)` : ""}`;
     }
     rvInfo.textContent = info;
 
     rvSummary.textContent =
       reviewMode === "one" ? `Whole brief → clip ${selected + 1}'s text. Header / tail untouched.`
       : reviewMode === "manual" ? (reviewSel.size ? `Applying ${reviewSel.size} selected part(s).` : "Tick the cards to apply.")
+      : structured ? `Replaces all prompts with ${got} clips, each with its own header and sound / music (override on).`
       : reviewTarget === "all" ? `Replaces all prompts with ${got}${p.header ? " + header" : ""}${p.footer ? " + tail" : ""}.`
-      : `Replaces clip ${selected + 1}${p.header || p.footer ? " and the common parts" : ""}.`;
+      : `Replaces clip ${selected + 1}${p.header || p.footer ? (ownFraming() ? " and this clip's header / sound" : " and the common parts") : ""}.`;
+  }
+
+  // N clips written as N full briefs separated by --- (each with its own header sections, [Shot N]
+  // blocks and sound / music). null when the text is one brief, or --- only separates plain shots.
+  function clipBriefs(text: string) {
+    const parts = String(text || "").split(/^\s*-{3,}\s*$/m).map((x) => x.trim()).filter(Boolean).map(parseBrief);
+    return parts.length > 1 && parts.every((b) => b.shots.length) && parts.some((b) => b.header || b.footer) ? parts : null;
+  }
+  // The shot times written in a clip's text are kept in half-second steps (a tie goes the way the clip's real
+  // render length rounds - see snapShotTimes), so they follow the clip's length whenever it is set or changed.
+  function snapClipText(i: number) {
+    const cl = (state.prompts || [])[i];
+    if (cl && typeof cl === "object") cl.text = snapShotTimes(cl.text || "", clipSecondsFor(state, i));
+  }
+  // A re-written list keeps the time override of the clip that was at the same position.
+  function keepTimes(list: PromptEntry[], old: (PromptEntry | string)[]) {
+    list.forEach((cl, i) => {
+      const o = old[i];
+      if (o && typeof o === "object" && o.timeOverride) { cl.timeOverride = true; cl.timeSec = o.timeSec; }
+    });
+    return list;
+  }
+  // A clip made from a split carries its own header / sound, so it needs the override on; the
+  // references it had (common set) come along so nothing is lost by switching it on.
+  function seedOverride(cl: PromptEntry) {
+    cl.override = true;
+    cl.refImages = (state.refImages || []).slice();
+    cl.refImagesMp = (state.refImagesMp || []).slice();
+    cl.refVideos = (state.refVideos || []).map((v) => ({ ...v }));
+    cl.refAudios = (state.refAudios || []).map((a) => ({ ...a }));
+    cl.refSource = state.refSource || "files";
+    cl.assetRef = state.assetRef ? { ...state.assetRef, ids: [...(state.assetRef.ids || [])] } : null;
+    return cl;
   }
 
   function openReview(text: string, target: string, kind: "write" | "refine" = "write") {
@@ -1601,35 +1840,57 @@ export function createPromptEditOverlay(
       ctx.showPopup("Tick at least one card, or switch mode.", true);
       return;
     }
+    const oldPrompts = (state.prompts || []).slice();
     if (reviewMode === "one") {
       state.prompts[selected] = normPrompt(state.prompts[selected]);
       state.prompts[selected].text = reviewText; // header/footer left alone
     } else if (reviewMode === "split") {
-      if (p.header) state.promptHeader = p.header;
-      if (p.footer) state.promptFooter = p.footer;
-      if (reviewTarget === "all") {
-        state.prompts = p.shots.length
-          ? p.shots.map((s) => ({ text: s, firstFrame: "", enabled: true }))
-          : [{ text: reviewText, firstFrame: "", enabled: true }];
+      const briefs = reviewTarget === "all" ? clipBriefs(reviewText) : null;
+      if (briefs) {
+        // Every clip gets its own header sections, [Shot] blocks and sound / music.
+        state.prompts = keepTimes(briefs.map((b) => seedOverride({
+          text: rebaseShots(b.shots.join("\n\n")), firstFrame: "", enabled: true,
+          header: b.header || state.promptHeader || "", footer: b.footer || state.promptFooter || "",
+        })), oldPrompts);
+        selected = 0;
+      } else if (reviewTarget === "all") {
+        if (p.header) state.promptHeader = p.header;
+        if (p.footer) state.promptFooter = p.footer;
+        state.prompts = keepTimes(p.shots.length
+          ? p.shots.map((s) => ({ text: rebaseShots(s), firstFrame: "", enabled: true }))
+          : [{ text: reviewText, firstFrame: "", enabled: true }], oldPrompts);
         selected = 0;
       } else {
         state.prompts[selected] = normPrompt(state.prompts[selected]);
-        state.prompts[selected].text = p.shots.join("\n\n") || reviewText;
+        const clip = state.prompts[selected] as PromptEntry;
+        // A clip with its own override keeps its header / sound in its own fields.
+        if (ownFraming()) { if (p.header) clip.header = p.header; if (p.footer) clip.footer = p.footer; }
+        else { if (p.header) state.promptHeader = p.header; if (p.footer) state.promptFooter = p.footer; }
+        clip.text = rebaseShots(p.shots.join("\n\n")) || reviewText;
       }
     } else {
       // manual — only the ticked cards
-      if (reviewSel.has("header") && p.header) state.promptHeader = p.header;
-      if (reviewSel.has("footer") && p.footer) state.promptFooter = p.footer;
+      const ownTarget = reviewTarget !== "all" && ownFraming();
+      if (reviewSel.has("header") && p.header) { if (ownTarget) (state.prompts[selected] as PromptEntry).header = p.header; else state.promptHeader = p.header; }
+      if (reviewSel.has("footer") && p.footer) { if (ownTarget) (state.prompts[selected] as PromptEntry).footer = p.footer; else state.promptFooter = p.footer; }
       const picked = (p.shots.length ? p.shots : [reviewText]).filter((_, i) => reviewSel.has(`shot:${i}`));
       if (picked.length) {
         if (reviewTarget === "all") {
-          state.prompts = picked.map((s) => ({ text: s, firstFrame: "", enabled: true }));
+          state.prompts = keepTimes(picked.map((s) => ({ text: rebaseShots(s), firstFrame: "", enabled: true })), oldPrompts);
           selected = 0;
         } else {
           state.prompts[selected] = normPrompt(state.prompts[selected]);
-          state.prompts[selected].text = picked.join("\n\n");
+          state.prompts[selected].text = rebaseShots(picked.join("\n\n"));
         }
       }
+    }
+    if (reviewMode !== "one" && oneTakeLlmOn(state)) {
+      const fold = (i: number) => { const cl = state.prompts[i]; if (cl && typeof cl === "object") cl.text = oneTakeFixShots(cl.text); };
+      if (reviewTarget === "all") (state.prompts || []).forEach((_, i) => fold(i)); else fold(selected);
+    }
+    if (reviewMode !== "one") {
+      if (reviewTarget === "all") (state.prompts || []).forEach((_, i) => snapClipText(i));
+      else snapClipText(selected);
     }
     ctx.persist();
     reviewOv.style.display = "none";
@@ -1722,7 +1983,8 @@ export function createPromptEditOverlay(
     const groups = groupShotsWithBreaks(splitShots, splitBreaks.size + 1, [...splitBreaks]);
     if (splitHeader) state.promptHeader = splitHeader;
     if (splitFooter) state.promptFooter = splitFooter;
-    state.prompts = groups.map((g) => ({ text: g, firstFrame: "", enabled: true }));
+    state.prompts = keepTimes(groups.map((g) => ({ text: g, firstFrame: "", enabled: true })), state.prompts || []);
+    state.prompts.forEach((_, i) => snapClipText(i));
     selected = 0;
     ctx.persist();
     splitOv.style.display = "none";
@@ -1749,7 +2011,8 @@ export function createPromptEditOverlay(
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips…", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
   splitBtn.addEventListener("click", openSplit);
   const planTag = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
-  footer.append(splitBtn, planTag, button("✓ Done", () => hide(), "primary"));
+  // Prompt Write / Refine stay in view whether LOCAL ENHANCE is folded or not.
+  footer.append(splitBtn, planTag, enhBtn, refineBtn, enhStopBtn, button("✓ Done", () => hide(), "primary"));
 
   ov.append(hdr, setsWrap, commonWrap, body, enhWrap, footer, splitOv, reviewOv);
 

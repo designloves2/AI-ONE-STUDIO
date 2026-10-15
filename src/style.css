@@ -242,17 +242,13 @@ body {
   /* 상단 메뉴: 데스크톱의 4칸 카테고리 드롭다운 대신, 모바일에서는 버튼 하나("☰ Tools ▾")에
      전체 도구가 그룹 헤더와 함께 들어간 드롭다운 하나로 대체한다.
      "모바일에서는 메뉴가 4칸이 아니고 그냥 하나에 전부 드롭다운 형태로" */
-  .aos-topbar-nav-desktop {
-    display: none !important;
-  }
-  .aos-topbar-nav-mobile {
-    display: flex !important;
-  }
 }
-@media (min-width: 768px) {
-  .aos-topbar-nav-mobile {
-    display: none !important;
-  }
+/* 상단 메뉴는 폭과 상관없이(데스크톱 · 태블릿 · 모바일) 같은 방식: 버튼 하나("☰ Tools ▾") + 전체 도구 드롭다운. */
+.aos-topbar-nav-desktop {
+  display: none !important;
+}
+.aos-topbar-nav-mobile {
+  display: flex !important;
 }
 
 /* ── 모바일 가로모드 차단 — 세로모드로 돌리라는 안내 오버레이 ────────────────

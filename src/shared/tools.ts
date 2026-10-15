@@ -7,6 +7,7 @@ export type ToolId =
   | "sdxl"
   | "anima"
   | "minimax_h3"
+  | "ltx25"
   | "music"
   | "itda";
 
@@ -25,6 +26,7 @@ export interface ToolMeta {
 // 상단 메뉴 4개 카테고리: Media Generator → Image Generator → Image Edit Generator → Beta
 export const TOOLS: ToolMeta[] = [
   { id: "minimax_h3", label: "MiniMax H3", hash: "#minimax_h3", kind: "video", group: "video" },
+  { id: "ltx25", label: "LTX 2.5 ONE STUDIO", hash: "#ltx25", kind: "video", group: "video" },
   { id: "music", label: "MusicMaker", hash: "#music", kind: "video", group: "video" },
   { id: "itda", label: "ITDA ONE STUDIO", hash: "#itda", kind: "video", group: "video" },
   { id: "krea2", label: "Krea2", hash: "#krea2", kind: "image", group: "image" },

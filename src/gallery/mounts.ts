@@ -220,6 +220,8 @@ export function createGalleryMount(id: ToolId): GalleryMount {
       return h3Mount();
     case "music":
       return createMusicGalleryMount();
+    case "ltx25":
+      return noGalleryMount("LTX 2.5 ONE STUDIO has no gallery page on the web yet — its clips are listed in the MiniMax H3 / output folder.");
     case "itda":
       return noGalleryMount("ITDA ONE STUDIO has no image/video gallery — it works on projects, not generated files.");
   }

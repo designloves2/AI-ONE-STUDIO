@@ -1258,6 +1258,19 @@ export function renderLtx25(container: HTMLElement) {
         promptTAs.forEach(ta => { ta.style.height = `${promptTaH}px`; });
         syncingPromptTAHeights = false;
       }
+      // Visible drag bar under every prompt field (web): changes the shared height of all clip fields, remembered.
+      function taGrip(ta) {
+        const g = el("div", { title: "Drag to resize the prompt fields", style: { height: "10px", cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none" } });
+        g.appendChild(el("div", { style: { width: "40px", height: "3px", borderRadius: "2px", background: "rgba(255,255,255,0.35)", pointerEvents: "none" } }));
+        g.addEventListener("pointerdown", (e) => {
+          e.preventDefault(); g.setPointerCapture(e.pointerId);
+          const y0 = e.clientY, h0 = ta.getBoundingClientRect().height;
+          const move = (ev) => { promptTaH = clampPromptTAH(Math.round(h0 + ev.clientY - y0)); promptTAs.forEach(o => { o.style.height = `${promptTaH}px`; }); };
+          const up = (ev) => { try { g.releasePointerCapture(ev.pointerId); } catch {} g.removeEventListener("pointermove", move); g.removeEventListener("pointerup", up); g.removeEventListener("pointercancel", up); localStorage.setItem(PROMPT_TA_H_KEY, String(promptTaH)); };
+          g.addEventListener("pointermove", move); g.addEventListener("pointerup", up); g.addEventListener("pointercancel", up);
+        });
+        return g;
+      }
       // A thin, read-only view of the clip's segment timeline; the segments are edited in Prompt Edit.
       function miniBar(p, i) {
         const frames = clipFramesFor(state, i);
@@ -1346,7 +1359,7 @@ export function renderLtx25(container: HTMLElement) {
             else state.prompts.splice(i, 1);
             persist(); refreshPlan();
           });
-          line.append(sideCol, el("div", { style: { flex: "1", minWidth: "0", display: "flex", flexDirection: "column", gap: "3px" } }, [ta, ...(state.generationMode === "director" ? [miniBar(p, i)] : [])]), del);
+          line.append(sideCol, el("div", { style: { flex: "1", minWidth: "0", display: "flex", flexDirection: "column", gap: "3px" } }, [ta, taGrip(ta), ...(state.generationMode === "director" ? [miniBar(p, i)] : [])]), del);
           promptList.appendChild(line);
         });
       }

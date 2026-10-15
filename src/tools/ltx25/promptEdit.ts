@@ -15,7 +15,7 @@ import {
 import { imageSlot, shapeWarning } from "./uiImages";
 import { mountLibraryRefs, emptyAssetRef, sourceToggle } from "../../shared/reflibRefpanel";
 import { LTX_WRITE_SYSTEM, LTX_WRITE_PLAIN_SYSTEM, LTX_REFINE_SYSTEM, LTX_VISION_SYSTEM } from "./prompts";
-import { button, select } from "../../shared/ui";
+import { button, select } from "./uiCommon";
 import { createTimelineHost as createDirectorHost } from "./timelineHost";
 import { openAssetPicker } from "../../shared/reflibPicker";
 import { openVideoGalleryPicker } from "./videoPicker";

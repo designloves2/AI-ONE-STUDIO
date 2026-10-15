@@ -4,7 +4,7 @@
 // Tabs: Models · Sampling · Preview · Output. Everything here is set once and reused
 // by every clip; per-run choices live in the node's left panel instead.
 import { C, BRAND, el, clear, SUBFOLDER } from "./core";
-import { panel, label, button, numberField, row, col } from "../../shared/ui";
+import { panel, label, button, numberField, row, col } from "./uiCommon";
 import { getModels, getConfig, saveConfig, getNodeAvailability, listVideos, getTempSize, clearTempFiles } from "./api";
 import { customLLMControls } from "../../shared/customLlmControls";
 import { comfyApi as __comfy } from "./comfyClient";

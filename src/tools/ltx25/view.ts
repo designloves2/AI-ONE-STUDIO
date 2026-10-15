@@ -11,7 +11,7 @@ import {
   flLibrarySource, clipFramesFor, clipSecondsFor, normalizeAssetRef, explainGenerationError, promptText, promptFirstFrame, promptEnabled,
   activePrompts
 } from "./core";
-import { panel, label, button, select, numberField, row, col, modeBar, iconBtn } from "../../shared/ui";
+import { panel, label, button, select, numberField, row, col, modeBar, iconBtn } from "./uiCommon";
 import { loraSelect, openVideoFullscreen, createNodeFullscreen, resolvePipeOverrides, applyOverridesTemp } from "./shims";
 import {
   queuePrompt, waitForHistory, interrupt, freeMemory, setLastResult, stitchClips, getVideoInfo, copyOutputToInput, getNodeAvailability,
@@ -1139,14 +1139,29 @@ export function renderLtx25(container: HTMLElement) {
       // prompt list below. RIGHT_H (and so the node's overall size) never changes; only
       // the split between the two boxes does.
       const PREVIEW_MIN_H = 220;
+      const PREVIEW_MAX_H = 1600;
       const PREVIEW_H_KEY = "ltx25_preview_h";
       let previewH = Number(localStorage.getItem(PREVIEW_H_KEY)) || PREVIEW_SIZE;
       function applyPreviewH(h) {
-        previewH = Math.min(PREVIEW_SIZE, Math.max(PREVIEW_MIN_H, h));
+        previewH = Math.min(PREVIEW_MAX_H, Math.max(PREVIEW_MIN_H, h));
         previewBox.style.height = `${previewH}px`;
-        promptWrap.style.height = `${PROMPT_H + (PREVIEW_SIZE - previewH)}px`;
       }
       applyPreviewH(previewH);
+      // The prompt strip keeps a height of its own (drag its top edge): the clip prompts are the field you write in.
+      const PROMPT_STRIP_KEY = "ltx25_prompt_strip_h";
+      let promptStripH = Math.min(900, Math.max(110, Number(localStorage.getItem(PROMPT_STRIP_KEY)) || 280));
+      function applyPromptStripH(h) { promptStripH = Math.min(900, Math.max(110, h)); promptWrap.style.height = `${promptStripH}px`; }
+      applyPromptStripH(promptStripH);
+      const promptStripHandle = el("div", { title: "Drag to resize the prompt area", style: { height: "8px", flexShrink: "0", cursor: "ns-resize", display: "flex", alignItems: "center", justifyContent: "center" } });
+      promptStripHandle.appendChild(el("div", { style: { width: "40px", height: "3px", borderRadius: "2px", background: "rgba(255,255,255,0.35)", pointerEvents: "none" } }));
+      promptStripHandle.addEventListener("pointerdown", (e) => {
+        e.preventDefault(); promptStripHandle.setPointerCapture(e.pointerId);
+        const y0 = e.clientY, h0 = promptStripH;
+        const move = (ev) => applyPromptStripH(h0 + (y0 - ev.clientY));
+        const up = (ev) => { promptStripHandle.releasePointerCapture(ev.pointerId); promptStripHandle.removeEventListener("pointermove", move); promptStripHandle.removeEventListener("pointerup", up); localStorage.setItem(PROMPT_STRIP_KEY, String(promptStripH)); };
+        promptStripHandle.addEventListener("pointermove", move); promptStripHandle.addEventListener("pointerup", up);
+      });
+      promptWrap.prepend(promptStripHandle);
 
       const previewResizeHandle = el("div", { title: "Drag to resize the preview", style: {
         position: "absolute", left: "0", right: "0", bottom: "0", height: "8px",
@@ -2398,7 +2413,7 @@ export function renderLtx25(container: HTMLElement) {
       }
 
       const genBtn = button("▶ Generate", null, "primary");
-      genBtn.style.cssText += "width:100%;padding:11px;font-size:13px;";
+      genBtn.style.cssText += "flex:1;min-width:0;padding:11px;font-size:13px;";
       // /interrupt is global — it kills whatever ComfyUI is CURRENTLY executing, with no
       // idea which session queued it. If something else cut in line (see the queue-watch
       // warning above), this node's own clip might not even be the thing running yet, and

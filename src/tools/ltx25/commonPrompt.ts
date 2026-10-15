@@ -6,7 +6,7 @@
 // cramped strips above the clip editor. Prompt Edit reads the same state, so whatever is
 // written here shows up there (and vice versa).
 import { C, BRAND, el, composeClipPrompt } from "./core";
-import { button } from "../../shared/ui";
+import { button } from "./uiCommon";
 import { comfyApi as __comfy } from "./comfyClient";
 // Absolute ComfyUI paths ("/view?...", "/ltx25_one/...") go to the configured ComfyUI base (same origin locally, the tunnel externally).
 const __B = __comfy.base;

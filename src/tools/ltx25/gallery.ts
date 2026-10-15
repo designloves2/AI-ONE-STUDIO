@@ -6,7 +6,7 @@
 // mp4s written into the output subfolder and plays them full screen with the keyboard
 // shortcuts you'd expect from a review pass.
 import { composeStitchedPrompt, C, BRAND, el, clear, SUBFOLDER, framesToSeconds, UPSCALE_MODES, FLASHVSR_MODELS, FLASHVSR_MODES, FPS, computeRtxTarget } from "./core";
-import { button, select, numberField } from "../../shared/ui";
+import { button, select, numberField } from "./uiCommon";
 import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
 import {
   listVideos, revealOutputFolder, stitchClips, saveMeta, deleteImage, getMediaFiles, copyOutputToInput, discardInputCopy, getVideoInfo,

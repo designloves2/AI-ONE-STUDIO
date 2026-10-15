@@ -7,7 +7,7 @@
 // handed over from another ONE STUDIO node's gallery).
 import { C, BRAND, el, clear, normalizeAssetRef } from "./core";
 import { mountLibraryRefs, emptyAssetRef, sourceToggle } from "../../shared/reflibRefpanel";
-import { panel, label } from "../../shared/ui";
+import { panel, label } from "./uiCommon";
 import { uploadImage } from "./api";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { comfyApi as __comfy } from "./comfyClient";

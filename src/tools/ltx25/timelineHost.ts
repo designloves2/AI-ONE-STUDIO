@@ -116,16 +116,30 @@ export function createTimelineHost({ onChange }: { onChange?: () => void } = {})
 
   // track heights (CSS px)
   const TH = { image: 112, audio: 62, motion: 62 };
+  const TH_KEY = "ltx25_track_heights";
+  try { const sv = JSON.parse(localStorage.getItem(TH_KEY) || "null"); if (sv) for (const k of ["image", "audio", "motion"] as const) if (Number.isFinite(sv[k])) TH[k] = Math.min(400, Math.max(40, sv[k])); } catch { /* ignore */ }
   const totalH = () => RULER_H + TH.image + TH.audio + TH.motion;
   const trackTop = (t: Track) => RULER_H + (t === "image" ? 0 : t === "audio" ? TH.image : TH.image + TH.audio);
 
   const sideBtns: Record<Track, HTMLButtonElement> = {} as any;
+  const sideCells: Record<Track, HTMLElement> = {} as any;
+  function relayoutTracks() { (["image", "audio", "motion"] as Track[]).forEach((t) => { sideCells[t].style.height = `${TH[t]}px`; }); sizeCanvas(); draw(); }
   function buildSidebar() {
     sidebar.replaceChildren(h("div", { height: `${RULER_H}px`, flexShrink: "0" }));
     (["image", "audio", "motion"] as Track[]).forEach((t) => {
-      const b = h("button", { height: `${TH[t]}px`, flexShrink: "0", background: "transparent", border: "none", borderTop: "1px solid #111", color: "#bbb", fontSize: "10px", cursor: "pointer", fontFamily: "inherit", lineHeight: "1.3" }, { type: "button" }) as HTMLButtonElement;
+      const b = h("button", { height: "100%", width: "100%", background: "transparent", border: "none", borderTop: "1px solid #111", color: "#bbb", fontSize: "10px", cursor: "pointer", fontFamily: "inherit", lineHeight: "1.3" }, { type: "button" }) as HTMLButtonElement;
       b.addEventListener("click", () => { toggleTrack(t); });
-      sideBtns[t] = b; sidebar.append(b);
+      // drag the bottom edge of a track to change its height
+      const grip = h("div", { position: "absolute", left: "0", right: "0", bottom: "0", height: "7px", cursor: "ns-resize", zIndex: "2", background: "rgba(255,255,255,0.10)" }, { title: "Drag to resize this track" });
+      grip.addEventListener("pointerdown", (e: PointerEvent) => {
+        e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId);
+        const y0 = e.clientY, h0 = TH[t];
+        const move = (ev: PointerEvent) => { TH[t] = Math.min(400, Math.max(40, Math.round(h0 + ev.clientY - y0))); relayoutTracks(); };
+        const up = (ev: PointerEvent) => { try { grip.releasePointerCapture(ev.pointerId); } catch { /* ignore */ } grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); grip.removeEventListener("pointercancel", up); try { localStorage.setItem(TH_KEY, JSON.stringify(TH)); } catch { /* ignore */ } };
+        grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up); grip.addEventListener("pointercancel", up);
+      });
+      const cell = h("div", { height: `${TH[t]}px`, flexShrink: "0", position: "relative" }, {}, [b, grip]);
+      sideBtns[t] = b; sideCells[t] = cell; sidebar.append(cell);
     });
     paintSidebar();
   }
@@ -133,7 +147,6 @@ export function createTimelineHost({ onChange }: { onChange?: () => void } = {})
     const name: Record<Track, string> = { image: "MAIN", audio: "AUDIO", motion: "IC-LoRA" };
     (["image", "audio", "motion"] as Track[]).forEach((t) => {
       const on = trackOn(t);
-      sideBtns[t].style.height = `${TH[t]}px`;
       sideBtns[t].innerHTML = `<div style="font-weight:700">${name[t]}</div><div>${on ? "● on" : "○ off"}</div>`;
       sideBtns[t].style.color = on ? "#dcdcdc" : "#666";
       sideBtns[t].title = `${name[t]} track is ${on ? "enabled" : "disabled"} — click to toggle`;
@@ -180,7 +193,7 @@ export function createTimelineHost({ onChange }: { onChange?: () => void } = {})
   const anchorLbl = h("label", { display: "flex", alignItems: "center", gap: "4px", color: "#ccc" }, { title: "A guide-only keyframe: it borrows the previous segment's prompt" }, [anchorChk, "anchor"]);
   strengthRow.append(gLbl, gSlider, gNum, endLbl, anchorLbl, vLbl, vSlider, vNum, aLbl, aSlider, aNum);
 
-  root.append(toolbar, canvasRow, boundsLine, promptWrap, info, controls, strengthRow);
+  root.append(toolbar, canvasRow, controls, strengthRow, boundsLine, promptWrap, info);
 
   function paintToggles() {
     inpaintBtn.textContent = `Inpaint: ${inpaintAudio ? "ON" : "OFF"}`;

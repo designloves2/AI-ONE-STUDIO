@@ -3,6 +3,18 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.10.0] — 2026-10-16
+
+New tool **LTX 2.5 ONE STUDIO** under Media Generator (`PORT_LEDGER.md` rows 44-49).
+
+### Added
+- LTX 2.5 page: Text To Video, Image to Video (F/L), LTX Director (multi-track timeline editor), Postprocess, Asset tab, relay loop, gallery, prompt editor.
+- Top menu is the single dropdown at every width.
+
+### Fixed
+- `/ltx25_one` is proxied to ComfyUI (models, saved settings, node availability).
+- Stop sits beside Generate; preview and prompt strip are resizable; clip prompt fields resize; timeline tracks resizable, Segment Prompt under the play controls.
+
 ## [0.9.2] — 2026-10-13
 
 H3 brief split and One-Take single-shot sentence (node v1.40.2: `bdc2409`, `7d85450`, `c1b4135`). See `PORT_LEDGER.md` row 42.

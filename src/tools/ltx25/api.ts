@@ -147,10 +147,15 @@ export async function uploadMedia(file) {
 }
 
 /** LiteGraph already knows every registered node type — no request needed. */
-function registryAvailability(names) {
-  const reg = (typeof LiteGraph !== "undefined" && LiteGraph.registered_node_types) || {};
+// The web page has no LiteGraph registry: ComfyUI's own /object_info lists every node class it has loaded.
+let objectInfoNames = null;
+async function registryAvailability(names) {
+  if (!objectInfoNames) {
+    try { objectInfoNames = new Set(Object.keys(await (await api.fetchApi("/object_info")).json())); }
+    catch { objectInfoNames = new Set(); }
+  }
   const out = {};
-  for (const n of names) out[n] = !!reg[n];
+  for (const n of names) out[n] = objectInfoNames.has(n);
   return out;
 }
 
@@ -164,7 +169,7 @@ function registryAvailability(names) {
  */
 export async function getNodeAvailability() {
   const all = [...MMH3_CORE_NODES, ...MMH3_OPTIONAL_NODES];
-  const local = registryAvailability(all);
+  const local = await registryAvailability(all);
   let remote = {}, install = {};
   try {
     const r = await api.fetchApi(`${API}/node_availability`);

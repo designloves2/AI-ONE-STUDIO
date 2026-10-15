@@ -1,5 +1,5 @@
 // @ts-nocheck
-// core.ts — LTX 2.5 ONE STUDIO state / helpers. Exact copy of ComfyUI-TJ_NODE_STUDIO_ONE/web/ltx25/core_ltx25.js (node v1.41.0),
+// core.ts — LTX 2.5 ONE STUDIO state / helpers. Exact copy of ComfyUI-TJ_NODE_STUDIO_ONE/web/ltx25/core_ltx25.js (node ddde88c),
 // kept line-for-line so it stays diffable against the node. Type checking is off on purpose (ported JS).
 // core_ltx25.js — LTX 2.5 ONE STUDIO (TJ) constants, state, helpers
 export const BRAND = "#7612DA";   // pack-wide TJ purple, same as every other ONE STUDIO node
@@ -251,7 +251,9 @@ export function computeRtxTarget(state, srcW, srcH) {
 }
 
 export function resolveResolution(aspectLabel, megapixels) {
-  const a = ASPECTS.find(x => x.label === aspectLabel) || ASPECTS[0];
+  // "832:1216" is a shape taken from an image (Image to Video follows the frame it is given)
+  const fromImage = /^(\d+):(\d+)$/.exec(String(aspectLabel));
+  const a = ASPECTS.find(x => x.label === aspectLabel) || (fromImage ? { w: +fromImage[1], h: +fromImage[2] } : ASPECTS[0]);
   const mp = Math.max(0.1, megapixels || 1.0);
   const target = mp * 1_000_000;
   const ratio = a.w / a.h;
@@ -269,7 +271,8 @@ export const SCHEDULERS = ["simple", "normal", "karras", "exponential", "sgm_uni
 
 export const GENERATION_MODES = [
   { key: "t2v",         label: "Text To Video",       hint: "prompt only" },
-  { key: "firstlast",   label: "Image to Video (F/L)", hint: "first (and last) frame image + prompt" },
+  { key: "firstlast",   label: "Image to Video (F/L)", hint: "first and/or last frame image + prompt" },
+  { key: "director",    label: "LTX Director",  hint: "segment timeline: a prompt per beat, images and audio placed in time" },
   { key: "postprocess", label: "Postprocess",   hint: "chain Deblur/Denoise/Upscale/Grain/Interpolate/Resize on an existing clip" },
 ];
 
@@ -1095,7 +1098,6 @@ export function defaultState(saved) {
     imgRefImages: Array.isArray(saved.imgRefImages) ? saved.imgRefImages : [],
     imgRefImagesMp: Array.isArray(saved.imgRefImagesMp) ? saved.imgRefImagesMp : [],
     imgRefImageSize: saved.imgRefImageSize || "max",
-    imgSaveSubfolder: saved.imgSaveSubfolder || "",
     imgPreviewSaveToGallery: saved.imgPreviewSaveToGallery ?? false,
     imgSteps: saved.imgSteps ?? 20,
     imgSecondPassSteps: saved.imgSecondPassSteps ?? 3,
@@ -1122,7 +1124,6 @@ export function defaultState(saved) {
     charSheetRefImage: saved.charSheetRefImage || null,
     charSheetCellW: saved.charSheetCellW || 0,
     charSheetCellH: saved.charSheetCellH || 0,
-    sheetVideoSaveSubfolder: saved.sheetVideoSaveSubfolder || "",
 
     ppSource: saved.ppSource || "",
     ppSourceKind: saved.ppSourceKind || "gallery",

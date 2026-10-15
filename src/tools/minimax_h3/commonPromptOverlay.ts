@@ -18,10 +18,16 @@ export interface CommonPromptHandle {
 }
 
 export function createCommonPromptOverlay(state: MinimaxState, ctx: CommonPromptCtx, onApply?: () => void): CommonPromptHandle {
+  // A popup over a dimmed backdrop, not the whole screen (node 064229d).
   const ov = el("div", {
-    class: "fixed inset-0 z-[9999] flex-col p-3 gap-2 box-border",
-    style: { display: "none", background: "rgba(11,11,11,0.985)" },
+    class: "fixed inset-0 z-[9999] box-border",
+    style: { display: "none", background: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" },
   });
+  const panelBox = el("div", { style: {
+    width: "min(900px, 94%)", height: "min(430px, 80%)", display: "flex", flexDirection: "column", gap: "8px",
+    padding: "12px", boxSizing: "border-box", background: "rgba(11,11,11,0.985)",
+    border: `1px solid ${BRAND}`, borderRadius: "10px", boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+  } });
 
   const hdr = el("div", { class: "flex items-center gap-2 shrink-0" });
   hdr.appendChild(el("div", { text: "🧩 Common Prompt", class: "text-white text-sm font-bold" }));
@@ -78,7 +84,8 @@ export function createCommonPromptOverlay(state: MinimaxState, ctx: CommonPrompt
     onApply?.();
   }
 
-  ov.append(hdr, body, foot);
+  panelBox.append(hdr, body, foot);
+  ov.append(panelBox);
   return {
     el: ov,
     show() {

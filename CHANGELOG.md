@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.10.1] — 2026-10-19
+
+### Added
+- `h3-headless`: job JSON accepts the audio-lock fields (`audioLock`, `lockAudioFile`, `audioLockMode`, `audioLockStrength`, `audioLockFit`, `audioLockTrimStart`, `audioLockTrimEnd`).
+
 ## [0.10.0] — 2026-10-16
 
 New tool **LTX 2.5 ONE STUDIO** under Media Generator (`PORT_LEDGER.md` rows 44-49).

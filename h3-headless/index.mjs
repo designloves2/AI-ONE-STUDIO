@@ -211,6 +211,16 @@ async function runClip(job, state, cfg, avail, client, { dryRun, outDir, onPoll 
   if (modelOverride) { state.unetFirstLast = modelOverride; state.unetReference = modelOverride; }
   if (job.unetFirstLast) state.unetFirstLast = job.unetFirstLast;
   if (job.unetReference) state.unetReference = job.unetReference;
+  if (job.audioLock != null) state.audioLock = !!job.audioLock;
+  if (job.lockAudioFile) {
+    state.audioLock = true;
+    state.lockAudioFile = await client.uploadImage(abspath(job.lockAudioFile));
+  }
+  if (job.audioLockMode) state.audioLockMode = job.audioLockMode;
+  if (job.audioLockStrength != null) state.audioLockStrength = Number(job.audioLockStrength);
+  if (job.audioLockFit) state.audioLockFit = job.audioLockFit;
+  if (job.audioLockTrimStart != null) state.audioLockTrimStart = Number(job.audioLockTrimStart);
+  if (job.audioLockTrimEnd != null) state.audioLockTrimEnd = Number(job.audioLockTrimEnd);
 
   const seed = job.seed == null ? randomSeed() : Number(job.seed);
   const promptText = composePrompt(job.prompt);

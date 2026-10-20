@@ -1,5 +1,5 @@
 // @ts-nocheck
-// view.ts — LTX 2.5 ONE STUDIO (web). Port of ComfyUI-TJ_NODE_STUDIO_ONE/web/one_node_ltx25.js (node 17ea8b6):
+// view.ts — LTX 2.5 ONE STUDIO (web). Port of ComfyUI-TJ_NODE_STUDIO_ONE/web/one_node_ltx25.js (node 73001e5):
 // the node's whole `_buildUI` body, kept as it is (relay loop, Postprocess, Asset tab, gallery, prompt editor, queue
 // handling, resume). Only the ComfyUI-node plumbing is replaced: no LiteGraph widget, the persisted state is the
 // browser copy, the preview events come from comfyClient, the layout is fluid (stacked on small screens).
@@ -34,7 +34,7 @@ import { comfyApi as api } from "./comfyClient";
 const TOPBAR_H   = 40;
 const BOTTOM_PAD = 20;
 const STATUS_H   = 46;
-const PROMPT_H   = 150;   // the strip scrolls; the fields inside it are the tall part
+const PROMPT_H   = 190;   // the strip scrolls; the fields inside it are the tall part. +40 over the old 150 so the node is 1310 x 1034 like the other ONE STUDIO nodes
 const RIGHT_H    = PREVIEW_SIZE + PAD + STATUS_H + PAD + PROMPT_H;
 const ROOT_H     = PAD + TOPBAR_H + PAD + RIGHT_H + BOTTOM_PAD;
 const NODE_H     = ROOT_H + 30;
@@ -46,7 +46,7 @@ const NODE_MH    = NODE_H + 40;
 if (!document.getElementById("ltx25-web-layout")) {
   const st = document.createElement("style"); st.id = "ltx25-web-layout";
   st.textContent = ".ltx25-main{flex:1 1 auto !important;min-height:0 !important;height:auto !important;overflow:auto !important}.ltx25-left,.ltx25-right{height:auto !important}"
-    + "@media (max-width: 1100px){.ltx25-main{flex-direction:column !important}.ltx25-left{width:100% !important}.ltx25-left .ltx25-lp{overflow:visible !important}.ltx25-right{min-width:0 !important}.ltx25-preview{height:min(" + PREVIEW_SIZE + "px,62vw) !important}}";
+    + "@media (max-width: 1100px){.ltx25-main{flex-direction:column !important}.ltx25-left{width:100% !important}.ltx25-left .ltx25-lp{overflow:visible !important}.ltx25-right{min-width:0 !important}}";
   document.head.appendChild(st);
 }
 
@@ -1141,7 +1141,7 @@ export function renderLtx25(container: HTMLElement) {
       const PREVIEW_MIN_H = 220;
       const PREVIEW_MAX_H = 1600;
       const PREVIEW_H_KEY = "ltx25_preview_h";
-      let previewH = Number(localStorage.getItem(PREVIEW_H_KEY)) || PREVIEW_SIZE;
+      let previewH = Number(localStorage.getItem(PREVIEW_H_KEY)) || (window.innerWidth <= 1100 ? Math.round(Math.min(PREVIEW_SIZE, window.innerWidth * 0.62)) : PREVIEW_SIZE);
       function applyPreviewH(h) {
         previewH = Math.min(PREVIEW_MAX_H, Math.max(PREVIEW_MIN_H, h));
         previewBox.style.height = `${previewH}px`;
@@ -1315,7 +1315,7 @@ export function renderLtx25(container: HTMLElement) {
         state.prompts.forEach((raw, i) => {
           const p = normPrompt(raw);
           const on = promptEnabled(p);
-          const line = el("div", { style: { display: "flex", gap: "4px", alignItems: "flex-start", opacity: on ? "1" : "0.5" } });
+          const line = el("div", { style: { display: "flex", gap: "4px", alignItems: "flex-start", flexShrink: "0", opacity: on ? "1" : "0.5" } });
           const sideCol = el("div", { style: { width: "28px", flexShrink: "0", display: "flex", flexDirection: "column", gap: "2px", alignItems: "center", paddingTop: "5px" } });
           sideCol.appendChild(el("div", {
             text: `C${i + 1}`,
@@ -1333,7 +1333,7 @@ export function renderLtx25(container: HTMLElement) {
           const ta = el("textarea", { placeholder: i === 0
             ? (state.generationMode === "director" ? "Global prompt of this clip — its segments are written in Prompt Edit" : "Clip prompt — the shot, the action, the camera and the sound (shared text goes in 🌐 Global)")
             : "(blank = reuse the previous prompt)", style: {
-            flex: "0 0 auto", width: "100%", minHeight: "86px", boxSizing: "border-box", background: C.bg2, color: C.text,
+            flex: "0 0 auto", minHeight: "86px", boxSizing: "border-box", background: C.bg2, color: C.text,
             border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px",
             fontSize: "12px", fontFamily: "inherit", outline: "none", resize: "vertical",
           }});

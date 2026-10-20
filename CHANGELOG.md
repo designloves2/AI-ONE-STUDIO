@@ -3,6 +3,15 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.10.2] — 2026-10-20
+
+### Fixed
+- LTX 2.5: the preview box can be dragged taller at narrow widths (a CSS rule forced its height).
+- LTX 2.5: synced to node `73001e5` (prompt strip default 190, page width 1280, clip rows and prompt fields no longer shrink).
+
+### Added
+- LTX 2.5: a result video that does not load within 15 s shows a note and a Retry button instead of spinning forever (ComfyUI `/view` stall).
+
 ## [0.10.1] — 2026-10-19
 
 ### Added

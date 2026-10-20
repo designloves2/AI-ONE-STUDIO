@@ -27,7 +27,6 @@ const IMAGE_GALLERY_TOOLS = [
 const base = () => getComfyBase();
 import { reflib, reflibError, CATEGORIES } from "./reflibApi";
 import { el, btn, fieldStyle } from "./reflibDom";
-import { lazyVideoSrc } from "./lazyMedia";
 
 const BRAND = C.lime;
 const PAGE = 60;
@@ -226,9 +225,8 @@ export function openGalleryImport(onDone, options = {}) {
       cell.append(im);
       media = im;
     } else if (row.kind === "video") {
-      const vid = el("video", { muted: true, playsInline: true, preload: "metadata",
+      const vid = el("video", { src: viewUrl(row), muted: true, playsInline: true, preload: "metadata",
         style: { width: "100%", aspectRatio: "1 / 1", objectFit: "contain", display: "block", background: "#000" } });
-      lazyVideoSrc(vid as HTMLVideoElement, viewUrl(row));
       cell.addEventListener("mouseenter", () => { try { vid.currentTime = 0; vid.play().catch(() => {}); } catch { /* not loaded yet */ } });
       cell.addEventListener("mouseleave", () => vid.pause());
       cell.append(vid);

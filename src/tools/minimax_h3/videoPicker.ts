@@ -11,7 +11,6 @@ import { copyOutputToInput, getClipLastFrame, listVideos } from "./api";
 import { loadState } from "./core";
 import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
-import { lazyVideoSrc } from "../../shared/lazyMedia";
 
 export interface PickerClip {
   filename: string;
@@ -73,7 +72,7 @@ export function openVideoGalleryPicker(
       // all (this is a one-click picker with no confirm step, so a CSS blur a viewer could
       // strip isn't enough); attachSensitiveToggle still lets the user reveal + pick it here.
       const k = mediaKey(it.filename, it.subfolder || "");
-      if (!isBlurred(k)) lazyVideoSrc(vid, url);
+      if (!isBlurred(k)) vid.src = url;
       vid.muted = true;
       attachSensitiveToggle(cell, vid, k, "tl", () => { if (!isBlurred(k) && !vid.src) vid.src = url; });
       cell.addEventListener("mouseenter", () => { if (isBlurred(k)) return; vid.currentTime = 0; vid.play().catch(() => {}); cell.style.borderColor = BRAND; });

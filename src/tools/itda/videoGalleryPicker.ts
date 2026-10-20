@@ -16,7 +16,6 @@ import { el, clear } from "../../shared/ui";
 import { getComfyBase } from "../../shared/comfyBase";
 import { attachSensitiveToggle, mediaKey, isBlurred } from "../../shared/sensitiveMedia";
 import * as api from "./api";
-import { lazyVideoSrc } from "../../shared/lazyMedia";
 
 const BASE = getComfyBase();
 
@@ -217,9 +216,8 @@ export function openVideoGalleryPicker(project: string, onPick: (path: string) =
     total = t;
     rows.forEach((v) => {
       const cell = el("div", { style: { position: "relative", borderRadius: "6px", overflow: "hidden", border: `1px solid ${C.border}`, background: "#000", cursor: "pointer", height: "108px" } });
-      const vid = el("video", { muted: "", playsInline: "", preload: "metadata", style: { width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#000" } }) as HTMLVideoElement;
+      const vid = el("video", { src: viewUrl(v, tool), muted: "", playsInline: "", preload: "metadata", style: { width: "100%", height: "100%", objectFit: "cover", display: "block", background: "#000" } }) as HTMLVideoElement;
       vid.muted = true;
-      lazyVideoSrc(vid, viewUrl(v, tool));
       cell.addEventListener("mouseenter", () => { try { vid.currentTime = 0; vid.play().catch(() => {}); } catch {} cell.style.borderColor = BRAND; });
       cell.addEventListener("mouseleave", () => { vid.pause(); cell.style.borderColor = C.border; });
       cell.appendChild(vid);

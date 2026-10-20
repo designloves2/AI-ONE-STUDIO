@@ -878,6 +878,30 @@ export function renderLtx25(container: HTMLElement) {
         previewImg.src = url; previewImg.style.display = "block";
         badge.style.display = "block"; fsBtn.style.display = "none"; compareBtn.style.display = "none";
       }
+      // Web-only: a ComfyUI /view that answers 200 but never sends the body leaves a video spinning forever.
+      // After 15 s without metadata, say so and offer a retry instead of an endless spinner.
+      const stallNote = el("div", { style: { position: "absolute", left: "8px", right: "8px", bottom: "40px", zIndex: "8", display: "none", background: "rgba(0,0,0,0.85)", color: "#fff", border: "1px solid #e0a530", borderRadius: "8px", padding: "8px 10px", fontSize: "11px", lineHeight: "1.5", alignItems: "center", gap: "8px" } });
+      const stallText = el("span", { text: "The video is not loading: ComfyUI is not sending the file (/view is stuck). Restart ComfyUI if it keeps happening.", style: { flex: "1" } });
+      const stallRetry = el("button", { type: "button", text: "Retry", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "3px 10px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${BRAND}` } });
+      stallNote.append(stallText, stallRetry);
+      previewBox.appendChild(stallNote);
+      let stallTimer = null;
+      function watchResultVideoLoad(url) {
+        clearTimeout(stallTimer);
+        stallNote.style.display = "none";
+        const done = () => { clearTimeout(stallTimer); stallNote.style.display = "none"; };
+        resultVid.addEventListener("loadedmetadata", done, { once: true });
+        stallTimer = setTimeout(() => {
+          if (resultVid.readyState >= 1) return;
+          stallNote.style.display = "flex";
+          stallRetry.onclick = () => {
+            const base = url.replace(/([&?])t=\d+/, "");
+            const u = base + (base.includes("?") ? "&" : "?") + "t=" + Date.now();
+            resultVid.src = u; try { resultVid.load(); } catch {}
+            watchResultVideoLoad(u);
+          };
+        }, 15000);
+      }
       function showResultVideo(url, { final = false, compareRange = null } = {}) {
         lastResultURL = url;
         modeResultCache[resultModeKey()] = { kind: "video", url, final, compareRange };
@@ -890,6 +914,7 @@ export function renderLtx25(container: HTMLElement) {
         previewVid.style.display = "none";
         resultVid.src = url;
         try { resultVid.load(); } catch {}
+        watchResultVideoLoad(url);
         resultVid.style.display = "block";
         // Loaded and ready, but left paused — a clip finishing mid-run should not start
         // making noise on its own. The user presses play.

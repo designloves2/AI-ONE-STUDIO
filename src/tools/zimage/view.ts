@@ -12,6 +12,7 @@ import {
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
+import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildGraph } from "./graphBuilder";
 import { queuePrompt } from "./comfyClient";
@@ -148,6 +149,7 @@ export function renderZImage(root: HTMLElement) {
   type ModeResult = { filename: string; subfolder: string; type: string };
   const modeResults: Partial<Record<string, ModeResult>> = {};
   function restorePreviewForMode() {
+    hideStepBar(previewBox);
     if (compareViewEl) { compareViewEl.remove(); compareViewEl = null; }
     const mr = modeResults[state.mode];
     if (!mr) {
@@ -174,6 +176,15 @@ export function renderZImage(root: HTMLElement) {
     }
   }
   clearBtn.addEventListener("click", () => { delete modeResults[state.mode]; resetZoom(); restorePreviewForMode(); renderSendTo(); });
+  // Live sampling frames (ModelPreviewOverrideKJ, node live_preview.js): shown in the preview box until the final image replaces them.
+  listenLivePreview("zimage", comfyApi, (url, step, total) => {
+    if (!samplingActive) return;
+    if (compareViewEl) { compareViewEl.remove(); compareViewEl = null; }
+    placeholderTxt.style.display = "none";
+    resultImg.src = url;
+    resultImg.style.display = "block";
+    if (step && total) showStepBar(previewBox, step, total);
+  });
   const sendToWrap = el("div", { style: { flexShrink: "0", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } });
   const sendLeft = el("div", { style: { flex: "1", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px" } });
   const sendRight = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", flexShrink: "0" } });
@@ -809,6 +820,7 @@ export function renderZImage(root: HTMLElement) {
 
     try {
       const graph = buildGraph(state);
+      await addLivePreview(graph, "zimage", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {
           statusText.textContent = `Sampling ${v}/${m}`;
@@ -829,6 +841,7 @@ export function renderZImage(root: HTMLElement) {
       progressInner.style.width = "100%";
     } catch (e: any) {
       statusText.textContent = `Error: ${e.message || e}`;
+      restorePreviewForMode();
     } finally {
       samplingActive = false;
       genBtn.style.display = "block";

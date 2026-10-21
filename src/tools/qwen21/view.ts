@@ -12,6 +12,7 @@ import {
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, alertDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
+import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { imageSlot } from "../minimax_h3/imagesPanel";
 import { buildGraph, buildPoseExtractGraph, buildPoseMeshGraph, buildPoseGraph } from "./graphBuilder";
@@ -209,6 +210,7 @@ export function renderQwen21(root: HTMLElement) {
   type ModeResult = { filename: string; subfolder: string; type: string };
   const modeResults: Partial<Record<string, ModeResult>> = {};
   function restorePreviewForMode() {
+    hideStepBar(previewBox);
     if (compareViewEl) { compareViewEl.remove(); compareViewEl = null; }
     const mr = modeResults[resultKey()];
     if (!mr) {
@@ -238,6 +240,15 @@ export function renderQwen21(root: HTMLElement) {
     }
   }
   clearBtn.addEventListener("click", () => { delete modeResults[resultKey()]; resetZoom(); restorePreviewForMode(); renderSendTo(); });
+  // Live sampling frames (ModelPreviewOverrideKJ, node live_preview.js): shown in the preview box until the final image replaces them.
+  listenLivePreview("qwen21", comfyApi, (url, step, total) => {
+    if (!samplingActive) return;
+    if (compareViewEl) { compareViewEl.remove(); compareViewEl = null; }
+    placeholderTxt.style.display = "none";
+    resultImg.src = url;
+    resultImg.style.display = "block";
+    if (step && total) showStepBar(previewBox, step, total);
+  });
   const sendToWrap = el("div", { style: { flexShrink: "0", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } });
   const sendLeft = el("div", { style: { flex: "1", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px" } });
   const sendRight = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", flexShrink: "0" } });
@@ -1107,6 +1118,7 @@ export function renderQwen21(root: HTMLElement) {
     try {
       // POSE: the pose picture (3D capture, or an automatic render) is prepared first and handed to the graph.
       const graph = state.mode === "pose" ? await preparePoseGraph() : buildGraph(state);
+      await addLivePreview(graph, "qwen21", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {
           statusText.textContent = `Sampling ${v}/${m}`;
@@ -1127,6 +1139,7 @@ export function renderQwen21(root: HTMLElement) {
       progressInner.style.width = "100%";
     } catch (e: any) {
       statusText.textContent = `Error: ${e.message || e}`;
+      restorePreviewForMode();
     } finally {
       samplingActive = false;
       genBtn.style.display = "block";

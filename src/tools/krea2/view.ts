@@ -10,6 +10,7 @@ import {
 } from "./core";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
+import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildGraph, buildControlPreviewGraph } from "./graphBuilder";
 import { queuePrompt } from "./comfyClient";
@@ -142,6 +143,7 @@ export function renderKrea2(root: HTMLElement) {
   const modeResults: Partial<Record<string, ModeResult>> = {};
   /** 모드 전환 시 그 모드의 마지막 결과(있으면)를 원본 로직대로 표시 — compare 슬라이더 또는 단순 이미지. */
   function restorePreviewForMode() {
+    hideStepBar(previewBox);
     if (compareViewEl) { compareViewEl.remove(); compareViewEl = null; }
     const mr = modeResults[state.mode];
     if (!mr) {
@@ -170,6 +172,15 @@ export function renderKrea2(root: HTMLElement) {
     }
   }
   clearBtn.addEventListener("click", () => { delete modeResults[state.mode]; resetZoom(); restorePreviewForMode(); renderSendTo(); });
+  // Live sampling frames (ModelPreviewOverrideKJ, node live_preview.js): shown in the preview box until the final image replaces them.
+  listenLivePreview("krea2", comfyApi, (url, step, total) => {
+    if (!samplingActive) return;
+    if (compareViewEl) { compareViewEl.remove(); compareViewEl = null; }
+    placeholderTxt.style.display = "none";
+    resultImg.src = url;
+    resultImg.style.display = "block";
+    if (step && total) showStepBar(previewBox, step, total);
+  });
   const sendToWrap = el("div", { style: { flexShrink: "0", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" } });
   const sendLeft = el("div", { style: { flex: "1", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px" } });
   const sendRight = el("div", { style: { display: "flex", alignItems: "center", gap: "4px", flexShrink: "0" } });
@@ -820,6 +831,7 @@ export function renderKrea2(root: HTMLElement) {
 
     try {
       const graph = buildGraph(state);
+      await addLivePreview(graph, "krea2", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {
           statusText.textContent = `Sampling ${v}/${m}`;
@@ -840,6 +852,7 @@ export function renderKrea2(root: HTMLElement) {
       progressInner.style.width = "100%";
     } catch (e: any) {
       statusText.textContent = `Error: ${e.message || e}`;
+      restorePreviewForMode();
     } finally {
       samplingActive = false;
       genBtn.style.display = "block";

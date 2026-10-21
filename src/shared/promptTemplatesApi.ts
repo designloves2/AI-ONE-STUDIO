@@ -5,7 +5,7 @@
 // for older clients but are frozen — nothing here uses them.
 import { getComfyBase } from "./comfyBase";
 
-export type TemplatePool = "klein" | "zimage" | "krea2" | "qwen2511" | "qwen21" | "anima" | "sdxl" | "minimax_h3";
+export type TemplatePool = "klein" | "zimage" | "krea2" | "qwen2511" | "qwen21" | "anima" | "moss" | "sdxl" | "minimax_h3";
 
 export interface PromptTemplate {
   name: string;

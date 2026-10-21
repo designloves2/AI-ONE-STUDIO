@@ -25,6 +25,7 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
   { id: "qwen2511", label: "Qwen Image 2511", api: "/qwen2511_one", subfolder: "one_qwen2511" },
   { id: "qwen21", label: "Qwen Image 2.1", api: "/qwenimage21_one", subfolder: "qwen21-one-tj" },
   { id: "sdxl", label: "SDXL", api: "/sdxl_one", subfolder: "one_sdxl" },
+  { id: "moss", label: "Moss Image", api: "/moss_one", subfolder: "one_moss" },
 ];
 
 // A pseudo tool for ComfyUI's own input/ directory — not one of the 5 galleries above. Backed

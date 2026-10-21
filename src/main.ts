@@ -10,6 +10,7 @@ import { renderQwen2511 } from "./tools/qwen2511/view";
 import { renderQwen21 } from "./tools/qwen21/view";
 import { renderSDXL } from "./tools/sdxl/view";
 import { renderAnima } from "./tools/anima/view";
+import { renderMoss } from "./tools/moss/view";
 import { renderMusic } from "./tools/music/view";
 import { renderLtx25 } from "./tools/ltx25/view";
 import { renderItda } from "./tools/itda/view";
@@ -25,6 +26,7 @@ registerTool("qwen2511", renderQwen2511);
 registerTool("qwen21", renderQwen21);
 registerTool("sdxl", renderSDXL);
 registerTool("anima", renderAnima);
+registerTool("moss", renderMoss);
 
 // 페이지 전체 높이를 모니터 해상도(뷰포트)에 정확히 맞춘다 — h-screen으로 고정하고,
 // 넘치는 콘텐츠는 페이지 자체가 늘어나는 대신 content 영역 안에서만 스크롤되게 한다.

@@ -6,6 +6,7 @@ export type ToolId =
   | "qwen2511"
   | "sdxl"
   | "anima"
+  | "moss"
   | "minimax_h3"
   | "ltx25"
   | "music"
@@ -31,6 +32,7 @@ export const TOOLS: ToolMeta[] = [
   { id: "itda", label: "ITDA ONE STUDIO", hash: "#itda", kind: "video", group: "video" },
   { id: "krea2", label: "Krea2", hash: "#krea2", kind: "image", group: "image" },
   { id: "zimage", label: "Z-Image", hash: "#zimage", kind: "image", group: "image" },
+  { id: "moss", label: "Moss Image", hash: "#moss", kind: "image", group: "image" },
   { id: "qwen21", label: "Qwen Image 2.1", hash: "#qwen21", kind: "image", group: "image_edit" },
   { id: "klein", label: "Flux2 Klein", hash: "#klein", kind: "image", group: "image_edit" },
   { id: "qwen2511", label: "Qwen Image 2511", hash: "#qwen2511", kind: "image", group: "image_edit" },

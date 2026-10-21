@@ -16,6 +16,9 @@ import { createSettingsOverlay as krea2Settings } from "../tools/krea2/settings"
 import * as zimageCore from "../tools/zimage/core";
 import { createGalleryOverlay as zimageGallery } from "../tools/zimage/galleryOverlay";
 import { createSettingsOverlay as zimageSettings } from "../tools/zimage/settings";
+import * as mossCore from "../tools/moss/core";
+import { createGalleryOverlay as mossGallery } from "../tools/moss/galleryOverlay";
+import { createSettingsOverlay as mossSettings } from "../tools/moss/settings";
 import * as animaCore from "../tools/anima/core";
 import { createGalleryOverlay as animaGallery } from "../tools/anima/galleryOverlay";
 import { createSettingsOverlay as animaSettings } from "../tools/anima/settings";
@@ -208,6 +211,8 @@ export function createGalleryMount(id: ToolId): GalleryMount {
       return imageMount(zimageCore as any, "#zimage", zimageGallery as any, zimageSettings as any, sendTo3);
     case "anima":
       return imageMount(animaCore as any, "#anima", animaGallery as any, animaSettings as any, sendTo3);
+    case "moss":
+      return imageMount(mossCore as any, "#moss", mossGallery as any, mossSettings as any, sendTo3);
     case "klein":
       return imageMount(kleinCore as any, "#klein", kleinGallery as any, kleinSettings as any, sendTo4Paint);
     case "qwen2511":

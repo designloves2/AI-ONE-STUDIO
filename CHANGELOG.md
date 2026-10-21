@@ -3,6 +3,17 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.11.0] — 2026-10-22
+
+New tool **Moss Image ONE STUDIO** and live sampling preview (`PORT_LEDGER.md` rows 52-56).
+
+### Added
+- Moss Image (node `f730ee9`, `ca925eb`, `680f142`): T2I, I2I, R2I (bboxes) with a box editor, INPAINT; MOSS-Image system prompts for Prompt Enhance / Auto Enhance (node `0efab92`, `115f575`).
+- Live sampling preview (`ModelPreviewOverrideKJ`, `Preview [step/total]` bar) in Anima, Klein, Krea2, Moss, Qwen 2.1, Qwen 2511, SDXL and Z-Image.
+
+### Changed
+- Mask modes (Z-Image, Klein, Qwen 2511, SDXL, Anima, Moss): Generate saves the mask as painted now, so Save Mask no longer has to be pressed.
+
 ## [0.10.2] — 2026-10-20
 
 ### Fixed

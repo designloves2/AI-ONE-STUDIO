@@ -13,6 +13,7 @@ import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
 import { buildT2IGraph, buildI2IGraph, buildInpaintGraph, buildR2IGraph, OUTPUT_NODE } from "./graphBuilder";
 import { createR2IEditor } from "./r2iEditor";
+import { mossSystemPrompt } from "./systemPrompt";
 import { queuePrompt } from "./comfyClient";
 import type { AppConfig } from "./settings";
 import { createSettingsOverlay } from "./settings";
@@ -315,6 +316,7 @@ export function renderMoss(root: HTMLElement) {
     openSettings: () => settingsOv.show(),
     title: "🔍 Prompt Edit",
     defaultModelFormat: "Universal Natural Language",
+    systemPrompt: () => mossSystemPrompt(state.mode),
   });
   const templateOv = createTemplateOverlay(
     () => state.mode,

@@ -57,6 +57,9 @@ export interface PromptEditPopupConfig {
    * populateSelect() call once the list is actually populated.
    */
   defaultModelFormat?: string;
+  /** A tool's own system prompt for Prompt Enhance (a string, or a function of the current mode), sent as system_override in
+   *  place of the generic Model Format one. Refine keeps its own instruction (node attachLLMPanel `systemPrompt`). */
+  systemPrompt?: string | (() => string);
 }
 
 export interface PromptEditPopupHandle {
@@ -579,6 +582,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     (btnEnhance as HTMLButtonElement).disabled = true;
     setBusy(true, "Enhancing prompt…");
     try {
+      const sysPrompt = typeof cfg.systemPrompt === "function" ? cfg.systemPrompt() : cfg.systemPrompt; // may depend on the current mode
       const r = await cfg.fetchApi("/tj_studio_one/llm/enhance", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -599,6 +603,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           model_format: llm.model_format,
           aesthetic: llm.aesthetic,
           extra_instructions: llm.extra_instructions,
+          ...(sysPrompt ? { system_override: sysPrompt } : {}),
         }),
       });
       const d = await r.json();

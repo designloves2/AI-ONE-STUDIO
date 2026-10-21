@@ -8,8 +8,8 @@
 
 /** The slice of a tool's comfyClient (`comfyApi`) this helper needs. */
 export interface PreviewApi {
-  addEventListener(type: string, fn: (ev: { detail: any }) => void): void;
-  removeEventListener(type: string, fn: (ev: { detail: any }) => void): void;
+  addEventListener(type: string, fn: (ev: any) => void): void;
+  removeEventListener(type: string, fn: (ev: any) => void): void;
   fetchApi(path: string, opts?: RequestInit): Promise<Response>;
 }
 
@@ -49,8 +49,9 @@ export async function addLivePreview(graph: Record<string, any>, instanceId: str
 /** Frames of this tool's run through onFrame(dataUrl, step, total); returns the stop function. */
 export function listenLivePreview(instanceId: string, api: PreviewApi, onFrame: (url: string, step?: number, total?: number) => void): () => void {
   const prefix = `${previewKey(instanceId)}_`;
-  const handler = (ev: { detail: any }) => {
-    const d = ev.detail || {};
+  // The image tools' comfyClient hands the socket payload itself to listeners; the H3 / LTX clients wrap it as { detail }.
+  const handler = (ev: any) => {
+    const d = (ev && typeof ev === "object" && "detail" in ev ? ev.detail : ev) || {};
     if (!String(d.node_id).startsWith(prefix) || !d.image) return;
     onFrame(`data:${d.mime || "image/jpeg"};base64,${d.image}`, d.step, d.total);
   };

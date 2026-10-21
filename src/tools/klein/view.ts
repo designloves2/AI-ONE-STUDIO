@@ -781,10 +781,8 @@ export function renderKlein(root: HTMLElement) {
     if (state.mode === "inpaint") {
       if (state.paintSubMode === "inpaint") {
         if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
-        if (!state.inpaintMaskImage) {
-          const saved = await inpaintAutoSave?.().catch(() => false);
-          if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
-        }
+        const saved = await inpaintAutoSave?.().catch(() => false);   // sends the mask as painted now, no Save Mask press needed
+        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
       } else {
         if (!state.outpaintImage) { warnTag.textContent = "Upload an Outpaint source image"; return; }
         const total = (state.outpaintUp || 0) + (state.outpaintDown || 0) + (state.outpaintLeft || 0) + (state.outpaintRight || 0);

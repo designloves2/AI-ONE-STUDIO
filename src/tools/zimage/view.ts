@@ -772,10 +772,8 @@ export function renderZImage(root: HTMLElement) {
     if (state.mode === "upscale" && state.upscaleMethod === "seedvr2" && (!state.upscaleDitModel || state.upscaleDitModel === "none" || !state.upscaleVaeModel || state.upscaleVaeModel === "none")) { warnTag.textContent = "Select the SeedVR2 DiT/VAE models"; return; }
     if (state.mode === "inpaint") {
       if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
-      if (!state.inpaintMaskImage) {
-        const saved = await inpaintAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
-      }
+      const saved = await inpaintAutoSave?.().catch(() => false);   // sends the mask as painted now, no Save Mask press needed
+      if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
     }
     if (state.mode === "rebg") {
       if (!state.rebgImage) { warnTag.textContent = "Upload a Redraw-BG source image"; return; }

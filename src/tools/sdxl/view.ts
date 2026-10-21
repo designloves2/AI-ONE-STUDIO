@@ -672,10 +672,8 @@ export function renderSDXL(root: HTMLElement) {
     if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
     if (state.mode === "inpaint") {
       if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpaint source image"; return; }
-      if (!state.inpaintMaskImage) {
-        const saved = await inpaintAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
-      }
+      const saved = await inpaintAutoSave?.().catch(() => false);   // sends the mask as painted now, no Save Mask press needed
+      if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
     }
     if (state.mode === "outpaint") {
       if (!state.outpaintImage) { warnTag.textContent = "Upload an Outpaint source image"; return; }

@@ -590,6 +590,7 @@ export function renderAnima(root: HTMLElement) {
       ]));
       leftScroll.appendChild(panel([label("Mask Editor (optional)"), editor.editorPanel]));
       if (state.anyControlImage) editor.loadSourceImage(state.anyControlImage);
+      controlAutoSave = editor.autoSaveIfNeeded;
       leftScroll.appendChild(resolutionSection());
       leftScroll.appendChild(panel([
         label("Control Strength / Start-End %"),
@@ -650,12 +651,11 @@ export function renderAnima(root: HTMLElement) {
     if (state.turboMode && !state.turboLora) { warnTag.textContent = "⚙ Set the Turbo LoRA in Settings"; return; }
     if (state.mode === "inpaint") {
       if (!state.inpaintImage) { warnTag.textContent = "Upload an Inpainting source image"; return; }
-      if (!state.inpaintMask) {
-        const saved = await controlAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
-      }
+      const saved = await controlAutoSave?.().catch(() => false);   // sends the mask as painted now, no Save Mask press needed
+      if (!saved) { warnTag.textContent = "Paint and save a mask"; return; }
     }
     if (state.mode === "anycontrol" && !state.anyControlImage) { warnTag.textContent = "Upload an Any Control source image"; return; }
+    if (state.mode === "anycontrol") await controlAutoSave?.().catch(() => false);   // optional mask: sent as painted now
     if (state.mode === "depthcontrol" && !state.depthControlImage) { warnTag.textContent = "Upload a Depth Control source image"; return; }
     if (state.mode === "upscale") {
       if (!state.upscaleImage) { warnTag.textContent = "Upload an Upscale source image"; return; }

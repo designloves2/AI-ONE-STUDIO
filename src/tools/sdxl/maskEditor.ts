@@ -199,13 +199,15 @@ export function createMaskEditor(state: SDXLState, persist: () => void) {
     sameOriginSrc(imgUrl).then((s) => { img.src = s; }, () => { img.src = imgUrl; });
   }
 
+  // The painted canvas is what Generate sends: whatever is on it right now becomes the mask (no need to press Save Mask,
+  // and a mask saved earlier is never sent stale). With nothing painted, a mask that was saved before is kept.
   async function autoSaveIfNeeded(): Promise<boolean> {
-    if (state.inpaintMaskImage) return true;
-    if (!maskRef.canvas || !maskRef.origW) return false;
+    const saved = !!(state.inpaintMaskImage);
+    if (!maskRef.canvas || !maskRef.origW) return saved;
     const data = maskRef.canvas.getContext("2d")!.getImageData(0, 0, maskRef.origW, maskRef.origH).data;
     let hasPixels = false;
     for (let i = 3; i < data.length; i += 4) { if (data[i] > 10) { hasPixels = true; break; } }
-    if (!hasPixels) return false;
+    if (!hasPixels) return saved;
     return saveMask();
   }
 

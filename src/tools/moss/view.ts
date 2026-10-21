@@ -663,10 +663,8 @@ export function renderMoss(root: HTMLElement) {
     if (state.mode === "r2i" && !(state.r2iBoxes || []).some((b) => b && b.width > 0 && b.height > 0)) { warnTag.textContent = "Draw at least one box in R2I mode"; return; }
     if (state.mode === "inpaint") {
       if (!state.inpaintImage) { warnTag.textContent = "Upload an INPAINT source image"; return; }
-      if (!state.inpaintMask) {
-        const saved = await controlAutoSave?.().catch(() => false);
-        if (!saved) { warnTag.textContent = "Paint the mask area with the brush first"; return; }
-      }
+      const saved = await controlAutoSave?.().catch(() => false);   // sends the mask as painted now, no Save Mask press needed
+      if (!saved) { warnTag.textContent = "Paint the mask area with the brush first"; return; }
     }
     warnTag.textContent = "";
 

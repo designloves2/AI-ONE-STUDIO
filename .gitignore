@@ -30,3 +30,6 @@ public/comfy_port.txt
 *.njsproj
 *.sln
 *.sw?
+
+# graphify plugin output
+graphify-out/

@@ -476,7 +476,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // unreachable while an LTX Upscale run had it locked (user report — Stop must stay live).
   leftPanel.appendChild(leftLockOverlay);
 
-  const rightPanel = el("div", { class: "flex flex-col gap-4 flex-1 min-w-0 min-h-0" });
+  const rightPanel = el("div", { class: "flex flex-col gap-4 flex-1 min-w-0 min-h-0 overflow-y-auto" }); // scrolls when the preview is dragged taller than the panel
 
   // ── 프리뷰 박스 ───────────────────────────────────────────────────
   // 고정 vh 상한 대신 남는 공간을 채우는 flex-1 — 위 mainRow가 커지면 이것도 같이 커진다.
@@ -622,7 +622,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     const startY = e.clientY;
     const startH = previewBox.getBoundingClientRect().height;
     const onMove = (ev: PointerEvent) => {
-      const h = Math.max(220, Math.min(720, Math.round(startH + (ev.clientY - startY))));
+      const h = Math.max(220, Math.min(1600, Math.round(startH + (ev.clientY - startY))));
       previewBox.style.flex = `0 0 ${h}px`;
     };
     const onUp = (ev: PointerEvent) => {
@@ -638,7 +638,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   try {
     const savedH = parseInt(localStorage.getItem(PREVIEW_H_KEY) || "", 10);
-    if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(720, savedH))}px`;
+    if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(1600, savedH))}px`;
   } catch {}
 
   previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, hiresBanner, ppBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);

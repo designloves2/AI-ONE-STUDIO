@@ -201,7 +201,7 @@ export function renderMusic(container: HTMLElement) {
   dragH.addEventListener("mousedown", (e: MouseEvent) => {
     e.preventDefault();
     const x0 = e.clientX, w0 = composeWrap.offsetWidth;
-    const mv = (ev: MouseEvent) => { state.leftW = clampLeft(w0 + ev.clientX - x0); composeWrap.style.width = state.leftW + "px"; };
+    const mv = (ev: MouseEvent) => { state.leftW = clampLeft(w0 + ev.clientX - x0); composeWrap.style.width = state.leftW + "px"; try { localStorage.setItem("aos_left_w", String(state.leftW)); } catch { /* ignore */ } };
     const up = () => { persist(); try { localStorage.setItem("aos_left_w", String(state.leftW)); } catch { /* ignore */ } document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
     document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
   });

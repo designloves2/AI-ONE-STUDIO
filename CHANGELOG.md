@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.13.0] — 2026-10-22
+
+### Added
+- The width of the left settings column can be dragged in every tool (image tools, MiniMax H3, LTX 2.5, ITDA media bin, MusicMaker); one width is shared by all of them and remembered (`PORT_LEDGER.md` rows 60-63).
+
 ## [0.12.0] — 2026-10-22
 
 MiniMax H3 / LTX 2.5 catch-up with node v1.45.0 (`PORT_LEDGER.md` rows 57-59).

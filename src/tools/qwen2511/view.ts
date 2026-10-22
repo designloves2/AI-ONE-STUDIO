@@ -29,6 +29,7 @@ import { createAngleScene, ANGLE_H_OPTS, ANGLE_V_OPTS, ANGLE_Z_OPTS } from "./an
 import { withCurrent } from "../../shared/samplerLists";
 import { mountUpscaleMethodTabs, mountVosrPanel } from "../../shared/vosrUpscale";
 import { attachPanZoom, createCompareView as createSharedCompareView } from "../../shared/panZoom";
+import { attachLeftResize } from "../../shared/leftResize";
 
 export function renderQwen2511(root: HTMLElement) {
   clear(root);
@@ -105,6 +106,7 @@ export function renderQwen2511(root: HTMLElement) {
   const leftBottomBar = el("div", { style: { flexShrink: "0", paddingTop: "8px" } });
   leftPanel.append(leftScroll, leftBottomBar);
   body.appendChild(leftPanel);
+  attachLeftResize(leftPanel, { key: "qwen2511", minViewport: 768, gap: 10 });
 
   const rightPanel = el("div", { style: { flex: "1", minWidth: "0", display: "flex", flexDirection: "column", gap: "8px" } });
   body.appendChild(rightPanel);

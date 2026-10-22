@@ -29,6 +29,7 @@ import { createPromptEditOverlay } from "./promptEdit";
 import { createCommonPromptOverlay } from "./commonPrompt";
 import { createGalleryOverlay } from "./gallery";
 import { comfyApi as api } from "./comfyClient";
+import { attachLeftResize } from "../../shared/leftResize";
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 const TOPBAR_H   = 40;
@@ -1411,6 +1412,7 @@ export function renderLtx25(container: HTMLElement) {
       });
       rightPanel.append(previewBox, statusWrap, promptWrap);
       mainRow.append(leftOuter, rightPanel);
+      attachLeftResize(leftOuter, { key: "ltx25", minViewport: 1101, gap: PAD });
       root.appendChild(mainRow);
 
       // Asset tab: the reference asset library, same height as the generation screen.

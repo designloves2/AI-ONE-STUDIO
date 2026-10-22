@@ -29,6 +29,7 @@ import { createMaskEditor } from "./maskEditor";
 import { withCurrent } from "../../shared/samplerLists";
 import { mountVosrPanel } from "../../shared/vosrUpscale";
 import { attachPanZoom, createCompareView as createSharedCompareView } from "../../shared/panZoom";
+import { attachLeftResize } from "../../shared/leftResize";
 
 export function renderSDXL(root: HTMLElement) {
   clear(root);
@@ -103,6 +104,7 @@ export function renderSDXL(root: HTMLElement) {
   const leftBottomBar = el("div", { style: { flexShrink: "0", paddingTop: "8px" } });
   leftPanel.append(leftScroll, leftBottomBar);
   body.appendChild(leftPanel);
+  attachLeftResize(leftPanel, { key: "sdxl", minViewport: 768, gap: 10 });
 
   const rightPanel = el("div", { style: { flex: "1", minWidth: "0", display: "flex", flexDirection: "column", gap: "8px" } });
   body.appendChild(rightPanel);

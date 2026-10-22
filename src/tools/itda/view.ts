@@ -487,6 +487,39 @@ export function renderItda(container: HTMLElement) {
   });
   upperPane.appendChild(previewPanel);
 
+  // Drag the border between the media bin and the preview to resize the media bin (same handle as the other tools:
+  // remembered, double-click = back to the default 27 %). Below 768 px the grid is left alone.
+  {
+    const KEY = "aos_left_w_itda";
+    const bar = el("div", { style: { width: "3px", height: "34px", borderRadius: "2px", background: C.border, pointerEvents: "none" } });
+    const handle = el("div", { title: "Drag to resize the media bin (double-click: reset)", style: { position: "absolute", top: "0", bottom: "0", width: "10px", marginLeft: "-5px", cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center", zIndex: "5", touchAction: "none" } }, [bar]);
+    upperPane.style.position = "relative";
+    upperPane.appendChild(handle);
+    handle.addEventListener("mouseenter", () => (bar.style.background = BRAND));
+    handle.addEventListener("mouseleave", () => (bar.style.background = C.border));
+    const place = () => { handle.style.left = `${mediaBin.offsetLeft + mediaBin.offsetWidth + 4}px`; handle.style.display = window.innerWidth >= 768 ? "flex" : "none"; };
+    const setCols = (w: number | null) => { upperPane.style.gridTemplateColumns = w ? `${w}px minmax(0, 1fr) 25%` : "27% 48% 25%"; };
+    const clamp = (w: number) => Math.max(220, Math.min(700, Math.min(w, upperPane.clientWidth - 420)));
+    const saved = Number(localStorage.getItem(KEY)) || 0;
+    if (saved && window.innerWidth >= 768) setCols(clamp(saved));
+    new ResizeObserver(place).observe(upperPane);
+    place();
+    handle.addEventListener("pointerdown", (e: PointerEvent) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      const x0 = e.clientX, w0 = mediaBin.offsetWidth;
+      let w = w0;
+      const move = (ev: PointerEvent) => { w = Math.round(clamp(w0 + ev.clientX - x0)); setCols(w); place(); };
+      const up = (ev: PointerEvent) => {
+        try { handle.releasePointerCapture(ev.pointerId); } catch { /* ignore */ }
+        handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); handle.removeEventListener("pointercancel", up);
+        try { localStorage.setItem(KEY, String(w)); } catch { /* ignore */ }
+      };
+      handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up); handle.addEventListener("pointercancel", up);
+    });
+    handle.addEventListener("dblclick", () => { try { localStorage.removeItem(KEY); } catch { /* ignore */ } setCols(null); place(); });
+  }
+
   let activeMode = "Single";
   const modeTabs: Record<string, HTMLButtonElement> = {};
   function mkModeTab(name: string, enabled: boolean) {

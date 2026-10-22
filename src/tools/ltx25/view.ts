@@ -1412,7 +1412,7 @@ export function renderLtx25(container: HTMLElement) {
       });
       rightPanel.append(previewBox, statusWrap, promptWrap);
       mainRow.append(leftOuter, rightPanel);
-      attachLeftResize(leftOuter, { key: "ltx25", minViewport: 1101, gap: PAD });
+      attachLeftResize(leftOuter, { minViewport: 1101, gap: PAD });
       root.appendChild(mainRow);
 
       // Asset tab: the reference asset library, same height as the generation screen.

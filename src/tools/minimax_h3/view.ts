@@ -6140,7 +6140,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   if (_galleryReuse) applyClipSettings(_galleryReuse);
 
   mainRow.append(leftOuter, rightPanel);
-  attachLeftResize(leftOuter, { key: "h3", minViewport: 1024, gap: 16 });
+  attachLeftResize(leftOuter, { minViewport: 1024, gap: 16 });
 
   // Asset tab: the reference asset library, filling the space the generation screen uses.
   const assetBrowser = mountAssetBrowser({ height: "100%" });

@@ -1,14 +1,14 @@
 // leftResize.ts — drag handle between a tool's left settings column and the work area; the same on every tool.
-// The width is remembered per tool (localStorage); double-click the handle to go back to the tool's own default.
+// ONE width is shared by every tool (localStorage `aos_left_w`): whatever the user set last applies on all of them.
+// Double-click the handle to go back to each tool's own default width.
 // Below `minViewport` (phone / stacked layouts) the handle is hidden and the tool's CSS width applies, untouched.
 import { C, BRAND } from "../identity";
 
+export const LEFT_W_KEY = "aos_left_w";
 const MIN_W = 300;
 const MAX_W = 900;
 
 export interface LeftResizeOpts {
-  /** Short tool id, part of the storage key. */
-  key: string;
   /** Viewport width from which the tool shows its side-by-side layout. */
   minViewport: number;
   /** The flex gap (px) between the left column and the next element — the handle sits in that gap. */
@@ -19,7 +19,7 @@ export interface LeftResizeOpts {
 export function attachLeftResize(leftEl: HTMLElement, o: LeftResizeOpts) {
   const parent = leftEl.parentElement;
   if (!parent) return;
-  const storeKey = `aos_left_w_${o.key}`;
+  const storeKey = LEFT_W_KEY;
   const stored = () => { try { return Number(localStorage.getItem(storeKey)) || 0; } catch { return 0; } };
   const clamp = (w: number) => Math.max(MIN_W, Math.min(MAX_W, Math.min(w, parent.clientWidth - 360)));
 

@@ -178,7 +178,8 @@ export function renderMusic(container: HTMLElement) {
   const LEFT_MIN = LEFT_W, LEFT_MAX = 760;
   const main = el("div", { className: "mmm-main", style: { flex: "1", display: "flex", gap: "0", minHeight: 0 } });
   const clampLeft = (w: number) => Math.max(LEFT_MIN, Math.min(LEFT_MAX, w));
-  state.leftW = clampLeft(state.leftW || LEFT_W);
+  // one left-column width for every tool: whatever was dragged last, anywhere (shared/leftResize.ts)
+  state.leftW = clampLeft(Number(localStorage.getItem("aos_left_w")) || state.leftW || LEFT_W);
   const composeWrap = el("div", { className: "mmm-composewrap", style: {
     width: `${state.leftW}px`, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0,
   }});
@@ -201,7 +202,7 @@ export function renderMusic(container: HTMLElement) {
     e.preventDefault();
     const x0 = e.clientX, w0 = composeWrap.offsetWidth;
     const mv = (ev: MouseEvent) => { state.leftW = clampLeft(w0 + ev.clientX - x0); composeWrap.style.width = state.leftW + "px"; };
-    const up = () => { persist(); document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
+    const up = () => { persist(); try { localStorage.setItem("aos_left_w", String(state.leftW)); } catch { /* ignore */ } document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); };
     document.addEventListener("mousemove", mv); document.addEventListener("mouseup", up);
   });
   const playlistWrap = el("div", { className: "mmm-playlistwrap", style: { flex: "1", display: "flex", flexDirection: "column", minWidth: 0, gap: "6px" } });

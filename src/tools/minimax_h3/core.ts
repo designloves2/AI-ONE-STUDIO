@@ -235,6 +235,9 @@ export interface MinimaxState {
   aspect: string;
   megapixels: number;
   hiresFinish: boolean;
+  hiresLastFixed: boolean; // last step on the fixed model (hiresLastModel) instead of the generation model
+  hiresLastModel: string;
+  hiresNoOpt: boolean; // last step runs without H3 Memory Optimization (Sol-Attn stays on)
   hiresStartMp: number;
   hiresFinalMp: number;
   hiresChunkRows: number;
@@ -802,6 +805,9 @@ export function explainGenerationError(message: string): string | null {
   if (/must match the size of tensor b \(2\)/.test(m) || /adaln/i.test(m)) {
     return "The turbo LoRA doesn't match this mode's base model — turbo LoRAs are fl2v-only. Switch Acceleration to SolAttn, Spectrum or None.";
   }
+  if (/doesn't match the broadcast shape/.test(m)) {
+    return "The model returned a wrong-sized result. If this happened on the last step of 7+1 hi-res finish, H3 Memory Optimization doesn't work with this model — tick \"Bypass H3 Memory Optimization on the last step\" under Turbo → 7+1 and run again.";
+  }
   if (/failed to extract audio/i.test(m)) {
     return "A reference video has no audio track but its soundtrack was requested — untick \"also use this clip's soundtrack\" for that video.";
   }
@@ -885,17 +891,18 @@ export function resolveResolution(aspectLabel: string, megapixels: number) {
 
 /**
  * 7+1 hi-res finish: the first 7 of the 8 turbo steps run at Start MP, the latent is scaled
- * up, and the last step refines it at Final MP. Only exists with Turbo LoRA (Basic).
+ * up, and the last step refines it at Final MP. Runs with Turbo LoRA (Basic) or with Turbo None
+ * (an 8-step checkpoint that already has the turbo baked in).
  * (turboEffective() lives in graphBuilder.ts; "pdd" there means turboMode pdd + a file set.)
  */
 export function hiresActive(state: MinimaxState): boolean {
-  return !!state.hiresFinish && state.turboMode === "pdd" && !!pddFileForMode(state);
+  return !!state.hiresFinish && ((state.turboMode === "pdd" && !!pddFileForMode(state)) || (state.turboMode || "none") === "none");
 }
 
 /** Stage-1 size, the size the latent upscaler lands on (both 32-aligned), and the ratio between them. */
 export function hiresSizes(state: MinimaxState) {
-  const start = resolveResolution(state.aspect, state.hiresStartMp ?? 0.5);
-  const final = resolveResolution(state.aspect, state.hiresFinalMp ?? state.megapixels);
+  const start = resolveResolution(state.aspect, state.hiresStartMp ?? 0.7);
+  const final = resolveResolution(state.aspect, state.hiresFinalMp ?? 1.6);
   return { start, final, scale: Math.round(final.width / start.width * 1000) / 1000 };
 }
 
@@ -1210,9 +1217,23 @@ export const RECIPE_KEYS = [
   // this captures/restores the general list too. Applying a preset still overwrites
   // state.loras outright (Reuse Setting already full-replaces meta.loras the same way).
   "loras",
-  // 7+1 hi-res finish: the checkbox and its two sizes travel with a saved recipe, but it is
+  // Every setting inside the Turbo / Attention / Block cache / Spectrum / Model patches
+  // sections — the pipeline axes above only pick which of them is on.
+  "turboLoraStrength", "turboLoraLowVram", "slaTurboStrength", "pddLoraStrength", "pddNfe",
+  "sageAttnMode", "ckAttentionBackend",
+  "solTau", "solStart", "solEnd", "solMinTokens",
+  "slaSparsity", "slaBlockSize", "slaMinSeqLen", "slaDenseLastSteps", "slaProtectAudio", "slaRunEnabled",
+  "solSagTauStart", "solSagTauEnd", "solSagCurve", "solSagMinTokens", "solSagStrict", "solSagDensePercent",
+  "solSagThreshType", "solSagInt8Qk", "solSagInt8Pv", "solSagSinkCond", "solSagDenseBlocks",
+  "h3Optimizer", "h3MemChunkRows", "h3MemPrecision", "h3MemQkvStreaming", "h3MemLowVram",
+  "h3SparseBudget", "h3SparseDenserEdges", "h3SparseLayerBudgets",
+  "fbcMode", "fbcThreshold", "fbcStartPercent", "fbcEndPercent", "fbcMaxHits", "fbcTemporalGuard",
+  "specBlendWeight", "specDegree", "specRidgeLambda", "specWindowSize", "specFlexWindow",
+  "specWarmupSteps", "specTailSteps", "specMaxHistory", "specHistoryStore",
+  "fp16Accum",
+  // 7+1 hi-res finish: the checkbox and its sizes travel with a saved recipe, but it is
   // not a matching axis — a built-in preset never turns it on or off.
-  "hiresFinish", "hiresStartMp", "hiresFinalMp", "hiresChunkRows",
+  "hiresFinish", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresChunkRows",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -1223,10 +1244,10 @@ function cloneVal<T>(v: T): T {
   return v == null ? v : (JSON.parse(JSON.stringify(v)) as T);
 }
 
-function recipeOf(state: MinimaxState): Partial<Pick<UserPipelinePreset, RecipeKey>> {
+function recipeOf(state: MinimaxState): Record<string, any> {
   const out: Record<string, unknown> = {};
   for (const k of RECIPE_KEYS) if ((state as any)[k] !== undefined) out[k] = cloneVal((state as any)[k]);
-  return out as Partial<Pick<UserPipelinePreset, RecipeKey>>;
+  return out;
 }
 
 export interface UserPipelinePreset {
@@ -1258,6 +1279,8 @@ export interface UserPipelinePreset {
   unetReference?: string;
   loras?: LoraEntry[];
   hiresFinish?: boolean;
+  hiresNoOpt?: boolean;
+  hiresLastFixed?: boolean;
   hiresStartMp?: number;
   hiresFinalMp?: number;
   hiresChunkRows?: number;
@@ -2053,8 +2076,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     aspect: saved.aspect || "9:16 Portrait",
     megapixels: saved.megapixels ?? 1.0,
     hiresFinish: !!saved.hiresFinish,
-    hiresStartMp: saved.hiresStartMp ?? 0.5,
-    hiresFinalMp: saved.hiresFinalMp ?? saved.megapixels ?? 1.0,
+    hiresLastFixed: !!saved.hiresLastFixed,   // last step on the fixed model below instead of the generation model
+    hiresLastModel: saved.hiresLastModel || "",
+    hiresNoOpt: !!saved.hiresNoOpt,   // last step runs without H3 Memory Optimization / Sol-Attn
+    hiresStartMp: saved.hiresStartMp ?? 0.7,
+    hiresFinalMp: saved.hiresFinalMp ?? 1.6,
     hiresChunkRows: saved.hiresChunkRows ?? 2048,   // H3 Memory Optimization "Activation chunk rows" of the 7+1 last step
     clipFrames: saved.clipFrames ?? DEFAULT_FRAMES,
     clipLengthCustom: !!saved.clipLengthCustom,

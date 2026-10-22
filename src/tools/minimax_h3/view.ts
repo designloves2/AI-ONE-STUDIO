@@ -2251,6 +2251,48 @@ export function renderMinimaxH3(container: HTMLElement) {
     ];
   }
   function turboSettings() {
+    const hiresOn = hiresActive(state);
+    // The two MP fields only change this line, so they must not rebuild the panel
+    // (a rebuild put the column back at the top while you were typing).
+    const hiresText = () => {
+      const hs = hiresSizes(state);
+      return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale})`;
+    };
+    const hiresLine = el("div", { text: hiresText(), style: { fontSize: "10px", color: C.muted } });
+    // 7+1 hi-res finish: shown for Turbo None and Turbo LoRA (Basic); node hiresRows().
+    const hiresRows = () => [
+      checkboxRow("7+1 hi-res finish", !!state.hiresFinish, (v) => {
+        state.hiresFinish = v;
+        persist(); renderLeft(); refreshPlan();
+      }, { title: "Run 7 of the 8 steps small, scale the latent up, then run the last step at full size." }),
+      el("div", { text: "Needs an 8-step turbo: the Turbo LoRA above, or Turbo None with an 8-step checkpoint. Steps are fixed at 8 (7 small + 1 large).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ...(hiresOn ? [
+        (() => {
+          // slot-style switch: left = the generation model, right = the fixed model from Settings
+          const fixed = !!state.hiresLastFixed;
+          const slot = (text: string, on: boolean) => el("div", { text, style: {
+            flex: "1", textAlign: "center", padding: "4px 6px", fontSize: "11px", cursor: "pointer",
+            background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : C.muted, fontWeight: on ? "700" : "400",
+          }, onclick: () => { state.hiresLastFixed = !fixed; persist(); renderLeft(); } });
+          const name = (state.hiresLastModel || "").split(/[\\/]/).pop();
+          return col([label("Last step model"),
+            el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
+              [slot("Same as generation", !fixed), slot("Fixed model", fixed)]),
+            ...(fixed ? [el("div", { text: name || "⚠ none set — Settings → Models → 7+1 last step",
+              style: { fontSize: "10px", color: name ? C.muted : C.warn, wordBreak: "break-all" } })] : []),
+          ]);
+        })(),
+        checkboxRow("Bypass H3 Memory Optimization on the last step", !!state.hiresNoOpt, (v) => {
+          state.hiresNoOpt = v; persist(); renderLeft();
+        }, { title: "Skip only the H3 Memory Optimization node on the last (large) step. Sol-Attn stays on. Use it if the last step fails with a shape error." }),
+        row([
+          col([label("Start MP"), numberField(state.hiresStartMp ?? 0.7, (v) => { state.hiresStartMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+          col([label("Final MP"), numberField(state.hiresFinalMp ?? 1.6, (v) => { state.hiresFinalMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+        ]),
+        col([label("Activation chunk rows"), numberField(state.hiresChunkRows ?? 2048, (v) => { state.hiresChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]),
+        hiresLine,
+      ] : []),
+    ];
     if (state.turboMode === "larryvrh") {
       const isRef = state.generationMode === "reference";
       if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
@@ -2296,14 +2338,6 @@ export function renderMinimaxH3(container: HTMLElement) {
       const isRef = state.generationMode === "reference";
       if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
       const pddOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
-      const hiresOn = hiresActive(state);
-      // The two MP fields only change this line, so they must not rebuild the panel
-      // (a rebuild put the column back at the top while you were typing).
-      const hiresText = () => {
-        const hs = hiresSizes(state);
-        return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale})`;
-      };
-      const hiresLine = el("div", { text: hiresText(), style: { fontSize: "10px", color: C.muted } });
       return [
         col([labelHelp(`Turbo LoRA (First-Last / Text)${isRef ? "" : " ●"}`, pddHelp),
           searchableSelect(pddOpts, state.pddFile || "none", (v) => { state.pddFile = v; rememberImgConfig({ pdd_file: v }); renderLeft(); }).el]),
@@ -2317,23 +2351,10 @@ export function renderMinimaxH3(container: HTMLElement) {
           })()]),
           col([label("lora strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         ]),
-        checkboxRow("7+1 hi-res finish", !!state.hiresFinish, (v) => {
-          state.hiresFinish = v;
-          if (v) state.hiresFinalMp = state.megapixels ?? 1.0;   // start from what the canvas was
-          persist(); renderLeft(); refreshPlan();
-        }, { title: "Run 7 of the 8 steps small, scale the latent up, then run the last step at full size." }),
-        el("div", { text: "Needs the 8-step turbo LoRA above. Steps are fixed at 8 (7 small + 1 large).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
-        ...(hiresOn ? [
-          row([
-            col([label("Start MP"), numberField(state.hiresStartMp ?? 0.5, (v) => { state.hiresStartMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
-            col([label("Final MP"), numberField(state.hiresFinalMp ?? 1.0, (v) => { state.hiresFinalMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
-          ]),
-          col([label("Activation chunk rows"), numberField(state.hiresChunkRows ?? 2048, (v) => { state.hiresChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]),
-          hiresLine,
-        ] : []),
+        ...hiresRows(),
       ];
     }
-    return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } })];
+    return [el("div", { text: "No Turbo — slowest, but the most faithful baseline.", style: { fontSize: "10px", color: C.muted } }), ...hiresRows()];
   }
 
   function attnSummary() {

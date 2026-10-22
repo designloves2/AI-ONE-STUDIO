@@ -64,6 +64,7 @@ export async function getModels(): Promise<ModelLists> {
 export interface MmhConfig {
   unet_first_last?: string;
   unet_reference?: string;
+  hires_last_model?: string;
   clip_name?: string;
   vae_video?: string;
   vae_audio?: string;

@@ -139,10 +139,12 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
     const uFL = searchableSelect(diff, state.unetFirstLast || "none", (v) => { state.unetFirstLast = v; ctx.persist(); ctx.refreshModes?.(); });
     const uRF = searchableSelect(diff, state.unetReference || "none", (v) => { state.unetReference = v; ctx.persist(); ctx.refreshModes?.(); });
+    const uHR = searchableSelect(diff, state.hiresLastModel || "none", (v) => { state.hiresLastModel = v; ctx.persist(); });
     wrap.appendChild(
       panel([
         label("Diffusion Models — the reference workflow keeps these separate on purpose"),
         row([col([label("UNET · First/Last (FL2VA)"), uFL.el]), col([label("UNET · Reference (REF2VA)"), uRF.el])]),
+        col([label("UNET · 7+1 last step (used when Turbo → 7+1 → Last step model is Fixed)"), uHR.el]),
         el("div", { html: "Text-only and First/Last modes use the FL2VA model; Reference mode uses the REF2VA one. → <code>models/diffusion_models/</code>", style: { fontSize: "10px", color: C.muted } }),
       ])
     );
@@ -730,6 +732,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     saveConfig({
       unet_first_last: state.unetFirstLast || "",
       unet_reference: state.unetReference || "",
+      hires_last_model: state.hiresLastModel || "",
       clip_name: state.clipName || "",
       vae_video: state.vaeVideo || "",
       vae_audio: state.vaeAudio || "",
@@ -858,6 +861,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       };
       take("unetFirstLast", cfg.unet_first_last);
       take("unetReference", cfg.unet_reference);
+      take("hiresLastModel", cfg.hires_last_model);
       take("clipName", cfg.clip_name);
       take("vaeVideo", cfg.vae_video);
       take("vaeAudio", cfg.vae_audio);

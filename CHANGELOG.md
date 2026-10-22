@@ -3,6 +3,18 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.12.0] — 2026-10-22
+
+MiniMax H3 / LTX 2.5 catch-up with node v1.45.0 (`PORT_LEDGER.md` rows 57-59).
+
+### Added
+- Auto Prompt (H3 and LTX 2.5): right before Generate every enabled clip's prompt is written by the LLM, no review; H3 uses the Ref2VA guide in Reference mode and the base guide otherwise (node `8b8517a`).
+- H3: 7+1 hi-res finish with Turbo None, a fixed "last step model", a switch to bypass H3 Memory Optimization on the last step; user presets now keep every Turbo / Attention / H3 optimizer / cache / Spectrum / patch setting (node `c627fb3`).
+- H3 preview box can be dragged up to 1600 px tall.
+
+### Changed
+- H3 and LTX 2.5 prompt header is two rows (title + count, then the buttons, nothing wraps).
+
 ## [0.11.0] — 2026-10-22
 
 New tool **Moss Image ONE STUDIO** and live sampling preview (`PORT_LEDGER.md` rows 52-56).

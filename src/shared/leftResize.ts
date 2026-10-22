@@ -34,10 +34,11 @@ export function attachLeftResize(leftEl: HTMLElement, o: LeftResizeOpts) {
   handle.addEventListener("mouseenter", () => (bar.style.background = BRAND));
   handle.addEventListener("mouseleave", () => (bar.style.background = C.border));
 
+  const origW = leftEl.style.width, origMax = leftEl.style.maxWidth; // the tool's own inline width (empty when it comes from a class)
   const apply = (w: number | null) => {
     // max-width keeps room for the work area on narrow windows; it is CSS, so it needs no layout at render time
     if (w) { leftEl.style.setProperty("width", `${w}px`, "important"); leftEl.style.setProperty("max-width", "calc(100% - 360px)", "important"); }
-    else { leftEl.style.removeProperty("width"); leftEl.style.removeProperty("max-width"); }
+    else { leftEl.style.width = origW; leftEl.style.maxWidth = origMax; } // back to the tool's own width
   };
 
   const mq = window.matchMedia(`(min-width: ${o.minViewport}px)`);

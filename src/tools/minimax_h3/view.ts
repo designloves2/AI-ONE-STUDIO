@@ -1263,7 +1263,9 @@ export function renderMinimaxH3(container: HTMLElement) {
   const promptHdr = el("div", { class: "aos-prompt-hdr flex items-center gap-1.5 h-5" });
   const promptTitle = el("div", { text: "PROMPTS", class: "text-muted text-[11px] uppercase tracking-wide" });
   const promptCount = el("span", { class: "text-muted text-[10px]" });
-  promptHdr.append(promptTitle, promptCount);
+  // The title and the clip count sit on their own line; the buttons get the line below.
+  const promptTitleRow = el("div", { class: "flex items-center gap-1.5 shrink-0", style: { height: "18px" } });
+  promptTitleRow.append(promptTitle, promptCount);
 
   const smallBtnStyle = { cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` };
   // Insert-at-cursor tags — <Picture N>, <Subject N>, <Shot N> — into whichever clip textarea
@@ -1278,7 +1280,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     ta.setSelectionRange(s + token.length, s + token.length);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
   }
-  const tagBtnRow = el("div", { class: "flex gap-1", style: { marginLeft: "auto" } },
+  const tagBtnRow = el("div", { class: "flex gap-1" },
     ["Picture", "Subject", "Shot"].map((tag) => {
       const b = el("button", { type: "button", text: tag, title: `Insert <${tag} N> into the last-focused clip prompt`, style: smallBtnStyle });
       // mousedown steals focus from the clip textarea before click fires, collapsing its
@@ -1292,6 +1294,14 @@ export function renderMinimaxH3(container: HTMLElement) {
       return b;
     }));
   promptHdr.appendChild(tagBtnRow);
+  const autoPromptChk = el("input", { type: "checkbox", style: { cursor: "pointer", margin: "0" } }) as HTMLInputElement;
+  autoPromptChk.checked = !!state.autoPrompt;
+  autoPromptChk.addEventListener("change", () => { state.autoPrompt = autoPromptChk.checked; persist(); });
+  const autoPromptLbl = el("label", {
+    title: "Right before Generate, send each clip's whole prompt to the LLM (Prompt Write settings; Reference mode uses the Ref2VA guide, the other modes the FL2VA/T2VA/I2VA/L2VA one) and generate from the result. No review, no split - the prompt is replaced in place.",
+    style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", color: C.muted, cursor: "pointer" },
+  }, [autoPromptChk, el("span", { text: "Auto Prompt" })]);
+  promptHdr.appendChild(autoPromptLbl);
   const commonBtn = el("button", { type: "button", text: "🧩 Common", title: "Edit the header / sound-music text shared by every clip", style: smallBtnStyle });
   const refineBtn = el("button", { type: "button", text: "🔧 Refine", title: "Revise the current clip's prompt from a typed instruction — same result review as Prompt Write", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
   const writeBtn = el("button", { type: "button", text: "✨ Prompt Write", title: "Write a fresh prompt for the current clip — same result review as inside Prompt Edit", style: { ...smallBtnStyle, border: `1px solid ${BRAND}`, fontWeight: "600" } });
@@ -1342,7 +1352,13 @@ export function renderMinimaxH3(container: HTMLElement) {
     style: { zIndex: "5", background: "rgba(0,0,0,0.75)", padding: "0 16px", borderRadius: "6px", color: "#b57bff", fontSize: "18px", fontWeight: "700", textShadow: "0 0 12px rgba(181,123,255,0.5)" },
   });
   promptListWrap.append(promptList, promptBusyOv);
-  promptWrap.append(promptHdr, promptListWrap);
+  // Picture / Subject / Shot stay on the left; every other control is pushed to the right as one group.
+  const promptRight = el("div", { style: { display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" } });
+  for (const c of [...promptHdr.children]) if (c !== tagBtnRow) promptRight.appendChild(c);
+  promptHdr.appendChild(promptRight);
+  promptHdr.querySelectorAll<HTMLElement>("button, label").forEach((c) => { c.style.whiteSpace = "nowrap"; c.style.flexShrink = "0"; });
+  promptCount.style.whiteSpace = "nowrap";
+  promptWrap.append(promptTitleRow, promptHdr, promptListWrap);
   // Shared by the main-screen Refine/Prompt Write buttons AND the Prompt Edit popup — whichever
   // one is running an LLM call locks every clip's prompt field here too, since they all edit
   // the same underlying state.prompts.
@@ -1862,6 +1878,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     sysPromptSaveBtn.style.display = isCharSheetHdr ? "" : "none";
     sysPromptResetBtn.style.display = isCharSheetHdr ? "" : "none";
     promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : isImageGen ? "IMAGE PROMPT" : "PROMPTS";
+    autoPromptLbl.style.display = isLtx || isFaceRefine || isPostprocess || isImageGen ? "none" : "flex";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
     if (isImageGen) { renderImageGenPrompt(); return; }
@@ -5532,6 +5549,15 @@ export function renderMinimaxH3(container: HTMLElement) {
         else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
         else if (state.seedMode === "decrement") { state.seed = Math.max(0, (state.seed || 0) - 1); seedInput.value = String(state.seed); }
         persist();
+      }
+
+      // Auto Prompt: the prompts are rewritten before the run is frozen into `rs`, so what gets rendered is what ends up
+      // in the panel. A failure stops the run.
+      if (!resume && state.autoPrompt) {
+        genBtn.textContent = "⏳ Writing prompts…";
+        await promptEditOv.autoWrite();
+        renderPrompts();
+        genBtn.textContent = "⏳ Preparing…";
       }
 
       // 런 시작 시점 패널 전체를 얼려서 이 런의 모든 클립이 이 스냅샷만 읽게 한다(컴피

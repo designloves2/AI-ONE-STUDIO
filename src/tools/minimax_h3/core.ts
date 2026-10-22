@@ -235,6 +235,7 @@ export interface MinimaxState {
   aspect: string;
   megapixels: number;
   hiresFinish: boolean;
+  autoPrompt: boolean; // write every clip's prompt with the LLM right before Generate
   hiresLastFixed: boolean; // last step on the fixed model (hiresLastModel) instead of the generation model
   hiresLastModel: string;
   hiresNoOpt: boolean; // last step runs without H3 Memory Optimization (Sol-Attn stays on)
@@ -2076,6 +2077,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     aspect: saved.aspect || "9:16 Portrait",
     megapixels: saved.megapixels ?? 1.0,
     hiresFinish: !!saved.hiresFinish,
+    autoPrompt: !!saved.autoPrompt,   // write every clip's prompt with the LLM right before Generate
     hiresLastFixed: !!saved.hiresLastFixed,   // last step on the fixed model below instead of the generation model
     hiresLastModel: saved.hiresLastModel || "",
     hiresNoOpt: !!saved.hiresNoOpt,   // last step runs without H3 Memory Optimization / Sol-Attn

@@ -3,6 +3,7 @@
 // 있던 부분이라 레이아웃은 원본을 그대로 따르되, 저장된 프롬프트 세트(서버 파일 저장)
 // 기능은 백엔드 연결 단계(§4-2)로 미뤘다 — 지금은 로컬 state(localStorage)까지만.
 import type { MinimaxState, PromptEntry } from "./core";
+import { H3_SYSTEM_PROMPT_BASE, H3_SYSTEM_PROMPT_REF } from "./systemPromptH3";
 import {
   clipAssets,
   flLibrarySource,
@@ -93,6 +94,8 @@ export interface PromptEditHandle {
   // opened the popup and clicked the button themselves.
   openWrite(clipIndex?: number | null): void;
   openRefine(clipIndex?: number | null): void;
+  /** Auto Prompt: write every enabled clip's prompt in one go, no review. Throws on the first failure. */
+  autoWrite(): Promise<void>;
 }
 
 export function createPromptEditOverlay(
@@ -1358,20 +1361,22 @@ export function createPromptEditOverlay(
     progTimer = undefined;
   }
 
-  function briefBackendCheck(): { briefOR: boolean; briefLlama: boolean; briefCustom: boolean } | null {
+  // Auto Prompt has nobody to show a popup to: a problem throws so Generate stops.
+  const failWrite = (auto: boolean, msg: string) => { if (auto) throw new Error(msg); ctx.showPopup(msg, true); };
+  function briefBackendCheck(auto = false): { briefOR: boolean; briefLlama: boolean; briefCustom: boolean } | null {
     const briefOR = state.h3BriefBackend === "openrouter";
     const briefLlama = state.h3BriefBackend === "llamagguf";
     const briefCustom = state.h3BriefBackend === "custom";
     if (!briefOR && !briefLlama && !briefCustom && !state.nativeBriefClip) {
-      ctx.showPopup("Set a Brief CLIP (or switch the Brief backend to OpenRouter/Llama GGUF in Settings).", true);
+      failWrite(auto, "Set a Brief CLIP (or switch the Brief backend to OpenRouter/Llama GGUF in Settings).");
       return null;
     }
     if (briefLlama && !state.h3LlamaBriefModel) {
-      ctx.showPopup("No Llama GGUF brief model set — pick one in Settings.", true);
+      failWrite(auto, "No Llama GGUF brief model set — pick one in Settings.");
       return null;
     }
     if (briefCustom && !(state.h3CustomBriefBase && state.h3CustomBriefModel)) {
-      ctx.showPopup("Connect Custom (Brief) needs an API base URL and a model ID - set them in Settings.", true);
+      failWrite(auto, "Connect Custom (Brief) needs an API base URL and a model ID - set them in Settings.");
       return null;
     }
     return { briefOR, briefLlama, briefCustom };
@@ -1465,46 +1470,52 @@ export function createPromptEditOverlay(
   }
 
   // Both Write and Refine check the vision backend the same way.
-  function visionBackendCheck(): boolean {
+  function visionBackendCheck(auto = false): boolean {
     const visionOR = state.h3VisionBackend === "openrouter";
     const visionLlama = state.h3VisionBackend === "llamagguf";
     const visionCustom = state.h3VisionBackend === "custom";
     if (!visionOR && !visionLlama && !visionCustom && !state.nativeVisionClip) {
-      ctx.showPopup("Set a Vision CLIP (or switch the Vision backend to OpenRouter/Llama GGUF in Settings).", true);
+      failWrite(auto, "Set a Vision CLIP (or switch the Vision backend to OpenRouter/Llama GGUF in Settings).");
       return false;
     }
     if (visionLlama && !state.h3LlamaVisionModel) {
-      ctx.showPopup("No Llama GGUF vision model set — pick one in Settings.", true);
+      failWrite(auto, "No Llama GGUF vision model set — pick one in Settings.");
       return false;
     }
     if (visionCustom && !(state.h3CustomVisionBase && state.h3CustomVisionModel)) {
-      ctx.showPopup("Connect Custom (Vision) needs an API base URL and a model ID - set them in Settings.", true);
+      failWrite(auto, "Connect Custom (Vision) needs an API base URL and a model ID - set them in Settings.");
       return false;
     }
     return true;
   }
 
-  async function doWrite() {
+  // `auto` (Auto Prompt, run when Generate is pressed): nothing is asked or reviewed - the clip's whole
+  // text goes to the model as one request and the whole answer replaces it. Problems throw so Generate stops.
+  async function doWrite(opts?: { auto?: boolean }) {
+    const auto = opts?.auto === true;
     if (busy) return;
     deriveModes(); renderImageRow();
     const images = await attachedImagesResolved();
     const lib = await libraryContextForClip();
-    if (lib?.error) { ctx.showPopup(`Library references: ${lib.error}`, true); return; }
+    if (lib?.error) { failWrite(auto, `Library references: ${lib.error}`); return; }
 
-    const backends = briefBackendCheck();
+    const backends = briefBackendCheck(auto);
     if (!backends) return;
     const { briefOR, briefLlama, briefCustom } = backends;
-    if (images.length && !visionBackendCheck()) return;
-    const target = targetSel.value;
+    if (images.length && !visionBackendCheck(auto)) return;
+    const target = auto ? "one" : targetSel.value;
     writeTarget = target;
     // A clip that already has its own header and sound / music is written from all three together.
     const clipOwn = target === "one" && ownFraming() ? (state.prompts[selected] as PromptEntry) : null;
     const base = [clipOwn?.header, editor.value, clipOwn?.footer].map((x) => (x || "").trim()).filter(Boolean).join("\n\n");
     if (!base && !images.length && !lib) {
+      if (auto) return;
       ctx.showPopup("Write something first (or add an image).", true);
       return;
     }
     autoOneTake(base);
+    // The model gets the guide for the mode being rendered: Reference (Ref2VA) has its own, the rest share one.
+    const sys = auto ? (state.generationMode === "reference" ? H3_SYSTEM_PROMPT_REF : H3_SYSTEM_PROMPT_BASE) : systemPrompt;
     busy = true;
     enhBtn.setAttribute("disabled", "true");
     refineBtn.setAttribute("disabled", "true");
@@ -1517,21 +1528,29 @@ export function createPromptEditOverlay(
       const imageSummary = await describeImages(images);
       progressStage("Writing brief…");
       const text = (briefCustom
-        ? await writeBriefCustom(systemPrompt, buildUserPrompt(base, imageSummary, lib), { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
+        ? await writeBriefCustom(sys, buildUserPrompt(base, imageSummary, lib), { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
         : briefLlama
         ? await writeBriefLlama(buildUserPrompt(base, imageSummary, lib), state.h3LlamaBriefModel, state.h3LlamaNCtx, state.h3LlamaMaxTokens)
         : briefOR
-        ? await writeBriefOpenRouter(systemPrompt, buildUserPrompt(base, imageSummary, lib), state.h3OrModelBrief,
+        ? await writeBriefOpenRouter(sys, buildUserPrompt(base, imageSummary, lib), state.h3OrModelBrief,
             // a full brief per clip is long: the room for the answer grows with the clip count
             Math.min(16000, 2200 * (writeTarget === "one" ? 1 : Math.max(1, targetPlan().shots)) + 1500))
-        : await writeBriefNative(state.nativeBriefClip, systemPrompt, buildUserPrompt(base, imageSummary, lib))).trim();
+        : await writeBriefNative(state.nativeBriefClip, sys, buildUserPrompt(base, imageSummary, lib))).trim();
       if (!text) throw new Error("empty response");
+      if (auto) {
+        state.prompts[selected] = normPrompt(state.prompts[selected]);
+        (state.prompts[selected] as PromptEntry).text = text;   // header / sound-music left alone
+        statusTag.textContent = "written";
+        statusTag.style.color = C.ok;
+        return;
+      }
       openReview(text, (targetSel as HTMLSelectElement).value);
       statusTag.textContent = "review the result";
       statusTag.style.color = C.ok;
     } catch (e: any) {
       statusTag.textContent = `⚠ ${String(e.message || e).slice(0, 90)}`;
       statusTag.style.color = C.err;
+      if (auto) throw new Error(`Auto Prompt failed: ${e.message || e}`);
       ctx.showPopup(`Prompt Write failed: ${e.message || e} — check that ComfyUI is running with CORS allowed.`, true);
     } finally {
       progressStop();
@@ -1543,7 +1562,7 @@ export function createPromptEditOverlay(
       enhStopBtn.style.display = "none";
     }
   }
-  enhBtn.addEventListener("click", doWrite);
+  enhBtn.addEventListener("click", () => doWrite());
 
   // Refine — text-only unless "Include Images" is ticked (then the attached images get the same vision pass as Prompt Write).
   let lastRefineInstruction = "";
@@ -2070,7 +2089,15 @@ export function createPromptEditOverlay(
       openTransient(clipIndex, doRefine);
     },
     openWrite(clipIndex) {
-      openTransient(clipIndex, doWrite);
+      openTransient(clipIndex, () => doWrite());
+    },
+    async autoWrite() {
+      if (!state.prompts || !state.prompts.length) return;
+      for (const { i } of activePrompts(state)) {
+        selected = i; loadSelected();
+        await doWrite({ auto: true });
+      }
+      ctx.persist(); renderAll(); onApply?.();
     },
   };
 }

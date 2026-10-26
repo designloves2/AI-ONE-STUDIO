@@ -1863,25 +1863,24 @@ export function renderMinimaxH3(container: HTMLElement) {
   function renderPrompts() {
     const isLtx = state.generationMode === "ltxupscale";
     const isFaceRefine = state.generationMode === "facerefine";
-    const hidesShotList = isLtx || isFaceRefine;
-    commonBtn.style.display = hidesShotList ? "none" : "";
-    splitBtn.style.display = hidesShotList ? "none" : "";
-    addBtn.style.display = hidesShotList ? "none" : "";
-    resetTAHBtn.style.display = hidesShotList ? "none" : "";
-    // Refine/Prompt Write and the tag-insert row act on state.prompts[i] (the shot list) via
-    // lastFocusedPromptTA — LTX Upscale/Face Refine's own single prompt box never sets that,
-    // so these have nothing to act on there either.
-    refineBtn.style.display = hidesShotList ? "none" : "";
-    writeBtn.style.display = hidesShotList ? "none" : "";
-    tagBtnRow.style.display = hidesShotList ? "none" : "";
-    // Postprocess has no prompt at all, so the tag row, Refine, Prompt Write and Prompt Edit are hidden there too.
     const isPostprocess = state.generationMode === "postprocess";
-    if (isPostprocess) { refineBtn.style.display = "none"; writeBtn.style.display = "none"; tagBtnRow.style.display = "none"; }
     const isImageGen = state.generationMode === "imagegen";
-    if (isImageGen) {
-      commonBtn.style.display = "none"; splitBtn.style.display = "none"; addBtn.style.display = "none";
-      resetTAHBtn.style.display = "none"; refineBtn.style.display = "none"; writeBtn.style.display = "none"; tagBtnRow.style.display = "none";
-    }
+    // The bottom prompt area is per-mode: the H3 shot list, or (LTX Upscale / Face Refine / Image Generator) one plain
+    // prompt box down here. Common / Split / Add / Auto Prompt are H3-only. Postprocess needs no prompt at all — every
+    // control lives in the left panel's accordion, so this area just says so instead of showing an empty box.
+    // (same per-mode visibility as the node's renderPrompts)
+    const hideShotControls = isLtx || isFaceRefine || isPostprocess || isImageGen;
+    commonBtn.style.display = hideShotControls ? "none" : "";
+    autoPromptLbl.style.display = hideShotControls ? "none" : "flex";
+    splitBtn.style.display = hideShotControls ? "none" : "";
+    addBtn.style.display = hideShotControls ? "none" : "";
+    resetTAHBtn.style.display = hideShotControls ? "none" : "";
+    // Picture/Subject/Shot tag-inserters and Refine/Prompt Write/Prompt Edit all act on the H3 shot list's per-clip
+    // textareas — none of that exists in Image Generator's single plain prompt box, and Postprocess has no prompt at all,
+    // so they are hidden in those two (Face Refine / LTX Upscale keep them, as in the node).
+    tagBtnRow.style.display = isImageGen || isPostprocess ? "none" : "";
+    refineBtn.style.display = isImageGen || isPostprocess ? "none" : "";
+    writeBtn.style.display = isImageGen || isPostprocess ? "none" : "";
     const isCharSheetHdr = isImageGen && state.imageGenMode === "charsheet";
     // editBtn is repurposed as t2i/ref2i's own "🔍 Prompt Edit" (see its click handler's imagegen branch) — only truly
     // hidden for Character Sheet, which uses sysPromptSaveBtn/ResetBtn in this same slot instead.
@@ -1889,10 +1888,22 @@ export function renderMinimaxH3(container: HTMLElement) {
     tplBtn.style.display = isImageGen && !isCharSheetHdr ? "" : "none";
     sysPromptSaveBtn.style.display = isCharSheetHdr ? "" : "none";
     sysPromptResetBtn.style.display = isCharSheetHdr ? "" : "none";
-    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "REFINE PROMPT" : isImageGen ? "IMAGE PROMPT" : "PROMPTS";
-    autoPromptLbl.style.display = isLtx || isFaceRefine || isPostprocess || isImageGen ? "none" : "flex";
+    promptTitle.textContent = isLtx ? "UPSCALE PROMPT" : isFaceRefine ? "FACE REFINE PROMPT"
+      : isPostprocess ? "POSTPROCESS" : isImageGen ? "IMAGE PROMPT" : "PROMPTS";
+    promptList.style.gap = hideShotControls ? "6px" : "4px";
     if (isLtx) { renderLtxPrompt(); return; }
     if (isFaceRefine) { renderFaceRefinePrompt(); return; }
+    if (isPostprocess) {
+      promptTAObservers.forEach((o) => o.disconnect());
+      promptTAObservers = [];
+      allPromptTAs = [];
+      promptList.innerHTML = "";
+      promptList.appendChild(el("div", {
+        text: "No prompt needed — pick a source clip and the effects to chain in the left panel, then hit Preview.",
+        style: { fontSize: "12px", color: C.muted, lineHeight: "1.6", padding: "8px 2px" },
+      }));
+      return;
+    }
     if (isImageGen) { renderImageGenPrompt(); return; }
     // Each re-render rebuilds every clip's textarea from scratch, so the previous render's
     // ResizeObservers must be torn down first or they'd keep firing on detached nodes.

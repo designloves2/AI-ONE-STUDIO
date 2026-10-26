@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.14.1] — 2026-10-26
+
+### Changed
+- MiniMax H3: the prompt header buttons follow the node per mode (`PORT_LEDGER.md` row 69): Postprocess shows no buttons and a "No prompt needed" note, Image Generator only Prompt Edit / Templates, Face Refine keeps Picture-Subject-Shot / Refine / Prompt Write / Prompt Edit.
+
 ## [0.14.0] — 2026-10-26
 
 Node v1.47.0 and the asset-name fix on the web (`PORT_LEDGER.md` rows 64-68).

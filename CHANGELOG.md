@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.14.2] — 2026-10-26
+
+### Fixed
+- MiniMax H3 Postprocess: typing in Latent Upscale Final MP no longer rebuilds the left panel (it jumped the scroll to the top and dropped focus); the two MP warnings now update in place.
+
 ## [0.14.1] — 2026-10-26
 
 ### Changed

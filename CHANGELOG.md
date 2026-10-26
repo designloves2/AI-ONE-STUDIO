@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.14.3] — 2026-10-27
+
+### Added
+- MiniMax H3 Postprocess → Latent Upscale (Use H3): Split mode (long clips) with By seconds / By count (node v1.48.0, `PORT_LEDGER.md` row 70). Pieces are cut from the source with a whole-frame overlap, joined with ffmpeg, and the source's own sound goes under the joined clip; a reload resumes the run.
+
 ## [0.14.2] — 2026-10-26
 
 ### Fixed

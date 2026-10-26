@@ -2691,37 +2691,41 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   // Split mode of the LTX 2.5 upscale (a long clip is cut into pieces that run one after another, then joined).
   // `durNow` gives the source clip's length in seconds.
-  function ltxSplitControls(durNow: () => number): HTMLElement {
+  // `K` names the state keys, so the H3 Latent Upscale split keeps its own values.
+  const LTX_SPLIT_KEYS = { mode: "ltxSegmentMode", count: "ltxSegmentCount", sec: "ltxSegmentSeconds" };
+  const LTX_SPLIT_HELP = "Splitting a long/large clip into fixed-length pieces upscales each on its own queue turn (VRAM freed between turns) then ffmpeg-concats — each piece is first-frame-anchored + low-denoise so the joins are seamless.";
+  function ltxSplitControls(durNow: () => number, K = LTX_SPLIT_KEYS, help = LTX_SPLIT_HELP): HTMLElement {
+    const st: any = state;
     // "seconds" derives the piece count from a target size; "count" takes it directly.
     const segWrap = el("div", {});
     const renderSegWrap = () => {
       clear(segWrap);
-      const mode = state.ltxSegmentMode === "count" ? "count" : "seconds";
+      const mode = st[K.mode] === "count" ? "count" : "seconds";
       const segHint = el("div", { style: { fontSize: "13px", fontWeight: "700", color: BRAND, whiteSpace: "nowrap" } });
       const updateSegHint = () => {
         const d = durNow();
         if (mode === "count") {
-          const n = Math.max(1, Math.round(Number(state.ltxSegmentCount) || 1));
+          const n = Math.max(1, Math.round(Number(st[K.count]) || 1));
           if (n <= 1) segHint.textContent = "1 = whole clip, one pass";
           else if (!d) segHint.textContent = `${n} piece(s) — pick a source to see the length`;
           else segHint.textContent = `${n} piece(s) → ~${(d / n).toFixed(1)}s each      Total : ${d.toFixed(1)}s clip`;
         } else {
-          const s = Math.max(0, Number(state.ltxSegmentSeconds) || 0);
+          const s = Math.max(0, Number(st[K.sec]) || 0);
           if (!s) segHint.textContent = "0 = whole clip, one pass";
           else if (!d) segHint.textContent = `${s}s per piece — pick a source to see the piece count`;
           else segHint.textContent = `${s}s per piece → ${Math.max(1, Math.round(d / s))} piece(s)      Total : ${d.toFixed(1)}s clip`;
         }
       };
       updateSegHint();
-      const modeSel = select([{ value: "seconds", label: "By seconds" }, { value: "count", label: "By count" }], mode, (v) => { state.ltxSegmentMode = v; persist(); renderSegWrap(); });
+      const modeSel = select([{ value: "seconds", label: "By seconds" }, { value: "count", label: "By count" }], mode, (v) => { st[K.mode] = v; persist(); renderSegWrap(); });
       const valueField = mode === "count"
-        ? numberField(state.ltxSegmentCount ?? 2, (v) => { state.ltxSegmentCount = Math.max(1, Math.round(v)); persist(); updateSegHint(); }, 1)
-        : numberField(state.ltxSegmentSeconds ?? 5, (v) => { state.ltxSegmentSeconds = Math.max(0, Math.round(v)); persist(); updateSegHint(); }, 1);
+        ? numberField(st[K.count] ?? 2, (v) => { st[K.count] = Math.max(1, Math.round(v)); persist(); updateSegHint(); }, 1)
+        : numberField(st[K.sec] ?? 5, (v) => { st[K.sec] = Math.max(0, Math.round(v)); persist(); updateSegHint(); }, 1);
       const captionLabel = label(mode === "count" ? "Piece count (1 = whole clip)" : "Seconds per piece (0 = whole clip)");
       segWrap.append(el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } }, [
         el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } }, [
           label("Split mode"),
-          el("span", { text: "❔", title: "Splitting a long/large clip into fixed-length pieces upscales each on its own queue turn (VRAM freed between turns) then ffmpeg-concats — each piece is first-frame-anchored + low-denoise so the joins are seamless.", style: { cursor: "help", fontSize: "11px", color: C.muted } }),
+          el("span", { text: "❔", title: help, style: { cursor: "help", fontSize: "11px", color: C.muted } }),
         ]),
         row([col([modeSel]), col([valueField])]),
         captionLabel,
@@ -2730,6 +2734,14 @@ export function renderMinimaxH3(container: HTMLElement) {
     };
     renderSegWrap();
     return segWrap;
+  }
+
+  // Split mode of Latent Upscale (Use H3): the same piece-length / piece-count fields, with its own values.
+  function ppH3SplitControls(): HTMLElement {
+    return ltxSplitControls(
+      () => _ppSrcInfo?.duration || state.ppSourceMeta?.duration || 0,
+      { mode: "ppH3SegMode", count: "ppH3SegCount", sec: "ppH3SegSeconds" },
+      "Splitting a long clip into pieces: each piece is upscaled on its own queue turn (VRAM freed between turns), then ffmpeg joins them. The pieces tile the source exactly, so no frames are repeated; the sound is cut from the source the same way.");
   }
 
   // Steps / Denoise / Sampler / Scheduler of the LTX refine pass (defaults 4 / 0.15 / euler_ancestral / simple).
@@ -5046,6 +5058,12 @@ export function renderMinimaxH3(container: HTMLElement) {
           kids.push(ratioWarn, vramWarn);
           kids.push(col([label("Activation chunk rows"), numberField(state.ppH3ChunkRows ?? 2048,
             (v) => { state.ppH3ChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]));
+          // a long clip is upscaled in pieces, one after the other, then joined (the controls only show/hide, so the column stays put)
+          const ppH3SplitWrap = ppH3SplitControls();
+          ppH3SplitWrap.style.display = state.ppH3Split ? "" : "none";
+          kids.push(checkboxRow("Split mode (long clips)", !!state.ppH3Split, (v) => { state.ppH3Split = v; persist(); ppH3SplitWrap.style.display = v ? "" : "none"; },
+            { title: "Cut a long clip into pieces of the length you set, upscale each piece on its own queue turn, then join them with ffmpeg into one clip." }));
+          kids.push(ppH3SplitWrap);
           kids.push(el("div", { text: (kim
               ? `Kimchy: encodes the clip, runs one step at its own size${kind === "fl" ? " (first and last frame as keyframes)" : ""}, then the Kimchy node upscales to Final MP and runs its tile step on the prompt alone. `
               : `Re-runs only the last step of an 8-step H3 clip: upscales the latent to Final MP, then runs that step${kind === "fl" ? " with the first and last frame as keyframes" : ""}. `)
@@ -5163,6 +5181,32 @@ export function renderMinimaxH3(container: HTMLElement) {
   }
 
   // The pieces Split mode cuts a clip into: [{ window: { skip, cap } | null, suffix }] (node v1.47.0 ltxSegmentPasses).
+  // The pieces Split mode cuts a clip into for Latent Upscale (Use H3) (node h3SegmentPasses). An H3 piece is 17k+5 frames
+  // long, which rarely divides a clip evenly, so each piece starts `overlap` frames before the one before ends and the join
+  // trims that stretch off the later piece. No frame of the clip is lost.
+  function h3SegmentPasses(rs: MinimaxState, total: number, fps: number) {
+    const segMode = rs.ppH3SegMode === "count" ? "count" : "seconds";
+    const sSec = Math.max(0, Number(rs.ppH3SegSeconds) || 0);
+    const segCount = Math.max(1, Math.round(Number(rs.ppH3SegCount) || 1));
+    const maxPieces = Math.max(1, Math.floor((total - 5) / 22));   // every piece needs at least one 17-frame block + 5
+    let nPieces = 1;
+    if (segMode === "count") nPieces = Math.min(segCount, maxPieces);
+    else if (sSec > 0) nPieces = Math.min(maxPieces, Math.max(1, Math.round(total / Math.max(22, sSec * fps))));
+    if (nPieces < 2) return { passes: [{ window: null, suffix: "" }], overlap: 0 };
+    // blocks = the 17-frame blocks all pieces hold together; pick the fewest that cover the clip with a whole-frame overlap
+    let blocks = Math.max(nPieces, Math.ceil((total - 5 * nPieces) / 17));
+    while ((17 * blocks + 5 * nPieces - total) % (nPieces - 1)) blocks++;
+    const overlap = (17 * blocks + 5 * nPieces - total) / (nPieces - 1);
+    const passes: { window: { skip: number; cap: number } | null; suffix: string }[] = [];
+    let skip = 0;
+    for (let k = 0; k < nPieces; k++) {
+      const cap = 17 * (Math.floor(blocks / nPieces) + (k < blocks % nPieces ? 1 : 0)) + 5;
+      passes.push({ window: { skip, cap }, suffix: `_seg${String(k).padStart(2, "0")}` });
+      skip += cap - overlap;
+    }
+    return { passes, overlap };
+  }
+
   async function ltxSegmentPasses(rs: MinimaxState, sourceFile: string, srcMeta: any) {
     const segMode = rs.ltxSegmentMode === "count" ? "count" : "seconds";
     const sSec = Math.max(0, Number(rs.ltxSegmentSeconds) || 0);
@@ -5342,6 +5386,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // state._ppRelay, so a reload resumes with the next piece (or reattaches to the one in flight).
   async function ppRunSegments(R: any) {
     const N = R.passes.length, info = R.info;
+    const h3 = R.kind === "h3", tag = h3 ? "H3" : "LTX", sampler = h3 ? "MM:hr_sampler" : "LX:sampler";
     const folder = R.args.folder, prefix = `${R.args.folder}/${R.args.stem}${R.args.saveSuffix}`;
     let inFlightId: string | null = R.resumed ? R.curPromptId : null;
     if (inFlightId && !(await promptKnown(inFlightId))) inFlightId = null;   // ComfyUI lost it: queue the piece again
@@ -5351,24 +5396,25 @@ export function renderMinimaxH3(container: HTMLElement) {
       const prog = (v: number, m: number) => {
         const frac = (i + (m ? v / m : 0)) / N;
         barInner.style.width = `${(info.barBase + (100 - info.barBase) * frac).toFixed(1)}%`;
-        setStatus(`Postprocess: LTX segment ${i + 1}/${N}${m ? ` — ${Math.round((v / m) * 100)}%` : ""}`);
+        setStatus(`Postprocess: ${tag} segment ${i + 1}/${N}${m ? ` — ${Math.round((v / m) * 100)}%` : ""}`);
       };
-      setStatus(`Postprocess: LTX segment ${i + 1}/${N} (frames ${p.window.skip}–${p.window.skip + p.window.cap})`);
-      // each piece continues from the last frame of the one before, or the joins show
+      setStatus(`Postprocess: ${tag} segment ${i + 1}/${N} (frames ${p.window.skip}–${p.window.skip + p.window.cap})`);
+      // each LTX piece continues from the last frame of the one before, or the joins show; H3 pieces are cut from the source itself
       let anchorImage: string | null = null;
-      if (i > 0) {
+      if (i > 0 && !h3) {
         setStatus(`Postprocess: LTX segment ${i + 1}/${N} — reading the previous segment's last frame…`);
         anchorImage = await getClipLastFrame(R.parts[i - 1].filename, R.parts[i - 1].subfolder || "");
       }
       const built = buildPostprocessGraph({
         ...R.args, skipFirstFrames: (R.args.skipFirstFrames || 0) + p.window.skip, frameLoadCap: p.window.cap,
-        saveSuffix: p.suffix, upscale: { ...R.args.upscale, ltxAnchor: anchorImage },
+        saveSuffix: p.suffix,
+        upscale: h3 ? { ...R.args.upscale, h3: { ...R.args.upscale.h3, frames: p.window.cap } } : { ...R.args.upscale, ltxAnchor: anchorImage },
       }, ctx.availability || {});
       const reattachId = inFlightId || undefined;
       if (reattachId) setStatus(`Postprocess: reconnecting to segment ${i + 1}/${N} after the reload…`);
       inFlightId = null;
       const r = await queuePrompt(built.graph, {
-        onProgress: prog, samplerNode: "LX:sampler", existingPromptId: reattachId,
+        onProgress: prog, samplerNode: sampler, existingPromptId: reattachId,
         onQueued: (pid: string) => { R.curPromptId = pid; if (state._ppRelay) { state._ppRelay.curPromptId = pid; persist(); } },
       });
       const out = firstOutput(r.byNode, built.saveNode);
@@ -5380,7 +5426,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     let vid: any = R.parts[0];
     if (R.parts.length > 1) {
       setStatus(`Postprocess: joining ${R.parts.length} segments with ffmpeg…`);
-      const st = await stitchClips(R.parts.map((q: any) => ({ filename: q.filename, subfolder: q.subfolder || "" })), prefix, null, null, null);
+      // H3 pieces are cut from the source, so its own soundtrack goes under the joined clip: joining the pieces' audio would
+      // leave a few milliseconds of AAC padding at every join
+      const srcAudio = h3 ? { filename: R.args.inputFile, subfolder: "", type: "input" as const, start: (R.args.skipFirstFrames || 0) / (info.sourceMeta?.fps || FPS) } : null;
+      const st = await stitchClips(R.parts.map((q: any) => ({ filename: q.filename, subfolder: q.subfolder || "" })), prefix, null, R.overlapSec || null, srcAudio);
       vid = { filename: st.filename, subfolder: st.subfolder || "", type: "output" };
       // the pieces were scratch: drop them so the gallery keeps only the joined clip
       for (const q of R.parts) { try { await deleteImage(q.filename, q.subfolder || ""); } catch {} }
@@ -5410,6 +5459,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       let ltxState: any = null, h3State: any = null, h3Opts: any = null, usedPrompt = "";
       let h3Cap = 0, kimTiles = 0, barBase = 0;   // barBase: share of the bar the prompt stages already used
       let kimLo = 0;   // where the Kimchy tile step starts on the bar (after the first step)
+      let h3Total = 0, h3Fps = FPS;   // the source's frame count and rate, for Split mode
       if (state.ppUpscaleOn && ppMethod === "h3lat") {
         const info: any = _ppSrcInfo || {};
         const sm0: any = state.ppSourceMeta || {};
@@ -5418,6 +5468,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         if (!total) throw new Error("Could not read the clip's length — pick the source again.");
         const range = Math.round(Math.max(0, (state.ppPreviewEnd || 0) - (state.ppPreviewStart || 0)) * fps0);
         if (!full && range > 0) total = Math.min(total, range);
+        h3Total = total; h3Fps = fps0;
         // H3 clip lengths are 17n + 5 frames; extra tail frames are dropped
         const frames = Math.floor((total - 5) / 17) * 17 + 5;
         if (frames < 5) throw new Error("The clip is too short for Latent Upscale (Use H3).");
@@ -5510,9 +5561,11 @@ export function renderMinimaxH3(container: HTMLElement) {
         source: state.ppSource, sourceMeta: state.ppSourceMeta, sourceFullMeta: state.ppSourceFullMeta,
         kimTiles, kimLo, barBase, h3: !!h3Opts,
       };
-      const segPlan = (state.ppUpscaleOn && ppMethod === "ltx" && full) ? await ltxSegmentPasses(state, state.ppSource, state.ppSourceMeta) : null;
+      const h3Split = !!(state.ppUpscaleOn && ppMethod === "h3lat" && full && state.ppH3Split);
+      const segPlan: any = (state.ppUpscaleOn && ppMethod === "ltx" && full) ? await ltxSegmentPasses(state, state.ppSource, state.ppSourceMeta)
+        : h3Split ? h3SegmentPasses(state, h3Total, h3Fps) : null;
       if (segPlan && segPlan.passes.length > 1) {
-        state._ppRelay = { v: 2, seg: true, args: ppArgs, passes: segPlan.passes, parts: [], curPromptId: null, info: { ...info }, startedAt: Date.now() };
+        state._ppRelay = { v: 2, seg: true, kind: h3Split ? "h3" : "ltx", overlapSec: h3Split ? segPlan.overlap / h3Fps : 0, args: ppArgs, passes: segPlan.passes, parts: [], curPromptId: null, info: { ...info }, startedAt: Date.now() };
         persist();
         await ppRunSegments(state._ppRelay);
         return;

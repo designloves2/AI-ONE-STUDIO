@@ -508,6 +508,7 @@ export interface MinimaxState {
   // Postprocess → Latent Upscale (Use H3): own model / turbo / upscaler settings (a new field starts from the main value once)
   ppH3TurboMode: string; ppH3PddFile: string; ppH3PddFileReference: string; ppH3LastFixed: boolean; ppH3PddStrength: number;
   ppH3Upscaler: "h3" | "kimchy"; ppH3UpModel: string; ppH3FinalMp: number; ppH3KimFinalMp: number; ppH3ChunkRows: number; ppH3NoOpt: boolean;
+  ppH3Split: boolean; ppH3SegMode: "seconds" | "count"; ppH3SegSeconds: number; ppH3SegCount: number;
   // A run that was in flight when the page went away (kept through the state whitelist, so a reload can reattach)
   // (_ltxRelay above; clip generation keeps its run record in the view's own RunProgress)
   _ppRelay: any; _frRelay: any;
@@ -2399,6 +2400,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ppH3KimFinalMp: (saved as any).ppH3KimFinalMp ?? 2.0,
     ppH3ChunkRows: (saved as any).ppH3ChunkRows ?? 2048,
     ppH3NoOpt: !!(saved as any).ppH3NoOpt,
+    // long clips: the Latent Upscale runs in pieces of ppH3SegSeconds (or ppH3SegCount pieces), then they are joined
+    ppH3Split: !!(saved as any).ppH3Split,
+    ppH3SegMode: (saved as any).ppH3SegMode === "count" ? "count" : "seconds",
+    ppH3SegSeconds: (saved as any).ppH3SegSeconds ?? 5,
+    ppH3SegCount: (saved as any).ppH3SegCount ?? 2,
     ppSource: saved.ppSource || "",
     ppSourceKind: saved.ppSourceKind || "gallery",
     ppSourceMeta: saved.ppSourceMeta || null,

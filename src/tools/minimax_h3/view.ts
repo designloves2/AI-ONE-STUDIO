@@ -101,6 +101,7 @@ import {
   uploadMedia,
   viewUrl,
   deleteVideo,
+  deleteImage,
   analyzeImagesOpenRouter,
   analyzeImagesNative,
   analyzeImageLlama,
@@ -121,7 +122,7 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
-import { hiresActive, hiresSizes, normalizeAssetRef } from "./core";
+import { hiresActive, hiresSizes, hiresMp, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, kimchyTileCount, normalizeAssetRef } from "./core";
 import { mountAssetBrowser } from "../../shared/reflibBrowser";
 import { assetRefActive } from "../../shared/reflibRefpanel";
 import { libraryRefFor, libraryContextCached } from "../../shared/reflibLlm";
@@ -554,7 +555,17 @@ export function renderMinimaxH3(container: HTMLElement) {
     class: "absolute inset-0 z-[5] flex items-center justify-center text-center hidden",
     style: { background: "rgba(0,0,0,0.55)" },
   });
-  function setPpBusy(on: boolean, full = true) {
+  // The source clip's first frame behind the banner, so a long wait does not look like an empty screen.
+  const ppBackdrop = el("video", { muted: true, playsinline: "", preload: "metadata", style: {
+    display: "none", position: "absolute", inset: "0", width: "100%", height: "100%",
+    objectFit: "contain", background: "#000", zIndex: "4",
+  } }) as HTMLVideoElement;
+  function setPpBusy(on: boolean, full = true, backdropFile = "") {
+    if (on && backdropFile) {
+      ppBackdrop.src = `${comfyApi.base}/view?filename=${encodeURIComponent(backdropFile)}&type=input#t=0.1`;
+      ppBackdrop.style.display = "block";
+    }
+    if (!on) { ppBackdrop.style.display = "none"; ppBackdrop.removeAttribute("src"); }
     if (on) {
       ppBanner.innerHTML = `<div style='font-size:16px;font-weight:700;color:${BRAND};text-shadow:0 0 12px rgba(181,123,255,0.5);padding:24px 16px;'>${
         full ? "후보정을 반영하여 처리중입니다. 잠시 기다려주세요." : "미리보기 처리중입니다. 잠시 기다려주세요."
@@ -642,7 +653,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (savedH && Number.isFinite(savedH)) previewBox.style.flex = `0 0 ${Math.max(220, Math.min(1600, savedH))}px`;
   } catch {}
 
-  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, hiresBanner, ppBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
+  previewBox.append(placeholder, previewImg, previewVid, resultVid, previewOffMsg, frDetectBanner, fvsrBanner, hiresBanner, ppBackdrop, ppBanner, badge, fsBtn, compareBtn, previewToggleBtn, resizeHandle);
 
   let lastResultURL: string | null = null;
   // Captured at the moment the result is shown (showResultVideo), NOT re-derived from live
@@ -1397,14 +1408,14 @@ export function renderMinimaxH3(container: HTMLElement) {
   // original" is the whole job. Mirrors renderLtxPrompt/ltxWritePrompt/ltxConvertToLtx (node
   // 8427b5b + review rounds).
   let _ltxBusy = false;
-  async function grabSampleFrames(): Promise<string[]> {
+  async function grabSampleFrames(srcFile: string = state.ltxSource, perSec = 1.5, maxN = 10, minN = 3): Promise<string[]> {
     // client-side: sample several frames spread across the clip (not just frame 0) and upload each
     // as a PNG — one frame alone can't show action or camera movement, and the LTX-2.5 prompt format
     // needs both. Roughly 1.5 frames/sec of clip, clamped so a short clip still gets a minimum spread
     // and a long one doesn't balloon the vision call — LTX Upscale's own ceiling is ~8s/pass anyway.
-    if (!state.ltxSource) throw new Error("No source clip.");
+    if (!srcFile) throw new Error("No source clip.");
     const v = document.createElement("video");
-    v.src = `${comfyApi.base}/view?filename=${encodeURIComponent(state.ltxSource)}&type=input`;
+    v.src = `${comfyApi.base}/view?filename=${encodeURIComponent(srcFile)}&type=input`;
     v.muted = true; v.crossOrigin = "anonymous";
     await new Promise<void>((res, rej) => {
       v.addEventListener("loadeddata", () => res(), { once: true });
@@ -1412,7 +1423,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       setTimeout(() => rej(new Error("Source video load timed out.")), 15000);
     });
     const dur = Math.max(0.1, v.duration || 0);
-    const count = Math.min(10, Math.max(3, Math.round(dur * 1.5)));
+    const count = Math.min(maxN, Math.max(minN, Math.round(dur * perSec)));
     const cv = document.createElement("canvas");
     cv.width = v.videoWidth || 1024; cv.height = v.videoHeight || 576;
     const ctx2d = cv.getContext("2d")!;
@@ -2300,12 +2311,31 @@ export function renderMinimaxH3(container: HTMLElement) {
               style: { fontSize: "10px", color: name ? C.muted : C.warn, wordBreak: "break-all" } })] : []),
           ]);
         })(),
+        (() => {
+          // capsule switch: A = H3 Latent Up Scaler (default), B = H3 Kimchy Up Scaler
+          const kim = state.hiresUpscaler === "kimchy";
+          const half = (text: string, on: boolean, tip: string, v: "h3" | "kimchy") => el("div", { text, title: tip, style: {
+            flex: "1", textAlign: "center", padding: "4px 6px", fontSize: "11px", cursor: "pointer",
+            background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : C.muted, fontWeight: on ? "700" : "400",
+          }, onclick: () => { state.hiresUpscaler = v; persist(); renderLeft(); } });
+          const availKnown = ctx.availability && Object.keys(ctx.availability).length;
+          return col([label("Upscaler"),
+            el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
+              [half("H3 Latent Upscaler", !kim, "A : 기존 방식 : H3 Latent Up Scaler", "h3"),
+               half("H3 Kimchy Up Scaler", kim, "B : 신규 추가 : H3 Kimchy Up Scaler", "kimchy")]),
+            ...(kim ? [
+              ...(availKnown && !ctx.availability?.KimchyH3ZeroSplitMP
+                ? [el("div", { html: "⚠ <code>KimchyH3ZeroSplitMP</code> not installed — this option is skipped at run time.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })] : []),
+              el("div", { text: "Kimchy runs the upscale and the last step in one node (Sol-Attn is not used). Final MP must be 1.0 – 8.5.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+            ] : []),
+          ]);
+        })(),
         checkboxRow("Bypass H3 Memory Optimization on the last step", !!state.hiresNoOpt, (v) => {
           state.hiresNoOpt = v; persist(); renderLeft();
         }, { title: "Skip only the H3 Memory Optimization node on the last (large) step. Sol-Attn stays on. Use it if the last step fails with a shape error." }),
         row([
-          col([label("Start MP"), numberField(state.hiresStartMp ?? 0.7, (v) => { state.hiresStartMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
-          col([label("Final MP"), numberField(state.hiresFinalMp ?? 1.6, (v) => { state.hiresFinalMp = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+          col([label("Start MP"), numberField(hiresMp(state).start, (v) => { (state as any)[state.hiresUpscaler === "kimchy" ? "hiresKimStartMp" : "hiresStartMp"] = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+          col([label("Final MP"), numberField(hiresMp(state).final, (v) => { (state as any)[state.hiresUpscaler === "kimchy" ? "hiresKimFinalMp" : "hiresFinalMp"] = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
         ]),
         col([label("Activation chunk rows"), numberField(state.hiresChunkRows ?? 2048, (v) => { state.hiresChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]),
         hiresLine,
@@ -2614,6 +2644,133 @@ export function renderMinimaxH3(container: HTMLElement) {
     };
     vid.addEventListener("loadedmetadata", apply);
     apply();
+  }
+
+  // LTX LoRA list editor, shared by Postprocess → C. Upscale → LTX 2.5 Upscale (node v1.47.0 makeLtxLoraWrap).
+  function makeLtxLoraWrap(): HTMLElement {
+    if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
+    const loraOpts = ["none", ...availableLoras.filter((x) => x !== "none")];
+    const ltxL: LtxLoraEntry[] = state.ltxLoras ||= [];
+    const ltxLoraWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } });
+    const renderLtxLoras = () => {
+      clear(ltxLoraWrap);
+      ltxL.forEach((l, i) => {
+        const off = l.enabled === false;
+        const card = el("div", { style: { border: `1px solid ${off ? C.dim : C.border}`, borderRadius: "6px", padding: "6px", display: "flex", flexDirection: "column", gap: "5px", opacity: off ? "0.55" : "1" } });
+        const head = el("div", { style: { display: "flex", alignItems: "center", gap: "5px" } });
+        const tog = el("button", { type: "button", text: off ? "OFF" : "ON", style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "10px", border: "none", fontWeight: "700", background: off ? "#444" : BRAND, color: "#fff" },
+          onclick: () => { l.enabled = off; persist(); renderLtxLoras(); } });
+        const strWrap = el("div", { style: { flexShrink: "0", width: "62px" } });
+        strWrap.appendChild(numberField(l.strength ?? 1.0, (v) => { l.strength = v; persist(); }, 0.05));
+        const del = el("button", { type: "button", text: "✕", title: "Remove", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.err, border: "none", fontSize: "11px", padding: "2px 4px" },
+          onclick: () => { ltxL.splice(i, 1); persist(); renderLtxLoras(); } });
+        head.append(tog, el("div", { style: { flex: "1" } }), strWrap, del);
+        const sel = searchableSelect(loraOpts, l.name || "none", (v) => { l.name = v; persist(); });
+        card.append(head, sel.el);
+        ltxLoraWrap.appendChild(card);
+      });
+      const add = el("button", { type: "button", text: "+ Add LoRA", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "5px 10px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+        onclick: () => { ltxL.push({ name: "none", strength: 1.0, enabled: true }); persist(); renderLtxLoras(); } });
+      ltxLoraWrap.appendChild(add);
+      ltxLoraWrap.appendChild(el("div", { text: "Loads on the LTX 2.5 unet (before the attention patch). Separate from the H3 LoRA list.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+    };
+    renderLtxLoras();
+    return ltxLoraWrap;
+  }
+
+  // Split mode of the LTX 2.5 upscale (a long clip is cut into pieces that run one after another, then joined).
+  // `durNow` gives the source clip's length in seconds.
+  function ltxSplitControls(durNow: () => number): HTMLElement {
+    // "seconds" derives the piece count from a target size; "count" takes it directly.
+    const segWrap = el("div", {});
+    const renderSegWrap = () => {
+      clear(segWrap);
+      const mode = state.ltxSegmentMode === "count" ? "count" : "seconds";
+      const segHint = el("div", { style: { fontSize: "13px", fontWeight: "700", color: BRAND, whiteSpace: "nowrap" } });
+      const updateSegHint = () => {
+        const d = durNow();
+        if (mode === "count") {
+          const n = Math.max(1, Math.round(Number(state.ltxSegmentCount) || 1));
+          if (n <= 1) segHint.textContent = "1 = whole clip, one pass";
+          else if (!d) segHint.textContent = `${n} piece(s) — pick a source to see the length`;
+          else segHint.textContent = `${n} piece(s) → ~${(d / n).toFixed(1)}s each      Total : ${d.toFixed(1)}s clip`;
+        } else {
+          const s = Math.max(0, Number(state.ltxSegmentSeconds) || 0);
+          if (!s) segHint.textContent = "0 = whole clip, one pass";
+          else if (!d) segHint.textContent = `${s}s per piece — pick a source to see the piece count`;
+          else segHint.textContent = `${s}s per piece → ${Math.max(1, Math.round(d / s))} piece(s)      Total : ${d.toFixed(1)}s clip`;
+        }
+      };
+      updateSegHint();
+      const modeSel = select([{ value: "seconds", label: "By seconds" }, { value: "count", label: "By count" }], mode, (v) => { state.ltxSegmentMode = v; persist(); renderSegWrap(); });
+      const valueField = mode === "count"
+        ? numberField(state.ltxSegmentCount ?? 2, (v) => { state.ltxSegmentCount = Math.max(1, Math.round(v)); persist(); updateSegHint(); }, 1)
+        : numberField(state.ltxSegmentSeconds ?? 5, (v) => { state.ltxSegmentSeconds = Math.max(0, Math.round(v)); persist(); updateSegHint(); }, 1);
+      const captionLabel = label(mode === "count" ? "Piece count (1 = whole clip)" : "Seconds per piece (0 = whole clip)");
+      segWrap.append(el("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } }, [
+        el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } }, [
+          label("Split mode"),
+          el("span", { text: "❔", title: "Splitting a long/large clip into fixed-length pieces upscales each on its own queue turn (VRAM freed between turns) then ffmpeg-concats — each piece is first-frame-anchored + low-denoise so the joins are seamless.", style: { cursor: "help", fontSize: "11px", color: C.muted } }),
+        ]),
+        row([col([modeSel]), col([valueField])]),
+        captionLabel,
+        segHint,
+      ]));
+    };
+    renderSegWrap();
+    return segWrap;
+  }
+
+  // Steps / Denoise / Sampler / Scheduler of the LTX refine pass (defaults 4 / 0.15 / euler_ancestral / simple).
+  function ltxRefineRows(): HTMLElement[] {
+    return [
+      row([
+        col([label("Steps"), numberField(state.ltxSteps ?? 4, (v) => { state.ltxSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
+        col([label("Denoise"), numberField(state.ltxDenoise ?? 0.15, (v) => { state.ltxDenoise = Math.min(1, Math.max(0.01, v)); persist(); }, 0.01)]),
+      ]),
+      row([
+        col([label("Sampler"), select(LTX_SAMPLERS.map((s) => ({ value: s, label: s })), state.ltxSampler || "euler_ancestral", (v) => { state.ltxSampler = v; persist(); })]),
+        col([label("Scheduler"), select(LTX_SCHEDULERS.map((s) => ({ value: s, label: s })), state.ltxScheduler || "simple", (v) => { state.ltxScheduler = v; persist(); })]),
+      ]),
+    ];
+  }
+
+  // Prompt for Postprocess → LTX 2.5 Upscale: a ONE STUDIO clip carries its own prompt in its meta (an H3 brief is
+  // rewritten as an LTX prompt); any other clip is read from sampled frames. A failure stops the run, never an empty prompt.
+  async function ppLtxPrompt(): Promise<string> {
+    const keep = { p: state.ltxPrompt, s: state.ltxSource };
+    try {
+      const meta = String(state.ppSourceFullMeta?.prompt || "").trim();
+      state.ltxSource = state.ppSource;
+      if (meta && /\[Shot|<Picture|subject_definitions|technical_settings|integrated_multimodal_description/.test(meta)) {
+        state.ltxPrompt = meta; await ltxConvertToLtx();
+        if (state.ltxPrompt.trim() === meta) throw new Error("Could not rewrite the clip's saved H3 prompt for LTX — check ⚙ Settings → LLM Setting → LTX Upscale.");
+      } else if (meta) {
+        state.ltxPrompt = meta;
+      } else {
+        state.ltxPrompt = ""; await ltxWritePrompt();
+        if (!state.ltxPrompt.trim()) throw new Error("Could not write an LTX prompt from the clip's frames — check ⚙ Settings → LLM Setting → LTX Upscale.");
+      }
+      return state.ltxPrompt.trim();
+    } finally { state.ltxPrompt = keep.p; state.ltxSource = keep.s; }
+  }
+
+  // Prompt for Postprocess → Latent Upscale (Use H3): a ONE STUDIO H3 clip keeps its own brief; anything else (LTX
+  // prompt, reference-mode brief, no meta) is written as an H3 first/last brief from frames.
+  async function ppH3Prompt(seconds: number): Promise<string> {
+    const meta = String(state.ppSourceFullMeta?.prompt || "").trim();
+    const own = meta && /integrated_multimodal_description|\[Shot 1\]/.test(meta)
+      && !/<(?:Picture|Video|Audio)\b|@\w/.test(meta) && state.ppSourceFullMeta?.mode !== "reference";
+    if (own) return meta;
+    barInner.style.width = "3%"; setStatus("Postprocess: sampling frames…");
+    const frames = await grabSampleFrames(state.ppSource, 1, 8, 2);
+    // the bar steps through the prompt stages (frames 3% → analysis 8–18% → brief 20%); rendering fills the rest
+    const onStage = (t: string) => {
+      const m = /Analyzing image (\d+)\/(\d+)/.exec(t);
+      barInner.style.width = /Writing/.test(t) ? "20%" : m ? `${8 + 10 * Number(m[1]) / Number(m[2])}%` : /Analyzing/.test(t) ? "8%" : barInner.style.width;
+      setStatus(`Postprocess: ${t}`);
+    };
+    return await promptEditOv.writeFromVideo({ base: meta, frames, seconds, onStage });
   }
 
   function renderLtxUpscaleLeft() {
@@ -4784,8 +4941,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     // upscaleModel/rtx*/flashvsr* state fields the main Upscale accordion + gallery Upscale bar
     // already use; only this on/off flag and the menu order/labels are Postprocess-specific.
     const PP_UPSCALE_METHODS = [
+      { value: "h3lat", label: "Latent Upscale (Use H3)" },
       { value: "flashvsr", label: "FlashVSR" },
-      { value: "rtx", label: "RTX VSR (TJ)" },
+      { value: "ltx", label: "LTX 2.5 Upscale" },
+      { value: "rtx", label: "RTX VSR(TJ)" },
       { value: "model", label: "Model" },
     ];
     leftPanel.appendChild(accordion("ppUpscale", "C. Upscale",
@@ -4806,6 +4965,86 @@ export function renderMinimaxH3(container: HTMLElement) {
           ]));
         } else if (method === "rtx") {
           kids.push(...rtxSizeControlsKeyed(RTX_KEYS_SOLO));
+        } else if (method === "h3lat") {
+          // The 7+1 last-step options, kept separately for Postprocess (pp*). The models come from Settings; the Turbo LoRAs are this panel's own.
+          const kim = state.ppH3Upscaler === "kimchy";
+          const kind = ppH3Kind(state.ppSourceFullMeta);
+          if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
+          const loraOptsPp = ["none", ...availableLoras.filter((x) => x !== "none")];
+          const baseName = (p: any) => String(p || "").split(/[\\/]/).pop();
+          kids.push(col([label("Turbo"), select([{ value: "pdd", label: "Turbo LoRA (Basic)" }, { value: "none", label: "None (8-step checkpoint)" }],
+            state.ppH3TurboMode, (v) => { state.ppH3TurboMode = v; persist(); renderLeft(); })]));
+          if (state.ppH3TurboMode === "pdd") {
+            kids.push(col([label(`Turbo LoRA (Basic)${kind === "fl" ? " ●" : ""}`),
+              searchableSelect(loraOptsPp, state.ppH3PddFile || "none", (v) => { state.ppH3PddFile = v; persist(); }).el]));
+            kids.push(col([label(`Turbo LoRA (Reference)${kind === "ref" ? " ●" : ""}`),
+              searchableSelect(loraOptsPp, state.ppH3PddFileReference || "none", (v) => { state.ppH3PddFileReference = v; persist(); }).el]));
+            kids.push(col([label("lora strength"), numberField(state.ppH3PddStrength ?? 1.0, (v) => { state.ppH3PddStrength = v; persist(); }, 0.05)]));
+          }
+          {
+            // slot-style switch, same as the 7+1 "Last step model": left = the main model of this clip's family, right = the fixed one
+            const fixed = !!state.ppH3LastFixed;
+            const slot = (text: string, on: boolean) => el("div", { text, style: {
+              flex: "1", textAlign: "center", padding: "4px 6px", fontSize: "11px", cursor: "pointer",
+              background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : C.muted, fontWeight: on ? "700" : "400",
+            }, onclick: () => { state.ppH3LastFixed = !fixed; persist(); renderLeft(); } });
+            const mainModel = baseName(kind === "ref" ? state.unetReference : state.unetFirstLast);
+            const fixedModel = baseName(state.hiresLastModel);
+            kids.push(col([label("Model"),
+              el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
+                [slot("Same as generation", !fixed), slot("Fixed model", fixed)]),
+              el("div", { text: fixed ? (fixedModel || "⚠ none set — Settings → Models → 7+1 last step")
+                                      : (mainModel || `⚠ none set — Settings → Models (${kind === "ref" ? "Reference" : "First/Last"})`),
+                style: { fontSize: "10px", color: (fixed ? fixedModel : mainModel) ? C.muted : C.warn, wordBreak: "break-all" } })]));
+          }
+          const half = (text: string, on: boolean, tip: string, v: "h3" | "kimchy") => el("div", { text, title: tip, style: {
+            flex: "1", textAlign: "center", padding: "4px 6px", fontSize: "11px", cursor: "pointer",
+            background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : C.muted, fontWeight: on ? "700" : "400",
+          }, onclick: () => { state.ppH3Upscaler = v; persist(); renderLeft(); } });
+          kids.push(col([label("Upscaler"),
+            el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
+              [half("H3 Latent Upscaler", !kim, "A : 기존 방식 : H3 Latent Up Scaler", "h3"),
+               half("H3 Kimchy Up Scaler", kim, "B : 신규 추가 : H3 Kimchy Up Scaler", "kimchy")])]));
+          if (kim) kids.push(col([label("Latent upscale"), select([
+            { value: "neural", label: "Neural (Kimchy's trained upscaler)" },
+            { value: "bicubic", label: "Bicubic (plain interpolation)" },
+            { value: "trilinear", label: "Trilinear (plain interpolation)" }],
+            state.ppH3UpModel, (v) => { state.ppH3UpModel = v; persist(); })]));
+          kids.push(checkboxRow("Bypass H3 Memory Optimization", !!state.ppH3NoOpt, (v) => { state.ppH3NoOpt = v; persist(); },
+            { title: "Skip only the H3 Memory Optimization node. Use it with FastH3 checkpoints." }));
+          kids.push(col([label("Final MP"), numberField(kim ? state.ppH3KimFinalMp : state.ppH3FinalMp,
+            (v) => { (state as any)[kim ? "ppH3KimFinalMp" : "ppH3FinalMp"] = Math.max(0.1, v); persist(); renderLeft(); }, 0.1)]));
+          // The neural latent upscaler is made for about 2x; at a ratio near 1 it leaves a diagonal grid on fine textures.
+          {
+            const sm: any = state.ppSourceMeta || {};
+            const mpNow = kim ? state.ppH3KimFinalMp : state.ppH3FinalMp;
+            const ratio = sm.w && sm.h ? Math.sqrt(mpNow * 1e6 / (sm.w * sm.h)) : 0;
+            if (ratio && ratio < 1.3 && !(kim && state.ppH3UpModel !== "neural")) kids.push(el("div", {
+              text: `⚠ This is a ×${ratio.toFixed(2)} upscale. The neural upscaler is made for about ×2 and leaves a diagonal grid on fine textures (hair, fabric) near ×1. `
+                + (kim ? "Raise Final MP, or switch Latent upscale to Bicubic for a small ratio." : "Raise Final MP, or use the Kimchy upscaler with Bicubic for a small ratio."),
+              style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
+          }
+          // the Kimchy node samples in tiles, so it can go past what fits in VRAM; the whole-picture step cannot
+          if (!kim && (state.ppH3FinalMp ?? 1.6) > 1.6) kids.push(el("div", { text: "⚠ On a 16 GB VRAM card, above 1.6 MP the H3 Latent Upscaler can run out of VRAM and spill to the CPU (an hour or more). 1.6 is its sweet spot; the Kimchy upscaler handles 2.0.",
+            style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
+          kids.push(col([label("Activation chunk rows"), numberField(state.ppH3ChunkRows ?? 2048,
+            (v) => { state.ppH3ChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]));
+          kids.push(el("div", { text: (kim
+              ? `Kimchy: encodes the clip, runs one step at its own size${kind === "fl" ? " (first and last frame as keyframes)" : ""}, then the Kimchy node upscales to Final MP and runs its tile step on the prompt alone. `
+              : `Re-runs only the last step of an 8-step H3 clip: upscales the latent to Final MP, then runs that step${kind === "fl" ? " with the first and last frame as keyframes" : ""}. `)
+            + `This clip runs as ${kind === "ref" ? "Reference (REF2VA)" : "First/Last (FL2VA)"} (● marks the LoRA it uses). `
+            + "These settings are separate from the main H3 modes. A ONE STUDIO clip's own prompt is used; any other clip is read from its frames and written as an H3 brief.",
+            style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
+        } else if (method === "ltx") {
+          if (!ltxUpscaleReady(state)) {
+            kids.push(el("div", { text: "⚙ Set the LTX 2.5 models first (Settings → LTX 2.5 Upscale) — missing: " + ltxUpscaleMissing(state).join(", "),
+              style: { fontSize: "11px", color: C.warn, lineHeight: "1.5" } }));
+          }
+          kids.push(label("UPSCALE SETTING"), ...ltxRefineRows(),
+            ltxSplitControls(() => _ppSrcInfo?.duration || state.ppSourceMeta?.duration || 0),
+            label("LTX LoRA"), makeLtxLoraWrap(),
+            el("div", { text: "The prompt comes from the clip's own ONE STUDIO meta, otherwise it is written from sampled frames. Split mode cuts a long clip into pieces (each continues from the last frame of the one before) and joins them; Preview always runs the range in one pass.",
+              style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
         } else {
           kids.push(row([col([label("Model"), select(
             (ctx.availableModels?.upscale_models || ["none"]).map((m: string) => ({ value: m, label: m })),
@@ -4906,51 +5145,309 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftOuter.appendChild(seedGenWrap);
   }
 
+  // The pieces Split mode cuts a clip into: [{ window: { skip, cap } | null, suffix }] (node v1.47.0 ltxSegmentPasses).
+  async function ltxSegmentPasses(rs: MinimaxState, sourceFile: string, srcMeta: any) {
+    const segMode = rs.ltxSegmentMode === "count" ? "count" : "seconds";
+    const sSec = Math.max(0, Number(rs.ltxSegmentSeconds) || 0);
+    const segCount = Math.max(1, Math.round(Number(rs.ltxSegmentCount) || 1));
+    let passes: { window: { skip: number; cap: number } | null; suffix: string }[] = [{ window: null, suffix: "" }];
+    if ((segMode === "count" && segCount > 1) || (segMode === "seconds" && sSec > 0)) {
+      let srcInfo: any = null;
+      try { srcInfo = await getVideoInfo(sourceFile, "", "input"); } catch {}
+      const sFps = (srcInfo && srcInfo.fps) || srcMeta?.fps || FPS;
+      const total = (srcInfo && srcInfo.frames) || Math.round((srcMeta?.duration || 0) * sFps) || 0;
+      // LTX 2.5's video VAE only takes 8n+1 pixel frames cleanly (not H3's 17k+5)
+      const snap8n1 = (n: number) => 8 * Math.max(0, Math.round((n - 1) / 8)) + 1;
+      // "count" takes the piece count directly; "seconds" derives it from the target size so a leftover of a
+      // single frame never becomes a piece of its own (it would reload the whole model for nothing)
+      const nPieces = segMode === "count"
+        ? Math.min(segCount, Math.max(1, Math.floor(total / 9)))
+        : Math.max(1, Math.round(total / Math.max(9, snap8n1(sSec * sFps))));
+      if (nPieces > 1 && total > 9) {
+        const pieceLen = Math.max(9, snap8n1(Math.round(total / nPieces)));
+        passes = [];
+        let skip = 0;
+        for (let k = 0; k < nPieces; k++) {
+          const cap = k === nPieces - 1 ? (total - skip) : pieceLen;   // only the last piece takes a raw remainder
+          if (cap <= 0) break;
+          passes.push({ window: { skip, cap }, suffix: `_seg${String(k).padStart(2, "0")}` });
+          skip += cap;
+        }
+      }
+    }
+    return { passes, segSec: sSec };
+  }
+
   let ppRunning = false;
+
+  // ── Postprocess run: progress, finish, busy state ───────────────────────────
+  // They take `info` (what the run needs to be shown and finished) instead of reading the closure of one click, so a
+  // run that was queued before a reload can be picked up again.
+  function ppProgress(info: any) {
+    let kimDone = 0, kimMark = 0, kimTimer: number | null = null, kimExec: ((ev: any) => void) | null = null;
+    const kimDurs: number[] = [];
+    const fmtDur = (ms: number) => { const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+    // one tile = one single-step sample, shown like the console bar: "1/1 [00:45<00:00, 45.12s/it]"
+    const fmtIt = (ms: number) => `${(ms / 1000).toFixed(2)}s/it`;
+    // tile 1 also covers the Kimchy node's load and latent upscale, so the estimate leans on the tiles after it
+    const kimLine = () => {
+      const cur = Math.min(kimDone + 1, info.kimTiles);
+      const parts = [`Postprocess: Kimchy tile ${cur}/${info.kimTiles}`];
+      if (kimDone < info.kimTiles) parts.push(`running ${fmtDur(Date.now() - kimMark)}`);
+      if (kimDurs.length) parts.push(`tile ${kimDurs.length} took ${fmtDur(kimDurs[kimDurs.length - 1])} (${fmtIt(kimDurs[kimDurs.length - 1])}${kimDurs.length === 1 ? ", incl. load" : ""})`);
+      const base = kimDurs.length > 1 ? kimDurs.slice(1) : kimDurs;
+      if (base.length && kimDone < info.kimTiles) {
+        const avg = base.reduce((a, d) => a + d, 0) / base.length;
+        parts.push(`avg ${fmtIt(avg)}`, `ETA ~${fmtDur(Math.max(0, avg * (info.kimTiles - kimDone) - (Date.now() - kimMark)))}`);
+      }
+      if (info.resumed) parts.push("reconnected: tile numbers restart here, the run itself is unaffected");
+      return parts.join(" · ") + (kimDone >= info.kimTiles ? " — finishing" : "");
+    };
+    // the bar counts finished tiles, plus a share of the running one once an average is known
+    const kimBar = () => {
+      const base = kimDurs.length > 1 ? kimDurs.slice(1) : kimDurs;
+      const avg = base.length ? base.reduce((a, d) => a + d, 0) / base.length : 0;
+      const part = avg ? Math.min(0.95, (Date.now() - kimMark) / avg) : 0;
+      const frac = (kimDone + (kimDone < info.kimTiles ? part : 0)) / info.kimTiles;
+      const lo = info.kimLo || info.barBase;
+      barInner.style.width = `${Math.min(100, lo + (98 - lo) * frac).toFixed(1)}%`;
+    };
+    return {
+      start() {
+        if (!info.kimTiles) return;
+        kimMark = Date.now();
+        // the clock for tile 1 starts when the Kimchy node starts, not when the queue was submitted
+        kimExec = (ev: any) => { const d = ev && "detail" in ev ? ev.detail : ev; if ((d && d.node != null ? d.node : d) === "MM:hr_kimchy_upscale") kimMark = Date.now(); };
+        comfyApi.addEventListener("executing", kimExec);
+        kimTimer = window.setInterval(() => { if (kimDone < info.kimTiles) { setStatus(kimLine()); kimBar(); } }, 1000);
+      },
+      stop() {
+        if (kimTimer) window.clearInterval(kimTimer);
+        if (kimExec) comfyApi.removeEventListener("executing", kimExec);
+      },
+      onProgress: (v: number, m: number, nodeId?: string) => {
+        // the Kimchy upscaler runs one single-step sampler per tile, so each tile is one tick of 1/1
+        if (info.kimTiles && nodeId === "MM:hr_kimchy_upscale" && m === 1) {
+          if (v >= 1) { kimDurs.push(Date.now() - kimMark); kimMark = Date.now(); kimDone++; }
+          setStatus(kimLine()); kimBar();
+          return;
+        }
+        // Latent Upscale (Use H3): the sampler is the step at the clip's own size (Kimchy) or the last step (H3 Latent Upscaler)
+        if (info.h3 && nodeId === "MM:hr_sampler") {
+          const hi = info.kimTiles ? info.kimLo : 95;
+          barInner.style.width = `${(info.barBase + (hi - info.barBase) * (v / (m || 1))).toFixed(1)}%`;
+          setStatus(`Postprocess: ${info.kimTiles ? "step 1 at the clip's own size" : "last step"} — ${Math.round((v / (m || 1)) * 100)}%`);
+          return;
+        }
+        barInner.style.width = `${Math.round(info.barBase + (100 - info.barBase) * (v / (m || 1)))}%`;
+        setStatus(`Postprocess: ${info.usedSteps.join(" + ")} — ${Math.round((v / (m || 1)) * 100)}%`);
+      },
+    };
+  }
+
+  function ppBusyOn(info: any) {
+    ppRunning = true; running = true; stopRequested = false;
+    genBtn.disabled = true; ppPreviewBtn.disabled = true;
+    (info.full ? genBtn : ppPreviewBtn).textContent = info.full ? "⏳ Running…" : "⏳ Preview…";
+    setPpBusy(true, !!info.full, info.source || "");
+  }
+  async function ppBusyOff() {
+    setPpBusy(false);
+    ppRunning = false; running = false; stopRequested = false;
+    genBtn.disabled = false; genBtn.textContent = "▶ Generate";
+    ppPreviewBtn.disabled = false; ppPreviewBtn.textContent = "Preview";
+    try { await freeMemory(); } catch {}
+    stopClock();
+  }
+
+  // Show the result and write its metadata. Used by the click that queued the run and by the reattach after a
+  // reload — the meta is written here, by the page, so it must not depend on the page that queued the run still being open.
+  async function ppFinish(res: { byNode: Record<string, any> }, info: any) {
+    const o = firstOutput(res.byNode, info.saveNode);
+    if (!o) throw new Error("No output produced.");
+    // A Preview run's VHS_VideoCombine has save_output:false, so ComfyUI reports it back with type "temp", not
+    // "output"; outputViewUrl's own &t=Date.now() cache-busts it too, so two preview runs never collide.
+    const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");
+    // A Preview run's result file only covers [startS, endS) of the source clip — the Compare viewer needs that same
+    // window on the ORIGINAL side too. A real/final Generate run covers the whole clip, so no range restriction there.
+    showResultVideo(url, { compareRange: (!info.full && info.endS > info.startS) ? { start: info.startS, end: info.endS } : null });
+    if (info.full) {
+      // A full-range run (not a short preview) writes real metadata — spreads the SOURCE clip's own full meta
+      // (prompt, seed, loras, everything) forward first, then overwrites created/postProcess/postSource and recomputes
+      // geometry/fps for whatever the job actually produced (an upscale/resize step changes those).
+      try {
+        const patched: Record<string, any> = {
+          ...(info.sourceFullMeta || {}),
+          created: Date.now(), postProcess: info.usedSteps.join(" + "), postSource: info.source,
+          ...(info.upscaleUsedInfo ? { postUpscale: info.upscaleUsedInfo } : {}),
+          ...(info.usedPrompt ? { postPrompt: info.usedPrompt } : {}),
+        };
+        delete patched.elapsedSec; delete patched.sourceW; delete patched.sourceH;
+        try {
+          const oi = await getVideoInfo(o.filename, o.subfolder || "", "output");
+          if (oi?.width || oi?.height) {
+            const srcW = info.sourceMeta?.w, srcH = info.sourceMeta?.h;
+            if ((oi.width && oi.width !== srcW) || (oi.height && oi.height !== srcH)) { patched.sourceW = srcW; patched.sourceH = srcH; }
+            if (oi.width) patched.w = oi.width;
+            if (oi.height) patched.h = oi.height;
+          }
+          if (oi?.frames) { patched.frames = oi.frames; patched.durationSeconds = oi.frames / (oi.fps || FPS); }
+          if (oi?.fps) patched.fps = oi.fps;
+        } catch { /* keep the source geometry rather than fail */ }
+        // An H3 latent upscale is the 7+1 route taken afterwards, so it is marked the same way: the gallery card
+        // border (and its colour) reads `hires`, not a tag. `hiresFinish` is NOT set (Reuse would switch 7+1 on).
+        if (info.upscaleUsedInfo?.method === "h3lat") {
+          const sw = info.sourceMeta?.w, fw = patched.w || info.upscaleUsedInfo.width;
+          patched.hires = { startW: sw, startH: info.sourceMeta?.h, scale: sw ? Math.round(fw / sw * 1000) / 1000 : null };
+        }
+        await saveMeta(o.filename, o.subfolder || (state.saveSubfolder || SUBFOLDER), patched);
+      } catch {}
+      try { refreshGallery(); } catch {}
+    }
+    barInner.style.width = "100%";
+    setStatus(`✓ Postprocess done (${info.usedSteps.join(" + ")})${info.full ? "" : " — preview only, not saved to the gallery"}.`);
+    showPopup(info.full ? "Postprocess finished — the new file is in the gallery." : "Preview ready — compare it, then hit ▶ Generate to produce and save the full clip.", false);
+  }
+
+  // Is ComfyUI still working on / does it remember this prompt? (it lists it in the queue or in /history)
+  async function promptKnown(pid: string): Promise<boolean> {
+    try {
+      const h = await (await comfyApi.fetchApi(`/history/${encodeURIComponent(pid)}`)).json();
+      if (h && h[pid]) return true;
+    } catch {}
+    try {
+      const d = await (await comfyApi.fetchApi("/queue")).json();
+      return [...(d.queue_running || []), ...(d.queue_pending || [])].some((item: any) => item[1] === pid);
+    } catch { return false; }
+  }
+
+  // LTX 2.5 upscale in pieces. R = { args, passes, parts, curPromptId, info } is also the run record kept in
+  // state._ppRelay, so a reload resumes with the next piece (or reattaches to the one in flight).
+  async function ppRunSegments(R: any) {
+    const N = R.passes.length, info = R.info;
+    const folder = R.args.folder, prefix = `${R.args.folder}/${R.args.stem}${R.args.saveSuffix}`;
+    let inFlightId: string | null = R.resumed ? R.curPromptId : null;
+    if (inFlightId && !(await promptKnown(inFlightId))) inFlightId = null;   // ComfyUI lost it: queue the piece again
+    for (let i = R.parts.length; i < N; i++) {
+      if (stopRequested) throw new Error("Stopped.");
+      const p = R.passes[i];
+      const prog = (v: number, m: number) => {
+        const frac = (i + (m ? v / m : 0)) / N;
+        barInner.style.width = `${(info.barBase + (100 - info.barBase) * frac).toFixed(1)}%`;
+        setStatus(`Postprocess: LTX segment ${i + 1}/${N}${m ? ` — ${Math.round((v / m) * 100)}%` : ""}`);
+      };
+      setStatus(`Postprocess: LTX segment ${i + 1}/${N} (frames ${p.window.skip}–${p.window.skip + p.window.cap})`);
+      // each piece continues from the last frame of the one before, or the joins show
+      let anchorImage: string | null = null;
+      if (i > 0) {
+        setStatus(`Postprocess: LTX segment ${i + 1}/${N} — reading the previous segment's last frame…`);
+        anchorImage = await getClipLastFrame(R.parts[i - 1].filename, R.parts[i - 1].subfolder || "");
+      }
+      const built = buildPostprocessGraph({
+        ...R.args, skipFirstFrames: (R.args.skipFirstFrames || 0) + p.window.skip, frameLoadCap: p.window.cap,
+        saveSuffix: p.suffix, upscale: { ...R.args.upscale, ltxAnchor: anchorImage },
+      }, ctx.availability || {});
+      const reattachId = inFlightId || undefined;
+      if (reattachId) setStatus(`Postprocess: reconnecting to segment ${i + 1}/${N} after the reload…`);
+      inFlightId = null;
+      const r = await queuePrompt(built.graph, {
+        onProgress: prog, samplerNode: "LX:sampler", existingPromptId: reattachId,
+        onQueued: (pid: string) => { R.curPromptId = pid; if (state._ppRelay) { state._ppRelay.curPromptId = pid; persist(); } },
+      });
+      const out = firstOutput(r.byNode, built.saveNode);
+      if (!out) throw new Error(`Postprocess segment ${i + 1} produced no output.`);
+      R.parts.push({ filename: out.filename, subfolder: out.subfolder || folder });
+      if (state._ppRelay) { state._ppRelay.parts = R.parts; state._ppRelay.curPromptId = null; persist(); }
+      try { await freeMemory(); } catch {}
+    }
+    let vid: any = R.parts[0];
+    if (R.parts.length > 1) {
+      setStatus(`Postprocess: joining ${R.parts.length} segments with ffmpeg…`);
+      const st = await stitchClips(R.parts.map((q: any) => ({ filename: q.filename, subfolder: q.subfolder || "" })), prefix, null, null, null);
+      vid = { filename: st.filename, subfolder: st.subfolder || "", type: "output" };
+      // the pieces were scratch: drop them so the gallery keeps only the joined clip
+      for (const q of R.parts) { try { await deleteImage(q.filename, q.subfolder || ""); } catch {} }
+    }
+    await ppFinish({ byNode: { [info.saveNode]: { images: [vid] } } }, info);
+  }
+
   async function runPostprocess(opts: { full?: boolean } = {}) {
     const full = opts.full !== false;
     if (ppRunning || running) return;
     if (!state.ppSource) { showPopup("Pick a source clip first.", true); return; }
     const stepFlags: (keyof MinimaxState)[] = ["ppDeblurOn", "ppDenoiseOn", "ppUpscaleOn", "ppSkinRetouchOn", "ppGrainOn", "ppInterpolateOn", "ppResizeOn"];
     if (!stepFlags.some((k) => (state as any)[k])) { showPopup("Enable at least one effect (A-G) first.", true); return; }
-    ppRunning = true; running = true; stopRequested = false;
-    const busyBtn = full ? genBtn : ppPreviewBtn;
-    genBtn.disabled = true; ppPreviewBtn.disabled = true;
-    const genLabel = genBtn.textContent;
-    busyBtn.textContent = full ? "⏳ Running…" : "⏳ Preview…";
+    let prog: ReturnType<typeof ppProgress> | null = null;
+    ppBusyOn({ full, source: state.ppSource });
     setStatus("Postprocess running…");
-    setPpBusy(true, full);
     resetPreview();
-    startClock();
+    barInner.style.width = "0%"; startClock();
     try {
       if (!ctx.availability || !Object.keys(ctx.availability).length) {
         const av = await getNodeAvailability();
         ctx.availability = av.available || {}; ctx.availabilityInfo = av;
       }
-      // Generate always runs the whole clip — the range fields only ever apply to Preview's
-      // own short-look run, never to a real/final one.
+      // Generate always runs the whole clip — the range fields only ever apply to Preview's own short-look run, never
+      // to a real/final one.
+      const ppMethod = (state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr") as string;
+      let ltxState: any = null, h3State: any = null, h3Opts: any = null, usedPrompt = "";
+      let h3Cap = 0, kimTiles = 0, barBase = 0;   // barBase: share of the bar the prompt stages already used
+      let kimLo = 0;   // where the Kimchy tile step starts on the bar (after the first step)
+      if (state.ppUpscaleOn && ppMethod === "h3lat") {
+        const info: any = _ppSrcInfo || {};
+        const sm0: any = state.ppSourceMeta || {};
+        const fps0 = info.fps || sm0.fps || FPS;
+        let total = info.frames || sm0.frames || Math.round((info.duration || sm0.duration || 0) * fps0);
+        if (!total) throw new Error("Could not read the clip's length — pick the source again.");
+        const range = Math.round(Math.max(0, (state.ppPreviewEnd || 0) - (state.ppPreviewStart || 0)) * fps0);
+        if (!full && range > 0) total = Math.min(total, range);
+        // H3 clip lengths are 17n + 5 frames; extra tail frames are dropped
+        const frames = Math.floor((total - 5) / 17) * 17 + 5;
+        if (frames < 5) throw new Error("The clip is too short for Latent Upscale (Use H3).");
+        h3Cap = frames;
+        const w0 = info.width || sm0.w, h0 = info.height || sm0.h;
+        const kind = ppH3Kind(state.ppSourceFullMeta);
+        if (state.ppH3Upscaler === "kimchy" && (w0 % 32 || h0 % 32)) throw new Error(`Latent Upscale (Use H3) needs a clip whose width and height are multiples of 32 (this one is ${w0}×${h0}).`);
+        const finalSize = sizeForMp(w0, h0, hiresMp(ppH3State(state, kind)).final);
+        setStatus("Postprocess: writing the H3 prompt…");
+        usedPrompt = await ppH3Prompt(frames / FPS);
+        barBase = 25; barInner.style.width = "25%";
+        h3State = ppH3State(state, kind);
+        if (state.ppH3Upscaler === "kimchy") { kimTiles = kimchyTileCount(w0, h0, hiresMp(h3State).final); kimLo = 55; }
+        h3Opts = { promptText: usedPrompt, frames, srcSize: { width: w0, height: h0 }, finalSize, hasAudio: info.has_audio !== false, seed: randomSeed(),
+          upscalerModel: PP_H3_UP_MODELS[state.ppH3UpModel] };
+      }
+      if (state.ppUpscaleOn && ppMethod === "ltx") {
+        if (!ltxUpscaleReady(state)) throw new Error("Set the LTX 2.5 models in ⚙ Settings first — missing: " + ltxUpscaleMissing(state).join(", "));
+        setStatus("Postprocess: writing the LTX prompt…"); barInner.style.width = "10%";
+        usedPrompt = await ppLtxPrompt();
+        barBase = 25; barInner.style.width = "25%";
+        ltxState = { ...state, ltxPrompt: usedPrompt };
+      }
       const startS = full ? 0 : Math.max(0, state.ppPreviewStart || 0);
       const endS = full ? 0 : Math.max(0, state.ppPreviewEnd || 0);
-      const srcMeta = state.ppSourceMeta || (_ppSrcInfo ? { fps: _ppSrcInfo.fps || 0, w: _ppSrcInfo.width || 0, h: _ppSrcInfo.height || 0 } : {} as any);
+      const srcMeta: any = state.ppSourceMeta || (_ppSrcInfo ? { fps: _ppSrcInfo.fps || 0, w: _ppSrcInfo.width || 0, h: _ppSrcInfo.height || 0 } : {});
       const srcFps = srcMeta.fps || FPS;
       const skipFirstFrames = Math.round(startS * srcFps);
       const frameLoadCap = endS > startS ? Math.round((endS - startS) * srcFps) : 0;
+      // Latent Upscale (Use H3) also trims the clip to a valid H3 length; that is not a preview range
+      const loadCap = h3Cap ? (frameLoadCap ? Math.min(frameLoadCap, h3Cap) : h3Cap) : frameLoadCap;
 
-      // A preview writes into ComfyUI's own temp/ dir (preview:true -> save_output:false in
-      // buildPostprocessGraph/saveVideoNode), under one fixed subfolder (TEMP_PREVIEW_SUBFOLDER)
-      // shared by every tool's preview runs — never touches the real output/ gallery.
-      const built = buildPostprocessGraph({
+      // A preview writes into ComfyUI's own temp/ dir (preview:true -> save_output:false in buildPostprocessGraph/saveVideoNode),
+      // under one fixed subfolder (TEMP_PREVIEW_SUBFOLDER) shared by every tool's preview runs — never touches the real output/ gallery.
+      const ppArgs: any = {
         inputFile: state.ppSource,
         folder: full ? (state.saveSubfolder || SUBFOLDER) : TEMP_PREVIEW_SUBFOLDER,
         stem: state.ppSource.replace(/\.[^.]+$/, ""),
-        skipFirstFrames, frameLoadCap,
+        skipFirstFrames, frameLoadCap: loadCap,
         saveSuffix: frameLoadCap ? "_post_preview" : "_post",
         preview: !full,
         deblur: { enabled: state.ppDeblurOn, strength: state.ppDeblurStrength || "MEDIUM" },
         denoise: { enabled: state.ppDenoiseOn, strength: state.ppDenoiseStrength || "MEDIUM" },
         upscale: {
           enabled: state.ppUpscaleOn,
-          method: (state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr") as any,
+          method: ppMethod as any,
+          ltxState, h3State, h3: h3Opts,
           modelName: state.upscaleModel,
           rtxScale: state.rtxScale, rtxQuality: state.rtxQuality, rtxSizeMode: state.rtxSizeMode || "scale",
           rtxShort: state.rtxShort, rtxLong: state.rtxLong, rtxW: state.rtxW, rtxH: state.rtxH,
@@ -4986,57 +5483,82 @@ export function renderMinimaxH3(container: HTMLElement) {
           megapixels: state.ppResizeMegapixels, targetWidth: state.ppResizeTargetWidth,
           targetHeight: state.ppResizeTargetHeight, cropMode: state.ppResizeCropMode,
         },
-      }, ctx.availability || {});
+      };
+      const built = buildPostprocessGraph(ppArgs, ctx.availability || {});
 
       setStatus(`Postprocess: ${built.usedSteps.join(" + ")}…`);
-      const res = await queuePrompt(built.graph, {
-        onProgress: (v: number, m: number) => setStatus(`Postprocess: ${built.usedSteps.join(" + ")} — ${Math.round((v / (m || 1)) * 100)}%`),
-      });
-      const o = firstOutput(res.byNode, built.saveNode);
-      if (!o) throw new Error("No output produced.");
-      // A Preview run's VHS_VideoCombine has save_output:false, so ComfyUI reports it back with
-      // type "temp", not "output" — outputViewUrl's own &t=Date.now() cache-busts it too, so two
-      // different preview runs sharing the same filename/subfolder/type never collide.
-      const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");
-      // A Preview run's result file only covers [startS, endS) of the source clip — the
-      // Compare viewer needs that same window on the ORIGINAL side too, or it plays the whole
-      // untrimmed source against a few trimmed seconds. A real/final Generate run covers the
-      // whole clip, same as the original, so no range restriction there.
-      showResultVideo(url, { compareRange: (!full && endS > startS) ? { start: startS, end: endS } : null });
-      if (full) {
-        try {
-          const patched: Record<string, any> = {
-            ...(state.ppSourceFullMeta || {}),
-            created: Date.now(), postProcess: built.usedSteps.join(" + "), postSource: state.ppSource,
-          };
-          delete patched.elapsedSec; delete patched.sourceW; delete patched.sourceH;
-          try {
-            const oi = await getVideoInfo(o.filename, o.subfolder || "", "output");
-            if (oi?.width || oi?.height) {
-              const srcW = state.ppSourceMeta?.w, srcH = state.ppSourceMeta?.h;
-              if ((oi.width && oi.width !== srcW) || (oi.height && oi.height !== srcH)) { patched.sourceW = srcW; patched.sourceH = srcH; }
-              if (oi.width) patched.w = oi.width;
-              if (oi.height) patched.h = oi.height;
-            }
-            if (oi?.frames) { patched.frames = oi.frames; patched.durationSeconds = oi.frames / (oi.fps || FPS); }
-            if (oi?.fps) patched.fps = oi.fps;
-          } catch { /* keep the source geometry rather than fail */ }
-          await saveMeta(o.filename, o.subfolder || (state.saveSubfolder || SUBFOLDER), patched);
-        } catch {}
-        try { refreshGallery(); } catch {}
+      const info: any = {
+        nodeId: instanceId, saveNode: built.saveNode, usedSteps: built.usedSteps,
+        upscaleUsedInfo: built.upscaleUsedInfo || null, usedPrompt, full, startS, endS,
+        source: state.ppSource, sourceMeta: state.ppSourceMeta, sourceFullMeta: state.ppSourceFullMeta,
+        kimTiles, kimLo, barBase, h3: !!h3Opts,
+      };
+      const segPlan = (state.ppUpscaleOn && ppMethod === "ltx" && full) ? await ltxSegmentPasses(state, state.ppSource, state.ppSourceMeta) : null;
+      if (segPlan && segPlan.passes.length > 1) {
+        state._ppRelay = { v: 2, seg: true, args: ppArgs, passes: segPlan.passes, parts: [], curPromptId: null, info: { ...info }, startedAt: Date.now() };
+        persist();
+        await ppRunSegments(state._ppRelay);
+        return;
       }
-      setStatus(`✓ Postprocess done (${built.usedSteps.join(" + ")})${full ? "" : " — preview only, not saved to the gallery"}.`);
-      showPopup(full ? "Postprocess finished — the new file is in the gallery." : "Preview ready — compare it, then hit ▶ Generate to produce and save the full clip.", false);
+      prog = ppProgress(info);
+      prog.start();
+      const res = await queuePrompt(built.graph, {
+        onProgress: prog.onProgress,
+        // what a reload needs to reattach to this run and finish it (state is saved with the page)
+        onQueued: (pid: string) => { state._ppRelay = { ...info, promptId: pid, startedAt: Date.now() }; persist(); },
+      });
+      await ppFinish(res, info);
     } catch (e: any) {
       setStatus(`Error: ${e?.message || e}`);
       showPopup(e?.message || String(e), true);
     } finally {
-      setPpBusy(false);
-      ppRunning = false; running = false; stopRequested = false;
-      genBtn.disabled = false; genBtn.textContent = genLabel || "▶ Generate";
-      ppPreviewBtn.disabled = false; ppPreviewBtn.textContent = "Preview";
-      try { await freeMemory(); } catch {}
-      stopClock();
+      prog?.stop();
+      if (state._ppRelay) { state._ppRelay = null; persist(); }
+      await ppBusyOff();
+    }
+  }
+
+  // A Postprocess run that was in flight when the page reloaded: ComfyUI kept working, so reattach to that exact
+  // prompt, show its progress again and — the part that must not be lost — write its metadata.
+  async function resumePostprocess() {
+    const R = state._ppRelay;
+    if (!R || (!R.promptId && !R.seg) || ppRunning || running) return;
+    // Two copies of the page would both pick the run up and finish it twice.
+    const runKey = String(R.startedAt || R.promptId);
+    if ((window as any).__tjPpResumed === runKey) return;
+    (window as any).__tjPpResumed = runKey;
+    if (R.seg) {
+      ppBusyOn(R.info);
+      setStatus("Postprocess: continuing the split upscale after the reload…");
+      startClock(); if (R.startedAt) runStart = R.startedAt;
+      R.resumed = true;
+      try { await ppRunSegments(R); }
+      catch (e: any) { setStatus(`Error: ${e?.message || e}`); showPopup(e?.message || String(e), true); }
+      finally { state._ppRelay = null; persist(); await ppBusyOff(); }
+      return;
+    }
+    if (!(await promptKnown(R.promptId))) {
+      state._ppRelay = null; persist();
+      setStatus("Postprocess: the run did not survive the reload (ComfyUI has no record of it).");
+      return;
+    }
+    ppBusyOn(R);
+    setStatus("Postprocess: reattaching to the run that was in flight…");
+    startClock(); if (R.startedAt) runStart = R.startedAt;
+    const prog = ppProgress({ ...R, resumed: true });
+    prog.start();
+    try {
+      // queuePrompt's existingPromptId path checks /history first (finished while the page was away) and strips the
+      // VHS "-audio" suffix from the outputs either way
+      const res = await queuePrompt(null, { onProgress: prog.onProgress, existingPromptId: R.promptId });
+      await ppFinish(res, R);
+    } catch (e: any) {
+      setStatus(`Error: ${e?.message || e}`);
+      showPopup(e?.message || String(e), true);
+    } finally {
+      prog.stop();
+      state._ppRelay = null; persist();
+      await ppBusyOff();
     }
   }
 
@@ -5230,7 +5752,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
-      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresChunkRows: rs.hiresChunkRows,
+      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresKimStartMp: rs.hiresKimStartMp, hiresKimFinalMp: rs.hiresKimFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresUpscaler: rs.hiresUpscaler,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
       // accel stays for pre-split readers only (this session's own Reuse now reads the axis
       // fields below directly) — a peer session on the node port confirmed accelMode is
@@ -5947,6 +6469,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.hiresFinish = !!meta.hiresFinish;
       if (meta.hiresStartMp != null) state.hiresStartMp = meta.hiresStartMp;
       if (meta.hiresFinalMp != null) state.hiresFinalMp = meta.hiresFinalMp;
+      if (meta.hiresKimStartMp != null) state.hiresKimStartMp = meta.hiresKimStartMp;
+      if (meta.hiresKimFinalMp != null) state.hiresKimFinalMp = meta.hiresKimFinalMp;
+      state.hiresUpscaler = meta.hiresUpscaler === "kimchy" ? "kimchy" : "h3";
       if (meta.hiresChunkRows != null) state.hiresChunkRows = meta.hiresChunkRows;
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
@@ -6236,6 +6761,8 @@ export function renderMinimaxH3(container: HTMLElement) {
 
   // 탭이 사용자 모르게 디스카드/리로드됐다가 다시 그려진 경우 — 죽기 전에 남겨둔 진행
   // 상황이 있으면(24시간 이내) 새 큐를 보내는 대신 그 자리에 재부착해서 이어간다.
+  // A Postprocess run that was in flight: wait until the page state is back, then reattach and finish it (meta included).
+  setTimeout(resumePostprocess, 1500);
   const pending = loadRunProgress();
   if (pending) {
     setStatus(`Reconnecting to previous run… (clip ${pending.pos + 1}/${pending.totClip})`);

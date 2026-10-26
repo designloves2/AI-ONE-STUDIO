@@ -3,6 +3,18 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.14.0] — 2026-10-26
+
+Node v1.47.0 and the asset-name fix on the web (`PORT_LEDGER.md` rows 64-68).
+
+### Added
+- MiniMax H3: the 7+1 hi-res finish has an Upscaler switch (H3 Latent Upscaler / H3 Kimchy Up Scaler) with its own Start / Final MP for each.
+- Postprocess → C. Upscale: new methods "Latent Upscale (Use H3)" and "LTX 2.5 Upscale" (with Split mode); the mode tab "Upscale by LTX 2.5" is gone, a saved one opens Postprocess. Tab order is now Asset, Text To Video, Image to Video (F/L), Reference to Video, Face Refine MMH3, Postprocess, Image Generator.
+- A Postprocess run that was in flight when the page reloaded is picked up again and finished, metadata included (LTX 2.5 keeps its run record through a reload too).
+
+### Fixed
+- Asset library names: spaces and hyphens become underscores so @mentions match (node `9c834c5`).
+
 ## [0.13.0] — 2026-10-22
 
 ### Added

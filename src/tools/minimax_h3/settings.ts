@@ -868,6 +868,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       take("turboLora", cfg.turbo_lora);
       take("pddFile", cfg.pdd_file);
       take("pddFileReference", cfg.pdd_file_reference);
+      // Postprocess keeps its own LoRAs: filled from the saved config once, then they never follow the main ones
+      if ((!state.ppH3PddFile || state.ppH3PddFile === "none") && cfg.pdd_file && cfg.pdd_file !== "none") state.ppH3PddFile = cfg.pdd_file;
+      if ((!state.ppH3PddFileReference || state.ppH3PddFileReference === "none") && cfg.pdd_file_reference && cfg.pdd_file_reference !== "none") state.ppH3PddFileReference = cfg.pdd_file_reference;
       take("turboLoraReference", cfg.turbo_lora_reference);
       take("slaTurboLora", cfg.sla_turbo_lora);
       if (cfg.sla_turbo_strength != null) state.slaTurboStrength = cfg.sla_turbo_strength;

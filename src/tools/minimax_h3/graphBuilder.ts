@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -79,6 +79,15 @@ const N = {
   hrGuider: "MM:hr_guider",
   hrSampler: "MM:hr_sampler",
   hrCond: "MM:hr_cond",
+  hrKim: "MM:hr_kimchy_upscale",
+  hrNeg: "MM:hr_kimchy_negative",
+  hrEnc: "MM:hr_encode",
+  hrAv0: "MM:hr_av_source",
+  hrAudSep: "MM:hr_audio_sep",
+  hrFirst: "MM:hr_first_frame",
+  hrLast: "MM:hr_last_frame",
+  hrDecode: "MM:hr_decode",
+  hrCond2: "MM:hr_cond_final",
   hrLora: (i: number) => `MM:hr_lora${i}`,
   chkSave: "MM:h3_chk_save",
 };
@@ -353,27 +362,46 @@ function saveOneTakeCheckpoint(g: Graph, state: MinimaxState, avail: Avail | und
  * interval refines it on a model chain rebuilt for that one step: same UNET, user LoRAs and
  * turbo LoRA, then H3 Memory Optimization and Sol-Attn block-sparse attention with fixed
  * values (the bigger latent is what makes them necessary). The conditioning is stage 1's.
- * Returns the final latent link. Port of node graph_builder_minimax.js buildHiresStage (7d258f8).
+ * With state.hiresUpscaler === "kimchy" the upscale and the last step are one KimchyH3ZeroSplitMP
+ * node instead (it upscales the video latent and refines it itself, audio passes through).
+ * Returns the final latent link.
+ * `avLatent` is the stage-1 AV latent (default: the clip sampler's x0). `schedule` builds the last
+ * sigma interval here from the stage's own shifted model when there is no stage 1 to take it from.
  */
-function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined, hires: ReturnType<typeof hiresSizes>, condLink: any, lowSigmas: any, lockAudio: boolean) {
-  for (const n of ["MinimaxH3LatentUpscaler3D", "BlockSparseAttention", ...(state.hiresNoOpt ? [] : ["H3MemoryOptimization"])])
+function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined, hires: { final: { width: number; height: number } }, condLink: any, lowSigmas: any, lockAudio: boolean, avLatent: any = [N.sampler, 1], schedule: { scheduler?: string } | null = null, noUpscale = false) {
+  const kimchy = state.hiresUpscaler === "kimchy" && !noUpscale;
+  if (kimchy && !has(avail, "KimchyH3ZeroSplitMP"))
+    throw new Error("7+1 H3 Kimchy Up Scaler needs the ComfyUI-Kimchy-Minimax-H3-Suite pack — install it (github.com/AI-KIMCHY/ComfyUI-Kimchy-Minimax-H3-Suite), or pick H3 Latent Upscaler.");
+  const needed = kimchy ? [] : noUpscale ? ["BlockSparseAttention"] : ["MinimaxH3LatentUpscaler3D", "BlockSparseAttention"];
+  if (!state.hiresNoOpt) needed.push("H3MemoryOptimization");
+  for (const n of needed)
     if (!has(avail, n)) throw new Error(`7+1 hi-res finish needs ${n} — install it, or switch 7+1 off.`);
 
-  g[N.hrSep] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: [N.sampler, 1] } };
-  g[N.hrUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
-    latent: [N.hrSep, 0],
-    model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
-    mode: "target dimensions", "mode.width": hires.final.width, "mode.height": hires.final.height,
-    align: 32, enable_temporal_chunking: true, force_unload: true, device: "cuda", precision: "fp16",
-  } };
-  g[N.hrCat] = { class_type: "LTXVConcatAVLatent", inputs: {
-    video_latent: [N.hrUp, 0], audio_latent: [N.hrSep, 1],
-  } };
-  let latent: any = [N.hrCat, 0];
-  // The separate/concat round trip drops the lock's denoise mask, so lock the same audio again.
-  if (lockAudio) {
-    g[N.hrLock] = { class_type: "TJ_H3_AudioLock", inputs: { ...g[N.audioLock].inputs, av_latent: latent } };
-    latent = [N.hrLock, 0];
+  let latent: any = null;
+  if (noUpscale) {
+    // the caller upscales afterwards: sample the latent as it is, audio re-locked
+    latent = avLatent;
+    if (lockAudio) {
+      g[N.hrLock] = { class_type: "TJ_H3_AudioLock", inputs: { ...g[N.audioLock].inputs, av_latent: latent } };
+      latent = [N.hrLock, 0];
+    }
+  } else if (!kimchy) {
+    g[N.hrSep] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: avLatent } };
+    g[N.hrUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
+      latent: [N.hrSep, 0],
+      model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+      mode: "target dimensions", "mode.width": hires.final.width, "mode.height": hires.final.height,
+      align: 32, enable_temporal_chunking: true, force_unload: true, device: "cuda", precision: "fp16",
+    }};
+    g[N.hrCat] = { class_type: "LTXVConcatAVLatent", inputs: {
+      video_latent: [N.hrUp, 0], audio_latent: [N.hrSep, 1],
+    }};
+    latent = [N.hrCat, 0];
+    // The separate/concat round trip drops the lock's denoise mask, so lock the same audio again.
+    if (lockAudio) {
+      g[N.hrLock] = { class_type: "TJ_H3_AudioLock", inputs: { ...g[N.audioLock].inputs, av_latent: latent } };
+      latent = [N.hrLock, 0];
+    }
   }
 
   // The last step may run on its own checkpoint (Settings → Models → 7+1 last step model).
@@ -383,10 +411,10 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
       throw new Error("7+1 last step is set to a fixed model but none is selected — open ⚙ Settings → Models.");
     g[N.hrUnet] = unetNode(state.hiresLastModel);
   }
-  let m: any = [fixedUnet ? N.hrUnet : N.unet, 0];
+  let m = [fixedUnet ? N.hrUnet : N.unet, 0];
   (state.loras || []).forEach((lora, i) => {
-    if (!lora?.name || lora.name === "none" || (lora as any).enabled === false) return;
-    const strength = parseFloat(String((lora as any).strength ?? 1.0));
+    if (!lora?.name || lora.name === "none" || lora.enabled === false) return;
+    const strength = parseFloat(String(lora.strength ?? 1.0));
     if (!(strength > 0)) return;
     g[N.hrLora(i)] = { class_type: "LoraLoaderModelOnly", inputs: { model: m, lora_name: lora.name, strength_model: strength } };
     m = [N.hrLora(i), 0];
@@ -396,35 +424,152 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
   if (pdd) {
     g[N.hrPdd] = { class_type: "LoraLoaderModelOnly", inputs: {
       model: m, lora_name: pddFileForMode(state), strength_model: state.pddLoraStrength ?? 1.0,
-    } };
+    }};
     m = [N.hrPdd, 0];
   }
   g[N.hrShift] = { class_type: "MiniMaxH3SigmaShift", inputs: { model: m,
     shift_video: pdd ? 12 : (state.shiftVideo ?? 12), shift_audio: pdd ? 3 : (state.shiftAudio ?? 3) } };
-  let stageModel: any = [N.hrShift, 0];
+  let stageModel = [N.hrShift, 0];
+  if (schedule) {
+    g[N.sched] = { class_type: "BasicScheduler", inputs: { model: stageModel, scheduler: schedule.scheduler || "simple", steps: 8, denoise: 1 } };
+    g[N.hrSplit] = { class_type: "SplitSigmas", inputs: { sigmas: [N.sched, 0], step: 7 } };
+    lowSigmas = [N.hrSplit, 1];
+  }
   if (!state.hiresNoOpt) {
     g[N.hrMem] = { class_type: "H3MemoryOptimization", inputs: {
       model: stageModel,
       fused_qkv: "auto", preserve_precision: true, embedding_memory_mode: "Auto",
       mlp_memory: "auto", chunk_rows: Math.round(state.hiresChunkRows ?? 2048), precision_mode: "Preserve native",
       qkv_streaming_mode: "Forced", kitchen_v_memory_mode: "Lower VRAM (slower)",
-    } };
+    }};
     stageModel = [N.hrMem, 0];
+  }
+  if (kimchy) {
+    // The Kimchy node takes the memory-optimised model without Sol-Attn and the whole stage-1 AV latent.
+    const mp = hiresMp(state).final;
+    if (!(mp >= 1 && mp <= 8.5)) throw new Error("H3 Kimchy Up Scaler supports Final MP 1.0 – 8.5.");
+    g[N.hrNeg] = { class_type: "ConditioningZeroOut", inputs: { conditioning: condLink } };
+    g[N.hrKim] = { class_type: "KimchyH3ZeroSplitMP", inputs: {
+      model: stageModel, conditioning: condLink, latent: avLatent,
+      noise: [N.noise, 0], sampler: [N.sampSel, 0], sigmas: lowSigmas, negative: [N.hrNeg, 0],
+      model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+      upscale_by: "megapixels", target_megapixels: mp, scale: 2, align: 32, precision: "fp16", cfg: 1, color_match: true,
+    }};
+    return [N.hrKim, 0];
   }
   g[N.hrSparse] = { class_type: "BlockSparseAttention", inputs: {
     model: stageModel,
     selection: "sol-attn", "selection.tau": 1.3,
     start_percent: 0.2, end_percent: 1, dense_blocks: "",
     min_tokens: 12288, extra_tokens: 256, sink_conditioning: "exact_kv_and_rows", verbose: true,
-  } };
+  }};
   stageModel = [N.hrSparse, 0];
 
   g[N.hrGuider] = { class_type: "BasicGuider", inputs: { model: stageModel, conditioning: condLink } };
   g[N.hrSampler] = { class_type: "SamplerCustomAdvanced", inputs: {
     noise: [N.noise, 0], guider: [N.hrGuider, 0], sampler: [N.sampSel, 0],
     sigmas: lowSigmas, latent_image: latent,
-  } };
+  }};
   return [N.hrSampler, 0];
+}
+
+/**
+ * Postprocess → Latent Upscale (Use H3): a finished 8-step clip goes back through the last sigma interval.
+ * H3 Latent Upscaler: video → VAE encode → latent upscale → the last step at the final size (the 7+1 stage 2, whole
+ * picture, first and last frame as keyframes) → decode.
+ * H3 Kimchy Up Scaler: video → VAE encode → one step at the clip's own size (whole picture, keyframes) → Kimchy
+ * (upscale, then its tile step) → decode. The Kimchy node cuts the picture into tiles and a keyframe block cannot be
+ * cut with it, so its tile step runs on the prompt alone; the step before it is what carries the images.
+ * Clip audio is locked into the latent and the clip's own soundtrack passes through unchanged.
+ * o = { images, audio, hasAudio, promptText, frames, srcSize: {width, height}, finalSize: {width, height}, seed }
+ * Returns { images, audio } for the rest of the Postprocess chain.
+ */
+export function addH3LastStep(g: Graph, state0: MinimaxState, avail: Avail | undefined, o: any): { images: any; audio: any } {
+  const state: MinimaxState = { ...state0, hiresFinish: true };
+  const ref = state.generationMode === "reference";
+  const kimchy = state.hiresUpscaler === "kimchy";
+  if (!hiresActive(state))
+    throw new Error("Latent Upscale (Use H3) needs an 8-step model: Turbo = PDD, or Turbo None with an 8-step checkpoint.");
+  if (!String(o.promptText || "").trim()) throw new Error("Latent Upscale (Use H3): the prompt is empty.");
+  if (kimchy && !has(avail, "KimchyH3ZeroSplitMP"))
+    throw new Error("H3 Kimchy Up Scaler needs the ComfyUI-Kimchy-Minimax-H3-Suite pack — install it (github.com/AI-KIMCHY/ComfyUI-Kimchy-Minimax-H3-Suite), or pick H3 Latent Upscaler.");
+  if (!kimchy && !has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("Latent Upscale (Use H3) needs MinimaxH3LatentUpscaler3D — install it.");
+  const unet = requireModels(state);
+  g[N.unet] = unetNode(unet);
+  g[N.clip] = { class_type: "CLIPLoader", inputs: { clip_name: state.clipName, type: "minimax", device: "default" } };
+  g[N.vaeV] = { class_type: "VAELoader", inputs: { vae_name: state.vaeVideo } };
+  g[N.vaeA] = { class_type: "VAELoader", inputs: { vae_name: state.vaeAudio } };
+
+  const prompt = String(o.promptText).trim();
+  // keyframes and references are encoded at the canvas size inside the conditioning, so each size has its own
+  const condAt = (id: string, size: { width: number; height: number }, keyframes: boolean) => {
+    g[id] = ref
+      ? { class_type: "MiniMaxH3ReferenceToVideo", inputs: {
+          clip: [N.clip, 0], vae: [N.vaeV, 0], audio_vae: [N.vaeA, 0], prompt,
+          width: size.width, height: size.height, length: o.frames, ref_image_size: "match" } }
+      : { class_type: "MiniMaxH3ImageToVideo", inputs: {
+          clip: [N.clip, 0], vae: [N.vaeV, 0], prompt, width: size.width, height: size.height, length: o.frames } };
+    if (!ref && keyframes) {
+      g[id].inputs.first_frame = [N.hrFirst, 0];
+      g[id].inputs.last_frame = [N.hrLast, 0];
+    }
+    return [id, 0];
+  };
+  g[N.hrFirst] = { class_type: "ImageFromBatch", inputs: { image: o.images, batch_index: 0, length: 1 } };
+  // ImageFromBatch clamps the index to the last frame.
+  g[N.hrLast] = { class_type: "ImageFromBatch", inputs: { image: o.images, batch_index: 4095, length: 1 } };
+  // A samples once at the final size; Kimchy samples first at the clip's own size
+  const cond1 = condAt(N.hrCond, kimchy ? o.srcSize : o.finalSize, true);
+
+  g[N.hrEnc] = { class_type: "VAEEncode", inputs: { pixels: o.images, vae: [N.vaeV, 0] } };
+  let lockAudio = false;
+  let audioSource: any = [N.hrCond, 1];
+  if (o.hasAudio) {
+    if (!has(avail, "TJ_H3_AudioLock")) throw new Error("Latent Upscale (Use H3) needs the TJ_H3_AudioLock node (TJ_NODE pack) to carry the clip's audio.");
+    g[N.audioLock] = { class_type: "TJ_H3_AudioLock", inputs: {
+      av_latent: [N.hrCond, 1], audio: o.audio, audio_vae: [N.vaeA, 0],
+      mode: "lock", strength: state.audioLockStrength ?? 0.5, fit: state.audioLockFit || "pad_silence",
+      get_name_av_latent: "(none)", get_name_audio: "(none)", get_name_audio_vae: "(none)", auto_set: false,
+    }};
+    audioSource = [N.audioLock, 0];
+    lockAudio = true;
+  }
+  g[N.hrAudSep] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: audioSource } };
+  g[N.hrAv0] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [N.hrEnc, 0], audio_latent: [N.hrAudSep, 1] } };
+
+  g[N.noise] = { class_type: "RandomNoise", inputs: { noise_seed: o.seed ?? 0 } };
+  const pdd = turboEffective(state, avail) === "pdd";
+  g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: pdd ? "euler" : (state.sampler || "er_sde") } };
+
+  let latent: any;
+  if (!kimchy) {
+    latent = buildHiresStage(g, state, avail, { final: o.finalSize }, cond1, null, lockAudio,
+      [N.hrAv0, 0], { scheduler: state.scheduler });
+    g[N.hrDecode] = { class_type: "VAEDecode", inputs: { samples: latent, vae: [N.vaeV, 0] } };
+    return { images: [N.hrDecode, 0], audio: o.audio };
+  }
+
+  // Kimchy, step 1: the clip's own size
+  const step1 = buildHiresStage(g, state, avail, { final: o.srcSize }, cond1, null, lockAudio,
+    [N.hrAv0, 0], { scheduler: state.scheduler }, true);
+  const lowSigmas = [N.hrSplit, 1];
+  // the stage model after Memory Optimization (no Sol-Attn), as the Kimchy node takes it
+  const memModel = state.hiresNoOpt ? [N.hrShift, 0] : [N.hrMem, 0];
+
+  // Kimchy, step 2: it upscales and samples tile by tile, so its prompt stands alone
+  const cond2 = condAt(N.hrCond2, o.finalSize, false);
+  g[N.hrNeg] = { class_type: "ConditioningZeroOut", inputs: { conditioning: cond2 } };
+  const mp = hiresMp(state).final;
+  if (!(mp >= 1 && mp <= 8.5)) throw new Error("H3 Kimchy Up Scaler supports Final MP 1.0 – 8.5.");
+  g[N.hrKim] = { class_type: "KimchyH3ZeroSplitMP", inputs: {
+    model: memModel, conditioning: cond2, latent: step1,
+    noise: [N.noise, 0], sampler: [N.sampSel, 0], sigmas: lowSigmas, negative: [N.hrNeg, 0],
+    model_name: o.upscalerModel || "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+    upscale_by: "megapixels", target_megapixels: mp, scale: 2, align: 32, precision: "fp16", cfg: 1, color_match: true,
+  }};
+  latent = [N.hrKim, 0];
+  g[N.hrDecode] = { class_type: "VAEDecode", inputs: { samples: latent, vae: [N.vaeV, 0] } };
+  return { images: [N.hrDecode, 0], audio: o.audio };
 }
 
 function requireModels(state: MinimaxState): string {
@@ -821,8 +966,15 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // so stage 2 (a bigger latent) needs its own copy built at the final size. Plain text
   // conditioning carries no image tokens and is shared.
   const mode = state.generationMode || "t2v";
-  const hrCond = !!hires && (mode === "reference" || (mode === "firstlast" && !!(firstFrame || lastFrame || state.assetRef?.first || state.assetRef?.last)));
-  if (hrCond) buildConditioning(g, state, fullPrompt, outW, outH, frames, condOpts, avail, N.hrCond);
+  // The Kimchy upscaler samples the picture in tiles, and a First/Last keyframe is a full-picture token block
+  // that cannot be cut into tiles, so for it stage 2 gets the prompt alone.
+  const kimFl = !!hires && state.hiresUpscaler === "kimchy" && mode === "firstlast";
+  const hrCond = !!hires && (mode === "reference" || kimFl
+    || (mode === "firstlast" && !!(firstFrame || lastFrame || state.assetRef?.first || state.assetRef?.last)));
+  if (hrCond) {
+    if (kimFl) buildConditioning(g, { ...state, assetRef: null } as MinimaxState, fullPrompt, outW, outH, frames, { ...condOpts, firstFrame: null, lastFrame: null }, avail, N.hrCond);
+    else buildConditioning(g, state, fullPrompt, outW, outH, frames, condOpts, avail, N.hrCond);
+  }
 
   // 텍스트 인코더(N.clip)로 할 인코딩은 여기서 끝 — N.cond가 유일한 소비자라, 디퓨즈
   // 모델 샘플링 들어가기 전에 그 VRAM을 콕 집어 내린다(unload_all_models처럼 전부 내리는
@@ -985,7 +1137,7 @@ const L = {
 
 export interface LtxUpscaleOpts {
   nodeId?: string | number | null;
-  sourceFile: string; // filename in ComfyUI's input/
+  sourceFile?: string; // filename in ComfyUI's input/ (omitted when `into` is used)
   fps?: number;
   window?: { skip: number; cap: number } | null; // one segment of the source when split for VRAM
   saveSuffix?: string; // per-segment SaveVideo filename suffix, e.g. "_seg00"
@@ -997,11 +1149,13 @@ export interface LtxUpscaleOpts {
   // previous segment's output) — omitted/null for segment 1, which still anchors on the clip's
   // own true first frame. Mirrors node `ca8a194`.
   anchorImage?: string | null;
+  /** Adds the refine to an existing graph (Postprocess → C. Upscale) and returns { images, audio } instead of saving. */
+  into?: { g: Record<string, any>; images: any; audio: any } | null;
 }
 
 export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefined, opts: LtxUpscaleOpts) {
-  const { nodeId = null, sourceFile, fps = FPS, window = null, saveSuffix = "", anchorImage = null } = opts;
-  if (!sourceFile) throw new Error("LTX Upscale: pick a source clip (gallery or upload).");
+  const { nodeId = null, sourceFile, fps = FPS, window = null, saveSuffix = "", anchorImage = null, into = null } = opts;
+  if (!sourceFile && !into) throw new Error("LTX Upscale: pick a source clip (gallery or upload).");
   const need: Record<string, string> = {
     ltxUnet: "LTX unet", ltxLatentUpscaler: "latent upscaler", ltxClip: "text encoder",
     ltxVaeVideo: "video VAE", ltxVaeAudio: "audio VAE",
@@ -1009,19 +1163,21 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   const missing = Object.keys(need).filter((k) => !(state as any)[k] || (state as any)[k] === "none").map((k) => need[k]);
   if (missing.length) throw new Error(`LTX Upscale: set these in ⚙ Settings → LTX 2.5 Upscale — ${missing.join(", ")}`);
 
-  const g: Record<string, any> = {};
+  const g: Record<string, any> = into ? into.g : {};
   const folder = (state.saveSubfolder || SUBFOLDER).replace(/\\/g, "/");
   const stem = state.filenamePrefix || "MMH3";
   const isGguf = (s: string) => String(s || "").toLowerCase().endsWith(".gguf");
 
   // ── source ────────────────────────────────────────────────────────────────
-  g[L.load] = { class_type: "VHS_LoadVideo", inputs: {
+  if (!into) g[L.load] = { class_type: "VHS_LoadVideo", inputs: {
     video: sourceFile, force_rate: 0, custom_width: 0, custom_height: 0,
     frame_load_cap: window ? Math.max(1, window.cap | 0) : 0,
     skip_first_frames: window ? Math.max(0, window.skip | 0) : 0,
     select_every_nth: 1, format: "AnimateDiff",
   } };
   // IMAGE = [L.load, 0], frame_count = [L.load, 1], audio = [L.load, 2]
+  const srcImages: any = into ? into.images : [L.load, 0];
+  const srcAudio: any = into ? into.audio : [L.load, 2];
 
   // ── loaders ───────────────────────────────────────────────────────────────
   g[L.unet] = isGguf(state.ltxUnet)
@@ -1093,18 +1249,18 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   g[L.guider] = { class_type: "LTXVDualCFGGuider", inputs: { video_cfg: 1, audio_cfg: 1, model, positive: condPos, negative: condNeg } };
 
   // ── latent: encode → 2x latent upscale → first-frame anchor → concat with audio ──
-  g[L.enc] = { class_type: "VAEEncode", inputs: { pixels: [L.load, 0], vae: vaeV } };
+  g[L.enc] = { class_type: "VAEEncode", inputs: { pixels: srcImages, vae: vaeV } };
   g[L.upsamp] = { class_type: "LTXVLatentUpsampler", inputs: { samples: [L.enc, 0], upscale_model: [L.upmodel, 0], vae: vaeV } };
   let anchorLink: any;
   if (anchorImage) {
     g[L.firstF] = { class_type: "LoadImage", inputs: { image: anchorImage } };
     anchorLink = [L.firstF, 0];
   } else {
-    g[L.firstF] = { class_type: "ImageFromBatch", inputs: { image: [L.load, 0], batch_index: 0, length: 1 } };
+    g[L.firstF] = { class_type: "ImageFromBatch", inputs: { image: srcImages, batch_index: 0, length: 1 } };
     anchorLink = [L.firstF, 0];
   }
   g[L.i2v] = { class_type: "LTXVImgToVideoInplace", inputs: { strength: 1, bypass: false, vae: vaeV, image: anchorLink, latent: [L.upsamp, 0] } };
-  g[L.audEnc] = { class_type: "LTXVAudioVAEEncode", inputs: { audio: [L.load, 2], audio_vae: vaeA } };
+  g[L.audEnc] = { class_type: "LTXVAudioVAEEncode", inputs: { audio: srcAudio, audio_vae: vaeA } };
   g[L.concat] = { class_type: "LTXVConcatAVLatent", inputs: { video_latent: [L.i2v, 0], audio_latent: [L.audEnc, 0] } };
 
   // ── refine sample ─────────────────────────────────────────────────────────
@@ -1128,6 +1284,7 @@ export function buildLtxUpscaleGraph(state: MinimaxState, avail: Avail | undefin
   } };
   g[L.decA] = { class_type: "LTXVAudioVAEDecode", inputs: { samples: [L.sep, 1], audio_vae: vaeA } };
   let images: any = [L.decV, 0];
+  if (into) return { images, audio: [L.decA, 0] } as any; // add-on mode: the caller keeps building
 
   // ── optional RTX finisher (reuses the H3 node's deblur / RTX VSR settings) ──
   let deblurUsed: string | null = null;
@@ -1678,7 +1835,11 @@ export interface PostprocessGraphOpts {
   denoise?: { enabled?: boolean; strength?: string };
   upscale?: {
     enabled?: boolean;
-    method?: "flashvsr" | "rtx" | "model" | "none";
+    method?: "flashvsr" | "rtx" | "model" | "h3lat" | "ltx" | "none";
+    // h3lat: Latent Upscale (Use H3) — the state its builders read + { promptText, frames, srcSize, finalSize, hasAudio, seed, upscalerModel }
+    h3State?: any; h3?: any;
+    // ltx: LTX 2.5 Upscale — the LTX settings state + an optional first-frame anchor file (split pieces)
+    ltxState?: any; ltxAnchor?: string | null;
     modelName?: string;
     rtxScale?: number; rtxQuality?: string; rtxSizeMode?: string;
     rtxShort?: number; rtxLong?: number; rtxW?: number; rtxH?: number; rtxCropAnchor?: string;
@@ -1717,6 +1878,7 @@ export function buildPostprocessGraph(opts: PostprocessGraphOpts, avail?: Avail)
     frame_load_cap: frameLoadCap, skip_first_frames: skipFirstFrames, select_every_nth: 1,
   } };
   let images: any = [PPX.load, 0];
+  let audio: any = [PPX.load, 2];
   let fps = FPS;
 
   // A. Deblur
@@ -1745,6 +1907,17 @@ export function buildPostprocessGraph(opts: PostprocessGraphOpts, avail?: Avail)
       buildFlashVSR(g, PPX.fvsrPipe, PPX.fvsr, upscale.flashvsr || {}, images);
       images = [PPX.fvsr, 0];
       upscaleUsedInfo = flashvsrUsed(upscale.flashvsr || {});
+    } else if (upscale.method === "h3lat") {
+      const r = addH3LastStep(g, upscale.h3State, avail, { images, audio, ...upscale.h3 });
+      images = r.images;
+      upscaleUsedInfo = { method: "h3lat", upscaler: upscale.h3State.hiresUpscaler === "kimchy" ? "kimchy" : "h3",
+        width: upscale.h3.finalSize.width, height: upscale.h3.finalSize.height };
+    } else if (upscale.method === "ltx") {
+      // LTX 2.5 latent upscale + refine on the frames so far; the clip's audio goes through LTX's audio VAE.
+      const r = buildLtxUpscaleGraph(upscale.ltxState, avail, { into: { g, images, audio }, fps, anchorImage: upscale.ltxAnchor || null });
+      images = r.images; audio = r.audio;
+      upscaleUsedInfo = { method: "ltx", steps: Math.max(1, Math.round(upscale.ltxState.ltxSteps ?? 4)),
+        denoise: upscale.ltxState.ltxDenoise ?? 0.15 };
     } else if (upscale.method === "rtx") {
       if (!has(avail, "TJ_NODE_RTXVSR")) throw new Error("RTX VSR (TJ_NODE_RTXVSR) is not installed.");
       const t = computeRtxTarget({
@@ -1884,7 +2057,7 @@ export function buildPostprocessGraph(opts: PostprocessGraphOpts, avail?: Avail)
 
   // preview:true routes save_output:false at TEMP_PREVIEW_SUBFOLDER (the caller is responsible
   // for passing that as `folder` on a preview run) — never touches the real output/ gallery.
-  saveVideoNode(g, { video: PPX.video, save: PPX.save }, images, [PPX.load, 2], fps, `${folder}/${stem}${saveSuffix}`, avail, preview);
+  saveVideoNode(g, { video: PPX.video, save: PPX.save }, images, audio, fps, `${folder}/${stem}${saveSuffix}`, avail, preview);
   return { graph: g, saveNode: PPX.save, usedSteps, upscaleUsedInfo };
 }
 

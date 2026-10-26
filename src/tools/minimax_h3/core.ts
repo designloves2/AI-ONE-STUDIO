@@ -235,6 +235,9 @@ export interface MinimaxState {
   aspect: string;
   megapixels: number;
   hiresFinish: boolean;
+  hiresUpscaler: "h3" | "kimchy"; // 7+1 stage 2: h3 = H3 Latent Up Scaler, kimchy = H3 Kimchy Up Scaler
+  hiresKimStartMp: number; // each 7+1 upscaler remembers its own Start / Final MP
+  hiresKimFinalMp: number;
   autoPrompt: boolean; // write every clip's prompt with the LLM right before Generate
   hiresLastFixed: boolean; // last step on the fixed model (hiresLastModel) instead of the generation model
   hiresLastModel: string;
@@ -502,6 +505,12 @@ export interface MinimaxState {
   // bypassed-on-canvas). PORT_LEDGER row 428 — every field below is registered here on day one
   // so this mode never hits the whitelist-gap bug the node's own port found (fields added to the
   // UI/state but never registered in defaultState() silently reverting to defaults on reload).
+  // Postprocess → Latent Upscale (Use H3): own model / turbo / upscaler settings (a new field starts from the main value once)
+  ppH3TurboMode: string; ppH3PddFile: string; ppH3PddFileReference: string; ppH3LastFixed: boolean; ppH3PddStrength: number;
+  ppH3Upscaler: "h3" | "kimchy"; ppH3UpModel: string; ppH3FinalMp: number; ppH3KimFinalMp: number; ppH3ChunkRows: number; ppH3NoOpt: boolean;
+  // A run that was in flight when the page went away (kept through the state whitelist, so a reload can reattach)
+  // (_ltxRelay above; clip generation keeps its run record in the view's own RunProgress)
+  _ppRelay: any; _frRelay: any;
   ppSource: string;
   ppSourceKind: string; // "gallery" | "upload"
   ppSourceMeta: { w: number; h: number; fps: number; frames: number; duration: number } | null;
@@ -900,10 +909,74 @@ export function hiresActive(state: MinimaxState): boolean {
   return !!state.hiresFinish && ((state.turboMode === "pdd" && !!pddFileForMode(state)) || (state.turboMode || "none") === "none");
 }
 
+/**
+ * How many tiles the Kimchy upscaler samples for a source of srcW x srcH at `mp` megapixels: it cuts the upscaled
+ * latent into 44 x 56 windows (kimchy_upscaler_mp.py: compute_target_hw_by_mode / compute_window_coords).
+ */
+export function kimchyTileCount(srcW: number, srcH: number, mp: number): number {
+  const curW = Math.floor(srcW / 16) * 16, curH = Math.floor(srcH / 16) * 16;
+  const aspect = curW / curH;
+  const rawH = Math.sqrt(Math.max(1, Math.min(8.5, mp)) * 1_000_000 / aspect), rawW = rawH * aspect;
+  const px = (v: number) => Math.max(32, Math.round(v / 32) * 32);
+  const lat = (v: number) => Math.max(2, Math.floor(px(v) / 16 / 2) * 2);
+  const coords = (total: number, win: number, overlap: number): number[] => {
+    if (total <= win) return [0];
+    const stride = Math.max(2, Math.floor((win - overlap) / 2) * 2);
+    const out: number[] = [];
+    for (let c = 0; c < total - win; c += stride) out.push(c);
+    if (!out.length || out[out.length - 1] !== total - win) out.push(total - win);
+    return out;
+  };
+  const H = lat(rawH), W = lat(rawW);
+  const winH = Math.min(H, 44), winW = Math.min(W, 56);
+  return coords(H, winH, Math.min(12, Math.floor(winH / 3))).length * coords(W, winW, Math.min(16, Math.floor(winW / 3))).length;
+}
+
+/** The state the 7+1 last-step builders read, for Postprocess → Latent Upscale (Use H3): its own settings, not the main ones. */
+export function ppH3State(s: any, kind = "fl"): any {
+  return {
+    // "ref" = a Reference-mode H3 clip (Ref2VA model + its LoRA slot); everything else is First/Last (FL2VA)
+    generationMode: kind === "ref" ? "reference" : "firstlast", hiresFinish: true,
+    // the models come from Settings: the main one per mode, or the fixed 7+1 last step model
+    unetFirstLast: s.unetFirstLast, unetReference: s.unetReference,
+    hiresLastFixed: !!s.ppH3LastFixed, hiresLastModel: s.hiresLastModel,
+    clipName: s.clipName, vaeVideo: s.vaeVideo, vaeAudio: s.vaeAudio,
+    // the LoRAs are Postprocess's own
+    turboMode: s.ppH3TurboMode, pddFile: s.ppH3PddFile, pddFileReference: s.ppH3PddFileReference, pddLoraStrength: s.ppH3PddStrength,
+    hiresUpscaler: s.ppH3Upscaler, hiresFinalMp: s.ppH3FinalMp, hiresKimFinalMp: s.ppH3KimFinalMp,
+    hiresChunkRows: s.ppH3ChunkRows, hiresNoOpt: s.ppH3NoOpt,
+    loras: [], sampler: "euler", scheduler: "simple", shiftVideo: 12, shiftAudio: 3,
+  };
+}
+
+/** The Kimchy node's `model_name` for each upscale choice (undefined = its trained network, the graph default). */
+export const PP_H3_UP_MODELS: Record<string, string | undefined> = { neural: undefined, bicubic: "None (Bicubic)", trilinear: "None (Trilinear)" };
+
+/** Which model family Postprocess → Latent Upscale (Use H3) runs a clip on: "ref" for a Reference-mode H3 clip, else "fl". */
+export function ppH3Kind(meta: any): "ref" | "fl" {
+  return meta && meta.mode === "reference" ? "ref" : "fl";
+}
+
+/** Width x height for `mp` megapixels at a source clip's own aspect ratio, 32-aligned. */
+export function sizeForMp(srcW: number, srcH: number, mp: number) {
+  const ratio = (srcW || 16) / (srcH || 9);
+  const h = Math.sqrt(Math.max(0.1, mp) * 1_000_000 / ratio);
+  const snap = (v: number) => Math.max(32, Math.round(v / 32) * 32);
+  return { width: snap(h * ratio), height: snap(h) };
+}
+
+/** Start / Final MP of the selected 7+1 upscaler — A and B keep separate values. */
+export function hiresMp(state: any): { start: number; final: number } {
+  return state.hiresUpscaler === "kimchy"
+    ? { start: state.hiresKimStartMp ?? 0.5, final: state.hiresKimFinalMp ?? 2.0 }
+    : { start: state.hiresStartMp ?? 0.7, final: state.hiresFinalMp ?? 1.6 };
+}
+
 /** Stage-1 size, the size the latent upscaler lands on (both 32-aligned), and the ratio between them. */
 export function hiresSizes(state: MinimaxState) {
-  const start = resolveResolution(state.aspect, state.hiresStartMp ?? 0.7);
-  const final = resolveResolution(state.aspect, state.hiresFinalMp ?? 1.6);
+  const mp = hiresMp(state);
+  const start = resolveResolution(state.aspect, mp.start);
+  const final = resolveResolution(state.aspect, mp.final);
   return { start, final, scale: Math.round(final.width / start.width * 1000) / 1000 };
 }
 
@@ -915,9 +988,8 @@ export const GENERATION_MODES = [
   { key: "firstlast", label: "Image to Video (F/L)", hint: "start + end keyframe (FL2VA)" },
   { key: "reference", label: "Reference to Video", hint: "up to 9 reference images (REF2VA)" },
   { key: "facerefine", label: "Face Refine MMH3", hint: "re-render a small/distant face per frame (H3)" },
-  { key: "ltxupscale", label: "Upscale by LTX 2.5", hint: "2x refine an existing clip (LTX 2.5)" },
-  { key: "imagegen", label: "Image Generator", hint: "single-image T2I / Reference / Character Sheet (H3 fl2va/ref2va)" },
   { key: "postprocess", label: "Postprocess", hint: "chained post-effects (Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize) on an existing clip" },
+  { key: "imagegen", label: "Image Generator", hint: "single-image T2I / Reference / Character Sheet (H3 fl2va/ref2va)" },
 ];
 
 // Image Generator's own 3 sub-modes, picked from a second pill row inside its left panel —
@@ -1234,7 +1306,7 @@ export const RECIPE_KEYS = [
   "fp16Accum",
   // 7+1 hi-res finish: the checkbox and its sizes travel with a saved recipe, but it is
   // not a matching axis — a built-in preset never turns it on or off.
-  "hiresFinish", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresChunkRows",
+  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresKimStartMp", "hiresKimFinalMp", "hiresChunkRows",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -1282,8 +1354,11 @@ export interface UserPipelinePreset {
   hiresFinish?: boolean;
   hiresNoOpt?: boolean;
   hiresLastFixed?: boolean;
+  hiresUpscaler?: string;
   hiresStartMp?: number;
   hiresFinalMp?: number;
+  hiresKimStartMp?: number;
+  hiresKimFinalMp?: number;
   hiresChunkRows?: number;
 }
 
@@ -1533,10 +1608,6 @@ export function configIssues(state: MinimaxState) {
 export function generationModesFor(state: MinimaxState) {
   const a = modelAvailability(state);
   return GENERATION_MODES.map((m) => {
-    if (m.key === "ltxupscale") {
-      const ok = ltxUpscaleReady(state);
-      return { ...m, enabled: ok, reason: ok ? "" : `Set the LTX 2.5 models in ⚙ Settings (missing: ${ltxUpscaleMissing(state).join(", ")})` };
-    }
     if (m.key === "postprocess") {
       // No UNET/CLIP/VAE requirement at all — every step (Deblur/Denoise/Upscale/Skin
       // Retouch/Grain/Interpolate/Resize) is a standalone TJ_NODE/ComfyUI-core node chain, not
@@ -1969,7 +2040,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     loras: Array.isArray(saved.loras)
       ? saved.loras.map((l) => ({ name: l.name || "none", strength: l.strength ?? 1.0, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))
       : [],
-    generationMode: saved.generationMode || "t2v",
+    // "Upscale by LTX 2.5" is no longer a mode of its own: it lives in Postprocess → C. Upscale
+    generationMode: saved.generationMode === "ltxupscale" ? "postprocess" : (saved.generationMode || "t2v"),
 
     // ── LTX 2.5 Upscale mode ────────────────────────────────────────────────
     ltxSource: saved.ltxSource || "",
@@ -2078,6 +2150,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     megapixels: saved.megapixels ?? 1.0,
     hiresFinish: !!saved.hiresFinish,
     autoPrompt: !!saved.autoPrompt,   // write every clip's prompt with the LLM right before Generate
+    hiresUpscaler: saved.hiresUpscaler === "kimchy" ? "kimchy" : "h3",   // 7+1 stage 2: h3 = H3 Latent Up Scaler, kimchy = H3 Kimchy Up Scaler
+    hiresKimStartMp: saved.hiresKimStartMp ?? 0.5,   // each 7+1 upscaler remembers its own Start / Final MP
+    hiresKimFinalMp: saved.hiresKimFinalMp ?? 2.0,
     hiresLastFixed: !!saved.hiresLastFixed,   // last step on the fixed model below instead of the generation model
     hiresLastModel: saved.hiresLastModel || "",
     hiresNoOpt: !!saved.hiresNoOpt,   // last step runs without H3 Memory Optimization / Sol-Attn
@@ -2306,6 +2381,24 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     charSheetCellH: saved.charSheetCellH ?? 0,
 
     // ── Postprocess mode ────────────────────────────────────────────────────
+    // Postprocess → Latent Upscale (Use H3) keeps its own model / turbo / upscaler settings. A new field starts from the
+    // main value once, then never follows it.
+    // A run that was in flight when the page went away: what is needed to reattach to it and finish it. Not listed here,
+    // the whitelist would drop them on the reload that makes them necessary.
+    _ppRelay: (saved as any)._ppRelay ?? null,     // Postprocess
+    _frRelay: (saved as any)._frRelay ?? null,     // Face Refine
+    ppH3TurboMode: (saved as any).ppH3TurboMode ?? (saved.turboMode === "pdd" ? "pdd" : "none"),
+    ppH3PddFile: (saved as any).ppH3PddFile ?? saved.pddFile ?? "",
+    ppH3PddFileReference: (saved as any).ppH3PddFileReference ?? saved.pddFileReference ?? "",
+    ppH3LastFixed: !!(saved as any).ppH3LastFixed,
+    ppH3PddStrength: (saved as any).ppH3PddStrength ?? saved.pddLoraStrength ?? 1.0,
+    ppH3Upscaler: (saved as any).ppH3Upscaler === "kimchy" ? "kimchy" : "h3",
+    // what the Kimchy node upscales the latent with: its trained network, or plain interpolation
+    ppH3UpModel: ["bicubic", "trilinear"].includes((saved as any).ppH3UpModel) ? (saved as any).ppH3UpModel : "neural",
+    ppH3FinalMp: (saved as any).ppH3FinalMp ?? 1.6,
+    ppH3KimFinalMp: (saved as any).ppH3KimFinalMp ?? 2.0,
+    ppH3ChunkRows: (saved as any).ppH3ChunkRows ?? 2048,
+    ppH3NoOpt: !!(saved as any).ppH3NoOpt,
     ppSource: saved.ppSource || "",
     ppSourceKind: saved.ppSourceKind || "gallery",
     ppSourceMeta: saved.ppSourceMeta || null,

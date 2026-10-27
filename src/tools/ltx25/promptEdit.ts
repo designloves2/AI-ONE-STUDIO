@@ -993,7 +993,7 @@ This cannot be undone.`,
     const b = briefBackend();
     if (b === "custom") return state.h3CustomBriefBase && state.h3CustomBriefModel ? "" : "Connect Custom (Brief) needs an API base URL and a model ID - set them in Settings → LLM Setting.";
     if (b === "llamagguf") return state.h3LlamaBriefModel ? "" : "No Llama GGUF brief model set - pick one in Settings.";
-    if (b === "openrouter") return "";
+    if (b === "openrouter") return String(state.h3OrModelBrief || state.h3OrModel || "").trim() ? "" : "OpenRouter 모델이 선택되지 않았습니다. 설정 > LLM 에서 모델을 선택하세요. (OpenRouter model is not selected - choose one in Settings > LLM.)";
     return state.nativeBriefClip ? "" : "No brief CLIP set - pick one in Settings, or switch the Brief backend to OpenRouter.";
   }
   async function callBrief(system, user, maxTokens = 2000) {
@@ -1260,6 +1260,9 @@ This cannot be undone.`,
     progressStart("write");
     try {
       let notes = "";
+      if (imgs.length && visionBackend() === "openrouter" && !String(state.h3OrModelVision || state.h3OrModel || "").trim()) {
+        throw new Error("OpenRouter 모델이 선택되지 않았습니다. 설정 > LLM 에서 모델을 선택하세요. (OpenRouter vision model is not selected - choose one in Settings > LLM.)");
+      }
       if (imgs.length && visionReady()) {
         const summary = await describeImages(imgs.map(m => m.file));
         notes = summary.split("\n").map((l, k) => `${l}  [appears at ${secLabel(imgs[k]?.at || 0)}]`).join("\n");

@@ -7,6 +7,7 @@
 import { comfyFetch, onComfyMessage } from "./comfySocket";
 import { writeBriefNative } from "../tools/minimax_h3/api";
 import type { LlmFn } from "./bilingual";
+import { OR_MODEL_MISSING_TRANSLATE } from "./orModelGuard";
 
 export interface TranslateConfig {
   backend: "native" | "openrouter" | "llamagguf" | "custom";
@@ -67,6 +68,7 @@ export function translateLlm(): LlmFn {
       if (!c.native_clip) throw new Error("No translate CLIP set - pick one in Settings -> Translation LLM.");
       return writeBriefNative(c.native_clip, system, user);
     }
+    if (c.backend === "openrouter" && !String(c.or_model || "").trim()) throw new Error(OR_MODEL_MISSING_TRANSLATE);
     const r = await comfyFetch("/tj_shared/translate_llm", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ system, user }),
     });

@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.15.3] — 2026-10-27
+
+### Added
+- OpenRouter chosen but its model empty (Prompt Write / Enhance / Refine in the image tools, H3 and LTX 2.5 Prompt Write / vision, the translation): no request is sent; a popup says "OpenRouter 모델이 선택되지 않았습니다. 설정 > LLM 에서 모델을 선택하세요." A model the user picked is never touched.
+
 ## [0.15.2] — 2026-10-27
 
 ### Added

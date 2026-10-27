@@ -48,6 +48,7 @@ import { attachBilingual } from "../../shared/bilingualUi";
 import { fieldEdit, fieldSetBoth, fieldFill, ensureEnglish, koKey } from "../../shared/bilingual";
 import { translateLlm } from "../../shared/translateConfig";
 import { getUseKo } from "../../shared/koSetting";
+import { OR_MODEL_MISSING } from "../../shared/orModelGuard";
 import { buildClipMediaSlots, dragReorder } from "./imagesPanel";
 import { openVideoGalleryPicker } from "./videoPicker";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
@@ -1448,6 +1449,10 @@ export function createPromptEditOverlay(
       failWrite(auto, "Set a Brief CLIP (or switch the Brief backend to OpenRouter/Llama GGUF in Settings).");
       return null;
     }
+    if (briefOR && !String(state.h3OrModelBrief || (state as any).h3OrModel || "").trim()) {
+      failWrite(auto, OR_MODEL_MISSING);
+      return null;
+    }
     if (briefLlama && !state.h3LlamaBriefModel) {
       failWrite(auto, "No Llama GGUF brief model set — pick one in Settings.");
       return null;
@@ -1553,6 +1558,10 @@ export function createPromptEditOverlay(
     const visionCustom = state.h3VisionBackend === "custom";
     if (!visionOR && !visionLlama && !visionCustom && !state.nativeVisionClip) {
       failWrite(auto, "Set a Vision CLIP (or switch the Vision backend to OpenRouter/Llama GGUF in Settings).");
+      return false;
+    }
+    if (visionOR && !String(state.h3OrModelVision || state.h3OrModelBrief || "").trim()) {
+      failWrite(auto, OR_MODEL_MISSING);
       return false;
     }
     if (visionLlama && !state.h3LlamaVisionModel) {
@@ -2533,6 +2542,8 @@ export function createPromptEditOverlay(
       const visionOR = get("h3VisionBackend") === "openrouter", visionLlama = get("h3VisionBackend") === "llamagguf", visionCustom = get("h3VisionBackend") === "custom";
       if (!briefOR && !briefLlama && !briefCustom && !state.nativeBriefClip) throw new Error("No brief CLIP set - pick one in Settings, or switch the Brief backend to OpenRouter/Llama GGUF.");
       if (!visionOR && !visionLlama && !visionCustom && !state.nativeVisionClip) throw new Error("No vision CLIP set - pick one in Settings, or switch the Vision backend to OpenRouter/Llama GGUF.");
+      if (briefOR && !String(state.h3OrModelBrief || (state as any).h3OrModel || "").trim()) throw new Error(OR_MODEL_MISSING);
+      if (visionOR && !String(state.h3OrModelVision || state.h3OrModelBrief || "").trim()) throw new Error(OR_MODEL_MISSING);
       if (briefLlama && !state.h3LlamaBriefModel) throw new Error("No Llama GGUF brief model set - pick one in Settings.");
       if (visionLlama && !state.h3LlamaVisionModel) throw new Error("No Llama GGUF vision model set - pick one in Settings.");
       if (briefCustom && !(state.h3CustomBriefBase && state.h3CustomBriefModel)) throw new Error("Connect Custom (Brief) needs an API base URL and a model ID - set them in Settings.");

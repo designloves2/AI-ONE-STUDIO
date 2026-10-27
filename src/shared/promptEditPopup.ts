@@ -10,6 +10,7 @@ import { el } from "./ui";
 import { attachBilingual, type BilingualHandle } from "./bilingualUi";
 import { fieldSetBoth, fieldSetView, fieldFill, fieldText, translateText } from "./bilingual";
 import { useKoFor } from "./koSetting";
+import { OR_MODEL_MISSING } from "./orModelGuard";
 import { saveLLMSettings, loadLLMSettings } from "./llmSettingsStore";
 import { translateLlm } from "./translateConfig";
 import { C, BRAND } from "../identity";
@@ -574,6 +575,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   // ── Image → Prompt Write ───────────────────────────────────────────────
   async function doWrite() {
     if (!imageB64) return;
+    if (llm.backend_vision === "openrouter" && !String(llm.or_model_vision || "").trim()) { alert(OR_MODEL_MISSING); return; }
     applySeedControl();
     const existingText = useExistingChk.checked ? promptTA.value.trim() : "";
     let contextInstruction = existingText
@@ -621,6 +623,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   async function doEnhance() {
     const prompt = promptTA.value.trim();
     if (!prompt) return;
+    if ((llm.backend_text || llm.backend) === "openrouter" && !String(llm.or_model_text || llm.or_model || "").trim()) { alert(OR_MODEL_MISSING); return; }
     applySeedControl();
     (btnEnhance as HTMLButtonElement).disabled = true;
     setBusy(true, "Enhancing prompt…");
@@ -662,6 +665,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   // ── Refine ─────────────────────────────────────────────────────────────
   // Same /llm/enhance route with `refine_instruction` (server builds the revise-only system text).
   async function callRefine(prompt: string, instruction: string): Promise<string> {
+    if ((llm.backend_text || llm.backend) === "openrouter" && !String(llm.or_model_text || llm.or_model || "").trim()) throw new Error(OR_MODEL_MISSING);
     applySeedControl();
     const r = await cfg.fetchApi("/tj_studio_one/llm/enhance", {
       method: "POST", headers: { "Content-Type": "application/json" },

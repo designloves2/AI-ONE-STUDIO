@@ -193,7 +193,7 @@ export function searchableSelect(initialOptions: string[], value: string, onChan
   function buildOptions(filter: string) {
     const q = filter.toLowerCase();
     s.replaceChildren(
-      ...options.filter((o) => !q || o.toLowerCase().includes(q)).map((o) => el("option", { value: o, text: o, title: o, ...(o === currentValue ? { selected: "selected" } : {}) }))
+      ...options.filter((o) => !q || o.toLowerCase().includes(q)).map((o) => el("option", { value: o, text: o || "— choose a model —", title: o, ...(o === currentValue ? { selected: "selected" } : {}) }))
     );
     if (options.includes(currentValue)) s.value = currentValue;
     else if (options.length) s.value = options[0];

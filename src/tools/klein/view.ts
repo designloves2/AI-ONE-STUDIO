@@ -340,7 +340,7 @@ export function renderKlein(root: HTMLElement) {
     viewUrl: (filename) => api.viewUrl(filename, "", "input"),
     llm: llmState,
     saveLlm: () => saveLlmState(llmState),
-    openSettings: () => settingsOv.show(),
+    openSettings: () => settingsOv.showTab("LLM"),
     title: "🔍 Prompt Edit",
     defaultModelFormat: "Flux & Chroma (natural language)",
   });
@@ -348,6 +348,7 @@ export function renderKlein(root: HTMLElement) {
     () => state.mode,
     (text) => { imgBil.setEnglish(text); persist(); updatePromptCount(); }
   );
+  wrap.dataset.tjNode = "klein";
   wrap.appendChild(promptExpandOv.el);
   wrap.appendChild(templateOv.el);
 

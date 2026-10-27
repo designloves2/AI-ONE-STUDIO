@@ -305,7 +305,7 @@ export function renderSDXL(root: HTMLElement) {
     viewUrl: (filename) => api.viewUrl(filename, "", "input"),
     llm: llmState,
     saveLlm: () => saveLlmState(llmState),
-    openSettings: () => settingsOv.show(),
+    openSettings: () => settingsOv.showTab("LLM"),
     title: "🔍 Prompt Edit",
     defaultModelFormat: "SDXL (tags + weights)",
   });
@@ -313,6 +313,7 @@ export function renderSDXL(root: HTMLElement) {
     () => state.mode,
     (text) => { imgBil.setEnglish(text); persist(); updatePromptCount(); }
   );
+  wrap.dataset.tjNode = "sdxl";
   wrap.appendChild(promptExpandOv.el);
   wrap.appendChild(templateOv.el);
 

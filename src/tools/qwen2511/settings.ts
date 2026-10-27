@@ -2,6 +2,8 @@
 // 원본 근거: web/qwen2511/ui_app_settings_qe.js — Lightning LoRA(4-step 속도 부스트, ON 전환 시
 // Steps=8/CFG=1로 자동 세팅) + Camera Angle LoRA(ANGLE 모드 전용) 섹션이 Klein/Z-Image에는 없는
 // Qwen 2511 고유 기능이다.
+import { tabSettings } from "../../shared/settingsTabs";
+import { BRAND as TAB_BRAND } from "../../identity";
 import type { QEState } from "./core";
 import { C, el, SUBFOLDER, BRAND } from "./core";
 import { panel, label, button, row, col, searchableSelect } from "../../shared/ui";
@@ -67,7 +69,7 @@ function simpleLoraRow(
 export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
   const ov = el("div", {
     style: {
-      position: "absolute", inset: "0", zIndex: "60",
+      position: "absolute", inset: "0", zIndex: "10002",
       background: "rgba(11,11,11,0.97)", borderRadius: "inherit",
       display: "none", flexDirection: "column", padding: "12px", gap: "8px",
       boxSizing: "border-box", overflowY: "auto",
@@ -223,9 +225,11 @@ export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "qwen2511" });
   return {
     el: ov,
     show() { ov.style.display = "flex"; },
+    showTab(name: string) { tabs.show(name); ov.style.display = "flex"; },
     hide() { ov.style.display = "none"; },
   };
 }

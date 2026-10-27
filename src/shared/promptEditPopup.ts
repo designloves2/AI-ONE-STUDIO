@@ -8,7 +8,9 @@
 // src/tools/minimax_h3/promptEdit.ts, this repo's other full-screen popup.
 import { el } from "./ui";
 import { attachBilingual, type BilingualHandle } from "./bilingualUi";
-import { fieldSetBoth, fieldSetView, fieldFill, fieldText } from "./bilingual";
+import { fieldSetBoth, fieldSetView, fieldFill, fieldText, translateText } from "./bilingual";
+import { useKoFor } from "./koSetting";
+import { saveLLMSettings, loadLLMSettings } from "./llmSettingsStore";
 import { translateLlm } from "./translateConfig";
 import { C, BRAND } from "../identity";
 import { createLlmBackendGroup, backendName, type LlmBackendState } from "./llmBackendPanel";
@@ -99,10 +101,10 @@ function fieldCol(labelText: string, control: HTMLElement) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Refine — revise an already-written prompt from a typed instruction, then compare
+// Refine — revise an already-written prompt from a typed instruction, then show the result
 // ══════════════════════════════════════════════════════════════════════════
 // Port of node llm_panel.js runRefine (5a52038 + f7debf6): instruction popup → LLM → original /
-// refined side by side → Re:Refine / Apply / Close. Overlays are fixed to the window (z 100000) so
+// English / Korean side by side → Re:Refine / Apply / Close. Overlays are fixed to the window (z 100000) so
 // they sit above Prompt Edit. Phone (≤767px) stacks the two compare columns — web-only adaptation.
 let lastRefineInstruction = "";
 
@@ -176,68 +178,68 @@ function askRefineInstruction(): Promise<string | null> {
   });
 }
 
-/** Word-level diff (longest common subsequence). Returns the original's tokens as
- *  [{ text, changed }] — `changed` = removed or replaced by the refined text. */
-function diffOriginal(original: string, refined: string): { text: string; changed: boolean }[] {
-  const a = original.split(/(\s+)/).filter((x) => x !== "");
-  const words = (x: string) => x.split(/(\s+)/).filter((w) => w.trim() !== "");
-  const aw = words(original), bw = words(refined);
-  const n = aw.length, m = bw.length;
-  const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--)
-    for (let j = m - 1; j >= 0; j--)
-      lcs[i][j] = aw[i] === bw[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
-  const kept = new Set<number>();
-  for (let i = 0, j = 0; i < n && j < m;) {
-    if (aw[i] === bw[j]) { kept.add(i); i++; j++; }
-    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
-    else j++;
-  }
-  let wi = 0;
-  return a.map((tok) => tok.trim() === "" ? { text: tok, changed: false } : { text: tok, changed: !kept.has(wi++) });
-}
-
-/** Original / refined comparison. Resolves the chosen action + the (possibly edited) refined text. */
-function showRefineCompare(original: string, refined: string): Promise<{ action: "apply" | "again" | "close"; text: string }> {
+/**
+ * Refine result: English on the left (editable, what is applied), its Korean translation on the right (read-only, written
+ * while the window is open). Resolves { action, text, ko }; `ko` is "" when the English was edited after the translation (the
+ * caller then translates it again). Node `_showRefineResult` (v1.49.2); no word comparison any more.
+ */
+function showRefineResult(refined: string, protect: string[], withKo = true): Promise<{ action: "apply" | "again" | "close"; text: string; ko: string }> {
   return new Promise((resolve) => {
     const { ov, box } = refineOverlay();
     const phone = window.innerWidth <= 767;
     box.style.width = "min(1100px, 96vw)"; box.style.height = "min(680px, 90vh)";
     const cols = document.createElement("div");
     Object.assign(cols.style, { display: "flex", gap: "12px", flex: "1", minHeight: "0", flexDirection: phone ? "column" : "row" });
-    const colBox = () => {
+    const mk = (title: string, text: string, editable: boolean) => {
       const c = document.createElement("div");
-      Object.assign(c.style, { flex: "1", display: "flex", flexDirection: "column", gap: "4px", minWidth: "0", minHeight: "0" });
-      return c;
-    };
-    const head = (text: string) => {
+      Object.assign(c.style, { flex: "1", display: "flex", flexDirection: "column", gap: "4px", minWidth: "0", minHeight: "0", position: "relative" });
       const h = document.createElement("div");
-      h.textContent = text; Object.assign(h.style, { color: "#aaa", fontSize: "12px" });
-      return h;
+      h.textContent = title; Object.assign(h.style, { color: "#aaa", fontSize: "12px" });
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.readOnly = !editable;
+      Object.assign(ta.style, {
+        flex: "1", background: editable ? "#2a2a2a" : "#161616", color: editable ? "#fff" : "#bbb",
+        border: `1px solid ${editable ? BRAND : "#333"}`, borderRadius: "6px", padding: "10px",
+        fontSize: phone ? "16px" : "13px", fontFamily: "inherit", resize: "none", outline: "none",
+      });
+      c.append(h, ta); cols.appendChild(c);
+      return { ta, col: c };
     };
-    // Original is a read-only block, not a textarea, so the changed words can be colored.
-    const origCol = colBox();
-    const origBody = document.createElement("div");
-    Object.assign(origBody.style, { flex: "1", background: "#161616", color: "#999", border: "1px solid #333", borderRadius: "6px", padding: "10px", fontSize: "13px", whiteSpace: "pre-wrap", overflowY: "auto", userSelect: "text", minHeight: "0" });
-    for (const w of diffOriginal(original, refined)) {
-      const sp = document.createElement("span");
-      sp.textContent = w.text;
-      if (w.changed) Object.assign(sp.style, { background: "rgba(255,90,90,0.28)", color: "#ffb3b3", borderRadius: "3px" });
-      origBody.appendChild(sp);
+    const en = mk("English (you can edit it before applying)", refined, true);
+    const ko = mk("한국어 (번역)", "", false);
+    const veil = document.createElement("div");
+    Object.assign(veil.style, {
+      position: "absolute", left: "0", right: "0", bottom: "0", top: "18px", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: "12px", fontWeight: "600", borderRadius: "6px", cursor: "progress",
+    });
+    veil.textContent = "⏳ 번역중 (한국어로)…";
+    ko.col.appendChild(veil);
+
+    let translated = "", koOk = false, editedAfter = false;
+    function translateKo() {
+      veil.style.display = "flex";
+      return translateText(en.ta.value, "ko", translateLlm(), { protect })
+        .then((out) => { translated = out; koOk = true; editedAfter = false; ko.ta.value = out; })
+        .catch((e: any) => { ko.ta.value = "Translation failed: " + (e?.message || e); })
+        .finally(() => { veil.style.display = "none"; });
     }
-    origCol.append(head("Original (changed or removed words highlighted)"), origBody);
-    const refCol = colBox();
-    const refinedTA = document.createElement("textarea");
-    refinedTA.value = refined;
-    Object.assign(refinedTA.style, { flex: "1", background: "#2a2a2a", color: "#fff", border: `1px solid ${BRAND}`, borderRadius: "6px", padding: "10px", fontSize: phone ? "16px" : "13px", fontFamily: "inherit", resize: "none", outline: "none", minHeight: "0" });
-    refCol.append(head("Refined (you can edit it before applying)"), refinedTA);
-    cols.append(origCol, refCol);
+    if (withKo) void translateKo();
+    else {
+      // automatic translation is off for this tool: a one-time translation on request
+      veil.style.display = "none";
+      const once = refineBtn("EN → KO", BRAND);
+      Object.assign(once.style, { position: "absolute", top: "40px", right: "8px", padding: "4px 10px", fontSize: "11px" });
+      once.addEventListener("click", () => { once.remove(); void translateKo(); });
+      ko.col.appendChild(once);
+    }
+    en.ta.addEventListener("input", () => { editedAfter = true; });
+
     const btnRow = document.createElement("div");
     Object.assign(btnRow.style, { display: "flex", gap: "8px", justifyContent: "flex-end" });
     const again = refineBtn("Re:Refine", BRAND);
     const apply = refineBtn("Apply", "#2e8b57");
     const close = refineBtn("Close", "#444");
-    const done = (v: "apply" | "again" | "close") => { ov.remove(); resolve({ action: v, text: refinedTA.value }); };
+    const done = (v: "apply" | "again" | "close") => { ov.remove(); resolve({ action: v, text: en.ta.value, ko: koOk && !editedAfter ? translated : "" }); };
     again.addEventListener("click", () => done("again"));
     apply.addEventListener("click", () => done("apply"));
     close.addEventListener("click", () => done("close"));
@@ -441,13 +443,13 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     const pta = cfg.getPromptTA?.(); if (pta) pta.value = text;
   }
   // A Write / Enhance / Refine result is English; its Korean view is written right after (not waited for).
-  function setResult(text: string) {
+  function setResult(text: string, ko = "") {
     if (!bil || !bilCfg) { promptTA.value = text; return; }
     const o = bilCfg.target(), k = bilKey();
-    fieldSetBoth(o, k, text, "");
+    fieldSetBoth(o, k, text, ko);
     fieldSetView(o, k, "en");
     bil.refresh(); syncMain(text); cfg.persist();
-    if (!String(text || "").trim()) return;
+    if (!String(text || "").trim() || String(ko || "").trim() || !useKoFor(ov)) return;
     fieldFill(o, k, "ko", translateLlm(), { protect: bilCfg.protect?.() || [] })
       .then(() => { cfg.persist(); bil?.refresh(); syncMain(text); })
       .catch(() => { /* the KO / EN button writes it later */ });
@@ -462,6 +464,14 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const actionRow = el("div", { style: { display: "flex", gap: "10px", flexShrink: "0" } });
   const btnWrite = purpleBtn("🖼 Image → Prompt Write");
   btnWrite.style.flex = "1";
+  // Image -> Prompt Write works from the image alone, unless this box is ticked: then the text already in the prompt box is merged in.
+  const writeCol = el("div", { style: { flex: "1", display: "flex", flexDirection: "column", gap: "4px", minWidth: "0" } });
+  const useExistingChk = el("input", { type: "checkbox" }) as HTMLInputElement;
+  useExistingChk.checked = loadLLMSettings().write_use_existing === true;
+  useExistingChk.addEventListener("change", () => saveLLMSettings({ write_use_existing: useExistingChk.checked }));
+  const useExistingLabel = el("label", { style: { display: "flex", alignItems: "center", gap: "5px", color: "#aaa", fontSize: "11px", cursor: "pointer" } },
+    [useExistingChk, el("span", { text: "Use the existing text (merge the box with the image)" })]);
+  writeCol.append(btnWrite, useExistingLabel);
   const btnEnhance = purpleBtn("✨ Prompt Enhance");
   btnEnhance.style.flex = "1";
   const btnRefine = purpleBtn("🔧 Refine");
@@ -469,8 +479,8 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const applyBtn = purpleBtn("✓ APPLY");
   applyBtn.style.flex = "1";
   // Four equal buttons: Image → Prompt Write / Prompt Enhance / Refine / APPLY.
-  actionRow.append(btnWrite, btnEnhance, btnRefine, applyBtn);
-  if (window.innerWidth <= 767) { actionRow.style.flexWrap = "wrap"; [btnWrite, btnEnhance, btnRefine, applyBtn].forEach((b) => { b.style.minWidth = "46%"; }); }
+  actionRow.append(writeCol, btnEnhance, btnRefine, applyBtn);
+  if (window.innerWidth <= 767) { actionRow.style.flexWrap = "wrap"; [writeCol, btnEnhance, btnRefine, applyBtn].forEach((b) => { b.style.minWidth = "46%"; }); }
 
   function syncButtons() {
     (btnWrite as HTMLButtonElement).disabled = !imageB64;
@@ -565,7 +575,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   async function doWrite() {
     if (!imageB64) return;
     applySeedControl();
-    const existingText = promptTA.value.trim();
+    const existingText = useExistingChk.checked ? promptTA.value.trim() : "";
     let contextInstruction = existingText
       ? `The user has already written this description — use it as context and produce ONE integrated, polished prompt that incorporates it with what you see in the image. Rewrite it as a single cohesive prompt; do not simply append your description after it.\n\nExisting text:\n${existingText}`
       : "";
@@ -671,7 +681,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     return d.result;
   }
   /** Whole Refine flow on `getText()`'s prompt; `setBusy` shows the caller's busy state, `onApply` gets the accepted text. */
-  async function runRefine(o: { getText: () => string; onApply: (t: string) => void; setBusy?: (on: boolean) => void }) {
+  async function runRefine(o: { getText: () => string; onApply: (t: string, ko: string) => void; setBusy?: (on: boolean) => void; protect?: () => string[]; withKo?: () => boolean }) {
     const current = (o.getText() || "").trim();
     if (!current) { alert("Nothing to refine yet — write a prompt first."); return; }
     let instruction = await askRefineInstruction();
@@ -682,8 +692,8 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       try { refined = await callRefine(current, instruction); }
       catch (e: any) { alert("LLM error: " + (e.message || e)); return; }
       finally { o.setBusy?.(false); }
-      const res = await showRefineCompare(current, refined);
-      if (res.action === "apply") { o.onApply(res.text); return; }
+      const res = await showRefineResult(refined, o.protect?.() || [], o.withKo ? o.withKo() : true);
+      if (res.action === "apply") { o.onApply(res.text, res.ko); return; }
       if (res.action === "close") return;
       instruction = await askRefineInstruction();
     }
@@ -691,7 +701,9 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   // Inside Prompt Edit: works on the popup's own text; the accepted result lands back in it.
   btnRefine.addEventListener("click", () => runRefine({
     getText: () => promptTA.value,
-    onApply: (text) => { setResult(text); syncButtons(); },
+    onApply: (text, ko) => { setResult(text, ko); syncButtons(); },
+    protect: () => bilCfg?.protect?.() || [],
+    withKo: () => useKoFor(ov),
     setBusy: (on) => { (btnRefine as HTMLButtonElement).disabled = on; setBusy(on, "Refining the prompt…"); if (!on) syncButtons(); },
   }));
   // Main PROMPT box (no Prompt Edit needed): reads/writes the current mode's prompt; the box is
@@ -711,8 +723,10 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     return runRefine({
       setBusy: setMainBusy,
       getText: () => (bil && bilCfg ? fieldText(bilCfg.target(), bilKey()) : cfg.getPrompt()),   // what the box shows: Korean or English
-      onApply: (text) => {
-        if (bil) { setResult(text); syncButtons(); return; }
+      protect: () => bilCfg?.protect?.() || [],
+      withKo: () => useKoFor(ov),
+      onApply: (text, ko) => {
+        if (bil) { setResult(text, ko); syncButtons(); return; }
         cfg.setPrompt(text); promptTA.value = text; cfg.persist(); syncButtons();
       },
     });

@@ -1,5 +1,7 @@
 // settings.ts — Krea2 Settings 오버레이 (모델/ControlNet LoRA/Identity LoRA/저장 폴더 등).
 // 원본 근거: web/krea2/ui_app_settings_krea2.js
+import { tabSettings } from "../../shared/settingsTabs";
+import { BRAND as TAB_BRAND } from "../../identity";
 import type { Krea2State } from "./core";
 import { C, el, SUBFOLDER, safeDepthCkpt } from "./core";
 import { panel, label, button, row, col, searchableSelect } from "../../shared/ui";
@@ -20,7 +22,7 @@ export interface SettingsCtx {
 export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
   const ov = el("div", {
     style: {
-      position: "absolute", inset: "0", zIndex: "60",
+      position: "absolute", inset: "0", zIndex: "10002",
       background: "rgba(11,11,11,0.97)", borderRadius: "inherit",
       display: "none", flexDirection: "column", padding: "12px", gap: "8px",
       boxSizing: "border-box", overflowY: "auto",
@@ -182,9 +184,11 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "krea2" });
   return {
     el: ov,
     show() { ov.style.display = "flex"; },
+    showTab(name: string) { tabs.show(name); ov.style.display = "flex"; },
     hide() { ov.style.display = "none"; },
   };
 }

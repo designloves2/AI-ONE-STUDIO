@@ -12,8 +12,23 @@ const LS_KEY = "tj_studio_one_llm_settings";
 // credentials: "include" — external access is behind Cloudflare Access (see comfyBase.ts).
 const fetchApi = (path: string, opts?: RequestInit) => fetch(`${getComfyBase()}${path}`, { ...opts, credentials: "include" });
 
-export function loadLLMSettings(): any {
+function readLLMSettings(): any {
   try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { return {}; }
+}
+
+// A panel's copy of the settings is taken when the panel is built; writing all of it back later would put old values over
+// what another tool, page or tab saved since (a model or backend that was just changed). So a copy handed out here records
+// the keys assigned to it, and saveLLMSettings() saves only those.
+const dirtyKeys = new WeakMap<object, Set<string>>();
+export function trackLLM<T extends object>(base: T): T {
+  const dirty = new Set<string>();
+  const p = new Proxy(base, { set(t: any, k, v) { t[k] = v; dirty.add(String(k)); return true; } });
+  dirtyKeys.set(p, dirty);
+  return p;
+}
+
+export function loadLLMSettings(): any {
+  return trackLLM(readLLMSettings());
 }
 
 let _pushTimer: number | undefined;
@@ -28,7 +43,14 @@ function pushLLMSettings(s: any) {
 }
 
 export function saveLLMSettings(patch: any) {
-  const s = loadLLMSettings();
+  const dirty = dirtyKeys.get(patch);
+  if (dirty) {
+    const only: Record<string, any> = {};
+    for (const k of dirty) only[k] = patch[k];
+    dirty.clear();
+    patch = only;
+  }
+  const s = readLLMSettings();
   Object.assign(s, patch);
   try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch {}
   pushLLMSettings(s);

@@ -381,7 +381,7 @@ export function renderQwen21(root: HTMLElement) {
     viewUrl: (filename) => api.viewUrl(filename, "", "input"),
     llm: llmState,
     saveLlm: () => saveLlmState(llmState),
-    openSettings: () => settingsOv.show(),
+    openSettings: () => settingsOv.showTab("LLM"),
     title: "🔍 Prompt — Full Screen Edit",
     defaultModelFormat: "Qwen Image 2.1 (T2I)",
   });
@@ -389,6 +389,7 @@ export function renderQwen21(root: HTMLElement) {
     () => state.mode,
     (text) => { imgBil.setEnglish(text); persist(); updatePromptCount(); }
   );
+  wrap.dataset.tjNode = "qwen21";
   wrap.appendChild(promptExpandOv.el);
   wrap.appendChild(templateOv.el);
 

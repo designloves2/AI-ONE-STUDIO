@@ -7,6 +7,7 @@ import { button, checkboxRow, clear, col, el, label, numberField, panel, row, se
 import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
 import { customLLMControls } from "../../shared/customLlmControls";
 import { getTranslateConfig, loadTranslateConfig, onTranslateConfig, setTranslateConfig } from "../../shared/translateConfig";
+import { useKoCheckbox } from "../../shared/koSetting";
 import { mountLLMSettingsSection } from "../../shared/llmSettingsSection";
 import { C, BRAND } from "../../identity";
 import { buildDepFix } from "./depBanner";
@@ -364,8 +365,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       const ss = searchableSelect([get() || "loading models…"], get(), (v) => { set(v); changed(); });
       fetchOrModels().then((ms) => {
         if (!ms.length) return;
-        ss.setOptions(ms);
-        if (!get()) { set(ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]); changed(); }
+        ss.setOptions(get() ? ms : ["", ...ms]);   // nothing is picked for the user: an empty first option
         ss.setValue(get());
       });
       return ss.el;
@@ -790,7 +790,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         fetchOrModels().then((ms) => {
           if (!ms.length) return;
           clear(box);
-          box.appendChild(searchableSelect(ms, t.or_model || (ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]), (v) => save({ or_model: v })).el);
+          box.appendChild(searchableSelect(["", ...ms], t.or_model || "", (v) => save({ or_model: v })).el);
         });
         control = col([label("OpenRouter model (translate)"), box]);
       } else if (nativeMissing.length) {
@@ -799,6 +799,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
         control = col([label("CLIP checkpoint"), searchableSelect(clipList, t.native_clip || "none", (v) => save({ native_clip: v === "none" ? "" : v })).el]);
       }
       holder.append(
+        useKoCheckbox("minimax_h3", { text: C.text, muted: C.muted }),
         el("div", { text: "Translate — Korean ↔ English (the same for every tool)", style: { fontSize: "11px", fontWeight: "700", color: BRAND } }),
         col([label("Backend"), beSel]),
         control,

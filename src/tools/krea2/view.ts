@@ -308,7 +308,7 @@ export function renderKrea2(root: HTMLElement) {
     viewUrl: (filename) => api.viewUrl(filename),
     llm: llmState,
     saveLlm: () => saveLlmState(llmState),
-    openSettings: () => settingsOv.show(),
+    openSettings: () => settingsOv.showTab("LLM"),
     title: "🔍 Prompt Edit",
     defaultModelFormat: "KREA2 (Prompt Enhance)",
   });
@@ -316,6 +316,7 @@ export function renderKrea2(root: HTMLElement) {
     () => state.mode,
     (text) => { imgBil.setEnglish(text); persist(); updatePromptCount(); }
   );
+  wrap.dataset.tjNode = "krea2";
   wrap.appendChild(promptExpandOv.el);
   wrap.appendChild(templateOv.el);
 

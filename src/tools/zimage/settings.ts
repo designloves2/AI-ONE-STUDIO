@@ -1,6 +1,8 @@
 // settings.ts — Z-Image Settings 오버레이 (모델 선택 + negative/suffix/저장 폴더).
 // 원본 근거: web/zimage/ui_app_settings.js — Krea2와 달리 ControlNet/Identity LoRA 슬롯이 없다
 // (그건 각각 CONTROLNET/FACE REDRAW 모드 좌측 패널에 있음 — Phase 2에서 이식 예정).
+import { tabSettings } from "../../shared/settingsTabs";
+import { BRAND as TAB_BRAND } from "../../identity";
 import type { ZImageState } from "./core";
 import { C, el, SUBFOLDER } from "./core";
 import { panel, label, button, row, col, searchableSelect } from "../../shared/ui";
@@ -21,7 +23,7 @@ export interface SettingsCtx {
 export function createSettingsOverlay(state: ZImageState, ctx: SettingsCtx) {
   const ov = el("div", {
     style: {
-      position: "absolute", inset: "0", zIndex: "60",
+      position: "absolute", inset: "0", zIndex: "10002",
       background: "rgba(11,11,11,0.97)", borderRadius: "inherit",
       display: "none", flexDirection: "column", padding: "12px", gap: "8px",
       boxSizing: "border-box", overflowY: "auto",
@@ -128,9 +130,11 @@ export function createSettingsOverlay(state: ZImageState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "zimage" });
   return {
     el: ov,
     show() { ov.style.display = "flex"; },
+    showTab(name: string) { tabs.show(name); ov.style.display = "flex"; },
     hide() { ov.style.display = "none"; },
   };
 }

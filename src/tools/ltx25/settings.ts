@@ -7,6 +7,7 @@ import { C, BRAND, el, clear, SUBFOLDER } from "./core";
 import { panel, label, button, numberField, row, col } from "./uiCommon";
 import { getModels, getConfig, saveConfig, getNodeAvailability, listVideos, getTempSize, clearTempFiles } from "./api";
 import { customLLMControls } from "../../shared/customLlmControls";
+import { translationSettingsPanel } from "../../shared/translationSettings";
 import { comfyApi as __comfy } from "./comfyClient";
 // Absolute ComfyUI paths ("/view?...", "/ltx25_one/...") go to the configured ComfyUI base (same origin locally, the tunnel externally).
 const __B = __comfy.base;
@@ -81,7 +82,7 @@ export function createSettingsOverlay(state, ctx) {
   ov.appendChild(topRow);
 
   // ── tab bar ────────────────────────────────────────────────────────────────
-  const TABS = ["LTX Model", "LLM Setting", "Preview", "Output"];
+  const TABS = ["LTX Model", "LLM Setting", "Translation LLM", "Preview", "Output"];
   let activeTab = "LTX Model";
   const tabBar = el("div", { style: { display: "flex", gap: "6px", flexShrink: "0" } });
   const bodyWrap = el("div", { style: { flex: "1", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px", paddingRight: "4px" } });
@@ -382,9 +383,8 @@ export function createSettingsOverlay(state, ctx) {
         holder.appendChild(_selEl([el("option", { value: state[orModelKey] || "", text: state[orModelKey] || "loading models…" })]));
         orModels().then(ms => {
           if (!ms.length) return;
-          if (!state[orModelKey]) { state[orModelKey] = (ms.find(m => /gemini-2\.5-flash/.test(m)) || ms[0]); changed(); }
           clear(holder);
-          holder.appendChild(searchableSelect(ms, state[orModelKey], saveOr).el);
+          holder.appendChild(searchableSelect(state[orModelKey] ? ms : ["", ...ms], state[orModelKey] || "", saveOr).el);
         });
         control = col([label(orModelKey === "h3OrModelVision" ? "OpenRouter model (vision)" : "OpenRouter model (brief)"), holder]);
       } else if (nativeMissing.length) {
@@ -614,6 +614,7 @@ export function createSettingsOverlay(state, ctx) {
     const fn = {
       "LTX Model": ltxModelTab,
       "LLM Setting": samplingTab, Preview: previewTab, Output: outputTab,
+      "Translation LLM": () => translationSettingsPanel({ bg: C.bg2, text: C.text, border: C.border, muted: C.muted, warn: C.warn, ok: C.ok, err: C.err, brand: BRAND }, "ltx25"),
     }[activeTab];
     bodyWrap.appendChild(fn());
   }

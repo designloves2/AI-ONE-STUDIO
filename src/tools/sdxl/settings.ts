@@ -1,6 +1,8 @@
 // settings.ts — SDXL Settings 오버레이. 원본 근거: web/sdxl/ui_app_settings_sdxl.js.
 // Checkpoint 모드(단일 ckpt)와 Separate 모드(UNet+DualCLIP+VAE)를 토글하고, 두 모드 모두에서
 // 공용으로 Refiner Checkpoint를 선택할 수 있다 — Klein/Qwen2511에는 없는 SDXL 고유 UI.
+import { tabSettings } from "../../shared/settingsTabs";
+import { BRAND as TAB_BRAND } from "../../identity";
 import type { SDXLState, ModelLoaderMode } from "./core";
 import { C, el, SUBFOLDER, BRAND } from "./core";
 import { panel, label, button, row, col, searchableSelect } from "../../shared/ui";
@@ -21,7 +23,7 @@ export interface SettingsCtx {
 export function createSettingsOverlay(state: SDXLState, ctx: SettingsCtx) {
   const ov = el("div", {
     style: {
-      position: "absolute", inset: "0", zIndex: "60",
+      position: "absolute", inset: "0", zIndex: "10002",
       background: "rgba(11,11,11,0.97)", borderRadius: "inherit",
       display: "none", flexDirection: "column", padding: "12px", gap: "8px",
       boxSizing: "border-box", overflowY: "auto",
@@ -201,9 +203,11 @@ export function createSettingsOverlay(state: SDXLState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "sdxl" });
   return {
     el: ov,
     show() { ov.style.display = "flex"; },
+    showTab(name: string) { tabs.show(name); ov.style.display = "flex"; },
     hide() { ov.style.display = "none"; },
   };
 }

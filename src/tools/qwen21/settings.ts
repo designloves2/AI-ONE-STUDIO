@@ -4,6 +4,8 @@
 // 드롭다운은 파일명 필터링을 하지 않는다(원본 주석: "qwen3vl"/"qwen" 필터링은 실제 버그였다 —
 // 이름을 바꾼 파일을 못 고르는 문제). Model Override / Language 셀렉터는 이 웹앱이 LiteGraph
 // 노드가 아니라서 2511 포팅 때와 동일하게 옮기지 않는다(그 파일에 이미 그 전례가 있다).
+import { tabSettings } from "../../shared/settingsTabs";
+import { BRAND as TAB_BRAND } from "../../identity";
 import type { Q21State } from "./core";
 import { C, el, SUBFOLDER, POSE_SAM3D_MODEL_DEFAULT, POSE_SYSTEM_PROMPT_DEFAULT } from "./core";
 import { panel, label, button, row, col, searchableSelect, numberField } from "../../shared/ui";
@@ -19,7 +21,7 @@ export interface SettingsCtx {
 export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
   const ov = el("div", {
     style: {
-      position: "absolute", inset: "0", zIndex: "60",
+      position: "absolute", inset: "0", zIndex: "10002",
       background: "rgba(11,11,11,0.97)", borderRadius: "inherit",
       display: "none", flexDirection: "column", padding: "12px", gap: "8px",
       boxSizing: "border-box", overflowY: "auto",
@@ -197,9 +199,11 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "qwen21" });
   return {
     el: ov,
     show() { ov.style.display = "flex"; },
+    showTab(name: string) { tabs.show(name); ov.style.display = "flex"; },
     hide() { ov.style.display = "none"; },
   };
 }

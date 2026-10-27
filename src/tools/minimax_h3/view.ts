@@ -126,6 +126,7 @@ import { hiresActive, hiresSizes, hiresMp, sizeForMp, ppH3State, ppH3Kind, PP_H3
 import { attachBilingual, type BilingualHandle } from "../../shared/bilingualUi";
 import { ensureEnglish, fieldNeedsEnglish, fieldSetBoth } from "../../shared/bilingual";
 import { translateLlm } from "../../shared/translateConfig";
+import { getUseKo } from "../../shared/koSetting";
 import { mountAssetBrowser } from "../../shared/reflibBrowser";
 import { assetRefActive } from "../../shared/reflibRefpanel";
 import { libraryRefFor, libraryContextCached } from "../../shared/reflibLlm";
@@ -3596,7 +3597,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       const key = { image: "imgPrompt", charsheet: "charSheetPrompt", ltx: "ltxPrompt", face: "frPrompt" }[scope];
       if (key) jobs.push([state, key]);
     }
-    const need = jobs.filter(([obj, key]) => fieldNeedsEnglish(obj, key));
+    const need = getUseKo("minimax_h3") ? jobs.filter(([obj, key]) => fieldNeedsEnglish(obj, key)) : [];
     if (!need.length) return;
     const llm = translateLlm(), protect = h3ProtectWords(state);
     for (let n = 0; n < need.length; n++) {
@@ -6864,6 +6865,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   });
   commonBtn.addEventListener("click", () => commonPromptOv.show());
 
+  wrap.dataset.tjNode = "minimax_h3";
   wrap.append(depBannerEl, subBar, mainRow, assetRow, pop, promptEditOv.el, imgTemplateOv.el, commonPromptOv.el, galleryOv.el, imageGalleryOv.el, settingsOv.el, helpOv, queueListOv);
   container.appendChild(wrap);
   document.body.appendChild(galleryOv.playerEl); // 풀스크린 플레이어는 다른 모든 것 위에 떠야 하므로 body 직속

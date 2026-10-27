@@ -7,7 +7,7 @@
 import { getComfyBase } from "./comfyBase";
 import { C } from "../identity";
 import { createLlmBackendGroup } from "./llmBackendPanel";
-import { loadLLMSettings, saveLLMSettings } from "./llmSettingsStore";
+import { loadLLMSettings, saveLLMSettings, trackLLM } from "./llmSettingsStore";
 
 const fetchApi = (path: string, opts?: RequestInit) => fetch(`${getComfyBase()}${path}`, { ...opts, credentials: "include" });
 
@@ -41,7 +41,7 @@ function populate(sel: HTMLSelectElement, opts: string[], current: string) {
 
 export function mountLLMSettingsSection(host: HTMLElement): void {
   const cfg = loadLLMSettings();
-  const llm: any = {
+  const llm: any = trackLLM({
     backend_text: cfg.backend_text || cfg.backend || "local",
     backend_vision: cfg.backend_vision || cfg.backend || "local",
     or_model: cfg.or_model_text || cfg.or_model || "",
@@ -61,7 +61,7 @@ export function mountLLMSettingsSection(host: HTMLElement): void {
     max_tokens: cfg.max_tokens ?? 1000,
     temperature: cfg.temperature ?? 0.7,
     seed: cfg.seed ?? 0,
-  };
+  });
   const saveLLM = () => saveLLMSettings(llm);
 
   const wrap = document.createElement("div");

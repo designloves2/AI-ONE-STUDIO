@@ -218,11 +218,7 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
       },
       fill(orModels, keyHint) {
         if (orModels && orModels.length) {
-          orSS.setOptions(orModels);
-          if (!getModel()) {
-            setModel(orModels.find((m) => /gemini-2\.5-flash/.test(m)) || orModels[0]);
-            save();
-          }
+          orSS.setOptions(getModel() ? orModels : ["", ...orModels]);   // no model set: an empty first option, nothing is picked for the user
           orSS.setValue(getModel());
         }
         if (keyHint) keyInp.placeholder = keyHint + "  — click to replace";

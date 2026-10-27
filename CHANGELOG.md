@@ -3,6 +3,19 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.15.2] — 2026-10-27
+
+### Added
+- Per-tool "한글 번역 사용" setting (off = no automatic translation; the EN / 한 button and ↻ still translate once when pressed), Model / LLM / Translation tabs in the image tools' Settings (the Prompt Edit popup's ⚙ opens the LLM tab) and a Translation LLM tab in LTX 2.5 Settings (node v1.49.2, `PORT_LEDGER.md` row 72).
+- Prompt Refine result shows English (editable) and a Korean translation side by side; the word comparison is gone.
+- Image -> Prompt Write works from the image alone; the new checkbox "Use the existing text" merges the prompt box into the request.
+
+### Fixed
+- LLM settings are saved per changed field, so a panel opened earlier no longer puts old values over a model or backend changed elsewhere.
+- No OpenRouter model is picked for the user any more: the list starts with "— choose a model —".
+- A long text that fails to translate no longer triggers one model call per line (limit 12 lines).
+- The image tools' Settings opened behind the Prompt Edit popup; it is now above it.
+
 ## [0.15.1] — 2026-10-27
 
 ### Changed

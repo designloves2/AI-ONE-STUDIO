@@ -17,14 +17,17 @@ export interface ImagePromptBilingualOpts {
 }
 
 export function createImagePromptBilingual({ state, getModePrompt, setModePrompt, persist, onError }: ImagePromptBilingualOpts) {
+  // one Proxy per mode's slots, so the same field is always the same object (the "being translated" mark is looked up by it)
+  const proxies = new WeakMap<object, any>();
   const target = () => {
     const mode = state.mode;
     if (!state.promptSlots) state.promptSlots = {};
     const slots = state.promptSlots[mode] || (state.promptSlots[mode] = {});
-    return new Proxy(slots, {
+    if (!proxies.has(slots)) proxies.set(slots, new Proxy(slots, {
       get: (t: any, k: any) => (k === KEY ? getModePrompt(mode) : t[k]),
       set: (t: any, k: any, v: any) => { if (k === KEY) setModePrompt(mode, v); else t[k] = v; return true; },
-    });
+    }));
+    return proxies.get(slots);
   };
   const protect = () => [] as string[];
   let main: BilingualHandle | null = null;

@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.15.1] — 2026-10-27
+
+### Changed
+- A prompt field is covered with a dark layer and "⏳ 번역중 (…)" while it is being translated (KO / EN button, ↻, the Generate step, Write / Refine Korean fill), on every field that has the KO / EN button (node 7dbc254).
+
 ## [0.15.0] — 2026-10-27
 
 ### Added

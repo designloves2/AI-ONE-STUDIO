@@ -6,13 +6,17 @@ export const LS_KEY = "minimax_h3_one_state_v1";
 export const API = "/minimax_h3_one";
 export const SUBFOLDER = "one_minimax_h3";
 export const FPS = 24;
+
+import { bilingualSlots } from "../../shared/bilingual";
+/** The Korean view / newest mark / view that go with a bilingual field (shared/bilingual.ts). */
+type BilKeys<K extends string> = { [P in `${K}Ko` | `${K}Newest` | `${K}View`]?: any };
 // Every preview run that opts out of the real output/ gallery (Postprocess's Preview button,
 // and any later mode's) lands in one shared scratch folder under ComfyUI's own temp/ — Settings
 // → Output reports its size (getTempSize) and can clear it (clearTempFiles), scoped to just this
 // one subfolder, nothing else in temp/.
 export const TEMP_PREVIEW_SUBFOLDER = "one_minimax_h3_preview";
 
-export interface PromptEntry {
+export interface PromptEntry extends BilKeys<"text" | "header" | "footer"> {
   text: string;
   // Always-on, ungated per-clip first-frame override — independent of `override` below. Forces
   // this one clip into First/Last mode (even during a Reference-mode run) regardless of the
@@ -66,7 +70,7 @@ export interface LtxLoraEntry {
   enabled: boolean;
 }
 
-export interface MinimaxState {
+export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | "imgPrompt" | "charSheetPrompt" | "ltxPrompt" | "frPrompt"> {
   unetFirstLast: string;
   unetReference: string;
   clipName: string;
@@ -708,6 +712,59 @@ export function rebaseShots(text: string): string {
     out += head + rest;
   });
   return out;
+}
+
+/**
+ * A clip's shots moved later by `offsetSec` and numbered from `startNo`, for putting a clip's text after the one before
+ * it (Merge clips). Every shot time moves by the offset; the first shot, which has no time written, gets "At <offset>,".
+ * Text with no [Shot N] marker is returned as it is.
+ */
+export function shiftShots(text: string, offsetSec: number, startNo: number): string {
+  const raw = String(text || "");
+  const blocks = shotBlocks(raw);
+  if (!blocks.length) return raw;
+  let out = raw.slice(0, blocks[0].from);
+  blocks.forEach((b, k) => {
+    const block = raw.slice(b.from, b.to);
+    const nl = block.indexOf("\n");
+    let head = nl < 0 ? block : block.slice(0, nl);
+    const rest = nl < 0 ? "" : block.slice(nl);
+    head = head.replace(SHOT_NUM_RE, (_, a, _n, c) => `${a}${startNo + k}${c}`);
+    if (b.start != null) head = head.replace(SHOT_LEAD_TIME_RE, (_, pre, _m, _s, post) => `${pre}At ${fmtShotTime((b.start as number) + offsetSec)}${post}`);
+    else if (k === 0 && offsetSec > 0) head = head.replace(/^([ \t>*_#-]*\[{1,2}[ \t]*(?:Shot|SHOT|shot|샷)[ \t]*\d+\]{1,2}[ \t:]*)/, (m) => `${m}At ${fmtShotTime(offsetSec)}, `);
+    out += head + rest;
+  });
+  return out;
+}
+
+/** How many [Shot N] markers a clip's text has. */
+export const shotCount = (text: string): number => shotBlocks(text).length;
+
+/**
+ * A long text whose shot times run over the WHOLE piece (a long shot) cut into consecutive clips by time: clip k covers
+ * [lens[0] + ... + lens[k-1], + lens[k]). A shot belongs to the clip its start time falls in (the first shot starts at 0, a shot
+ * with no time continues from the one before). Every clip starts over: its shots are numbered from 1 and timed from its own
+ * start. Returns [{ text, from, to }] for the clips that got at least one shot (from / to in seconds of the whole piece).
+ */
+export function splitShotsByTime(text: string, lens: number[]): { text: string; from: number; to: number }[] {
+  const raw = String(text || "");
+  const blocks = shotBlocks(raw);
+  if (!blocks.length || !lens.length) return [];
+  const edges: number[] = [];
+  let acc = 0;
+  for (const l of lens) { edges.push(acc); acc += l; }
+  const buckets: string[][] = lens.map(() => []);
+  let last = 0;
+  blocks.forEach((b, k) => {
+    const start = k === 0 ? 0 : (b.start ?? last);
+    last = start;
+    let w = 0;
+    while (w + 1 < edges.length && edges[w + 1] <= start + 0.001) w++;
+    buckets[w].push(raw.slice(b.from, b.to).replace(/\s+$/, ""));
+  });
+  return buckets
+    .map((list, w) => ({ text: list.length ? rebaseShots(list.join("\n")) : "", from: edges[w], to: edges[w] + lens[w] }))
+    .filter((c) => c.text);
 }
 
 /**
@@ -2183,6 +2240,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
             refSource: p?.refSource === "library" ? ("library" as const) : ("files" as const),
             // header/tail follow the override too - see clipFraming()
             header: p?.header || "", footer: p?.footer || "",
+            // the Korean view of the clip's text / header / tail (see shared/bilingual.ts)
+            ...bilingualSlots(p, ["text", "header", "footer"]),
             // this clip's own length (Prompt Edit "clip time override") - see clipFramesFor()
             timeOverride: !!p?.timeOverride,
             timeSec: Number(p?.timeSec) > 0 ? Number(p.timeSec) : 0,
@@ -2190,6 +2249,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ),
     promptHeader: saved.promptHeader || "",
     promptFooter: saved.promptFooter || "",
+    ...bilingualSlots(saved, ["promptHeader", "promptFooter", "imgPrompt", "charSheetPrompt", "ltxPrompt", "frPrompt"]),
     promptSuffix: saved.promptSuffix || "",
     firstFrameImage: saved.firstFrameImage || null,
     lastFrameImage: saved.lastFrameImage || null,
@@ -2457,4 +2517,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
 
 export function randomSeed() {
   return Math.floor(Math.random() * 1e15);
+}
+
+/** LoRA trigger words, kept as they are when a prompt is translated (node translate_minimax.js h3ProtectWords). */
+export function h3ProtectWords(state: { loras?: any[] }): string[] {
+  const words: string[] = [];
+  for (const l of state.loras || []) if (l?.triggerWord) words.push(...String(l.triggerWord).split(/[,\n]/));
+  return words.map((w) => w.trim()).filter(Boolean);
 }

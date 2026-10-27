@@ -6,6 +6,7 @@ import { SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, numberField, panel, row, searchableSelect } from "../../shared/ui";
 import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
 import { customLLMControls } from "../../shared/customLlmControls";
+import { getTranslateConfig, loadTranslateConfig, onTranslateConfig, setTranslateConfig } from "../../shared/translateConfig";
 import { mountLLMSettingsSection } from "../../shared/llmSettingsSection";
 import { C, BRAND } from "../../identity";
 import { buildDepFix } from "./depBanner";
@@ -706,6 +707,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     rightCol.append(
       section("sampling", "LLM Setting", samplingTab()),
       section("imagellm", "Image LLM", imageLlmTab()),
+      section("translatellm", "Translation LLM", translationTab()),
       section("output", "Output", outputTab()),
       section("packs", "Third-party pack status", packStatusTab()),
     );
@@ -722,6 +724,91 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     wrap2.appendChild(p);
     mountLLMSettingsSection(p);
     return wrap2;
+  }
+
+  // Settings -> Translation LLM: the Korean <-> English model. One setting for every tool: it is stored on the
+  // server and pushed to all open pages, so this section follows any change made in another tool
+  // (node v1.49.0 ui_app_settings_minimax.js translationTab).
+  function translationTab() {
+    const clipList = ["none", ...(modelData.text_encoders || []).filter((x) => x !== "none")];
+    const nativeMissing: string[] = [];
+    if (!availability.available?.TextGenerate) nativeMissing.push("TextGenerate");
+    if (!availability.available?.TJStudioOneTextOutput) nativeMissing.push("TJStudioOneTextOutput");
+    const selStyle = { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit" } as Record<string, string>;
+    const holder = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
+    const save = (patch: Parameters<typeof setTranslateConfig>[0]) => setTranslateConfig(patch);
+    async function llamaModels() {
+      try {
+        const d = await (await fetch("/tj_studio_one/llm/models")).json();
+        return { gguf: (d.gguf || []) as string[], available: !!d.local_available };
+      } catch { return { gguf: [] as string[], available: false }; }
+    }
+    function render() {
+      clear(holder);
+      const t = getTranslateConfig();
+      const beSel = el("select", { style: selStyle }) as HTMLSelectElement;
+      [["native", "Native (ComfyUI CLIP)"], ["openrouter", "OpenRouter (cloud)"], ["llamagguf", "Llama GGUF (local llama.cpp)"], ["custom", "Connect Custom"]].forEach(([v, text]) => {
+        const o = el("option", { value: v, text }) as HTMLOptionElement;
+        if (t.backend === v) o.selected = true;
+        beSel.appendChild(o);
+      });
+      beSel.addEventListener("change", () => save({ backend: beSel.value as any }));
+      let control: HTMLElement;
+      if (t.backend === "llamagguf") {
+        control = el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } });
+        control.appendChild(el("div", { text: "loading gguf models…", style: { fontSize: "11px", color: C.muted } }));
+        const box = control;
+        llamaModels().then((d) => {
+          clear(box);
+          if (!d.available) {
+            box.appendChild(el("div", { html: "⚠ Local GGUF LLM not available — TJ_NODE not installed, or its llm files failed to load.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } }));
+            return;
+          }
+          const list = d.gguf.filter((n) => !/mmproj/i.test(String(n || "")));
+          if (!list.length) list.push("(none found)");
+          box.appendChild(col([label("GGUF model"), searchableSelect(list, t.llama_model || list[0], (v) => save({ llama_model: v })).el]));
+          box.appendChild(col([label("Context length (n_ctx)"),
+            numberField(t.llama_n_ctx ?? 16384, (v) => save({ llama_n_ctx: Math.max(512, Math.round(v)) }), 512)]));
+          box.appendChild(col([label("Max output tokens"),
+            numberField(t.llama_max_tokens ?? 4096, (v) => save({ llama_max_tokens: Math.max(256, Math.round(v)) }), 256)]));
+        });
+      } else if (t.backend === "custom") {
+        control = customLLMControls({
+          role: "translate",
+          values: { base: t.custom_base, model: t.custom_model, ctx: t.custom_ctx },
+          onChange: (p) => save({
+            ...("base" in p ? { custom_base: p.base } : {}),
+            ...("model" in p ? { custom_model: p.model } : {}),
+            ...("ctx" in p ? { custom_ctx: p.ctx } : {}),
+          }),
+          theme: { bg: C.bg2, text: C.text, border: C.border, muted: C.muted, ok: C.ok, warn: C.warn, err: C.err, brand: BRAND },
+          noteKeyWhere: "the translate backend",
+        });
+      } else if (t.backend === "openrouter") {
+        const box = el("div", {});
+        box.appendChild(el("div", { text: t.or_model || "loading models…", style: { fontSize: "12px", color: C.muted } }));
+        fetchOrModels().then((ms) => {
+          if (!ms.length) return;
+          clear(box);
+          box.appendChild(searchableSelect(ms, t.or_model || (ms.find((m) => /gemini-2\.5-flash/.test(m)) || ms[0]), (v) => save({ or_model: v })).el);
+        });
+        control = col([label("OpenRouter model (translate)"), box]);
+      } else if (nativeMissing.length) {
+        control = el("div", { text: `⚠ Native needs: ${nativeMissing.join(", ")} (TJ_NODE / update ComfyUI)`, style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } });
+      } else {
+        control = col([label("CLIP checkpoint"), searchableSelect(clipList, t.native_clip || "none", (v) => save({ native_clip: v === "none" ? "" : v })).el]);
+      }
+      holder.append(
+        el("div", { text: "Translate — Korean ↔ English (the same for every tool)", style: { fontSize: "11px", fontWeight: "700", color: BRAND } }),
+        col([label("Backend"), beSel]),
+        control,
+        el("div", { text: "Used by the KO / EN button on every prompt field. Changing it here changes it in all nodes at once.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      );
+    }
+    render();
+    loadTranslateConfig();
+    const off = onTranslateConfig(() => { if (!holder.isConnected) { off(); return; } render(); });
+    return el("div", { style: { display: "flex", flexDirection: "column", gap: "8px" } }, [panel([holder])]);
   }
 
   function saveAll() {

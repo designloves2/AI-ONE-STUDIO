@@ -77,6 +77,8 @@ export interface KleinState {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
   promptSuffix: string;
 
@@ -220,6 +222,7 @@ export function defaultState(saved: Partial<KleinState> = {}): KleinState {
     // 적용해야 한다 — "현재 모드에 아직 값이 없다"는 조건으로 매번 재실행하면 마지막으로
     // 입력했던 모드의 프롬프트가 처음 방문하는 다른 모드로 새는 버그가 재발한다(실제 발견).
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: (() => {
       if (saved.promptsByMode) return { ...saved.promptsByMode };
       const p: Record<string, string> = {};

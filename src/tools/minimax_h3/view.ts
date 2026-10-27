@@ -122,7 +122,10 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
-import { hiresActive, hiresSizes, hiresMp, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, kimchyTileCount, normalizeAssetRef } from "./core";
+import { hiresActive, hiresSizes, hiresMp, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, kimchyTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
+import { attachBilingual, type BilingualHandle } from "../../shared/bilingualUi";
+import { ensureEnglish, fieldNeedsEnglish, fieldSetBoth } from "../../shared/bilingual";
+import { translateLlm } from "../../shared/translateConfig";
 import { mountAssetBrowser } from "../../shared/reflibBrowser";
 import { assetRefActive } from "../../shared/reflibRefpanel";
 import { libraryRefFor, libraryContextCached } from "../../shared/reflibLlm";
@@ -1344,11 +1347,15 @@ export function renderMinimaxH3(container: HTMLElement) {
   // The Image Generator's current prompt textarea (rebuilt by renderImageGenPrompt) — a template
   // applied from the overlay writes into it.
   let imgInlineTA: HTMLTextAreaElement | null = null;
+  let imgInlineBil: BilingualHandle | null = null;   // the KO / EN handle of that box
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips", style: smallBtnStyle });
   const addBtn = el("button", { type: "button", text: "+ Add", style: smallBtnStyle });
   const resetTAHBtn = el("button", { type: "button", text: "↕", title: "Reset text field size (not the prompt text itself) back to the default", style: smallBtnStyle });
   resetTAHBtn.addEventListener("click", () => resetPromptTAHeights());
-  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, addBtn, resetTAHBtn);
+  // Merge clips: the counterpart of Split into clips; the dialog lives in Prompt Edit
+  const mergeBtn = el("button", { type: "button", text: "🔗 Merge clips", title: "Join clips into longer ones: pick which clips go together", style: smallBtnStyle });
+  mergeBtn.addEventListener("click", () => { void promptEditOv?.openMerge(); });
+  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, mergeBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
   // Sibling wrapper, not a child of promptList itself — promptList gets its innerHTML wiped
@@ -1755,9 +1762,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     ta.addEventListener("input", () => { state.frPrompt = ta.value; persist(); });
     ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
     ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
+    // KO / EN button: the English text is what the model gets, the Korean one is its view
+    const bil = attachBilingual(ta, { target: () => state, key: "frPrompt", persist, protect: () => h3ProtectWords(state), onError: (m) => showPopup(m, true) });
     if (locked) { ta.disabled = true; ta.style.opacity = "0.6"; ta.value = "⏳ Face Refine running — please wait…"; }
     promptList.style.gap = "6px";
-    promptList.append(ta);
+    promptList.append(bil.el);
     if (running) promptList.append(el("div", { text: "⏳ Face Refine is rendering — the prompt is locked until it finishes.", style: { fontSize: "10px", color: BRAND, fontWeight: "600" } }));
   }
 
@@ -1765,13 +1774,16 @@ export function renderMinimaxH3(container: HTMLElement) {
   // below. No LLM writer here (unlike LTX Upscale) — Face Refine's prompt just needs to
   // describe the subject for the img2img pass, not match a full LTX-style scene brief.
   function openFrPromptEdit() {
-    const snap = { p: state.frPrompt || "" };
+    const snap = { p: state.frPrompt || "", ko: state.frPromptKo, newest: state.frPromptNewest, view: state.frPromptView };
     const box = el("div", { style: { background: "#0e0e0e", border: `1px solid ${C.border}`, borderRadius: "10px", width: "640px", maxWidth: "94%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 16px 50px rgba(0,0,0,0.65)" } });
     const head = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px", borderBottom: `1px solid ${C.border}`, flexShrink: "0" } },
       [el("div", { text: "📝 Face Refine prompt", style: { color: "#fff", fontSize: "13px", fontWeight: "700", flex: "1" } })]);
     const ov = el("div", { style: { position: "fixed", inset: "0", zIndex: "100050", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.72)" } }, [box]);
     const finish = (apply: boolean) => {
-      if (!apply) state.frPrompt = snap.p;
+      if (!apply) {
+        state.frPrompt = snap.p;
+        for (const [k, v] of [["frPromptKo", snap.ko], ["frPromptNewest", snap.newest], ["frPromptView", snap.view]] as [string, any][]) { if (v === undefined) delete (state as any)[k]; else (state as any)[k] = v; }
+      }
       persist(); ov.remove();
       try { renderPrompts(); } catch (e) { console.warn("[MMH3] Face Refine prompt sync:", e); }
     };
@@ -1787,11 +1799,12 @@ export function renderMinimaxH3(container: HTMLElement) {
     const bigTA = el("textarea", { style: { width: "100%", minHeight: "200px", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "10px", fontSize: "13px", fontFamily: "inherit", outline: "none", resize: "vertical" } }) as HTMLTextAreaElement;
     bigTA.value = state.frPrompt || "";
     bigTA.addEventListener("input", () => { state.frPrompt = bigTA.value; persist(); });
+    const bigBil = attachBilingual(bigTA, { target: () => state, key: "frPrompt", persist, protect: () => h3ProtectWords(state), onError: (m) => showPopup(m, true) });
     const frPresetRow = promptPresetLoadRow((text, name) => {
-      state.frPrompt = text; bigTA.value = text; persist();
+      fieldSetBoth(state, "frPrompt", text, ""); bigBil.refresh(); persist();
       showPopup(`Loaded prompt from "${name}".`, false);
     });
-    body.append(label("Prompt"), frPresetRow, bigTA);
+    body.append(label("Prompt"), frPresetRow, bigBil.el);
 
     const foot = el("div", { style: { display: "flex", gap: "8px", padding: "10px 12px", borderTop: `1px solid ${C.border}`, flexShrink: "0", justifyContent: "flex-end" } });
     foot.append(button("✕ Cancel", () => finish(false)), button("✓ Apply", () => finish(true), "primary"));
@@ -1873,6 +1886,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     commonBtn.style.display = hideShotControls ? "none" : "";
     autoPromptLbl.style.display = hideShotControls ? "none" : "flex";
     splitBtn.style.display = hideShotControls ? "none" : "";
+    mergeBtn.style.display = hideShotControls ? "none" : "";
     addBtn.style.display = hideShotControls ? "none" : "";
     resetTAHBtn.style.display = hideShotControls ? "none" : "";
     // Picture/Subject/Shot tag-inserters and Refine/Prompt Write/Prompt Edit all act on the H3 shot list's per-clip
@@ -1953,6 +1967,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
       allPromptTAs.push(ta);
       watchPromptTA(ta);
+      // KO / EN button: the English text is what the model gets, the Korean one is its view
+      const bil = attachBilingual(ta, { target: () => state.prompts[i], key: "text", persist, protect: () => h3ProtectWords(state), onError: (m) => showPopup(m, true) });
 
       const del = el("button", { type: "button", text: "✕", title: "Remove", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.muted, border: "none", fontSize: "11px", padding: "6px 2px" } });
       del.addEventListener("click", () => {
@@ -1961,7 +1977,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         persist();
         refreshPlan();
       });
-      line.append(sideCol, ta, del);
+      line.append(sideCol, bil.el, del);
       promptList.appendChild(line);
     });
   }
@@ -1971,7 +1987,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     persist();
     refreshPlan();
   });
-  splitBtn.addEventListener("click", () => {
+  splitBtn.addEventListener("click", async () => {
+    // the split reads the English text: a Korean-only edit is translated first
+    try { await ensureEnglishPrompts("video"); } catch (e: any) { showPopup(e.message, true); return; }
     const joined = state.prompts.map(promptText).filter((t) => t && t.trim()).join("\n\n");
     if (!joined.trim()) {
       showPopup("Nothing to split — write the brief in the first box.", true);
@@ -1983,8 +2001,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       return;
     }
     const parts = groupShots(shots, shots.length);
-    if (header) state.promptHeader = header;
-    if (footer) state.promptFooter = footer;
+    // new English text: the old Korean view of the common pair is cleared (the KO / EN button writes it again)
+    if (header) fieldSetBoth(state, "promptHeader", header, "");
+    if (footer) fieldSetBoth(state, "promptFooter", footer, "");
     state.prompts = parts.map((t) => ({ text: t, firstFrame: "", enabled: true }));
     persist();
     refreshPlan();
@@ -3063,10 +3082,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (typeof m === "string") { try { m = JSON.parse(m); } catch { m = {}; } }
     const p = (item && item.prompt) || m.prompt || (Array.isArray(m.prompts) && m.prompts[0]) || "";
     if (kind === "gallery") {
-      if (String(p).trim()) { state.frPrompt = String(p); showPopup("Prompt loaded from the clip's saved metadata.", false); }
+      if (String(p).trim()) { fieldSetBoth(state, "frPrompt", String(p), ""); showPopup("Prompt loaded from the clip's saved metadata.", false); }
       else showPopup("That clip has no prompt saved in its metadata — write one by hand.", true);
     } else if (String(p).trim() && !String(state.frPrompt || "").trim()) {
-      state.frPrompt = String(p);
+      fieldSetBoth(state, "frPrompt", String(p), "");
     }
     persist();
     renderLeft();
@@ -3562,6 +3581,33 @@ export function renderMinimaxH3(container: HTMLElement) {
   // multi-face pick (frChainPicks.length > 1) chains that many H3 Face Refine passes, each one
   // over the PREVIOUS pass's own queued output; only the last pass's output is saved to the
   // gallery, with the full pick order recorded in its meta.
+  // The models are prompted in English. A field that was last edited in Korean (or has Korean typed into its
+  // English text) is translated first; the Korean stays as the field's Korean view. `scope` picks the fields
+  // the run reads. Throws when the translation fails, which stops the run.
+  async function ensureEnglishPrompts(scope: "video" | "image" | "charsheet" | "ltx" | "face" = "video") {
+    const jobs: [any, string][] = [];
+    if (scope === "video") {
+      jobs.push([state, "promptHeader"], [state, "promptFooter"]);
+      state.prompts.forEach((raw: any, i: number) => {
+        const p: any = (state.prompts[i] = (typeof raw === "string" ? { text: raw, firstFrame: "", enabled: true } : raw));
+        if (promptEnabled(p)) jobs.push([p, "text"], [p, "header"], [p, "footer"]);
+      });
+    } else {
+      const key = { image: "imgPrompt", charsheet: "charSheetPrompt", ltx: "ltxPrompt", face: "frPrompt" }[scope];
+      if (key) jobs.push([state, key]);
+    }
+    const need = jobs.filter(([obj, key]) => fieldNeedsEnglish(obj, key));
+    if (!need.length) return;
+    const llm = translateLlm(), protect = h3ProtectWords(state);
+    for (let n = 0; n < need.length; n++) {
+      setStatus(`Translating Korean prompt ${n + 1}/${need.length} to English…`);
+      await ensureEnglish(need[n][0], need[n][1], llm, { protect });
+    }
+    persist();
+    renderPrompts();
+    setStatus("");
+  }
+
   async function runFaceRefine() {
     if (running) return;
     if (!faceRefineReady(state)) { showPopup("Set a face detector in ⚙ Settings → Models first — missing: " + faceRefineMissing(state).join(", "), true); return; }
@@ -3569,6 +3615,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (state.frSelect === "manual" && !String(state.frConfirmedPick || "").trim() && !(state.frChainPicks || []).length) {
       showPopup("Select is Manual but no face has been picked yet.", true); return;
     }
+    try { await ensureEnglishPrompts("face"); } catch (e: any) { showPopup(e.message, true); return; }
 
     if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
     else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
@@ -3732,8 +3779,11 @@ export function renderMinimaxH3(container: HTMLElement) {
     });
     ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
     ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
+    // KO / EN button: the English text is what the model gets, the Korean one is its view
+    const bil = attachBilingual(ta, { target: () => state, key: isCharSheet ? "charSheetPrompt" : "imgPrompt", persist, protect: () => h3ProtectWords(state), onError: (m) => showPopup(m, true) });
     promptList.style.gap = "6px";
-    promptList.append(ta);
+    promptList.append(bil.el);
+    imgInlineBil = isCharSheet ? null : bil;
   }
 
   // Image Generator's Turbo LoRA (T2I/Ref2I) and Character Sheet's Post finish settings
@@ -3967,6 +4017,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         const av = await getNodeAvailability();
         ctx.availability = av.available || {}; ctx.availabilityInfo = av;
       }
+      await ensureEnglishPrompts("image");
       const previewRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgPreviewMp ?? 0.2);
       const finalRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgFinalMp ?? 1.0);
       const seed = state.seedMode === "fixed" ? (state.seed ?? 0) : randomSeed();
@@ -4041,6 +4092,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         const av = await getNodeAvailability();
         ctx.availability = av.available || {}; ctx.availabilityInfo = av;
       }
+      await ensureEnglishPrompts("charsheet");
       const finalRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgFinalMp ?? 1.0);
       const firstPassRes = state.charSheetUseLatentUpscale
         ? resolveResolution(state.imgAspect || "2:3 Portrait", state.charSheetFirstPassRatio ?? 0.36) : null;
@@ -5915,6 +5967,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (!R || !Array.isArray(R.passes) || !Array.isArray(R.parts) || !R.rs) { delete state._ltxRelay; persist(); return; }
       rs = R.rs; passes = R.passes; parts = R.parts.slice(); segSec = R.segSec || 0;
     } else {
+      try { await ensureEnglishPrompts("ltx"); } catch (e: any) { showPopup(e.message, true); return; }
       if (state.seedMode === "randomize") { state.seed = randomSeed(); seedInput.value = String(state.seed); }
       else if (state.seedMode === "increment") { state.seed = (state.seed || 0) + 1; seedInput.value = String(state.seed); }
       else if (state.seedMode === "decrement") { state.seed = Math.max(0, (state.seed || 0) - 1); seedInput.value = String(state.seed); }
@@ -6150,6 +6203,13 @@ export function renderMinimaxH3(container: HTMLElement) {
         genBtn.textContent = "⏳ Writing prompts…";
         await promptEditOv.autoWrite();
         renderPrompts();
+        genBtn.textContent = "⏳ Preparing…";
+      }
+
+      // Korean in a prompt field is translated to English before the run is frozen.
+      if (!resume) {
+        genBtn.textContent = "⏳ Translating…";
+        await ensureEnglishPrompts("video");
         genBtn.textContent = "⏳ Preparing…";
       }
 
@@ -6526,8 +6586,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (!parts.some((p) => String(p || "").trim())) return false;
       state.prompts = parts.map((t) => ({ text: String(t || ""), firstFrame: "", enabled: true }));
       if (Array.isArray(meta.prompts)) {
-        state.promptHeader = meta.promptHeader || "";
-        state.promptFooter = meta.promptFooter || "";
+        fieldSetBoth(state, "promptHeader", meta.promptHeader || "", "");
+        fieldSetBoth(state, "promptFooter", meta.promptFooter || "", "");
       }
       // 저장된 클립을 만든 설정 전체를 그대로 복원한다("한 번 잘 나온 클립을 그대로 다시
       // 만들기") — meta에 없는 필드(이 기능 적용 전 저장된 옛날 클립)는 조용히 건너뛰고
@@ -6649,8 +6709,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       }
     } catch {}
     state.prompts = [{ text: String(prompt), firstFrame: seedFrame, enabled: true, override: false }];
-    state.promptHeader = "";
-    state.promptFooter = "";
+    fieldSetBoth(state, "promptHeader", "", ""); fieldSetBoth(state, "promptFooter", "", "");
     state.generationMode = "firstlast";
     state.continuityMode = "none";
     // Extend always renders First/Last. A source made in Reference mode keeps its turbo files
@@ -6760,8 +6819,8 @@ export function renderMinimaxH3(container: HTMLElement) {
   );
   // Templates read only the mode; T2I and Ref2I each keep their own tag presets.
   imgTemplateOv = createTemplateOverlay("minimax_h3", () => (state.imageGenMode === "ref2i" ? "ref2i" : "t2i"), (txt) => {
-    state.imgPrompt = txt;
-    if (imgInlineTA) imgInlineTA.value = txt;
+    fieldSetBoth(state, "imgPrompt", txt, "");   // new English text: the Korean view is written when the KO / EN button is used
+    imgInlineBil?.refresh();
     persist();
   });
   // Image Generator's "🔍 Prompt Edit" — the same merged single-screen popup (image/URL analysis, LLM backend,
@@ -6771,8 +6830,10 @@ export function renderMinimaxH3(container: HTMLElement) {
   const imgPromptEditOv = createPromptEditPopup({
     fetchApi: (path, opts) => comfyApi.fetchApi(path, opts),
     getPrompt: () => state.imgPrompt || "",
-    setPrompt: (text) => { state.imgPrompt = text; if (imgInlineTA) imgInlineTA.value = text; persist(); },
+    setPrompt: (text) => { state.imgPrompt = text; imgInlineBil?.refresh(); persist(); },
     persist,
+    getPromptTA: () => imgInlineTA,
+    bilingual: { target: () => state, key: "imgPrompt", protect: () => h3ProtectWords(state), onError: (m) => showPopup(m, true), getMainBil: () => imgInlineBil },
     openImageGalleryPicker: (onPick) => openImageGalleryPicker(onPick, INPUT_TOOL_ID),
     viewUrl: (filename) => viewUrl(filename),
     llm: imgLlmState,
@@ -6797,7 +6858,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   refineBtn.addEventListener("click", () => promptEditOv.openRefine(lastFocusedClipIndex()));
   writeBtn.addEventListener("click", () => promptEditOv.openWrite(lastFocusedClipIndex()));
 
-  const commonPromptOv = createCommonPromptOverlay(state, { persist }, () => {
+  const commonPromptOv = createCommonPromptOverlay(state, { persist, showPopup }, () => {
     refreshPlan();
     promptEditOv.syncCommon();
   });

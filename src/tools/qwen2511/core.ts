@@ -54,6 +54,8 @@ export interface QEState {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
   promptSuffix: string;
 
@@ -237,6 +239,7 @@ export function defaultState(saved: Partial<QEState> = {}): QEState {
     // 구버전 마이그레이션 — promptsByMode 필드 자체가 없을 때만 이관한다. Krea2/Z-Image/Klein에서
     // 겪은 "현재 모드에 값 없음"을 조건으로 매번 재실행하면 프롬프트가 새는 버그가 재발한다.
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: (() => {
       if (saved.promptsByMode) return { ...saved.promptsByMode };
       const p: Record<string, string> = {};

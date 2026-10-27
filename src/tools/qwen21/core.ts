@@ -57,6 +57,8 @@ export interface Q21State {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
   promptSuffix: string;
   // Ref to Image / Edit 참조 이미지 자동 다운스케일 — 0(기본)=끔, 업로드한 그대로 전송.
@@ -230,6 +232,7 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
     vae: saved.vae || "",
 
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: saved.promptsByMode ? { ...saved.promptsByMode } : {},
     negativePrompt: saved.negativePrompt || "",
     promptSuffix: saved.promptSuffix || "",

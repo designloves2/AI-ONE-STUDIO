@@ -3,6 +3,12 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.15.0] — 2026-10-27
+
+### Added
+- Korean / English toggle (KO / EN button) on every prompt field, with a shared Translation LLM setting (Settings → Translation LLM) and a Generate guard that turns a Korean-only edit into English first (node v1.49.0, `PORT_LEDGER.md` row 71): the eight image tools, MiniMax H3 (clip prompts, Prompt Edit, Common, image / character sheet / Face Refine prompts, prompt sets) and LTX 2.5 clip prompts.
+- MiniMax H3: Merge clips (main screen + Prompt Edit; clips over 15 s turn red) and a Prompt Write menu: Single Shot / Long Shot / One-Take (total length, Long Shot cut into clips by time, Reference mode switched on for Long Shot, One-Take switched on for One-Take Write). Refine now also sends the Common header / tail as read-only context.
+
 ## [0.14.3] — 2026-10-27
 
 ### Added

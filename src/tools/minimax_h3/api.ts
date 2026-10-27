@@ -368,6 +368,8 @@ export interface PromptSetData {
   clipFrames?: number;
   promptHeader?: string;
   promptFooter?: string;
+  promptHeaderKo?: string;
+  promptFooterKo?: string;
   prompts: Record<string, any>[];
   generationMode?: string;
   refTypes?: { images?: boolean; videos?: boolean; audios?: boolean };

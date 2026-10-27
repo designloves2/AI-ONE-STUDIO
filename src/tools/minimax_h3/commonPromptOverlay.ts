@@ -2,12 +2,15 @@
 // Prompt Edit 안에도 같은 필드가 작게 있지만, 이 오버레이는 topbar에서 바로 열리는
 // 전용 큰 화면판 — 원본과 같은 state를 읽고 쓰므로 둘은 항상 동기화된다.
 import type { MinimaxState } from "./core";
-import { composeClipPrompt } from "./core";
+import { composeClipPrompt, h3ProtectWords } from "./core";
+import { attachBilingual } from "../../shared/bilingualUi";
+import { fieldSetBoth } from "../../shared/bilingual";
 import { button, el } from "../../shared/ui";
 import { C, BRAND } from "../../identity";
 
 export interface CommonPromptCtx {
   persist: () => void;
+  showPopup?: (msg: string, isError?: boolean) => void;
 }
 
 export interface CommonPromptHandle {
@@ -34,7 +37,7 @@ export function createCommonPromptOverlay(state: MinimaxState, ctx: CommonPrompt
   hdr.appendChild(el("div", { text: "sent with every clip", class: "text-[10.5px] flex-1", style: { color: C.muted } }));
   hdr.appendChild(button("✕ Close", () => hide(), "danger"));
 
-  function field(titleText: string, hintHTML: string, get: () => string, set: (v: string) => void) {
+  function field(titleText: string, hintHTML: string, get: () => string, set: (v: string) => void, key: string) {
     const wrap = el("div", { class: "flex-1 flex flex-col gap-1 min-h-0" });
     const head = el("div", { class: "flex items-center gap-1.5" });
     head.append(
@@ -48,12 +51,14 @@ export function createCommonPromptOverlay(state: MinimaxState, ctx: CommonPrompt
     ta.addEventListener("input", () => { set(ta.value); ctx.persist(); refreshTag(); });
     ta.addEventListener("focus", () => (ta.style.borderColor = BRAND));
     ta.addEventListener("blur", () => (ta.style.borderColor = C.border));
-    wrap.append(head, ta);
-    return { wrap, ta };
+    // KO / EN button: the English text is what the model gets, the Korean one is its view
+    const bil = attachBilingual(ta, { target: () => state, key, persist: () => ctx.persist(), protect: () => h3ProtectWords(state), onError: (m) => ctx.showPopup?.(m, true) });
+    wrap.append(head, bil.el);
+    return { wrap, ta, bil };
   }
 
-  const headerF = field("HEADER — style & opening", "visual style, grade, lens, opening composition", () => state.promptHeader, (v) => (state.promptHeader = v));
-  const footerF = field("TAIL — sound & music", "<code>Ambient sound:</code> … / <code>Music:</code> …", () => state.promptFooter, (v) => (state.promptFooter = v));
+  const headerF = field("HEADER — style & opening", "visual style, grade, lens, opening composition", () => state.promptHeader, (v) => (state.promptHeader = v), "promptHeader");
+  const footerF = field("TAIL — sound & music", "<code>Ambient sound:</code> … / <code>Music:</code> …", () => state.promptFooter, (v) => (state.promptFooter = v), "promptFooter");
 
   const body = el("div", { class: "flex-1 flex gap-2.5 min-h-0 flex-col md:flex-row" });
   body.append(headerF.wrap, footerF.wrap);
@@ -62,10 +67,8 @@ export function createCommonPromptOverlay(state: MinimaxState, ctx: CommonPrompt
   const tag = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   const clearBtn = el("button", { type: "button", text: "Clear both", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px", borderRadius: "6px", background: C.bg2, color: C.muted, border: `1px solid ${C.border}` } });
   clearBtn.addEventListener("click", () => {
-    state.promptHeader = "";
-    state.promptFooter = "";
-    headerF.ta.value = "";
-    footerF.ta.value = "";
+    fieldSetBoth(state, "promptHeader", "", ""); fieldSetBoth(state, "promptFooter", "", "");
+    headerF.bil.refresh(); footerF.bil.refresh();
     ctx.persist();
     refreshTag();
     onApply?.();
@@ -89,8 +92,7 @@ export function createCommonPromptOverlay(state: MinimaxState, ctx: CommonPrompt
   return {
     el: ov,
     show() {
-      headerF.ta.value = state.promptHeader || "";
-      footerF.ta.value = state.promptFooter || "";
+      headerF.bil.refresh(); footerF.bil.refresh();
       refreshTag();
       ov.style.display = "flex";
       setTimeout(() => headerF.ta.focus(), 50);

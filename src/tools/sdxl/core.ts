@@ -50,6 +50,8 @@ export interface SDXLState {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
   promptSuffix: string;
 
@@ -182,6 +184,7 @@ export function defaultState(saved: Partial<SDXLState> = {}): SDXLState {
 
     // 구버전 마이그레이션 — promptsByMode 필드 자체가 없을 때만 이관한다 (Klein/Qwen2511과 동일 원칙).
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: (() => {
       if (saved.promptsByMode) return { ...saved.promptsByMode };
       const p: Record<string, string> = {};

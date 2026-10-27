@@ -20,6 +20,7 @@ import { createSettingsOverlay } from "./settings";
 import { createGalleryOverlay } from "./galleryOverlay";
 import { createTemplateOverlay } from "./promptTools";
 import { createPromptEditPopup, type PromptEditLlmState } from "../../shared/promptEditPopup";
+import { createImagePromptBilingual } from "../../shared/bilingualImage";
 import { comfyApi } from "./comfyClient";
 
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
@@ -293,19 +294,21 @@ export function renderMoss(root: HTMLElement) {
     charCount.textContent = ` (${n} chars${n < 10 ? " ⚠" : ""})`;
     charCount.style.color = n < 10 ? C.warn : C.muted;
   }
+  const imgBil = createImagePromptBilingual({ state, getModePrompt: (m: any) => getModePrompt(state, m), setModePrompt: (m: any, v: string) => setModePrompt(state, m, v), persist, onError: (m) => alert(m) });
   function refreshPromptBox() {
-    promptTA.value = getModePrompt(state, state.mode);
+    imgBil.refresh();
     promptTA.placeholder = state.mode === "r2i" ? "Describe the whole image (the boxes carry the details)…" : "Describe what you want to generate…";
     updatePromptCount();
   }
   refreshPromptBox();
   promptTA.addEventListener("input", () => { setModePrompt(state, state.mode, promptTA.value); persist(); updatePromptCount(); });
 
-  promptWrap.append(promptHdr, promptTA);
+  promptWrap.append(promptHdr, imgBil.attach(promptTA as HTMLTextAreaElement).el);
   rightPanel.appendChild(promptWrap);
 
   const llmState = loadLlmState();
   const promptExpandOv = createPromptEditPopup({
+    bilingual: imgBil.panel,
     getPromptTA: () => promptTA as HTMLTextAreaElement,
     fetchApi: (path, opts) => comfyApi.fetchApi(path, opts),
     getPrompt: () => getModePrompt(state, state.mode),
@@ -322,7 +325,7 @@ export function renderMoss(root: HTMLElement) {
   });
   const templateOv = createTemplateOverlay(
     () => state.mode,
-    (text) => { setModePrompt(state, state.mode, text); persist(); refreshPromptBox(); }
+    (text) => { imgBil.setEnglish(text); persist(); updatePromptCount(); }
   );
   wrap.appendChild(promptExpandOv.el);
   wrap.appendChild(templateOv.el);
@@ -695,6 +698,16 @@ export function renderMoss(root: HTMLElement) {
         return;
       }
       statusText.textContent = "Queuing…";
+    }
+
+    try {
+      statusText.textContent = "Translating…"; await imgBil.ensure(); statusText.textContent = "Queuing…";
+    } catch (e: any) {
+      statusText.textContent = `Translate failed: ${e.message || e}`;
+      samplingActive = false;
+      genBtn.style.display = "block";
+      stopBtn.style.display = "none";
+      return;
     }
 
     try {

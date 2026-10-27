@@ -52,6 +52,8 @@ export interface ZImageState {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
   promptSuffix: string;
 
@@ -199,6 +201,7 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
     // 조건으로 매번 재실행하면 마지막으로 입력했던 모드의 프롬프트가 처음 방문하는 다른
     // 모드로 새는 버그가 재발한다(Klein에서 실제 재현 확인 후 세 도구 모두 수정).
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: (() => {
       if (saved.promptsByMode) return { ...saved.promptsByMode };
       const p: Record<string, string> = {};

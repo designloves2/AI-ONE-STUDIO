@@ -82,6 +82,8 @@ export interface MossState {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
 
   width: number;
@@ -148,6 +150,7 @@ export function defaultState(saved: Partial<MossState> = {}): MossState {
     autoEnhance: saved.autoEnhance ?? false,
 
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: saved.promptsByMode || {},
     negativePrompt: saved.negativePrompt ?? DEFAULT_NEGATIVE,
 

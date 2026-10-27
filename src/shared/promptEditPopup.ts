@@ -7,6 +7,9 @@
 // Edit/Enhance/Image→Prompt 3-tab layout. DOM conventions (el()/C/BRAND) follow
 // src/tools/minimax_h3/promptEdit.ts, this repo's other full-screen popup.
 import { el } from "./ui";
+import { attachBilingual, type BilingualHandle } from "./bilingualUi";
+import { fieldSetBoth, fieldSetView, fieldFill, fieldText } from "./bilingual";
+import { translateLlm } from "./translateConfig";
 import { C, BRAND } from "../identity";
 import { createLlmBackendGroup, backendName, type LlmBackendState } from "./llmBackendPanel";
 import { sameOriginSrc } from "./sameOriginImage";
@@ -60,6 +63,10 @@ export interface PromptEditPopupConfig {
   /** A tool's own system prompt for Prompt Enhance (a string, or a function of the current mode), sent as system_override in
    *  place of the generic Model Format one. Refine keeps its own instruction (node attachLLMPanel `systemPrompt`). */
   systemPrompt?: string | (() => string);
+  /** KO / EN button on the popup's text box (node attachLLMPanel `bilingual`): { target: the object holding the prompt's slots,
+   *  key: slot name (or a function), protect: words to keep, onError, getMainBil: the main prompt box's KO / EN handle }. With it
+   *  the box edits the field's slots, and Write / Enhance / Refine results are English with the Korean view written after. */
+  bilingual?: { target: () => any; key: string | (() => string); protect?: () => string[]; onError?: ((m: string) => void) | null; getMainBil?: () => BilingualHandle | null } | null;
 }
 
 export interface PromptEditPopupHandle {
@@ -419,7 +426,32 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   const busyLabel = el("div", { text: "", style: { color: "#ccc", fontSize: "12px", letterSpacing: "0.03em" } });
   busyOv.appendChild(el("div", { className: "tj-llm-ring" }));
   busyOv.appendChild(busyLabel);
+  // KO / EN button on the popup's text box (the box then edits the field's slots directly)
+  const bilCfg = cfg.bilingual || null;
+  const bilKey = (): string => (typeof bilCfg?.key === "function" ? bilCfg.key() : (bilCfg?.key as string));
+  let bil: BilingualHandle | null = null;
   taWrap.append(promptTA, busyOv);
+  if (bilCfg) {
+    bil = attachBilingual(promptTA, { target: bilCfg.target, key: bilCfg.key, protect: bilCfg.protect, onError: bilCfg.onError, persist: () => cfg.persist(), onInput: () => syncButtons() });
+    taWrap.insertBefore(bil.el, busyOv);
+  }
+  // What the main prompt box shows after the popup changed the prompt.
+  function syncMain(text: string) {
+    if (bil) { bilCfg?.getMainBil?.()?.refresh(); return; }
+    const pta = cfg.getPromptTA?.(); if (pta) pta.value = text;
+  }
+  // A Write / Enhance / Refine result is English; its Korean view is written right after (not waited for).
+  function setResult(text: string) {
+    if (!bil || !bilCfg) { promptTA.value = text; return; }
+    const o = bilCfg.target(), k = bilKey();
+    fieldSetBoth(o, k, text, "");
+    fieldSetView(o, k, "en");
+    bil.refresh(); syncMain(text); cfg.persist();
+    if (!String(text || "").trim()) return;
+    fieldFill(o, k, "ko", translateLlm(), { protect: bilCfg.protect?.() || [] })
+      .then(() => { cfg.persist(); bil?.refresh(); syncMain(text); })
+      .catch(() => { /* the KO / EN button writes it later */ });
+  }
   function setBusy(on: boolean, label?: string) {
     if (label) busyLabel.textContent = label;
     busyOv.style.display = on ? "flex" : "none";
@@ -452,6 +484,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   promptTA.addEventListener("input", syncButtons);
 
   function applyNow() {
+    if (bil) { cfg.persist(); syncMain(promptTA.value); return; }   // the popup box already edits the field's slots
     cfg.setPrompt(promptTA.value);
     cfg.persist();
   }
@@ -566,7 +599,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
-      promptTA.value = d.result;
+      setResult(d.result);
       setLastDebug(d.debug_thought);
       syncButtons();
     } catch (e: any) { alert("LLM error: " + (e.message || e)); }
@@ -608,7 +641,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       });
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "error");
-      promptTA.value = d.result;
+      setResult(d.result);
       setLastDebug(d.debug_thought);
       syncButtons();
     } catch (e: any) { alert("LLM error: " + (e.message || e)); }
@@ -658,7 +691,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   // Inside Prompt Edit: works on the popup's own text; the accepted result lands back in it.
   btnRefine.addEventListener("click", () => runRefine({
     getText: () => promptTA.value,
-    onApply: (text) => { promptTA.value = text; syncButtons(); },
+    onApply: (text) => { setResult(text); syncButtons(); },
     setBusy: (on) => { (btnRefine as HTMLButtonElement).disabled = on; setBusy(on, "Refining the prompt…"); if (!on) syncButtons(); },
   }));
   // Main PROMPT box (no Prompt Edit needed): reads/writes the current mode's prompt; the box is
@@ -677,8 +710,11 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   function refineMain() {
     return runRefine({
       setBusy: setMainBusy,
-      getText: () => cfg.getPrompt(),
-      onApply: (text) => { cfg.setPrompt(text); promptTA.value = text; cfg.persist(); syncButtons(); },
+      getText: () => (bil && bilCfg ? fieldText(bilCfg.target(), bilKey()) : cfg.getPrompt()),   // what the box shows: Korean or English
+      onApply: (text) => {
+        if (bil) { setResult(text); syncButtons(); return; }
+        cfg.setPrompt(text); promptTA.value = text; cfg.persist(); syncButtons();
+      },
     });
   }
 
@@ -718,7 +754,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
 
   function show() {
     ov.style.display = "flex";
-    promptTA.value = cfg.getPrompt();
+    if (bil) bil.refresh(); else promptTA.value = cfg.getPrompt();
     extraInstrTA.value = llm.extra_instructions || "";
     seedInput.value = String(llm.seed ?? 0);
     debugPre.style.display = "none";
@@ -730,6 +766,12 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   function hide() { ov.style.display = "none"; }
 
   async function enhance(prompt: string): Promise<string> {
+    if (bil && bilCfg) {
+      const o = bilCfg.target(), k = bilKey();
+      fieldSetBoth(o, k, prompt, ""); fieldSetView(o, k, "en"); bil.refresh();
+      await doEnhance();
+      return String(o[k] || "");
+    }
     promptTA.value = prompt;
     await doEnhance();
     return promptTA.value;

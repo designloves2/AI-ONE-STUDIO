@@ -16,6 +16,11 @@ import {
   clipSecForTyped,
   shotRanges,
   rebaseShots,
+  shiftShots,
+  shotCount,
+  splitShotsByTime,
+  ONE_TAKE_OVERLAP_SEC,
+  h3ProtectWords,
   snapShotTimes,
   oneTakeLlmOn,
   oneTakeRules,
@@ -39,6 +44,9 @@ import { reflib } from "../../shared/reflibApi";
 import { button, clear, el, confirmDialog, promptDialog, promptTextareaDialog } from "../../shared/ui";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { C, BRAND } from "../../identity";
+import { attachBilingual } from "../../shared/bilingualUi";
+import { fieldEdit, fieldSetBoth, fieldFill, ensureEnglish, koKey } from "../../shared/bilingual";
+import { translateLlm } from "../../shared/translateConfig";
 import { buildClipMediaSlots, dragReorder } from "./imagesPanel";
 import { openVideoGalleryPicker } from "./videoPicker";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
@@ -84,6 +92,10 @@ function normPrompt(p: PromptEntry | string): PromptEntry {
   return typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : p;
 }
 
+// The model renders a clip for at most this long. A clip whose set time is above it (after a merge) is flagged red.
+const MAX_CLIP_SEC = 15;
+const overMaxSec = (p: any): boolean => !!(p && typeof p === "object" && p.timeOverride && p.timeSec > MAX_CLIP_SEC);
+
 export interface PromptEditHandle {
   el: HTMLElement;
   show(): void;
@@ -94,6 +106,8 @@ export interface PromptEditHandle {
   // opened the popup and clicked the button themselves.
   openWrite(clipIndex?: number | null): void;
   openRefine(clipIndex?: number | null): void;
+  /** The merge dialog from the main screen's own Merge clips button (the popup behind it stays hidden). */
+  openMerge(): Promise<void>;
   /** Auto Prompt: write every enabled clip's prompt in one go, no review. Throws on the first failure. */
   autoWrite(): Promise<void>;
   /** An H3 first/last-frame brief for a finished video (Postprocess → Latent Upscale (Use H3)). */
@@ -168,8 +182,8 @@ export function createPromptEditOverlay(
   const resetCancelBtn = el("button", { type: "button", text: "Cancel", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11.5px", padding: "6px 14px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
   const resetConfirmBtn = button("Reset", () => {
     state.prompts = [{ text: "", firstFrame: "", enabled: true }];
-    state.promptHeader = "";
-    state.promptFooter = "";
+    fieldSetBoth(state, "promptHeader", "", "");
+    fieldSetBoth(state, "promptFooter", "", "");
     selected = 0;
     ctx.persist();
     resetConfirmOv.style.display = "none";
@@ -222,8 +236,8 @@ export function createPromptEditOverlay(
       state.prompts = (Array.isArray(s.prompts) && s.prompts.length ? s.prompts : [{ text: "", firstFrame: "", enabled: true }]).map((p: any) =>
         typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : { ...p, text: p?.text || "", firstFrame: p?.firstFrame || "", enabled: p?.enabled !== false }
       );
-      state.promptHeader = s.promptHeader || "";
-      state.promptFooter = s.promptFooter || "";
+      fieldSetBoth(state, "promptHeader", s.promptHeader || "", s.promptHeaderKo || "");
+      fieldSetBoth(state, "promptFooter", s.promptFooter || "", s.promptFooterKo || "");
       // SPEC_MINIMAX_H3_CONTINUE_AND_EXTEND.md §2 — the prompt list just changed wholesale, so a
       // resume snapshot taken against the old list would restore the wrong enabled states.
       delete (state as any)._resumeSnapshot;
@@ -264,6 +278,8 @@ export function createPromptEditOverlay(
         clipFrames: (state as any).clipFrames,
         promptHeader: state.promptHeader || "",
         promptFooter: state.promptFooter || "",
+        promptHeaderKo: state.promptHeaderKo || "",   // the Korean view of the common pair
+        promptFooterKo: state.promptFooterKo || "",
         prompts: (state.prompts || []).map((p) => (typeof p === "string" ? { text: p, firstFrame: "", enabled: true } : p)),
         // SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §7 — photos and clips are part of the set itself,
         // not an afterthought: reloading a Reference-mode set with none of this reproduces
@@ -382,36 +398,33 @@ export function createPromptEditOverlay(
     },
     "mmh3_pe_footer_h"
   );
+  // KO / EN on both boxes; the slot is the clip's own header / tail when it has its own, else the common pair.
+  const framingTarget = (): any => (ownFraming() ? state.prompts[selected] : state);
+  const headerKey = () => (ownFraming() ? "header" : "promptHeader");
+  const footerKey = () => (ownFraming() ? "footer" : "promptFooter");
+  const headerBil = attachBilingual(headerTA, { persist: () => ctx.persist(), protect: () => h3ProtectWords(state), onError: (m) => ctx.showPopup(m, true), target: framingTarget, key: headerKey });
+  const footerBil = attachBilingual(footerTA, { persist: () => ctx.persist(), protect: () => h3ProtectWords(state), onError: (m) => ctx.showPopup(m, true), target: framingTarget, key: footerKey });
   const headerLabel = el("div", { text: "COMMON — HEADER", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
   const footerLabel = el("div", { text: "COMMON — SOUND / MUSIC", class: "text-[9.5px] tracking-wide flex-1", style: { color: C.muted } });
-  const headerUC = undoClearBtns(headerTA, (v) => {
-    const p = state.prompts[selected];
-    if (promptOverrides(p)) (p as PromptEntry).header = v;
-    else state.promptHeader = v;
-  });
-  const footerUC = undoClearBtns(footerTA, (v) => {
-    const p = state.prompts[selected];
-    if (promptOverrides(p)) (p as PromptEntry).footer = v;
-    else state.promptFooter = v;
-  });
+  const headerUC = undoClearBtns(headerTA, (v) => fieldEdit(framingTarget(), headerKey(), v));
+  const footerUC = undoClearBtns(footerTA, (v) => fieldEdit(framingTarget(), footerKey(), v));
   const commonWrap = el("div", { class: "shrink-0 flex gap-2 flex-col sm:flex-row" });
   commonWrap.append(
     el("div", { class: "flex-1 flex flex-col gap-1" }, [
       el("div", { class: "flex items-center gap-1.5" }, [headerLabel, headerUC]),
-      headerTA,
+      headerBil.el,
     ]),
     el("div", { class: "flex-1 flex flex-col gap-1" }, [
       el("div", { class: "flex items-center gap-1.5" }, [footerLabel, footerUC]),
-      footerTA,
+      footerBil.el,
     ])
   );
   // Re-reads header/footer (and their labels) for whichever clip is now selected — called on
   // clip switch, override toggle, and panel open, per the spec's own three call sites.
   function refreshFraming() {
     const own = promptOverrides(state.prompts[selected]);
-    const f = clipFraming(state, selected);
-    headerTA.value = f.header;
-    footerTA.value = f.footer;
+    headerBil.refresh();
+    footerBil.refresh();
     headerUC.paint();
     footerUC.paint();
     headerLabel.textContent = own ? "THIS CLIP — HEADER" : "COMMON — HEADER";
@@ -447,12 +460,16 @@ export function createPromptEditOverlay(
     updateCount();
     renderList();
   });
+  // Undo / Clear write the language the field is showing (the Korean view keeps the English text as it was).
   const editorUndoClear = undoClearBtns(editor, (v) => {
     state.prompts[selected] = normPrompt(state.prompts[selected]);
-    state.prompts[selected].text = v;
+    fieldEdit(state.prompts[selected], "text", v);
     updateCount();
     renderList();
   });
+  // KO / EN button: the English text is what the model gets, the Korean one is its view.
+  const bilOpts = { persist: () => ctx.persist(), protect: () => h3ProtectWords(state), onError: (m: string) => ctx.showPopup(m, true) };
+  const editorBil = attachBilingual(editor, { ...bilOpts, target: () => (state.prompts[selected] = normPrompt(state.prompts[selected])), key: "text" });
   editHdr.append(editTitle, charCount, editorUndoClear);
 
   // Continue this clip from a finished clip's last frame (planned resume) —
@@ -554,7 +571,7 @@ export function createPromptEditOverlay(
     class: "absolute inset-0 flex items-center justify-center text-center hidden",
     style: { zIndex: "5", background: "rgba(0,0,0,0.75)", padding: "0 16px", borderRadius: "8px", color: "#b57bff", fontSize: "18px", fontWeight: "700", textShadow: "0 0 12px rgba(181,123,255,0.5)" },
   });
-  editorWrap.append(editor, editorBusyOv);
+  editorWrap.append(editorBil.el, editorBusyOv);
   function setEditorBusy(isBusy: boolean, busyLabel?: string) {
     editorBusyOv.textContent = busyLabel || "✨ Writing the prompt…";
     editorBusyOv.classList.toggle("hidden", !isBusy);
@@ -586,13 +603,18 @@ export function createPromptEditOverlay(
     else timeIn.value = "";
     renderOverrideRow();
     const global = state.clipFrames ?? 192;
-    timeNote.textContent = on
+    const over = overMaxSec(p);
+    timeIn.style.borderColor = over ? C.err : C.border;
+    timeNote.style.color = over ? C.err : C.muted;
+    timeNote.textContent = over
+      ? `set to ${p.timeSec}s - the model renders at most ${MAX_CLIP_SEC}s: set ${MAX_CLIP_SEC}s or less`
+      : on
       ? `renders ${clipSecondsFor(state, selected).toFixed(2)}s (${clipFramesFor(state, selected)} frames)`
       : `global ${(global / 24).toFixed(2)}s`;
   }
   function timeChanged() {
     snapClipText(selected);
-    editor.value = promptText(normPrompt(state.prompts[selected]));
+    editorBil.refresh();
     ctx.persist(); renderTimeRow(); renderList(); refreshPlanTag(); refreshPreviewTag(); ctx.refreshModes?.();
   }
   timeChk.addEventListener("change", () => {
@@ -601,6 +623,16 @@ export function createPromptEditOverlay(
     p.timeOverride = timeChk.checked;
     if (timeChk.checked && !(Number(p.timeSec) > 0)) p.timeSec = clipSecForTyped((state.clipFrames ?? 192) / 24);
     timeChanged();
+  });
+  // Typing: the red flag follows the value as it is typed (a value above 15 s stays red until it is 15 s or less);
+  // on change the value is snapped to what the model can render.
+  timeIn.addEventListener("input", () => {
+    const v = parseFloat(timeIn.value);
+    if (!(v > 0) || !state.prompts[selected]) return;
+    state.prompts[selected] = normPrompt(state.prompts[selected]);
+    (state.prompts[selected] as PromptEntry).timeSec = v;
+    timeIn.style.borderColor = v > MAX_CLIP_SEC ? C.err : C.border;
+    renderList();
   });
   timeIn.addEventListener("change", () => {
     state.prompts[selected] = normPrompt(state.prompts[selected]);
@@ -622,10 +654,12 @@ export function createPromptEditOverlay(
       if (promptEnabled(p)) onCount++;
       const active = i === selected;
       const on = promptEnabled(p);
+      const overSec = overMaxSec(p);   // set longer than the model renders: red until the time is 15 s or less
       const item = el("div", {
         class: "flex gap-1 items-center cursor-pointer rounded-md px-1.5 py-1.5",
-        style: { background: active ? C.bg3 : C.bg1, border: `1px solid ${active ? BRAND : C.border}`, opacity: on ? "1" : "0.5" },
+        style: { background: active ? C.bg3 : C.bg1, border: `1px solid ${overSec ? C.err : active ? BRAND : C.border}`, opacity: on ? "1" : "0.5" },
       }) as HTMLDivElement;
+      if (overSec) item.title = `This clip is set to ${p.timeSec} s; the model renders at most ${MAX_CLIP_SEC} s. Set its time to ${MAX_CLIP_SEC} s or less.`;
       item.draggable = true;
       item.addEventListener("dragstart", (e: DragEvent) => {
         e.dataTransfer?.setData("text/plain", String(i));
@@ -668,9 +702,9 @@ export function createPromptEditOverlay(
       const shots = shotRanges(promptText(p), tl.sec);
       const prev = el("div", { class: "flex-1 min-w-0 flex flex-col", style: { gap: "1px" } }, [
         el("div", { text: `${i + 1} - Clip Prompt #${i + 1}`, class: "text-[10.5px] truncate", style: { color: labelColor, fontWeight: ownClip ? "700" : "400" } }),
-        el("div", { text: tl.start == null ? "off" : `${fmtSec(tl.start as number)}~${fmtSec(tl.end as number)} sec${p.timeOverride ? " ⏱" : ""}`,
+        el("div", { text: tl.start == null ? "off" : overSec ? `${fmtSec(p.timeSec as number)} sec ⚠ over ${MAX_CLIP_SEC}` : `${fmtSec(tl.start as number)}~${fmtSec(tl.end as number)} sec${p.timeOverride ? " ⏱" : ""}`,
           title: p.timeOverride ? "This clip has its own length" : "Global clip length",
-          class: "text-[9.5px]", style: { color: p.timeOverride ? "#ffb020" : C.muted } }),
+          class: "text-[9.5px]", style: { color: overSec ? C.err : p.timeOverride ? "#ffb020" : C.muted, fontWeight: overSec ? "700" : "400" } }),
         // One-Take: each clip after the first overlaps the one before by 1.625 s, so its place in the stitched video is earlier-shorter.
         ...(tl.fstart != null ? [el("div", { text: `stitched ${fmtSec(tl.fstart)}~${fmtSec(tl.fend as number)} sec`,
           title: "Place in the finished One-Take video (1.625 s overlap with the previous clip removed)",
@@ -709,8 +743,7 @@ export function createPromptEditOverlay(
   function loadSelected() {
     const list = state.prompts || [{ text: "", firstFrame: "", enabled: true }];
     if (selected >= list.length) selected = 0;
-    const p = normPrompt(list[selected]) as PromptEntry;
-    editor.value = promptText(p);
+    editorBil.refresh();
     editTitle.textContent = `Clip ${selected + 1}`;
     renderTimeRow();
     editorUndoClear.resetStack(); // node v1.22.1 — the shot field's Undo stays within one clip
@@ -1204,20 +1237,28 @@ export function createPromptEditOverlay(
   // "원테이크 / 원 테이크 / onetake / one take / one-take" in the prompt switches on the One-Take mode and its prompt
   // rules by itself (Continuity = One-Take (latent), "Write prompts with the One-Take rules" ticked).
   const ONE_TAKE_WORD = /원\s*테이크|one[\s-]*take/i;
-  function autoOneTake(text: string) {
-    if (oneTakeLlmOn(state) || !ONE_TAKE_WORD.test(text || "")) return;
+  // `viaMenu`: the One-Take item of the Write menu asks for it too, no keyword needed.
+  function autoOneTake(text: string, viaMenu = false) {
+    if (oneTakeLlmOn(state) || !(viaMenu || ONE_TAKE_WORD.test(text || ""))) return;
     state.continuityMode = "onetake";
     state.oneTakeLlm = true;
     ctx.persist();
     ctx.refreshModes?.();   // redraws the Continuity panel; it falls back to None when One-Take cannot run here
     if (state.continuityMode === "onetake") {
-      ctx.showPopup("One-Take found in the prompt: Continuity is now One-Take (latent) and the One-Take prompt rules are on.", false);
+      ctx.showPopup(`${viaMenu ? "One-Take Write" : "One-Take found in the prompt"}: Continuity is now One-Take (latent) and the One-Take prompt rules are on.`, false);
     } else {
-      ctx.showPopup("One-Take found in the prompt, but One-Take (latent) is not available here (update the TJ_NODE pack) - writing without it.", true);
+      ctx.showPopup(`${viaMenu ? "One-Take Write" : "One-Take found in the prompt"}, but One-Take (latent) is not available here (update the TJ_NODE pack) - writing without it.`, true);
     }
   }
 
   let writeTarget = "all";   // set by doWrite: "one" = this clip, "all" = split into all clips
+  // What the Write in progress is (the Prompt Write menu): "single" = the normal Write; "longshot" = ONE prompt whose shot times run
+  // over the whole piece, cut into clips in the result window; "onetake" = clips written with the One-Take rules from a total length.
+  // The result window keeps the kind (reviewWriteKind) so it applies the answer the same way.
+  let writeKind = "single", reviewWriteKind = "single";
+  const oneTakeNow = () => writeKind === "onetake" || oneTakeLlmOn(state);
+  const oneTakeReview = () => reviewWriteKind === "onetake" || oneTakeLlmOn(state);
+  const fmtClock = (sec: number) => `${String(Math.floor(sec / 60)).padStart(2, "0")}:${(sec - Math.floor(sec / 60) * 60).toFixed(3).padStart(6, "0")}`;
   function buildUserPrompt(baseText: string, imageSummary: string, lib: any = null) {
     const one = writeTarget === "one";
     const t0 = targetPlan();
@@ -1235,7 +1276,28 @@ export function createPromptEditOverlay(
         ? `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} shot(s) of ~${t.clipSec.toFixed(2)}s each.`
         : `Target duration: ${t.seconds.toFixed(2)} seconds total, split into ${t.shots} clips of ${lens.map((sec) => `${sec.toFixed(2)}s`).join(", ")}.`,
     ];
-    if (t.shots > 1) {
+    if (writeKind === "longshot" && !one) {
+      // a long shot: ONE brief timed over the whole piece (the clips are cut from it afterwards)
+      const edges: number[] = []; let acc = 0;
+      for (const l of lens) { edges.push(acc); acc += l; }
+      lines.push(
+        `LONG SHOT. Write ONE brief for the whole piece, ${t.seconds.toFixed(1)} seconds in total, as one continuous long shot. `
+        + `Shot times run over the WHOLE piece: "At MM:SS.mmm" is counted from the start of the piece (from 00:00.000 up to ${fmtClock(t.seconds)}), `
+        + `never restarted for a clip. Every time stays below ${fmtClock(t.seconds)}: 11.5 seconds is written 00:11.500, never 01:11.500.`,
+        `The piece will afterwards be cut into ${t.shots} consecutive clips (${edges.map((e, k) => `${fmtClock(e)}-${fmtClock(e + lens[k])}`).join(", ")}). `
+        + "Start a new [Shot N] inside every one of those windows, at about the time the window opens, so every clip gets its own opening "
+        + "and the shots cover the whole length without gaps. Keep the same people, place, light and style from one window to the next.",
+        "The long shot is ONE event moving forward in time, not the same moment filmed again. Every window picks up exactly where the previous window "
+        + "ended (the same pose, position, direction and speed it ended on), and its first [Shot N] opens from that state: never restart from the "
+        + "piece's opening pose, and never repeat an earlier window's action (a person already walking does not stand still again). "
+        + "The camera angle, framing and lens may change from one window to the next, and the place may move on with the action, but the action itself keeps going.",
+        "The reference pictures are used as the original image only in the FIRST window (its opening matches them). In every later window they only "
+        + "keep the people, outfits, style and place consistent: those windows are not tied to the pictures' composition or pose and do not start from it.",
+        "Write the shared header sections (subject_definitions, summary, retention_analysis, SCENARIO, technical_settings) once, then the "
+        + "[Shot N] blocks in order (the first [Shot 1] has no timestamp), then overall_soundscape and non_diegetic_music once. "
+        + "Do not separate clips with --- : this is a single brief.",
+      );
+    } else if (t.shots > 1) {
       lines.push(
         `Write exactly ${t.shots} clips, separated by a line containing only ---. Every clip is its own video: write each one `
         + "as a full brief with the labels subject_definitions:, summary:, retention_analysis:, SCENARIO:, technical_settings:, "
@@ -1245,7 +1307,7 @@ export function createPromptEditOverlay(
         + "The shots of a clip must add up to that clip's own length.",
       );
     }
-    if (oneTakeLlmOn(state)) {
+    if (oneTakeNow()) {
       // The clip before the one being written (target "one"): how it ends is what this one has to open with.
       let prevEnding = "";
       if (one && selected > 0) {
@@ -1302,7 +1364,7 @@ export function createPromptEditOverlay(
   // same recency effect — text-only, no images re-attached, exactly like their version ("media
   // is intentionally not attached"). The OUTPUT stays our own shot-separated brief format
   // throughout; only the prompt-construction technique is borrowed.
-  function buildRefineUserPrompt(currentPrompt: string, instruction: string, imageSummary = "", lib: any = null) {
+  function buildRefineUserPrompt(currentPrompt: string, instruction: string, imageSummary = "", lib: any = null, common: { header?: string; footer?: string } | null = null) {
     const lines: string[] = [
       "Rewrite the current H3 brief according to the revision instruction. Return only the complete revised brief. Do not discuss the changes.",
       "",
@@ -1310,6 +1372,18 @@ export function createPromptEditOverlay(
       currentPrompt || "(empty)",
       "",
     ];
+    // The Common opening / tail is put around this prompt when the clip is made, so it is not in the text above:
+    // show it, or the rewrite repeats or contradicts it.
+    const commonHeader = (common?.header || "").trim(), commonFooter = (common?.footer || "").trim();
+    if (commonHeader || commonFooter) {
+      lines.push(
+        "Common prompt (placed before and after the current prompt when the video is made — read it so the revised "
+        + "brief fits it: do not repeat it, do not contradict it, and do not include it in your answer):",
+        ...(commonHeader ? ["Opening:", commonHeader] : []),
+        ...(commonFooter ? ["Tail:", commonFooter] : []),
+        "",
+      );
+    }
     if (imageSummary) {
       lines.push(
         state.briefImageMode === "fl"
@@ -1493,9 +1567,18 @@ export function createPromptEditOverlay(
 
   // `auto` (Auto Prompt, run when Generate is pressed): nothing is asked or reviewed - the clip's whole
   // text goes to the model as one request and the whole answer replaces it. Problems throw so Generate stops.
-  async function doWrite(opts?: { auto?: boolean }) {
+  async function doWrite(opts?: { auto?: boolean; kind?: string }) {
     const auto = opts?.auto === true;
     if (busy) return;
+    writeKind = !auto && (opts?.kind === "longshot" || opts?.kind === "onetake") ? opts.kind : "single";
+    // A long shot is made of separate clips (no chaining), each rendered from the references, so it only works in Reference mode.
+    if (writeKind === "longshot" && state.generationMode !== "reference") {
+      state.generationMode = "reference";
+      ctx.persist();
+      ctx.refreshModes?.();
+      if (state.generationMode === "reference") ctx.showPopup("Long Shot Write: switched to Reference mode (a long shot is rendered from the reference images).", false);
+      else { failWrite(auto, "Long Shot Write needs Reference mode - the Reference UNET is not set (Settings > Models)."); return; }
+    }
     deriveModes(); renderImageRow();
     const images = await attachedImagesResolved();
     const lib = await libraryContextForClip();
@@ -1505,7 +1588,8 @@ export function createPromptEditOverlay(
     if (!backends) return;
     const { briefOR, briefLlama, briefCustom } = backends;
     if (images.length && !visionBackendCheck(auto)) return;
-    const target = auto ? "one" : targetSel.value;
+    // a long shot / One-Take write is always for the whole piece (the dropdown only decides a normal Write)
+    const target = auto ? "one" : writeKind !== "single" ? "all" : targetSel.value;
     writeTarget = target;
     // A clip that already has its own header and sound / music is written from all three together.
     const clipOwn = target === "one" && ownFraming() ? (state.prompts[selected] as PromptEntry) : null;
@@ -1515,7 +1599,7 @@ export function createPromptEditOverlay(
       ctx.showPopup("Write something first (or add an image).", true);
       return;
     }
-    autoOneTake(base);
+    autoOneTake(base, writeKind === "onetake");
     // The model gets the guide for the mode being rendered: Reference (Ref2VA) has its own, the rest share one.
     const sys = auto ? (state.generationMode === "reference" ? H3_SYSTEM_PROMPT_REF : H3_SYSTEM_PROMPT_BASE) : systemPrompt;
     busy = true;
@@ -1541,12 +1625,12 @@ export function createPromptEditOverlay(
       if (!text) throw new Error("empty response");
       if (auto) {
         state.prompts[selected] = normPrompt(state.prompts[selected]);
-        (state.prompts[selected] as PromptEntry).text = text;   // header / sound-music left alone
+        fieldSetBoth(state.prompts[selected], "text", text, "");   // header / sound-music left alone; the Korean view is written when the KO / EN button is used
         statusTag.textContent = "written";
         statusTag.style.color = C.ok;
         return;
       }
-      openReview(text, (targetSel as HTMLSelectElement).value);
+      openReview(text, target);
       statusTag.textContent = "review the result";
       statusTag.style.color = C.ok;
     } catch (e: any) {
@@ -1564,7 +1648,113 @@ export function createPromptEditOverlay(
       enhStopBtn.style.display = "none";
     }
   }
-  enhBtn.addEventListener("click", () => doWrite());
+  // ── Prompt Write menu ────────────────────────────────────────────────────
+  // The Write button first asks which kind of prompt to write: Single Shot (the normal Write), Long Shot (one prompt over a total
+  // length you give, cut into clips in the result window) or One-Take (clips chained into one unbroken take: total length, written
+  // with the One-Take rules, then cut into clips in the result window).
+  const writeMenuOv = el("div", { style: {
+    display: "none", position: "absolute", inset: "0", zIndex: "11", background: "rgba(0,0,0,0.6)",
+    alignItems: "center", justifyContent: "center", boxSizing: "border-box",
+  } });
+  const writeMenuPanel = el("div", { style: {
+    width: "min(560px, 92%)", display: "flex", flexDirection: "column", gap: "8px", padding: "14px", boxSizing: "border-box",
+    background: "rgba(11,11,11,0.985)", border: `1px solid ${BRAND}`, borderRadius: "10px", boxShadow: "0 8px 30px rgba(0,0,0,0.6)",
+  } });
+  writeMenuOv.appendChild(writeMenuPanel);
+  type WritePick = { kind: string; totalSec?: number } | null;
+  let writeMenuDone: ((r: WritePick) => void) | null = null;
+  function closeWriteMenu(result: WritePick) {
+    writeMenuOv.style.display = "none";
+    const done = writeMenuDone; writeMenuDone = null;
+    done?.(result);
+  }
+  writeMenuOv.addEventListener("click", (e) => { if (e.target === writeMenuOv) closeWriteMenu(null); });
+  const menuSmallBtn = (text: string, on: () => void, primary = false) => {
+    const b = el("button", { type: "button", text, style: {
+      cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "7px 14px", borderRadius: "6px",
+      background: primary ? BRAND : C.bg2, color: primary ? "#fff" : C.text, border: primary ? "none" : `1px solid ${C.border}`,
+      fontWeight: primary ? "700" : "400" } });
+    b.addEventListener("click", on);
+    return b;
+  };
+  function writeKindBtn(title: string, desc: string, on: () => void) {
+    const b = el("button", { type: "button", style: {
+      cursor: "pointer", fontFamily: "inherit", textAlign: "left", display: "flex", flexDirection: "column", gap: "3px",
+      padding: "10px 12px", borderRadius: "8px", background: C.bg1, border: `1px solid ${C.border}`, color: C.text } }, [
+      el("div", { text: title, style: { fontSize: "12.5px", fontWeight: "700", color: BRAND } }),
+      el("div", { text: desc, style: { fontSize: "10.5px", color: C.muted, lineHeight: "1.5" } }),
+    ]);
+    b.addEventListener("mouseenter", () => { b.style.borderColor = BRAND; });
+    b.addEventListener("mouseleave", () => { b.style.borderColor = C.border; });
+    b.addEventListener("click", on);
+    return b;
+  }
+  function showWriteKinds() {
+    clear(writeMenuPanel);
+    writeMenuPanel.append(
+      el("div", { text: "✨ Prompt Write — which kind?", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }),
+      writeKindBtn("Single Shot Write", "One clip. The normal Write: this clip, or split into all clips (the dropdown next to the Write button).",
+        () => closeWriteMenu({ kind: "single" })),
+      writeKindBtn("Long Shot Write", "One long shot over a total length you give. The whole prompt is written on that timeline, then cut into clips in the result window - each clip gets its own shot numbers and times.",
+        () => showWriteTotal("longshot")),
+      writeKindBtn("One-Take Write", "Clips chained into one unbroken take. You give the total length; it is written with the One-Take rules (the end of each clip copied into the start of the next), then cut into clips in the result window.",
+        () => showWriteTotal("onetake")),
+      el("div", { style: { display: "flex", justifyContent: "flex-end" } }, [menuSmallBtn("Cancel", () => closeWriteMenu(null))]),
+    );
+  }
+  function showWriteTotal(kind: string) {
+    clear(writeMenuPanel);
+    const plan = ctx.currentPlan() || { count: 1, clipSec: 8 };
+    const input = el("input", { type: "text", placeholder: "30s, 0:30, 1분 20초", style: {
+      width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
+      borderRadius: "6px", padding: "8px 10px", fontSize: "13px", fontFamily: "inherit", outline: "none" } }) as HTMLInputElement;
+    input.value = state.targetLength || "";
+    const hint = el("div", { style: { fontSize: "11px", color: C.muted, lineHeight: "1.5" } });
+    const paint = () => {
+      const secs = parseTargetSeconds(input.value);
+      if (!(secs > 0)) { hint.style.color = C.muted; hint.textContent = "Type the total length."; return; }
+      const n = Math.max(1, Math.round(secs / plan.clipSec));
+      hint.style.color = C.text;
+      hint.textContent = `→ ${n} clip(s) × ${plan.clipSec.toFixed(2)} s = ${(n * plan.clipSec).toFixed(1)} s`
+        + (kind === "onetake" ? ` · the stitched video is about ${(n * plan.clipSec - (n - 1) * ONE_TAKE_OVERLAP_SEC).toFixed(1)} s (the ${ONE_TAKE_OVERLAP_SEC.toFixed(3)} s overlap of every clip after the first is removed)` : "");
+    };
+    const go = () => {
+      const secs = parseTargetSeconds(input.value);
+      if (!(secs > 0)) { hint.style.color = C.err; hint.textContent = "Type the total length first."; return; }
+      closeWriteMenu({ kind, totalSec: secs });
+    };
+    input.addEventListener("input", paint);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    paint();
+    writeMenuPanel.append(
+      el("div", { text: kind === "longshot" ? "✨ Long Shot Write — total length" : "✨ One-Take Write — total length", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }),
+      el("div", { text: kind === "longshot"
+        ? "How long is the whole long shot? The prompt is written with times counted over this whole length."
+        : "How long should the whole take be? The clips are written one after another with the One-Take rules.", style: { fontSize: "10.5px", color: C.muted, lineHeight: "1.5" } }),
+      input, hint,
+      el("div", { style: { display: "flex", justifyContent: "space-between", gap: "8px" } }, [
+        menuSmallBtn("← Back", showWriteKinds),
+        el("div", { style: { display: "flex", gap: "8px" } }, [menuSmallBtn("Cancel", () => closeWriteMenu(null)), menuSmallBtn("✨ Write", go, true)]),
+      ]),
+    );
+    setTimeout(() => input.focus(), 40);
+  }
+  function askWriteKind(): Promise<WritePick> {
+    return new Promise((resolve) => { writeMenuDone = resolve; showWriteKinds(); writeMenuOv.style.display = "flex"; });
+  }
+  async function onWriteClick() {
+    if (busy) return;
+    const pick = await askWriteKind();
+    if (!pick) return;
+    if (pick.kind !== "single") {
+      // the plan (how many clips, how long) reads the target length field
+      lenIn.value = `${Math.round((pick.totalSec as number) * 100) / 100}s`;
+      state.targetLength = lenIn.value;
+      ctx.persist(); renderLenTag();
+    }
+    await doWrite({ kind: pick.kind });
+  }
+  enhBtn.addEventListener("click", () => { void onWriteClick(); });
 
   // Refine — text-only unless "Include Images" is ticked (then the attached images get the same vision pass as Prompt Write).
   let lastRefineInstruction = "";
@@ -1620,7 +1810,7 @@ export function createPromptEditOverlay(
     try {
       const imageSummary = await describeImages(images);
       progressStage("Refining brief…");
-      const userPrompt = buildRefineUserPrompt(current, lastRefineInstruction, imageSummary, lib);
+      const userPrompt = buildRefineUserPrompt(current, lastRefineInstruction, imageSummary, lib, clipFraming(state, selected));
       const text = (briefCustom
         ? await writeBriefCustom(systemPrompt, userPrompt, { baseUrl: state.h3CustomBriefBase, model: state.h3CustomBriefModel, context: state.h3CustomBriefCtx })
         : briefLlama
@@ -1762,8 +1952,14 @@ export function createPromptEditOverlay(
     if (reviewMode === "one") {
       rvBody.appendChild(reviewCard("one", `→ CLIP ${selected + 1} (whole brief, one paragraph)`, reviewText));
     } else {
-      const briefs = reviewMode === "split" && reviewTarget === "all" ? clipBriefs(reviewText) : null;
-      if (briefs) {
+      const briefs = reviewMode === "split" && reviewTarget === "all" && reviewWriteKind !== "longshot" ? clipBriefs(reviewText) : null;
+      const windows = reviewMode === "split" && reviewTarget === "all" && reviewWriteKind === "longshot" && p.shots.length ? longShotClips() : null;
+      if (windows) {
+        // a long shot: the shots are cut into clips by the time window each one starts in; every clip starts over at [Shot 1]
+        if (p.header) rvBody.appendChild(reviewCard("header", "COMMON — HEADER", p.header));
+        windows.forEach((c, i) => rvBody.appendChild(reviewCard(`shot:${i}`, `CLIP ${i + 1} — ${fmtClockShort(c.from)}~${fmtClockShort(c.to)} of the long shot`, c.text)));
+        if (p.footer) rvBody.appendChild(reviewCard("footer", "COMMON — SOUND / MUSIC", p.footer));
+      } else if (briefs) {
         briefs.forEach((b, i) => {
           if (b.header) rvBody.appendChild(reviewCard("header", `CLIP ${i + 1} — THIS CLIP — HEADER`, b.header));
           rvBody.appendChild(reviewCard(`shot:${i}`, `CLIP ${i + 1}`, rebaseShots(b.shots.join("\n\n"))));
@@ -1780,8 +1976,9 @@ export function createPromptEditOverlay(
 
     // Info line — for "all" enhance, call out when the model wrote a different shot count
     // than the target asked for (the small brief model often does).
-    const structured = reviewTarget === "all" ? clipBriefs(reviewText) : null;
-    const got = structured ? structured.length : (p.shots.length || 1);
+    const lw = reviewMode === "split" && reviewTarget === "all" && reviewWriteKind === "longshot" && p.shots.length ? longShotClips() : null;
+    const structured = reviewTarget === "all" && !lw ? clipBriefs(reviewText) : null;
+    const got = structured ? structured.length : lw ? lw.length : (p.shots.length || 1);
     let info = `${reviewText.length} chars`;
     if (reviewTarget === "all") {
       const want = targetPlan().shots;
@@ -1790,7 +1987,7 @@ export function createPromptEditOverlay(
     } else {
       info += ` → clip ${selected + 1}`;
     }
-    if (oneTakeLlmOn(state) && reviewMode !== "one") {
+    if (oneTakeReview() && reviewMode !== "one") {
       const clips: string[] = structured ? structured.map((b) => [b.header, ...b.shots, b.footer].join("\n"))
         : reviewTarget === "all" ? (p.shots.length ? p.shots : [reviewText]).map((s, i) => (i === 0 ? [p.header, s] : [s]).join("\n"))
         : [[p.header, ...p.shots, p.footer].join("\n")];
@@ -1802,9 +1999,17 @@ export function createPromptEditOverlay(
     rvSummary.textContent =
       reviewMode === "one" ? `Whole brief → clip ${selected + 1}'s text. Header / tail untouched.`
       : reviewMode === "manual" ? (reviewSel.size ? `Applying ${reviewSel.size} selected part(s).` : "Tick the cards to apply.")
+      : lw ? `Cuts the long shot into ${got} clip(s) by time - each starts over at [Shot 1] with its own shot numbers and times. Replaces all prompts${p.header ? " + common header" : ""}${p.footer ? " + tail" : ""}.`
       : structured ? `Replaces all prompts with ${got} clips, each with its own header and sound / music (override on).`
       : reviewTarget === "all" ? `Replaces all prompts with ${got}${p.header ? " + header" : ""}${p.footer ? " + tail" : ""}.`
       : `Replaces clip ${selected + 1}${p.header || p.footer ? (ownFraming() ? " and this clip's header / sound" : " and the common parts") : ""}.`;
+  }
+
+  // The clip windows of a long shot: one clip length after another, as many as the planned clip count.
+  const fmtClockShort = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, "0")}`;
+  function longShotClips() {
+    const lens = Array.from({ length: Math.max(1, targetPlan().shots) }, (_, k) => clipSecondsFor(state, k));
+    return splitShotsByTime(reviewParsed.shots.join("\n\n"), lens);
   }
 
   // N clips written as N full briefs separated by --- (each with its own header sections, [Shot N]
@@ -1817,7 +2022,12 @@ export function createPromptEditOverlay(
   // render length rounds - see snapShotTimes), so they follow the clip's length whenever it is set or changed.
   function snapClipText(i: number) {
     const cl = (state.prompts || [])[i];
-    if (cl && typeof cl === "object") cl.text = snapShotTimes(cl.text || "", clipSecondsFor(state, i));
+    if (cl && typeof cl === "object") {
+      const sec = clipSecondsFor(state, i);
+      cl.text = snapShotTimes(cl.text || "", sec);
+      // the Korean view carries the same times ([Shot N] At MM:SS is never translated), so it follows them
+      if (cl.textKo) cl.textKo = snapShotTimes(cl.textKo, sec);
+    }
   }
   // A re-written list keeps the time override of the clip that was at the same position.
   function keepTimes(list: PromptEntry[], old: (PromptEntry | string)[]) {
@@ -1844,6 +2054,7 @@ export function createPromptEditOverlay(
     reviewText = text;
     reviewTarget = target;
     reviewKind = kind;
+    reviewWriteKind = kind === "refine" ? "single" : writeKind;
     rvHdrTitle.textContent = kind === "refine" ? "🔧 Prompt Refine result" : "✨ Prompt Write result";
     rvAgain.textContent = kind === "refine" ? "↻ Refine again" : "↻ Write again";
     reviewParsed = parseBrief(text);
@@ -1857,6 +2068,37 @@ export function createPromptEditOverlay(
     reviewOv.style.display = "flex";
   }
 
+  // Write / Refine produce English. The Korean view of a field they wrote is cleared (it no longer matches) and
+  // written again right after the apply, with the same translator the KO / EN button uses.
+  const koTodo: [any, string][] = [];
+  const putEn = (obj: any, key: string, en: string) => {
+    fieldSetBoth(obj, key, en, "");
+    if (String(en || "").trim()) koTodo.push([obj, key]);
+  };
+  function refreshBil() {
+    if (document.activeElement !== editor) editorBil.refresh();
+    if (document.activeElement !== headerTA) headerBil.refresh();
+    if (document.activeElement !== footerTA) footerBil.refresh();
+  }
+  async function fillKoLater() {
+    const todo = koTodo.splice(0);
+    if (!todo.length) return;
+    const llm = translateLlm(), protect = h3ProtectWords(state);
+    for (let n = 0; n < todo.length; n++) {
+      const [obj, key] = todo[n];
+      if (!String(obj[key] || "").trim() || String(obj[koKey(key)] || "").trim()) continue;
+      statusTag.textContent = `writing the Korean view ${n + 1}/${todo.length}…`;
+      statusTag.style.color = BRAND;
+      try { await fieldFill(obj, key, "ko", llm, { protect }); ctx.persist(); refreshBil(); }
+      catch (e: any) {
+        statusTag.textContent = `⚠ Korean view not written: ${String(e.message).slice(0, 80)}`;
+        statusTag.style.color = C.err;
+        return;
+      }
+    }
+    statusTag.textContent = "applied"; statusTag.style.color = C.ok;
+  }
+
   function applyReview() {
     const p = reviewParsed;
     if (reviewMode === "manual" && !reviewSel.size) {
@@ -1866,48 +2108,59 @@ export function createPromptEditOverlay(
     const oldPrompts = (state.prompts || []).slice();
     if (reviewMode === "one") {
       state.prompts[selected] = normPrompt(state.prompts[selected]);
-      state.prompts[selected].text = reviewText; // header/footer left alone
+      putEn(state.prompts[selected], "text", reviewText);   // header/footer left alone
     } else if (reviewMode === "split") {
-      const briefs = reviewTarget === "all" ? clipBriefs(reviewText) : null;
-      if (briefs) {
+      const briefs = reviewTarget === "all" && reviewWriteKind !== "longshot" ? clipBriefs(reviewText) : null;
+      const windows = reviewTarget === "all" && reviewWriteKind === "longshot" && p.shots.length ? longShotClips() : null;
+      if (windows && windows.length) {
+        // long shot: one clip per time window, each starting over at [Shot 1] (the times counted from its own start)
+        if (p.header) putEn(state, "promptHeader", p.header);
+        if (p.footer) putEn(state, "promptFooter", p.footer);
+        state.prompts = keepTimes(windows.map((c) => ({ text: c.text, firstFrame: "", enabled: true })), oldPrompts);
+        selected = 0;
+        for (const c of state.prompts) if ((c as PromptEntry).text) koTodo.push([c, "text"]);
+      } else if (briefs) {
         // Every clip gets its own header sections, [Shot] blocks and sound / music.
         state.prompts = keepTimes(briefs.map((b) => seedOverride({
           text: rebaseShots(b.shots.join("\n\n")), firstFrame: "", enabled: true,
           header: b.header || state.promptHeader || "", footer: b.footer || state.promptFooter || "",
         })), oldPrompts);
         selected = 0;
+        for (const c of state.prompts) for (const k of ["text", "header", "footer"]) if ((c as any)[k]) koTodo.push([c, k]);
       } else if (reviewTarget === "all") {
-        if (p.header) state.promptHeader = p.header;
-        if (p.footer) state.promptFooter = p.footer;
+        if (p.header) putEn(state, "promptHeader", p.header);
+        if (p.footer) putEn(state, "promptFooter", p.footer);
         state.prompts = keepTimes(p.shots.length
           ? p.shots.map((s) => ({ text: rebaseShots(s), firstFrame: "", enabled: true }))
           : [{ text: reviewText, firstFrame: "", enabled: true }], oldPrompts);
         selected = 0;
+        for (const c of state.prompts) if ((c as PromptEntry).text) koTodo.push([c, "text"]);
       } else {
         state.prompts[selected] = normPrompt(state.prompts[selected]);
         const clip = state.prompts[selected] as PromptEntry;
         // A clip with its own override keeps its header / sound in its own fields.
-        if (ownFraming()) { if (p.header) clip.header = p.header; if (p.footer) clip.footer = p.footer; }
-        else { if (p.header) state.promptHeader = p.header; if (p.footer) state.promptFooter = p.footer; }
-        clip.text = rebaseShots(p.shots.join("\n\n")) || reviewText;
+        if (ownFraming()) { if (p.header) putEn(clip, "header", p.header); if (p.footer) putEn(clip, "footer", p.footer); }
+        else { if (p.header) putEn(state, "promptHeader", p.header); if (p.footer) putEn(state, "promptFooter", p.footer); }
+        putEn(clip, "text", rebaseShots(p.shots.join("\n\n")) || reviewText);
       }
     } else {
       // manual — only the ticked cards
       const ownTarget = reviewTarget !== "all" && ownFraming();
-      if (reviewSel.has("header") && p.header) { if (ownTarget) (state.prompts[selected] as PromptEntry).header = p.header; else state.promptHeader = p.header; }
-      if (reviewSel.has("footer") && p.footer) { if (ownTarget) (state.prompts[selected] as PromptEntry).footer = p.footer; else state.promptFooter = p.footer; }
+      if (reviewSel.has("header") && p.header) { if (ownTarget) putEn(state.prompts[selected], "header", p.header); else putEn(state, "promptHeader", p.header); }
+      if (reviewSel.has("footer") && p.footer) { if (ownTarget) putEn(state.prompts[selected], "footer", p.footer); else putEn(state, "promptFooter", p.footer); }
       const picked = (p.shots.length ? p.shots : [reviewText]).filter((_, i) => reviewSel.has(`shot:${i}`));
       if (picked.length) {
         if (reviewTarget === "all") {
           state.prompts = keepTimes(picked.map((s) => ({ text: rebaseShots(s), firstFrame: "", enabled: true })), oldPrompts);
           selected = 0;
+          for (const c of state.prompts) if ((c as PromptEntry).text) koTodo.push([c, "text"]);
         } else {
           state.prompts[selected] = normPrompt(state.prompts[selected]);
-          state.prompts[selected].text = rebaseShots(picked.join("\n\n"));
+          putEn(state.prompts[selected], "text", rebaseShots(picked.join("\n\n")));
         }
       }
     }
-    if (reviewMode !== "one" && oneTakeLlmOn(state)) {
+    if (reviewMode !== "one" && oneTakeReview()) {
       const fold = (i: number) => { const cl = state.prompts[i]; if (cl && typeof cl === "object") cl.text = oneTakeFixShots(cl.text, (cl as PromptEntry).header); };
       if (reviewTarget === "all") (state.prompts || []).forEach((_, i) => fold(i)); else fold(selected);
     }
@@ -1922,10 +2175,11 @@ export function createPromptEditOverlay(
     onApply?.();
     statusTag.textContent = "applied";
     statusTag.style.color = C.ok;
+    void fillKoLater();
   }
   rvAgain.addEventListener("click", () => {
     reviewOv.style.display = "none";
-    runTransient(reviewKind === "refine" ? doRefine : doWrite);
+    runTransient(reviewKind === "refine" ? doRefine : () => doWrite({ kind: reviewWriteKind }));   // "Write again" keeps the kind
   });
   rvCancel.addEventListener("click", () => {
     reviewOv.style.display = "none";
@@ -1988,8 +2242,13 @@ export function createPromptEditOverlay(
     splitSummary.innerHTML = `→ <b style="color:${BRAND}">${groups} clip prompt(s)</b>`;
   }
 
-  function openSplit() {
-    const parsed = parseBrief(editor.value);
+  async function openSplit() {
+    // the split reads the English text (a Korean-only edit is translated first); the Korean view is written again after
+    try {
+      state.prompts[selected] = normPrompt(state.prompts[selected]);
+      if (await ensureEnglish(state.prompts[selected], "text", translateLlm(), { protect: h3ProtectWords(state) })) { ctx.persist(); editorBil.refresh(); }
+    } catch (e: any) { ctx.showPopup(e.message, true); return; }
+    const parsed = parseBrief(promptText(normPrompt(state.prompts[selected])));
     if (parsed.shots.length <= 1) {
       ctx.showPopup("Only one shot found — nothing to split ([Shot N] markers or --- separate them).", true);
       return;
@@ -2004,16 +2263,18 @@ export function createPromptEditOverlay(
   }
   function applySplit() {
     const groups = groupShotsWithBreaks(splitShots, splitBreaks.size + 1, [...splitBreaks]);
-    if (splitHeader) state.promptHeader = splitHeader;
-    if (splitFooter) state.promptFooter = splitFooter;
+    if (splitHeader) putEn(state, "promptHeader", splitHeader);
+    if (splitFooter) putEn(state, "promptFooter", splitFooter);
     state.prompts = keepTimes(groups.map((g) => ({ text: g, firstFrame: "", enabled: true })), state.prompts || []);
     state.prompts.forEach((_, i) => snapClipText(i));
     selected = 0;
+    for (const c of state.prompts) if ((c as PromptEntry).text) koTodo.push([c, "text"]);
     ctx.persist();
     splitOv.style.display = "none";
     renderAll();
     onApply?.();
     ctx.showPopup(`Split into ${groups.length} clip prompt(s); common parts kept.`, false);
+    void fillKoLater();
   }
   evenBtn.addEventListener("click", () => {
     const plan = ctx.currentPlan();
@@ -2029,15 +2290,172 @@ export function createPromptEditOverlay(
     renderSplit();
   });
 
+  // ── merge dialog ─────────────────────────────────────────────────────────
+  // The clips are listed in order with a "clip break" tick after each one. A ticked break keeps two clips apart; clear it and
+  // the clip joins the one after it, so the ticks left in place give the groups (7 clips with breaks after 2 and 4 make 1-2,
+  // 3-4 and 5-6-7). Dragging a card changes the order first. A group's text is its clips' texts one after the other, the
+  // shots renumbered and moved later by the length of the clips before them. A group over 15 s is only flagged (red): it
+  // keeps its real total as its time, and turns normal again as soon as the time is set to 15 s or less.
+  const MERGE_COLORS = ["#7612DA", "#2e9d6a", "#d98a1c", "#3a86d6", "#c4437e", "#7a8a2e"];
+  const mergeOv = el("div", { style: {
+    display: "none", position: "absolute", inset: "0", zIndex: "10", background: "rgba(11,11,11,0.985)",
+    borderRadius: "inherit", flexDirection: "column", padding: "12px", gap: "8px", boxSizing: "border-box",
+  } });
+  let mergeCards: { i: number; brk: boolean }[] = [];   // i: index in state.prompts, brk: a break after this card
+  let mergeDragK = -1;
+  const mergeBtnStyle = { cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "5px 11px",
+    borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` };
+  const mergeHdr = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
+  mergeHdr.appendChild(el("div", { text: "🔗 Merge clips", style: { color: "#fff", fontSize: "13px", fontWeight: "700" } }));
+  const mergeInfo = el("div", { style: { fontSize: "10.5px", color: C.muted, flex: "1" } });
+  const mergeAllSepBtn = el("button", { type: "button", text: "All separate", style: mergeBtnStyle });
+  const mergeAllOneBtn = el("button", { type: "button", text: "Merge all", style: mergeBtnStyle });
+  mergeHdr.append(mergeInfo, mergeAllSepBtn, mergeAllOneBtn, button("✕", () => closeMerge(), "danger"));
+  const mergeBody = el("div", { style: { flex: "1", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0" } });
+  const mergeFoot = el("div", { style: { display: "flex", alignItems: "center", gap: "8px", flexShrink: "0" } });
+  const mergeSummary = el("div", { style: { fontSize: "11px", color: C.text, flex: "1", lineHeight: "1.5" } });
+  mergeFoot.append(mergeSummary, button("✓ Apply merge", () => { void applyMerge(); }, "primary"));
+  mergeOv.append(mergeHdr, mergeBody, mergeFoot);
+
+  const mergeClipSec = (i: number) => clipSecondsFor(state, i);
+  function closeMerge() {
+    mergeOv.style.display = "none";
+    if (transientMode) { ov.style.display = "none"; transientMode = false; }
+  }
+  function mergeGroups() {
+    const groups: { i: number; brk: boolean }[][] = []; let cur: { i: number; brk: boolean }[] = [];
+    mergeCards.forEach((c, k) => { cur.push(c); if (c.brk || k === mergeCards.length - 1) { groups.push(cur); cur = []; } });
+    return groups;
+  }
+  function renderMerge() {
+    clear(mergeBody);
+    const groups = mergeGroups();
+    const groupOf = new Map<any, number>();
+    groups.forEach((g, gi) => g.forEach((c) => groupOf.set(c, gi)));
+    mergeInfo.textContent = `${mergeCards.length} clip(s) → ${groups.length} clip(s) · drag a card to change the order, clear a break to join a clip to the next one`;
+    mergeCards.forEach((c, k) => {
+      const gi = groupOf.get(c) as number, g = groups[gi];
+      const total = g.reduce((sum, m) => sum + mergeClipSec(m.i), 0);
+      const over = g.length > 1 && total > MAX_CLIP_SEC;
+      const color = MERGE_COLORS[gi % MERGE_COLORS.length];
+      const text = promptText(normPrompt(state.prompts[c.i]));
+      const card = el("div", { style: {
+        display: "flex", gap: "7px", alignItems: "flex-start", cursor: "grab",
+        background: C.bg1, border: `1px solid ${over ? C.err : C.border}`, borderLeft: `4px solid ${over ? C.err : color}`,
+        borderRadius: "6px", padding: "7px 8px",
+      } }) as HTMLDivElement;
+      card.draggable = true;
+      card.append(
+        el("div", { text: "⋮⋮", title: "Drag to change the order", style: { color: C.muted, fontSize: "12px", flexShrink: "0", marginTop: "1px" } }),
+        el("div", { text: `Clip ${c.i + 1}`, style: { flexShrink: "0", fontSize: "10px", fontWeight: "700", color: "#fff",
+          background: color, borderRadius: "4px", padding: "2px 6px", marginTop: "1px" } }),
+        el("div", { text: text.replace(/\s+/g, " ").slice(0, 150) + (text.length > 150 ? "…" : ""),
+          style: { flex: "1", fontSize: "10.5px", color: C.text, lineHeight: "1.55" } }),
+        el("div", { text: `${fmtSec(mergeClipSec(c.i))} s`, style: { flexShrink: "0", fontSize: "10px", color: C.muted, marginTop: "1px" } }),
+      );
+      card.addEventListener("dragstart", (e: DragEvent) => {
+        mergeDragK = k; if (e.dataTransfer) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(k)); }
+        card.style.opacity = "0.45";
+      });
+      card.addEventListener("dragend", () => { mergeDragK = -1; renderMerge(); });
+      card.addEventListener("dragover", (e: DragEvent) => { if (mergeDragK >= 0) { e.preventDefault(); card.style.outline = `1px dashed ${BRAND}`; } });
+      card.addEventListener("dragleave", () => { card.style.outline = "none"; });
+      card.addEventListener("drop", (e: DragEvent) => {
+        e.preventDefault();
+        if (mergeDragK < 0 || mergeDragK === k) return;
+        const [moved] = mergeCards.splice(mergeDragK, 1);
+        mergeCards.splice(k, 0, moved);
+        mergeDragK = -1; renderMerge();
+      });
+      mergeBody.appendChild(card);
+
+      if (k < mergeCards.length - 1) {
+        const brkRow = el("label", { title: "Ticked: this clip stays apart from the next one. Cleared: they become one clip.", style: {
+          alignSelf: "center", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", margin: "3px 0",
+          fontSize: "9.5px", color: c.brk ? BRAND : C.muted } });
+        const cb = el("input", { type: "checkbox" }) as HTMLInputElement;
+        cb.checked = c.brk; cb.style.cursor = "pointer";
+        cb.addEventListener("change", () => { c.brk = cb.checked; renderMerge(); });
+        brkRow.append(cb, el("span", { text: c.brk ? "✂ clip break" : "🔗 joined with the next clip" }));
+        mergeBody.appendChild(brkRow);
+      }
+    });
+    const overGroups = groups.map((g, gi) => ({ g, gi, total: g.reduce((sum, m) => sum + mergeClipSec(m.i), 0) }))
+      .filter((x) => x.g.length > 1 && x.total > MAX_CLIP_SEC);
+    mergeSummary.innerHTML = `→ <b style="color:${BRAND}">${groups.length} clip(s)</b>`
+      + (overGroups.length
+        ? ` · <span style="color:${C.err}">${overGroups.map((x) => `clip ${x.gi + 1} is ${snapHalf(x.total)} s`).join(", ")} - the model renders at most ${MAX_CLIP_SEC} s; it is kept red in the clip list until its time is ${MAX_CLIP_SEC} s or less</span>`
+        : "");
+  }
+  async function openMergeDialog() {
+    // the merge reads the English text: a Korean-only edit is translated first
+    try {
+      const llm = translateLlm(), protect = h3ProtectWords(state);
+      for (let i = 0; i < state.prompts.length; i++) {
+        state.prompts[i] = normPrompt(state.prompts[i]);
+        if (await ensureEnglish(state.prompts[i], "text", llm, { protect })) ctx.persist();
+      }
+      editorBil.refresh();
+    } catch (e: any) { ctx.showPopup(e.message, true); closeMerge(); return; }
+    if ((state.prompts || []).length < 2) { ctx.showPopup("Need at least two clips to merge.", true); closeMerge(); return; }
+    mergeCards = state.prompts.map((_, i) => ({ i, brk: true }));
+    renderMerge();
+    mergeOv.style.display = "flex";
+  }
+  async function applyMerge() {
+    const groups = mergeGroups();
+    const inOrder = mergeCards.every((c, k) => c.i === k);
+    if (groups.length === mergeCards.length && inOrder) { ctx.showPopup("Nothing to merge: every clip is still apart and in its place.", true); return; }
+    const old = state.prompts.map(normPrompt);
+    const merged: PromptEntry[] = [];
+    const next = groups.map((g) => {
+      const first: PromptEntry = { ...old[g[0].i] };
+      if (g.length === 1) return first;
+      let offset = 0, no = 1;
+      const texts: string[] = [];
+      for (const m of g) {
+        const t = promptText(old[m.i]);
+        texts.push(shiftShots(t, offset, no));
+        no += shotCount(t);
+        offset += mergeClipSec(m.i);
+      }
+      // new English text: the Korean view of it is cleared and written again after the apply
+      delete first.textKo; delete first.textNewest; delete first.textView;
+      first.text = texts.join("\n");
+      // the real total is kept even above 15 s (flagged red in the list); the render itself stops at 15 s
+      first.timeOverride = true;
+      first.timeSec = snapHalf(offset);
+      first.enabled = g.some((m) => promptEnabled(old[m.i]));
+      merged.push(first);
+      return first;
+    });
+    state.prompts = next;
+    selected = 0;
+    for (const c of merged) if (c.text) koTodo.push([c, "text"]);
+    ctx.persist();
+    closeMerge();
+    renderAll(); refreshFraming(); onApply?.();
+    const overN = next.filter((p) => p.timeOverride && (p.timeSec as number) > MAX_CLIP_SEC).length;
+    ctx.showPopup(`Merged ${mergeCards.length} clip(s) into ${next.length}.${overN ? ` ${overN} clip(s) are over ${MAX_CLIP_SEC} s (red in the list) - set their time to ${MAX_CLIP_SEC} s or less.` : ""}`, !!overN);
+    void fillKoLater();
+  }
+  mergeAllSepBtn.addEventListener("click", () => { mergeCards.forEach((c) => { c.brk = true; }); renderMerge(); });
+  mergeAllOneBtn.addEventListener("click", () => { mergeCards.forEach((c, k) => { c.brk = k === mergeCards.length - 1; }); renderMerge(); });
+
   // ── footer ──────────────────────────────────────────────────────────────
   const footer = el("div", { class: "flex items-center gap-2 shrink-0 flex-wrap" });
   const splitBtn = el("button", { type: "button", text: "✂ Split into clips…", style: { cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
-  splitBtn.addEventListener("click", openSplit);
+  splitBtn.addEventListener("click", () => { void openSplit(); });
+  const mergeBtn = el("button", { type: "button", text: "🔗 Merge clips…", title: "Join clips into longer ones (several groups at once)", style: {
+    cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px 12px",
+    borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
+  } });
+  mergeBtn.addEventListener("click", () => { void openMergeDialog(); });
   const planTag = el("div", { class: "text-[10.5px] flex-1", style: { color: C.muted } });
   // Prompt Write / Refine stay in view whether LOCAL ENHANCE is folded or not.
-  footer.append(splitBtn, planTag, enhBtn, refineBtn, enhStopBtn, button("✓ Done", () => hide(), "primary"));
+  footer.append(splitBtn, mergeBtn, planTag, enhBtn, refineBtn, enhStopBtn, button("✓ Done", () => hide(), "primary"));
 
-  ov.append(hdr, setsWrap, commonWrap, body, enhWrap, footer, splitOv, reviewOv);
+  ov.append(hdr, setsWrap, commonWrap, body, enhWrap, footer, splitOv, mergeOv, writeMenuOv, reviewOv);
 
   function refreshPlanTag() {
     const p = ctx.currentPlan();
@@ -2048,8 +2466,8 @@ export function createPromptEditOverlay(
     charCount.textContent = `${(editor.value || "").length} chars`;
   }
   function renderAll() {
-    headerTA.value = state.promptHeader || "";
-    footerTA.value = state.promptFooter || "";
+    headerBil.refresh();
+    footerBil.refresh();
     headerUC.paint();
     footerUC.paint();
     renderList();
@@ -2081,8 +2499,8 @@ export function createPromptEditOverlay(
     },
     hide,
     syncCommon() {
-      headerTA.value = state.promptHeader || "";
-      footerTA.value = state.promptFooter || "";
+      headerBil.refresh();
+      footerBil.refresh();
       headerUC.paint();
       footerUC.paint();
       refreshPreviewTag();
@@ -2091,7 +2509,16 @@ export function createPromptEditOverlay(
       openTransient(clipIndex, doRefine);
     },
     openWrite(clipIndex) {
-      openTransient(clipIndex, () => doWrite());
+      openTransient(clipIndex, onWriteClick);
+    },
+    openMerge() {
+      const wasOpen = ov.style.display !== "none";
+      transientMode = !wasOpen;
+      ov.style.display = "flex";
+      if (!state.prompts || !state.prompts.length) state.prompts = [{ text: "", firstFrame: "", enabled: true }];
+      if (selected >= state.prompts.length) selected = 0;
+      loadSelected();
+      return openMergeDialog();
     },
     /**
      * An H3 first/last-frame brief for a finished video (Postprocess → Latent Upscale (Use H3)).

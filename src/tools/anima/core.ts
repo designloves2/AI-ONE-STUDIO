@@ -94,6 +94,8 @@ export interface AnimaState {
 
   prompt: string;
   promptsByMode: Record<string, string>;
+  /** Korean view / newest mark / view of each mode's prompt (shared/bilingual.ts) */
+  promptSlots: Record<string, any>;
   negativePrompt: string;
 
   width: number;
@@ -186,6 +188,7 @@ export function defaultState(saved: Partial<AnimaState> = {}): AnimaState {
       : [],
 
     prompt: saved.prompt || "",
+    promptSlots: saved.promptSlots ? { ...saved.promptSlots } : {},
     promptsByMode: (() => {
       if (saved.promptsByMode) return { ...saved.promptsByMode };
       const p: Record<string, string> = {};

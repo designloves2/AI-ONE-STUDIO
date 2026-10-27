@@ -7,7 +7,7 @@
 // the server's memory under this role, and the field is cleared.
 import { getComfyBase } from "./comfyBase";
 
-export type CustomLlmRole = "brief" | "vision" | "ltx" | "img_enhance" | "img_i2p" | "music";
+export type CustomLlmRole = "brief" | "vision" | "ltx" | "img_enhance" | "img_i2p" | "music" | "translate";
 
 export interface CustomLlmTheme { bg: string; text: string; border: string; muted: string; ok: string; warn: string; err: string; brand: string }
 

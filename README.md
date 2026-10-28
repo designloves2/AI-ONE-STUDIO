@@ -441,9 +441,9 @@ src/
     itda/                 # ITDA ONE STUDIO 타임라인 (데스크톱 전용) / timeline (desktop only)
 ```
 
-루트의 `*-headless/` 폴더들은 Hermes 렌더 큐 에이전트용 무의존 Node CLI입니다 — 개요는 [`HEADLESS_HANDOFF.md`](HEADLESS_HANDOFF.md), 작업용 스펙 문서는 [`docs/`](docs/).
+루트의 `*-headless/` 폴더들은 Hermes 렌더 큐 에이전트용 무의존 Node CLI입니다 — 개요는 [`HEADLESS_HANDOFF.md`](docs/HEADLESS_HANDOFF.md), 작업용 스펙 문서는 [`docs/`](docs/).
 
-The root `*-headless/` folders are zero-dependency Node CLIs for the Hermes render-queue agent — see [`HEADLESS_HANDOFF.md`](HEADLESS_HANDOFF.md); working spec docs live in [`docs/`](docs/).
+The root `*-headless/` folders are zero-dependency Node CLIs for the Hermes render-queue agent — see [`HEADLESS_HANDOFF.md`](docs/HEADLESS_HANDOFF.md); working spec docs live in [`docs/`](docs/).
 
 각 도구 폴더는 `core.ts`(상태/상수) · `api.ts`(REST 호출) · `comfyClient.ts`(WebSocket)
 · `graphBuilder.ts`(ComfyUI 그래프 조립) · `settings.ts` · `galleryOverlay.ts` ·

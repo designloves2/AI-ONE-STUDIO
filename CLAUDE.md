@@ -23,8 +23,8 @@
 4. `docs/SPEC_AI_ONE_STUDIO_WEBSITE.md` — 웹앱 전체 명세. 이어서 `docs/SPEC_MINIMAX_H3_*.md`, `docs/SPEC_CLIP_METADATA_REUSE.md`,
    `docs/SPEC_GALLERY_UPSCALE_INTERPOLATE.md`, `docs/SPEC_PROMPT_TEMPLATE_SYNC.md` (필요한 기능만).
 5. 노드 쪽 명세: 노드 저장소 루트의 `SPEC_RELAY_V1_xx_x.md`(버전별 이식 지시서) — 이 저장소 밖에 있음.
-6. `HEADLESS_HANDOFF.md` — 서버용 `*-headless/` CLI 패키지 안내(웹앱 본체와는 별개).
-7. `ONE_SHOT_INSTALL.md` — 새 PC에 ComfyUI+노드+웹앱을 설치하는 절차(AI에게 붙여넣는 방식).
+6. `docs/HEADLESS_HANDOFF.md` — 서버용 `*-headless/` CLI 패키지 안내(웹앱 본체와는 별개).
+7. `docs/ONE_SHOT_INSTALL.md` — 새 PC에 ComfyUI+노드+웹앱을 설치하는 절차(AI에게 붙여넣는 방식).
 
 ## 3. 디렉터리 구조
 - `src/main.ts`, `src/router.ts` — 진입점과 라우팅(해시 `#krea2` 식). `src/landing/` 첫 화면, `src/gallery/` 갤러리.

@@ -83,10 +83,11 @@
 - **직접 검증 못 한 것**(GPU 작업이 필요해서): 실제 분할 렌더/조각 재연결, 실제 Long Shot·One-Take Write, 실제 Refine 결과 창,
   "한글 번역 사용"을 끈 채 실제 Generate, 프롬프트 세트의 한국어 저장/불러오기 왕복(서버 재시작 필요), Charsheet 헤더 버튼 화면 확인.
 - 미완료/다음 할 일: 노드의 다음 `SPEC_RELAY_*`가 오면 이식. 구체적인 대기 작업 목록 파일은 없음(확인 필요).
+- 2026-10-29: 사용자 지시로 이 세션이 **Canvers 저장소**(`C:\AI\AI-One-Studio-Canvers`)에 Director Mode(모드 3개: Director / Canvas / Simple)를 추가하는 중. 진행·설계는 그 저장소의 `docs/DIRECTOR_MODE_*.md`에 있고 이 웹 저장소 코드는 바뀌지 않음. Phase 0 완료(커밋 da87c8f), Phase 1 진행.
 
 ## 9. 작업을 끝낼 때 갱신할 것
 1. `CHANGELOG.md`(새 버전 항목)  2. `PORT_LEDGER.md`(새 행: 무엇을, 어떻게 확인했고 무엇은 못 했는지)  3. `package.json` 버전
-4. 이 `CLAUDE.md`의 "현재 진행 상황"(8절)이 낡았으면 갱신  5. `npx tsc --noEmit -p .` 통과 확인 후 커밋·태그·push.
+4. **커밋/푸시/릴리즈/버전업을 할 때마다 이 `CLAUDE.md`를 반드시 갱신해 같은 커밋에 포함**(특히 8절: 최신 버전, 최근 작업, 미검증 항목, 다음 할 일; 낡은 구조·명령·규칙도 함께)  5. `npx tsc --noEmit -p .` 통과 확인 후 커밋·태그·push.
 - 보고는 쉬운 말로: 끝남/안 끝남, 되는 것/안 되는 것, **확인한 것과 확인 못 한 것을 구분**.
 
 ## 10. Claude Code 전용 기능에 기대는 부분 (다른 모델은 무시해도 됨)

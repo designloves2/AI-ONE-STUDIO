@@ -83,7 +83,7 @@
 - **직접 검증 못 한 것**(GPU 작업이 필요해서): 실제 분할 렌더/조각 재연결, 실제 Long Shot·One-Take Write, 실제 Refine 결과 창,
   "한글 번역 사용"을 끈 채 실제 Generate, 프롬프트 세트의 한국어 저장/불러오기 왕복(서버 재시작 필요), Charsheet 헤더 버튼 화면 확인.
 - 미완료/다음 할 일: 노드의 다음 `SPEC_RELAY_*`가 오면 이식. 구체적인 대기 작업 목록 파일은 없음(확인 필요).
-- 2026-10-29: 사용자 지시로 이 세션이 **Canvers 저장소**(`C:\AI\AI-One-Studio-Canvers`)에 Director Mode(모드 3개: Director / Canvas / Simple)를 추가하는 중. 진행·설계는 그 저장소의 `docs/DIRECTOR_MODE_*.md`에 있고 이 웹 저장소 코드는 바뀌지 않음. Phase 0 완료(커밋 da87c8f), Phase 1 진행.
+- 2026-10-29: 사용자 지시로 이 세션이 **Canvers 저장소**(`C:\AI\AI-One-Studio-Canvers`)에 Director Mode(모드 3개: Director / Canvas / Simple)를 만드는 중. 이 웹 저장소 코드는 바뀌지 않음. 설계·진행·미검증 목록은 Canvers의 `CLAUDE.md` 8절과 `docs/DIRECTOR_MODE_IMPLEMENTATION_PLAN.md`에 있음(기능이 끝날 때마다 커밋 + 인수인계 갱신, 최신 커밋 c5e96be). 인계받는 모델은 그쪽 `CLAUDE.md`부터 읽을 것.
 
 ## 9. 작업을 끝낼 때 갱신할 것
 1. `CHANGELOG.md`(새 버전 항목)  2. `PORT_LEDGER.md`(새 행: 무엇을, 어떻게 확인했고 무엇은 못 했는지)  3. `package.json` 버전

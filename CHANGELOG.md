@@ -3,6 +3,15 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.16.0] — 2026-11-03
+
+### Changed
+- H3 "7+1 hi-res finish" is now **Split Sigma** (node commit e5fbdd0, `SPEC_RELAY_SPLIT_SIGMA.md`): checkbox, its note and title, the Megapixels hint, the Settings label (`UNET · Split Sigma last step …`), the Models hint and the error texts. The state key `hiresFinish` stays, so saved files keep working.
+- Upscale banner: text `Upscaling in progress...`, yellow `#ffd84a`, 24px. It now appears as soon as stage 1 finishes its last step (before it waited for the last-step sampler, so the latent upscale showed nothing).
+
+### Added
+- H3 Latent Upscaler: editable **Split Sigma step** (`Split Sigma step (1~7, 7 recommended)`, state `hiresSplitStep`, default 7, Kimchy fixed at 7). It sets the `SplitSigmas` step of the clip graph, travels with presets (`RECIPE_KEYS`), clip metadata and Reuse Setting, and the size line shows `N small + M full step(s)`. Postprocess → Latent Upscale (Use H3) keeps step 7.
+
 ## [0.15.3] — 2026-10-27
 
 ### Added

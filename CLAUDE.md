@@ -77,9 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.15.3**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.16.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-03 v0.16.0: 노드 e5fbdd0 이식(H3 "7+1" -> Split Sigma 이름 변경, Latent Upscaler 분할 스텝 입력 `hiresSplitStep` 1~7, 업스케일 배너). `PORT_LEDGER.md` 행 74. 실제 렌더(분할 스텝 < 7)와 실행 중 배너는 미검증.
 - **직접 검증 못 한 것**(GPU 작업이 필요해서): 실제 분할 렌더/조각 재연결, 실제 Long Shot·One-Take Write, 실제 Refine 결과 창,
   "한글 번역 사용"을 끈 채 실제 Generate, 프롬프트 세트의 한국어 저장/불러오기 왕복(서버 재시작 필요), Charsheet 헤더 버튼 화면 확인.
 - 미완료/다음 할 일: 노드의 다음 `SPEC_RELAY_*`가 오면 이식. 구체적인 대기 작업 목록 파일은 없음(확인 필요).

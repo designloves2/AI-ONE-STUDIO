@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
+import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, hiresSplitStep, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -371,11 +371,11 @@ function saveOneTakeCheckpoint(g: Graph, state: MinimaxState, avail: Avail | und
 function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined, hires: { final: { width: number; height: number } }, condLink: any, lowSigmas: any, lockAudio: boolean, avLatent: any = [N.sampler, 1], schedule: { scheduler?: string } | null = null, noUpscale = false) {
   const kimchy = state.hiresUpscaler === "kimchy" && !noUpscale;
   if (kimchy && !has(avail, "KimchyH3ZeroSplitMP"))
-    throw new Error("7+1 H3 Kimchy Up Scaler needs the ComfyUI-Kimchy-Minimax-H3-Suite pack — install it (github.com/AI-KIMCHY/ComfyUI-Kimchy-Minimax-H3-Suite), or pick H3 Latent Upscaler.");
+    throw new Error("Split Sigma H3 Kimchy Up Scaler needs the ComfyUI-Kimchy-Minimax-H3-Suite pack — install it (github.com/AI-KIMCHY/ComfyUI-Kimchy-Minimax-H3-Suite), or pick H3 Latent Upscaler.");
   const needed = kimchy ? [] : noUpscale ? ["BlockSparseAttention"] : ["MinimaxH3LatentUpscaler3D", "BlockSparseAttention"];
   if (!state.hiresNoOpt) needed.push("H3MemoryOptimization");
   for (const n of needed)
-    if (!has(avail, n)) throw new Error(`7+1 hi-res finish needs ${n} — install it, or switch 7+1 off.`);
+    if (!has(avail, n)) throw new Error(`Split Sigma needs ${n} — install it, or switch Split Sigma off.`);
 
   let latent: any = null;
   if (noUpscale) {
@@ -408,7 +408,7 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
   const fixedUnet = !!state.hiresLastFixed;
   if (fixedUnet) {
     if (!state.hiresLastModel || state.hiresLastModel === "none")
-      throw new Error("7+1 last step is set to a fixed model but none is selected — open ⚙ Settings → Models.");
+      throw new Error("Split Sigma last step is set to a fixed model but none is selected — open ⚙ Settings → Models.");
     g[N.hrUnet] = unetNode(state.hiresLastModel);
   }
   let m = [fixedUnet ? N.hrUnet : N.unet, 0];
@@ -1020,7 +1020,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // 7+1 cuts that schedule after step 7: stage 1 takes the high part, stage 2 the last step.
   let sigmas: any = [N.sched, 0];
   if (hires) {
-    g[N.hrSplit] = { class_type: "SplitSigmas", inputs: { sigmas, step: 7 } };
+    g[N.hrSplit] = { class_type: "SplitSigmas", inputs: { sigmas, step: hiresSplitStep(state) } };
     sigmas = [N.hrSplit, 0];
   }
   g[N.sampler] = { class_type: "SamplerCustomAdvanced", inputs: { noise: [N.noise, 0], guider: [N.guider, 0], sampler: [N.sampSel, 0], sigmas, latent_image: latentImage } };

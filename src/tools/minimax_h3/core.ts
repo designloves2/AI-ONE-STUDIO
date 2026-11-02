@@ -249,6 +249,7 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   hiresStartMp: number;
   hiresFinalMp: number;
   hiresChunkRows: number;
+  hiresSplitStep: number; // Split Sigma: how many of the 8 turbo steps run small before the latent upscale (H3 Latent Upscaler only; 7 is recommended)
   clipFrames: number;
   clipLengthCustom: boolean;
   clipLengthCustomSec: number;
@@ -874,7 +875,7 @@ export function explainGenerationError(message: string): string | null {
     return "The turbo LoRA doesn't match this mode's base model — turbo LoRAs are fl2v-only. Switch Acceleration to SolAttn, Spectrum or None.";
   }
   if (/doesn't match the broadcast shape/.test(m)) {
-    return "The model returned a wrong-sized result. If this happened on the last step of 7+1 hi-res finish, H3 Memory Optimization doesn't work with this model — tick \"Bypass H3 Memory Optimization on the last step\" under Turbo → 7+1 and run again.";
+    return "The model returned a wrong-sized result. If this happened on the last step of Split Sigma, H3 Memory Optimization doesn't work with this model — tick \"Bypass H3 Memory Optimization on the last step\" under Turbo → Split Sigma and run again.";
   }
   if (/failed to extract audio/i.test(m)) {
     return "A reference video has no audio track but its soundtrack was requested — untick \"also use this clip's soundtrack\" for that video.";
@@ -1021,6 +1022,13 @@ export function sizeForMp(srcW: number, srcH: number, mp: number) {
   const h = Math.sqrt(Math.max(0.1, mp) * 1_000_000 / ratio);
   const snap = (v: number) => Math.max(32, Math.round(v / 32) * 32);
   return { width: snap(h * ratio), height: snap(h) };
+}
+
+/** Split Sigma step: the first N of the 8 steps run at Start MP, the rest at Final MP. Only the H3 Latent Upscaler lets it change; Kimchy stays at 7. */
+export function hiresSplitStep(state: any): number {
+  if (state.hiresUpscaler === "kimchy") return 7;
+  const n = Math.round(Number(state.hiresSplitStep ?? 7));
+  return Number.isFinite(n) ? Math.min(7, Math.max(1, n)) : 7;
 }
 
 /** Start / Final MP of the selected 7+1 upscaler — A and B keep separate values. */
@@ -1364,7 +1372,7 @@ export const RECIPE_KEYS = [
   "fp16Accum",
   // 7+1 hi-res finish: the checkbox and its sizes travel with a saved recipe, but it is
   // not a matching axis — a built-in preset never turns it on or off.
-  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresKimStartMp", "hiresKimFinalMp", "hiresChunkRows",
+  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresKimStartMp", "hiresKimFinalMp", "hiresChunkRows", "hiresSplitStep",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -1418,6 +1426,7 @@ export interface UserPipelinePreset {
   hiresKimStartMp?: number;
   hiresKimFinalMp?: number;
   hiresChunkRows?: number;
+  hiresSplitStep?: number;
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */
@@ -2216,7 +2225,8 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     hiresNoOpt: !!saved.hiresNoOpt,   // last step runs without H3 Memory Optimization / Sol-Attn
     hiresStartMp: saved.hiresStartMp ?? 0.7,
     hiresFinalMp: saved.hiresFinalMp ?? 1.6,
-    hiresChunkRows: saved.hiresChunkRows ?? 2048,   // H3 Memory Optimization "Activation chunk rows" of the 7+1 last step
+    hiresChunkRows: saved.hiresChunkRows ?? 2048,   // H3 Memory Optimization "Activation chunk rows" of the Split Sigma last step
+    hiresSplitStep: saved.hiresSplitStep ?? 7,   // Split Sigma: how many of the 8 turbo steps run small before the latent upscale (H3 Latent Upscaler only; 7 is recommended)
     clipFrames: saved.clipFrames ?? DEFAULT_FRAMES,
     clipLengthCustom: !!saved.clipLengthCustom,
     clipLengthCustomSec: saved.clipLengthCustomSec ?? framesToSeconds(saved.clipFrames ?? DEFAULT_FRAMES),

@@ -122,7 +122,7 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
-import { hiresActive, hiresSizes, hiresMp, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, kimchyTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
+import { hiresActive, hiresSizes, hiresMp, hiresSplitStep, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, kimchyTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
 import { attachBilingual, type BilingualHandle } from "../../shared/bilingualUi";
 import { ensureEnglish, fieldNeedsEnglish, fieldSetBoth } from "../../shared/bilingual";
 import { translateLlm } from "../../shared/translateConfig";
@@ -544,13 +544,13 @@ export function renderMinimaxH3(container: HTMLElement) {
     style: { background: "rgba(0,0,0,0.55)" },
   });
   fvsrBanner.innerHTML = "<div style='font-size:16px;font-weight:700;color:#e0a530;text-shadow:0 0 12px rgba(224,165,48,0.5);padding:24px 16px;'>◮ FlashVSR upscaling… please wait — no live preview for this pass</div>";
-  // 7+1: the last step runs on a second sampler with no live preview of its own, so the preview
-  // freezes on the 7th step's frame — this says why, same layer as the banners above.
+  // Split Sigma: the last step runs on a second sampler with no live preview of its own, so the preview
+  // freezes on the last small step's frame — this says why, same layer as the banners above.
   const hiresBanner = el("div", {
     class: "absolute inset-0 z-[5] flex items-center justify-center text-center hidden",
     style: { background: "rgba(0,0,0,0.6)", padding: "0 16px" },
   });
-  hiresBanner.innerHTML = "<div style='font-size:18px;font-weight:700;color:#ff9ec7;text-shadow:0 0 12px rgba(255,158,199,0.5);'>Upscaling &amp; refining detail…</div>";
+  hiresBanner.innerHTML = "<div style='font-size:24px;font-weight:700;color:#ffd84a;text-shadow:0 0 12px rgba(255,216,74,0.5);'>Upscaling in progress...</div>";
   // Postprocess's own pre-sampling banner — its chained steps (Deblur/Denoise/Upscale/Skin
   // Retouch/Grain/Interpolate/Resize) stream no live preview of their own either, same "is it
   // doing anything?" problem frDetectBanner/fvsrBanner solve. Text differs between a short
@@ -2316,16 +2316,17 @@ export function renderMinimaxH3(container: HTMLElement) {
     // (a rebuild put the column back at the top while you were typing).
     const hiresText = () => {
       const hs = hiresSizes(state);
-      return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale})`;
+      const k = hiresSplitStep(state);
+      return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale}) · ${k} small + ${8 - k} full step${8 - k > 1 ? "s" : ""}`;
     };
     const hiresLine = el("div", { text: hiresText(), style: { fontSize: "10px", color: C.muted } });
-    // 7+1 hi-res finish: shown for Turbo None and Turbo LoRA (Basic); node hiresRows().
+    // Split Sigma: shown for Turbo None and Turbo LoRA (Basic); node hiresRows().
     const hiresRows = () => [
-      checkboxRow("7+1 hi-res finish", !!state.hiresFinish, (v) => {
+      checkboxRow("Split Sigma", !!state.hiresFinish, (v) => {
         state.hiresFinish = v;
         persist(); renderLeft(); refreshPlan();
-      }, { title: "Run 7 of the 8 steps small, scale the latent up, then run the last step at full size." }),
-      el("div", { text: "Needs an 8-step turbo: the Turbo LoRA above, or Turbo None with an 8-step checkpoint. Steps are fixed at 8 (7 small + 1 large).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      }, { title: "Run the first steps small, scale the latent up, then run the remaining steps at full size." }),
+      el("div", { text: "Needs an 8-step turbo: the Turbo LoRA above, or Turbo None with an 8-step checkpoint. Steps are fixed at 8: the Split Sigma step runs small, the rest at full size (7 is recommended).", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
       ...(hiresOn ? [
         (() => {
           // slot-style switch: left = the generation model, right = the fixed model from Settings
@@ -2338,7 +2339,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           return col([label("Last step model"),
             el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
               [slot("Same as generation", !fixed), slot("Fixed model", fixed)]),
-            ...(fixed ? [el("div", { text: name || "⚠ none set — Settings → Models → 7+1 last step",
+            ...(fixed ? [el("div", { text: name || "⚠ none set — Settings → Models → Split Sigma last step",
               style: { fontSize: "10px", color: name ? C.muted : C.warn, wordBreak: "break-all" } })] : []),
           ]);
         })(),
@@ -2361,6 +2362,10 @@ export function renderMinimaxH3(container: HTMLElement) {
             ] : []),
           ]);
         })(),
+        ...(state.hiresUpscaler === "kimchy" ? [] : [
+          col([label("Split Sigma step (1~7, 7 recommended)"), numberField(hiresSplitStep(state),
+            (v) => { state.hiresSplitStep = Math.min(7, Math.max(1, Math.round(v))); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 1)]),
+        ]),
         checkboxRow("Bypass H3 Memory Optimization on the last step", !!state.hiresNoOpt, (v) => {
           state.hiresNoOpt = v; persist(); renderLeft();
         }, { title: "Skip only the H3 Memory Optimization node on the last (large) step. Sol-Attn stays on. Use it if the last step fails with a shape error." }),
@@ -4379,7 +4384,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             const f = numberField(state.megapixels ?? 1.0, (v) => { state.megapixels = Math.max(0.1, v); persist(); refreshPlan(); }, 0.1);
             if (hiresActive(state)) {
               f.disabled = true; f.style.opacity = "0.4";
-              f.title = "7+1 hi-res finish is on — set Start / Final MP in the Turbo section.";
+              f.title = "Split Sigma is on — set Start / Final MP in the Turbo section.";
             }
             return f;
           })()]),
@@ -5069,7 +5074,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             kids.push(col([label("Model"),
               el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
                 [slot("Same as generation", !fixed), slot("Fixed model", fixed)]),
-              el("div", { text: fixed ? (fixedModel || "⚠ none set — Settings → Models → 7+1 last step")
+              el("div", { text: fixed ? (fixedModel || "⚠ none set — Settings → Models → Split Sigma last step")
                                       : (mainModel || `⚠ none set — Settings → Models (${kind === "ref" ? "Reference" : "First/Last"})`),
                 style: { fontSize: "10px", color: (fixed ? fixedModel : mainModel) ? C.muted : C.warn, wordBreak: "break-all" } })]));
           }
@@ -5875,7 +5880,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
-      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresKimStartMp: rs.hiresKimStartMp, hiresKimFinalMp: rs.hiresKimFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresUpscaler: rs.hiresUpscaler,
+      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresKimStartMp: rs.hiresKimStartMp, hiresKimFinalMp: rs.hiresKimFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresSplitStep: rs.hiresSplitStep, hiresUpscaler: rs.hiresUpscaler,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
       // accel stays for pre-split readers only (this session's own Reuse now reads the axis
       // fields below directly) — a peer session on the node port confirmed accelMode is
@@ -6304,7 +6309,13 @@ export function renderMinimaxH3(container: HTMLElement) {
         const onClipProgress = (v: number, m: number, nodeId?: string) => {
           if (nodeId === NODE_IDS.hrSampler) hiresBanner.style.display = "flex";
           else if (nodeId === NODE_IDS.fvsr) setFlashVSRProgress(v, m);
-          else { fvsrBanner.style.display = "none"; hiresBanner.style.display = "none"; setStepProgress(v, m); }
+          else {
+            fvsrBanner.style.display = "none";
+            // Split Sigma: stage 1 is finished and the latent upscale that follows reports no progress, so the banner
+            // starts here instead of waiting for the last-step sampler
+            hiresBanner.style.display = hiresOn && m > 0 && v >= m ? "flex" : "none";
+            setStepProgress(v, m);
+          }
         };
         let res;
         try {
@@ -6604,6 +6615,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (meta.hiresKimFinalMp != null) state.hiresKimFinalMp = meta.hiresKimFinalMp;
       state.hiresUpscaler = meta.hiresUpscaler === "kimchy" ? "kimchy" : "h3";
       if (meta.hiresChunkRows != null) state.hiresChunkRows = meta.hiresChunkRows;
+      if (meta.hiresSplitStep != null) state.hiresSplitStep = meta.hiresSplitStep;
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
       if (meta.sampler != null) state.sampler = meta.sampler;

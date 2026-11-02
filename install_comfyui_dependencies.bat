@@ -270,8 +270,11 @@ set REPOS[24]=https://github.com/jeankassio/JK-AceStep-Nodes
 rem Fizgig H3 Still - MiniMax H3 Image Generator's "Use Fizgig Latent" option (a true
 rem one-frame latent + a decode that does not band a lone frame). No extra dependencies.
 set REPOS[25]=https://github.com/shootthesound/ComfyUI-Fizgig-H3-Still
+rem H3 Latent Upscale Tiled (TJ) - MiniMax H3 Split Sigma, Upscaler B (TJLatentUpscaleTiledMP). Apache-2.0, external pack.
+rem It replaces the AI-KIMCHY Kimchy pack; do not install both.
+set REPOS[26]=https://github.com/designloves2/H3-Latent-Upscale-Tiled-TJ-
 
-set COUNT=26
+set COUNT=27
 
 rem ComfyUI Manager names some packs' folders after their pyproject "name", not
 rem the repo. Clone under that name so a later Manager install/update doesn't drop
@@ -280,6 +283,7 @@ rem the rest clone under their repo basename.
 set "ALT[21]=rife_comfyui_wrapper"
 set "ALT[22]=h3-optimizations"
 set "ALT[24]=comfyui-ace-step-ksampler"
+set "ALT[26]=comfyui-tj_latent_upscale_tiled"
 
 echo [NOTE] pip may print "dependency resolver" conflict warnings below
 echo        (e.g. protobuf version clashes between RMBG and audio tools) -
@@ -292,7 +296,7 @@ echo.
 
 rem The whole loop body lives in a called subroutine instead of a nested
 rem parenthesized for/if block, so "do" only ever runs a single command.
-for /L %%i in (0,1,25) do call :InstallRepo %%i
+for /L %%i in (0,1,26) do call :InstallRepo %%i
 goto AFTER_REPOS
 
 :InstallRepo

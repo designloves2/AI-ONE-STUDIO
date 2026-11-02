@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.17.1] — 2026-11-03
+
+### Added
+- `install_comfyui_dependencies.bat` installs the **H3 Latent Upscale Tiled (TJ)** pack (`REPOS[26]` = https://github.com/designloves2/H3-Latent-Upscale-Tiled-TJ-, `COUNT=27`, loop `0..26`, `ALT[26]=comfyui-tj_latent_upscale_tiled` so an existing Manager folder is not cloned twice). The file stays ASCII English / CRLF. `docs/ONE_SHOT_INSTALL.md` names the pack and says not to install the old AI-KIMCHY Kimchy pack next to it.
+
 ## [0.17.0] — 2026-11-03
 
 ### Changed

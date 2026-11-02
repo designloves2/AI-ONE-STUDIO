@@ -77,9 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.17.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.17.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-03 v0.17.1: 설치 배치 `install_comfyui_dependencies.bat`에 Tiled 팩 추가(REPOS[26], ALT[26]), 설치 안내 문서 갱신. `PORT_LEDGER.md` 행 78(행 77의 "웹에 설치 목록 없음" 정정). 배치 실행은 미검증. 웹 배치는 노드의 목록(29번까지)보다 짧음 — 이번 지시 범위 밖.
 - 2026-11-03 v0.17.0: H3 업스케일러 B를 Kimchy -> 자체 포크 "H3 Latent Upscale Tiled (TJ)"로 교체(노드 id `TJLatentUpscaleTiledMP`, 값 `tiled`, 키 `hiresTiled*`/`ppH3TiledFinalMp`, 옛 저장값·프리셋·클립 메타 자동 변환). `PORT_LEDGER.md` 행 77. 실제 렌더와 새 팩은 미검증.
 - 2026-11-03 v0.16.2: Split Sigma 설명 블록을 체크박스 옆 `?` 툴팁으로 교체(노드 반영). `PORT_LEDGER.md` 행 76.
 - 2026-11-03 v0.16.1: 노드 885bf51 이식(Split Sigma 칸 = LOW Sigma step, 그 아래 읽기 전용 HIGH Sigma 줄, 크기 줄은 크기만). `PORT_LEDGER.md` 행 75. 실제 렌더는 미검증.

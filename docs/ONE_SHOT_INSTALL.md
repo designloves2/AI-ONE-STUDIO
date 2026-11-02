@@ -85,6 +85,8 @@ ComfyUI 포트 = 8188
        LLM 백엔드. `JK-AceStep-Nodes`(REPOS[23], Manager 폴더 `comfyui-ace-step-ksampler`) —
        MusicMaker Ace-Step 엔진 기본 샘플러 `jkass_quality` 를 등록하는 **소프트 의존** 팩
        (없으면 그 샘플러만 실패 → MusicMaker Settings 에서 `euler` 등 코어 샘플러로 변경 가능).
+     - `H3-Latent-Upscale-Tiled-TJ-`(REPOS[26], Manager 폴더 `comfyui-tj_latent_upscale_tiled`) — MiniMax H3 Split Sigma 의
+       업스케일러 B(`TJLatentUpscaleTiledMP`). 예전 AI-KIMCHY Kimchy 팩을 대체하므로 둘 다 설치하지 마세요.
      - MiniMax Music 3 · Ace-Step 1.5 의 인코드·latent·sampler-select·`VAEDecodeAudio`·
        `SaveAudioAdvanced` 노드는 ComfyUI 코어(`comfy_extras/`)라 별도 팩이 필요 없습니다
        (EZi 가 ComfyUI 를 최신으로 갱신).

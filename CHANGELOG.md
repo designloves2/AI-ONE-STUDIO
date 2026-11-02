@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.16.1] — 2026-11-03
+
+### Changed
+- H3 Split Sigma follow-up (node commit 885bf51): the typed value is the **LOW Sigma** step (`LOW Sigma step (1~7, 7 recommended)`, key `hiresSplitStep` unchanged, 1~7, default 7, Kimchy fixed at 7). A read-only line under it shows `HIGH Sigma: N step(s) (8 − LOW) — the latent upscale runs here, then these steps at Final MP` and updates on every change without rebuilding the panel. The size line shows only the sizes (the `· N small + M full steps` tail is gone). The Split Sigma note text now explains LOW / HIGH.
+
 ## [0.16.0] — 2026-11-03
 
 ### Changed

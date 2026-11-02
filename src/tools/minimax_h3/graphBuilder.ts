@@ -79,8 +79,8 @@ const N = {
   hrGuider: "MM:hr_guider",
   hrSampler: "MM:hr_sampler",
   hrCond: "MM:hr_cond",
-  hrKim: "MM:hr_kimchy_upscale",
-  hrNeg: "MM:hr_kimchy_negative",
+  hrTiled: "MM:hr_tiled_upscale",
+  hrNeg: "MM:hr_tiled_negative",
   hrEnc: "MM:hr_encode",
   hrAv0: "MM:hr_av_source",
   hrAudSep: "MM:hr_audio_sep",
@@ -362,17 +362,17 @@ function saveOneTakeCheckpoint(g: Graph, state: MinimaxState, avail: Avail | und
  * interval refines it on a model chain rebuilt for that one step: same UNET, user LoRAs and
  * turbo LoRA, then H3 Memory Optimization and Sol-Attn block-sparse attention with fixed
  * values (the bigger latent is what makes them necessary). The conditioning is stage 1's.
- * With state.hiresUpscaler === "kimchy" the upscale and the last step are one KimchyH3ZeroSplitMP
+ * With state.hiresUpscaler === "tiled" the upscale and the last step are one TJLatentUpscaleTiledMP
  * node instead (it upscales the video latent and refines it itself, audio passes through).
  * Returns the final latent link.
  * `avLatent` is the stage-1 AV latent (default: the clip sampler's x0). `schedule` builds the last
  * sigma interval here from the stage's own shifted model when there is no stage 1 to take it from.
  */
 function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined, hires: { final: { width: number; height: number } }, condLink: any, lowSigmas: any, lockAudio: boolean, avLatent: any = [N.sampler, 1], schedule: { scheduler?: string } | null = null, noUpscale = false) {
-  const kimchy = state.hiresUpscaler === "kimchy" && !noUpscale;
-  if (kimchy && !has(avail, "KimchyH3ZeroSplitMP"))
-    throw new Error("Split Sigma H3 Kimchy Up Scaler needs the ComfyUI-Kimchy-Minimax-H3-Suite pack — install it (github.com/AI-KIMCHY/ComfyUI-Kimchy-Minimax-H3-Suite), or pick H3 Latent Upscaler.");
-  const needed = kimchy ? [] : noUpscale ? ["BlockSparseAttention"] : ["MinimaxH3LatentUpscaler3D", "BlockSparseAttention"];
+  const tiled = state.hiresUpscaler === "tiled" && !noUpscale;
+  if (tiled && !has(avail, "TJLatentUpscaleTiledMP"))
+    throw new Error("Split Sigma H3 Latent Upscale Tiled (TJ) needs the H3-Latent-Upscale-Tiled-TJ- pack — install it (github.com/designloves2/H3-Latent-Upscale-Tiled-TJ-), or pick H3 Latent Upscaler.");
+  const needed = tiled ? [] : noUpscale ? ["BlockSparseAttention"] : ["MinimaxH3LatentUpscaler3D", "BlockSparseAttention"];
   if (!state.hiresNoOpt) needed.push("H3MemoryOptimization");
   for (const n of needed)
     if (!has(avail, n)) throw new Error(`Split Sigma needs ${n} — install it, or switch Split Sigma off.`);
@@ -385,7 +385,7 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
       g[N.hrLock] = { class_type: "TJ_H3_AudioLock", inputs: { ...g[N.audioLock].inputs, av_latent: latent } };
       latent = [N.hrLock, 0];
     }
-  } else if (!kimchy) {
+  } else if (!tiled) {
     g[N.hrSep] = { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: avLatent } };
     g[N.hrUp] = { class_type: "MinimaxH3LatentUpscaler3D", inputs: {
       latent: [N.hrSep, 0],
@@ -444,18 +444,18 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
     }};
     stageModel = [N.hrMem, 0];
   }
-  if (kimchy) {
-    // The Kimchy node takes the memory-optimised model without Sol-Attn and the whole stage-1 AV latent.
+  if (tiled) {
+    // The TJ Tiled node takes the memory-optimised model without Sol-Attn and the whole stage-1 AV latent.
     const mp = hiresMp(state).final;
-    if (!(mp >= 1 && mp <= 8.5)) throw new Error("H3 Kimchy Up Scaler supports Final MP 1.0 – 8.5.");
+    if (!(mp >= 1 && mp <= 8.5)) throw new Error("H3 Latent Upscale Tiled (TJ) supports Final MP 1.0 – 8.5.");
     g[N.hrNeg] = { class_type: "ConditioningZeroOut", inputs: { conditioning: condLink } };
-    g[N.hrKim] = { class_type: "KimchyH3ZeroSplitMP", inputs: {
+    g[N.hrTiled] = { class_type: "TJLatentUpscaleTiledMP", inputs: {
       model: stageModel, conditioning: condLink, latent: avLatent,
       noise: [N.noise, 0], sampler: [N.sampSel, 0], sigmas: lowSigmas, negative: [N.hrNeg, 0],
       model_name: "minimax_h3_latent_upscaler_3d_bf16.safetensors",
       upscale_by: "megapixels", target_megapixels: mp, scale: 2, align: 32, precision: "fp16", cfg: 1, color_match: true,
     }};
-    return [N.hrKim, 0];
+    return [N.hrTiled, 0];
   }
   g[N.hrSparse] = { class_type: "BlockSparseAttention", inputs: {
     model: stageModel,
@@ -477,8 +477,8 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
  * Postprocess → Latent Upscale (Use H3): a finished 8-step clip goes back through the last sigma interval.
  * H3 Latent Upscaler: video → VAE encode → latent upscale → the last step at the final size (the 7+1 stage 2, whole
  * picture, first and last frame as keyframes) → decode.
- * H3 Kimchy Up Scaler: video → VAE encode → one step at the clip's own size (whole picture, keyframes) → Kimchy
- * (upscale, then its tile step) → decode. The Kimchy node cuts the picture into tiles and a keyframe block cannot be
+ * H3 Latent Upscale Tiled (TJ): video → VAE encode → one step at the clip's own size (whole picture, keyframes) → TJ Tiled
+ * (upscale, then its tile step) → decode. The TJ Tiled node cuts the picture into tiles and a keyframe block cannot be
  * cut with it, so its tile step runs on the prompt alone; the step before it is what carries the images.
  * Clip audio is locked into the latent and the clip's own soundtrack passes through unchanged.
  * o = { images, audio, hasAudio, promptText, frames, srcSize: {width, height}, finalSize: {width, height}, seed }
@@ -487,13 +487,13 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
 export function addH3LastStep(g: Graph, state0: MinimaxState, avail: Avail | undefined, o: any): { images: any; audio: any } {
   const state: MinimaxState = { ...state0, hiresFinish: true };
   const ref = state.generationMode === "reference";
-  const kimchy = state.hiresUpscaler === "kimchy";
+  const tiled = state.hiresUpscaler === "tiled";
   if (!hiresActive(state))
     throw new Error("Latent Upscale (Use H3) needs an 8-step model: Turbo = PDD, or Turbo None with an 8-step checkpoint.");
   if (!String(o.promptText || "").trim()) throw new Error("Latent Upscale (Use H3): the prompt is empty.");
-  if (kimchy && !has(avail, "KimchyH3ZeroSplitMP"))
-    throw new Error("H3 Kimchy Up Scaler needs the ComfyUI-Kimchy-Minimax-H3-Suite pack — install it (github.com/AI-KIMCHY/ComfyUI-Kimchy-Minimax-H3-Suite), or pick H3 Latent Upscaler.");
-  if (!kimchy && !has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("Latent Upscale (Use H3) needs MinimaxH3LatentUpscaler3D — install it.");
+  if (tiled && !has(avail, "TJLatentUpscaleTiledMP"))
+    throw new Error("H3 Latent Upscale Tiled (TJ) needs the H3-Latent-Upscale-Tiled-TJ- pack — install it (github.com/designloves2/H3-Latent-Upscale-Tiled-TJ-), or pick H3 Latent Upscaler.");
+  if (!tiled && !has(avail, "MinimaxH3LatentUpscaler3D")) throw new Error("Latent Upscale (Use H3) needs MinimaxH3LatentUpscaler3D — install it.");
   const unet = requireModels(state);
   g[N.unet] = unetNode(unet);
   g[N.clip] = { class_type: "CLIPLoader", inputs: { clip_name: state.clipName, type: "minimax", device: "default" } };
@@ -518,8 +518,8 @@ export function addH3LastStep(g: Graph, state0: MinimaxState, avail: Avail | und
   g[N.hrFirst] = { class_type: "ImageFromBatch", inputs: { image: o.images, batch_index: 0, length: 1 } };
   // ImageFromBatch clamps the index to the last frame.
   g[N.hrLast] = { class_type: "ImageFromBatch", inputs: { image: o.images, batch_index: 4095, length: 1 } };
-  // A samples once at the final size; Kimchy samples first at the clip's own size
-  const cond1 = condAt(N.hrCond, kimchy ? o.srcSize : o.finalSize, true);
+  // A samples once at the final size; TJ Tiled samples first at the clip's own size
+  const cond1 = condAt(N.hrCond, tiled ? o.srcSize : o.finalSize, true);
 
   g[N.hrEnc] = { class_type: "VAEEncode", inputs: { pixels: o.images, vae: [N.vaeV, 0] } };
   let lockAudio = false;
@@ -542,32 +542,32 @@ export function addH3LastStep(g: Graph, state0: MinimaxState, avail: Avail | und
   g[N.sampSel] = { class_type: "KSamplerSelect", inputs: { sampler_name: pdd ? "euler" : (state.sampler || "er_sde") } };
 
   let latent: any;
-  if (!kimchy) {
+  if (!tiled) {
     latent = buildHiresStage(g, state, avail, { final: o.finalSize }, cond1, null, lockAudio,
       [N.hrAv0, 0], { scheduler: state.scheduler });
     g[N.hrDecode] = { class_type: "VAEDecode", inputs: { samples: latent, vae: [N.vaeV, 0] } };
     return { images: [N.hrDecode, 0], audio: o.audio };
   }
 
-  // Kimchy, step 1: the clip's own size
+  // TJ Tiled, step 1: the clip's own size
   const step1 = buildHiresStage(g, state, avail, { final: o.srcSize }, cond1, null, lockAudio,
     [N.hrAv0, 0], { scheduler: state.scheduler }, true);
   const lowSigmas = [N.hrSplit, 1];
-  // the stage model after Memory Optimization (no Sol-Attn), as the Kimchy node takes it
+  // the stage model after Memory Optimization (no Sol-Attn), as the TJ Tiled node takes it
   const memModel = state.hiresNoOpt ? [N.hrShift, 0] : [N.hrMem, 0];
 
-  // Kimchy, step 2: it upscales and samples tile by tile, so its prompt stands alone
+  // TJ Tiled, step 2: it upscales and samples tile by tile, so its prompt stands alone
   const cond2 = condAt(N.hrCond2, o.finalSize, false);
   g[N.hrNeg] = { class_type: "ConditioningZeroOut", inputs: { conditioning: cond2 } };
   const mp = hiresMp(state).final;
-  if (!(mp >= 1 && mp <= 8.5)) throw new Error("H3 Kimchy Up Scaler supports Final MP 1.0 – 8.5.");
-  g[N.hrKim] = { class_type: "KimchyH3ZeroSplitMP", inputs: {
+  if (!(mp >= 1 && mp <= 8.5)) throw new Error("H3 Latent Upscale Tiled (TJ) supports Final MP 1.0 – 8.5.");
+  g[N.hrTiled] = { class_type: "TJLatentUpscaleTiledMP", inputs: {
     model: memModel, conditioning: cond2, latent: step1,
     noise: [N.noise, 0], sampler: [N.sampSel, 0], sigmas: lowSigmas, negative: [N.hrNeg, 0],
     model_name: o.upscalerModel || "minimax_h3_latent_upscaler_3d_bf16.safetensors",
     upscale_by: "megapixels", target_megapixels: mp, scale: 2, align: 32, precision: "fp16", cfg: 1, color_match: true,
   }};
-  latent = [N.hrKim, 0];
+  latent = [N.hrTiled, 0];
   g[N.hrDecode] = { class_type: "VAEDecode", inputs: { samples: latent, vae: [N.vaeV, 0] } };
   return { images: [N.hrDecode, 0], audio: o.audio };
 }
@@ -966,13 +966,13 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // so stage 2 (a bigger latent) needs its own copy built at the final size. Plain text
   // conditioning carries no image tokens and is shared.
   const mode = state.generationMode || "t2v";
-  // The Kimchy upscaler samples the picture in tiles, and a First/Last keyframe is a full-picture token block
+  // The TJ Tiled upscaler samples the picture in tiles, and a First/Last keyframe is a full-picture token block
   // that cannot be cut into tiles, so for it stage 2 gets the prompt alone.
-  const kimFl = !!hires && state.hiresUpscaler === "kimchy" && mode === "firstlast";
-  const hrCond = !!hires && (mode === "reference" || kimFl
+  const tiledFl = !!hires && state.hiresUpscaler === "tiled" && mode === "firstlast";
+  const hrCond = !!hires && (mode === "reference" || tiledFl
     || (mode === "firstlast" && !!(firstFrame || lastFrame || state.assetRef?.first || state.assetRef?.last)));
   if (hrCond) {
-    if (kimFl) buildConditioning(g, { ...state, assetRef: null } as MinimaxState, fullPrompt, outW, outH, frames, { ...condOpts, firstFrame: null, lastFrame: null }, avail, N.hrCond);
+    if (tiledFl) buildConditioning(g, { ...state, assetRef: null } as MinimaxState, fullPrompt, outW, outH, frames, { ...condOpts, firstFrame: null, lastFrame: null }, avail, N.hrCond);
     else buildConditioning(g, state, fullPrompt, outW, outH, frames, condOpts, avail, N.hrCond);
   }
 
@@ -1910,7 +1910,7 @@ export function buildPostprocessGraph(opts: PostprocessGraphOpts, avail?: Avail)
     } else if (upscale.method === "h3lat") {
       const r = addH3LastStep(g, upscale.h3State, avail, { images, audio, ...upscale.h3 });
       images = r.images;
-      upscaleUsedInfo = { method: "h3lat", upscaler: upscale.h3State.hiresUpscaler === "kimchy" ? "kimchy" : "h3",
+      upscaleUsedInfo = { method: "h3lat", upscaler: upscale.h3State.hiresUpscaler === "tiled" ? "tiled" : "h3",
         width: upscale.h3.finalSize.width, height: upscale.h3.finalSize.height };
     } else if (upscale.method === "ltx") {
       // LTX 2.5 latent upscale + refine on the frames so far; the clip's audio goes through LTX's audio VAE.

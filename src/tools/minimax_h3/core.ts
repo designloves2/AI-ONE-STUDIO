@@ -239,9 +239,9 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   aspect: string;
   megapixels: number;
   hiresFinish: boolean;
-  hiresUpscaler: "h3" | "kimchy"; // 7+1 stage 2: h3 = H3 Latent Up Scaler, kimchy = H3 Kimchy Up Scaler
-  hiresKimStartMp: number; // each 7+1 upscaler remembers its own Start / Final MP
-  hiresKimFinalMp: number;
+  hiresUpscaler: "h3" | "tiled"; // 7+1 stage 2: h3 = H3 Latent Up Scaler, tiled = H3 Latent Upscale Tiled (TJ)
+  hiresTiledStartMp: number; // each 7+1 upscaler remembers its own Start / Final MP
+  hiresTiledFinalMp: number;
   autoPrompt: boolean; // write every clip's prompt with the LLM right before Generate
   hiresLastFixed: boolean; // last step on the fixed model (hiresLastModel) instead of the generation model
   hiresLastModel: string;
@@ -512,7 +512,7 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   // UI/state but never registered in defaultState() silently reverting to defaults on reload).
   // Postprocess → Latent Upscale (Use H3): own model / turbo / upscaler settings (a new field starts from the main value once)
   ppH3TurboMode: string; ppH3PddFile: string; ppH3PddFileReference: string; ppH3LastFixed: boolean; ppH3PddStrength: number;
-  ppH3Upscaler: "h3" | "kimchy"; ppH3UpModel: string; ppH3FinalMp: number; ppH3KimFinalMp: number; ppH3ChunkRows: number; ppH3NoOpt: boolean;
+  ppH3Upscaler: "h3" | "tiled"; ppH3UpModel: string; ppH3FinalMp: number; ppH3TiledFinalMp: number; ppH3ChunkRows: number; ppH3NoOpt: boolean;
   ppH3Split: boolean; ppH3SegMode: "seconds" | "count"; ppH3SegSeconds: number; ppH3SegCount: number;
   // A run that was in flight when the page went away (kept through the state whitelist, so a reload can reattach)
   // (_ltxRelay above; clip generation keeps its run record in the view's own RunProgress)
@@ -969,10 +969,10 @@ export function hiresActive(state: MinimaxState): boolean {
 }
 
 /**
- * How many tiles the Kimchy upscaler samples for a source of srcW x srcH at `mp` megapixels: it cuts the upscaled
- * latent into 44 x 56 windows (kimchy_upscaler_mp.py: compute_target_hw_by_mode / compute_window_coords).
+ * How many tiles the TJ Tiled upscaler samples for a source of srcW x srcH at `mp` megapixels: it cuts the upscaled
+ * latent into 44 x 56 windows (tj_latent_upscale_tiled_mp.py: compute_target_hw_by_mode / compute_window_coords).
  */
-export function kimchyTileCount(srcW: number, srcH: number, mp: number): number {
+export function tiledTileCount(srcW: number, srcH: number, mp: number): number {
   const curW = Math.floor(srcW / 16) * 16, curH = Math.floor(srcH / 16) * 16;
   const aspect = curW / curH;
   const rawH = Math.sqrt(Math.max(1, Math.min(8.5, mp)) * 1_000_000 / aspect), rawW = rawH * aspect;
@@ -1002,13 +1002,13 @@ export function ppH3State(s: any, kind = "fl"): any {
     clipName: s.clipName, vaeVideo: s.vaeVideo, vaeAudio: s.vaeAudio,
     // the LoRAs are Postprocess's own
     turboMode: s.ppH3TurboMode, pddFile: s.ppH3PddFile, pddFileReference: s.ppH3PddFileReference, pddLoraStrength: s.ppH3PddStrength,
-    hiresUpscaler: s.ppH3Upscaler, hiresFinalMp: s.ppH3FinalMp, hiresKimFinalMp: s.ppH3KimFinalMp,
+    hiresUpscaler: s.ppH3Upscaler, hiresFinalMp: s.ppH3FinalMp, hiresTiledFinalMp: s.ppH3TiledFinalMp,
     hiresChunkRows: s.ppH3ChunkRows, hiresNoOpt: s.ppH3NoOpt,
     loras: [], sampler: "euler", scheduler: "simple", shiftVideo: 12, shiftAudio: 3,
   };
 }
 
-/** The Kimchy node's `model_name` for each upscale choice (undefined = its trained network, the graph default). */
+/** The TJ Tiled node's `model_name` for each upscale choice (undefined = its trained network, the graph default). */
 export const PP_H3_UP_MODELS: Record<string, string | undefined> = { neural: undefined, bicubic: "None (Bicubic)", trilinear: "None (Trilinear)" };
 
 /** Which model family Postprocess → Latent Upscale (Use H3) runs a clip on: "ref" for a Reference-mode H3 clip, else "fl". */
@@ -1024,17 +1024,17 @@ export function sizeForMp(srcW: number, srcH: number, mp: number) {
   return { width: snap(h * ratio), height: snap(h) };
 }
 
-/** Split Sigma step: the first N of the 8 steps run at Start MP, the rest at Final MP. Only the H3 Latent Upscaler lets it change; Kimchy stays at 7. */
+/** Split Sigma step: the first N of the 8 steps run at Start MP, the rest at Final MP. Only the H3 Latent Upscaler lets it change; TJ Tiled stays at 7. */
 export function hiresSplitStep(state: any): number {
-  if (state.hiresUpscaler === "kimchy") return 7;
+  if (state.hiresUpscaler === "tiled") return 7;
   const n = Math.round(Number(state.hiresSplitStep ?? 7));
   return Number.isFinite(n) ? Math.min(7, Math.max(1, n)) : 7;
 }
 
 /** Start / Final MP of the selected 7+1 upscaler — A and B keep separate values. */
 export function hiresMp(state: any): { start: number; final: number } {
-  return state.hiresUpscaler === "kimchy"
-    ? { start: state.hiresKimStartMp ?? 0.5, final: state.hiresKimFinalMp ?? 2.0 }
+  return state.hiresUpscaler === "tiled"
+    ? { start: state.hiresTiledStartMp ?? 0.5, final: state.hiresTiledFinalMp ?? 2.0 }
     : { start: state.hiresStartMp ?? 0.7, final: state.hiresFinalMp ?? 1.6 };
 }
 
@@ -1328,6 +1328,10 @@ export function applyPreset(state: MinimaxState, preset: PipelinePreset | UserPi
   state.fp16Accum = true; // rides along with the Torch patch on every preset that has it
   // Restore the user-recipe fields when the preset carries them (built-ins never do). SPEC §4.
   for (const k of RECIPE_KEYS) if ((preset as any)[k] !== undefined) (state as any)[k] = cloneVal((preset as any)[k]);
+  // presets saved before the Kimchy -> Tiled rename carry the old value and key names
+  if ((state.hiresUpscaler as string) === "kimchy") state.hiresUpscaler = "tiled";
+  if ((preset as any).hiresTiledStartMp === undefined && (preset as any).hiresKimStartMp !== undefined) state.hiresTiledStartMp = (preset as any).hiresKimStartMp;
+  if ((preset as any).hiresTiledFinalMp === undefined && (preset as any).hiresKimFinalMp !== undefined) state.hiresTiledFinalMp = (preset as any).hiresKimFinalMp;
 }
 
 // ── User pipeline presets (SPEC_MINIMAX_H3_PER_CLIP_OVERRIDE.md §14) ───────────────────────
@@ -1372,7 +1376,7 @@ export const RECIPE_KEYS = [
   "fp16Accum",
   // 7+1 hi-res finish: the checkbox and its sizes travel with a saved recipe, but it is
   // not a matching axis — a built-in preset never turns it on or off.
-  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresKimStartMp", "hiresKimFinalMp", "hiresChunkRows", "hiresSplitStep",
+  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresTiledStartMp", "hiresTiledFinalMp", "hiresChunkRows", "hiresSplitStep",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -1423,8 +1427,8 @@ export interface UserPipelinePreset {
   hiresUpscaler?: string;
   hiresStartMp?: number;
   hiresFinalMp?: number;
-  hiresKimStartMp?: number;
-  hiresKimFinalMp?: number;
+  hiresTiledStartMp?: number;
+  hiresTiledFinalMp?: number;
   hiresChunkRows?: number;
   hiresSplitStep?: number;
 }
@@ -2217,9 +2221,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     megapixels: saved.megapixels ?? 1.0,
     hiresFinish: !!saved.hiresFinish,
     autoPrompt: !!saved.autoPrompt,   // write every clip's prompt with the LLM right before Generate
-    hiresUpscaler: saved.hiresUpscaler === "kimchy" ? "kimchy" : "h3",   // 7+1 stage 2: h3 = H3 Latent Up Scaler, kimchy = H3 Kimchy Up Scaler
-    hiresKimStartMp: saved.hiresKimStartMp ?? 0.5,   // each 7+1 upscaler remembers its own Start / Final MP
-    hiresKimFinalMp: saved.hiresKimFinalMp ?? 2.0,
+    hiresUpscaler: ((saved.hiresUpscaler as string) === "tiled" || (saved.hiresUpscaler as string) === "kimchy") ? "tiled" : "h3",   // 7+1 stage 2: h3 = H3 Latent Up Scaler, tiled = H3 Latent Upscale Tiled (TJ)
+    hiresTiledStartMp: saved.hiresTiledStartMp ?? (saved as any).hiresKimStartMp ?? 0.5,   // each 7+1 upscaler remembers its own Start / Final MP
+    hiresTiledFinalMp: saved.hiresTiledFinalMp ?? (saved as any).hiresKimFinalMp ?? 2.0,
     hiresLastFixed: !!saved.hiresLastFixed,   // last step on the fixed model below instead of the generation model
     hiresLastModel: saved.hiresLastModel || "",
     hiresNoOpt: !!saved.hiresNoOpt,   // last step runs without H3 Memory Optimization / Sol-Attn
@@ -2463,11 +2467,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ppH3PddFileReference: (saved as any).ppH3PddFileReference ?? saved.pddFileReference ?? "",
     ppH3LastFixed: !!(saved as any).ppH3LastFixed,
     ppH3PddStrength: (saved as any).ppH3PddStrength ?? saved.pddLoraStrength ?? 1.0,
-    ppH3Upscaler: (saved as any).ppH3Upscaler === "kimchy" ? "kimchy" : "h3",
-    // what the Kimchy node upscales the latent with: its trained network, or plain interpolation
+    ppH3Upscaler: ((saved as any).ppH3Upscaler === "tiled" || (saved as any).ppH3Upscaler === "kimchy") ? "tiled" : "h3",
+    // what the TJ Tiled node upscales the latent with: its trained network, or plain interpolation
     ppH3UpModel: ["bicubic", "trilinear"].includes((saved as any).ppH3UpModel) ? (saved as any).ppH3UpModel : "neural",
     ppH3FinalMp: (saved as any).ppH3FinalMp ?? 1.6,
-    ppH3KimFinalMp: (saved as any).ppH3KimFinalMp ?? 2.0,
+    ppH3TiledFinalMp: (saved as any).ppH3TiledFinalMp ?? (saved as any).ppH3KimFinalMp ?? 2.0,
     ppH3ChunkRows: (saved as any).ppH3ChunkRows ?? 2048,
     ppH3NoOpt: !!(saved as any).ppH3NoOpt,
     // long clips: the Latent Upscale runs in pieces of ppH3SegSeconds (or ppH3SegCount pieces), then they are joined

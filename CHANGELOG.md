@@ -3,6 +3,16 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.17.0] — 2026-11-03
+
+### Changed
+- H3 upscaler B **"H3 Kimchy Up Scaler" is replaced by our own fork "H3 Latent Upscale Tiled (TJ)"** (node commits 26a1b6f, 59f0607, 7ca8240; `SPEC_RELAY_TILED_UPSCALER.md`). ComfyUI node id `KimchyH3ZeroSplitMP` -> `TJLatentUpscaleTiledMP` (inputs unchanged), new pack https://github.com/designloves2/H3-Latent-Upscale-Tiled-TJ- (it also fixes `mat1 is on cpu` above about 2.5 MP). Capsule label, warning line, hint, errors, Postprocess texts (`Neural (trained upscaler)`, `Postprocess: Tiled upscale tile i/n`) follow the node.
+- Internal names renamed: value `"kimchy"` -> `"tiled"` (`hiresUpscaler`, `ppH3Upscaler`), keys `hiresKimStartMp` / `hiresKimFinalMp` / `ppH3KimFinalMp` -> `hiresTiledStartMp` / `hiresTiledFinalMp` / `ppH3TiledFinalMp` (also in presets and clip metadata), `kimchyTileCount` -> `tiledTileCount`, graph ids `MM:hr_kimchy_upscale` / `MM:hr_kimchy_negative` -> `MM:hr_tiled_*`.
+- Postprocess VRAM warning now ends `handles 2.0 and above.` (as the node).
+
+### Fixed
+- Old saved data keeps working: a saved state, user preset or clip metadata with `"kimchy"` / the old key names is read as the Tiled upscaler with the same values (state load, Reuse Setting, preset apply).
+
 ## [0.16.2] — 2026-11-03
 
 ### Changed

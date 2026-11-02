@@ -122,7 +122,7 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
-import { hiresActive, hiresSizes, hiresMp, hiresSplitStep, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, kimchyTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
+import { hiresActive, hiresSizes, hiresMp, hiresSplitStep, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, tiledTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
 import { attachBilingual, type BilingualHandle } from "../../shared/bilingualUi";
 import { ensureEnglish, fieldNeedsEnglish, fieldSetBoth } from "../../shared/bilingual";
 import { translateLlm } from "../../shared/translateConfig";
@@ -2352,25 +2352,25 @@ export function renderMinimaxH3(container: HTMLElement) {
           ]);
         })(),
         (() => {
-          // capsule switch: A = H3 Latent Up Scaler (default), B = H3 Kimchy Up Scaler
-          const kim = state.hiresUpscaler === "kimchy";
-          const half = (text: string, on: boolean, tip: string, v: "h3" | "kimchy") => el("div", { text, title: tip, style: {
+          // capsule switch: A = H3 Latent Up Scaler (default), B = H3 Latent Upscale Tiled (TJ)
+          const tiled = state.hiresUpscaler === "tiled";
+          const half = (text: string, on: boolean, tip: string, v: "h3" | "tiled") => el("div", { text, title: tip, style: {
             flex: "1", textAlign: "center", padding: "4px 6px", fontSize: "11px", cursor: "pointer",
             background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : C.muted, fontWeight: on ? "700" : "400",
           }, onclick: () => { state.hiresUpscaler = v; persist(); renderLeft(); } });
           const availKnown = ctx.availability && Object.keys(ctx.availability).length;
           return col([label("Upscaler"),
             el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
-              [half("H3 Latent Upscaler", !kim, "A : 기존 방식 : H3 Latent Up Scaler", "h3"),
-               half("H3 Kimchy Up Scaler", kim, "B : 신규 추가 : H3 Kimchy Up Scaler", "kimchy")]),
-            ...(kim ? [
-              ...(availKnown && !ctx.availability?.KimchyH3ZeroSplitMP
-                ? [el("div", { html: "⚠ <code>KimchyH3ZeroSplitMP</code> not installed — this option is skipped at run time.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })] : []),
-              el("div", { text: "Kimchy runs the upscale and the last step in one node (Sol-Attn is not used). Final MP must be 1.0 – 8.5.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+              [half("H3 Latent Upscaler", !tiled, "A : 기존 방식 : H3 Latent Up Scaler", "h3"),
+               half("H3 Latent Upscale Tiled (TJ)", tiled, "B : 신규 추가 : H3 Latent Upscale Tiled (TJ)", "tiled")]),
+            ...(tiled ? [
+              ...(availKnown && !ctx.availability?.TJLatentUpscaleTiledMP
+                ? [el("div", { html: "⚠ <code>TJLatentUpscaleTiledMP</code> not installed — this option is skipped at run time.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } })] : []),
+              el("div", { text: "The Tiled node runs the upscale and the last step in one node (Sol-Attn is not used). Final MP must be 1.0 – 8.5.", style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
             ] : []),
           ]);
         })(),
-        ...(state.hiresUpscaler === "kimchy" ? [] : [
+        ...(state.hiresUpscaler === "tiled" ? [] : [
           col([label("LOW Sigma step (1~7, 7 recommended)"), numberField(hiresSplitStep(state),
             (v) => { state.hiresSplitStep = Math.min(7, Math.max(1, Math.round(v))); persist(); highLine.textContent = highText(); refreshPlan(); }, 1)]),
         ]),
@@ -2379,8 +2379,8 @@ export function renderMinimaxH3(container: HTMLElement) {
           state.hiresNoOpt = v; persist(); renderLeft();
         }, { title: "Skip only the H3 Memory Optimization node on the last (large) step. Sol-Attn stays on. Use it if the last step fails with a shape error." }),
         row([
-          col([label("Start MP"), numberField(hiresMp(state).start, (v) => { (state as any)[state.hiresUpscaler === "kimchy" ? "hiresKimStartMp" : "hiresStartMp"] = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
-          col([label("Final MP"), numberField(hiresMp(state).final, (v) => { (state as any)[state.hiresUpscaler === "kimchy" ? "hiresKimFinalMp" : "hiresFinalMp"] = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+          col([label("Start MP"), numberField(hiresMp(state).start, (v) => { (state as any)[state.hiresUpscaler === "tiled" ? "hiresTiledStartMp" : "hiresStartMp"] = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
+          col([label("Final MP"), numberField(hiresMp(state).final, (v) => { (state as any)[state.hiresUpscaler === "tiled" ? "hiresTiledFinalMp" : "hiresFinalMp"] = Math.max(0.1, v); persist(); hiresLine.textContent = hiresText(); refreshPlan(); }, 0.1)]),
         ]),
         col([label("Activation chunk rows"), numberField(state.hiresChunkRows ?? 2048, (v) => { state.hiresChunkRows = Math.max(256, Math.round(v)); persist(); }, 256)]),
         hiresLine,
@@ -5057,7 +5057,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           kids.push(...rtxSizeControlsKeyed(RTX_KEYS_SOLO));
         } else if (method === "h3lat") {
           // The 7+1 last-step options, kept separately for Postprocess (pp*). The models come from Settings; the Turbo LoRAs are this panel's own.
-          const kim = state.ppH3Upscaler === "kimchy";
+          const tiled = state.ppH3Upscaler === "tiled";
           const kind = ppH3Kind(state.ppSourceFullMeta);
           if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
           const loraOptsPp = ["none", ...availableLoras.filter((x) => x !== "none")];
@@ -5087,16 +5087,16 @@ export function renderMinimaxH3(container: HTMLElement) {
                                       : (mainModel || `⚠ none set — Settings → Models (${kind === "ref" ? "Reference" : "First/Last"})`),
                 style: { fontSize: "10px", color: (fixed ? fixedModel : mainModel) ? C.muted : C.warn, wordBreak: "break-all" } })]));
           }
-          const half = (text: string, on: boolean, tip: string, v: "h3" | "kimchy") => el("div", { text, title: tip, style: {
+          const half = (text: string, on: boolean, tip: string, v: "h3" | "tiled") => el("div", { text, title: tip, style: {
             flex: "1", textAlign: "center", padding: "4px 6px", fontSize: "11px", cursor: "pointer",
             background: on ? "#7c3aed" : "transparent", color: on ? "#fff" : C.muted, fontWeight: on ? "700" : "400",
           }, onclick: () => { state.ppH3Upscaler = v; persist(); renderLeft(); } });
           kids.push(col([label("Upscaler"),
             el("div", { style: { display: "flex", border: `1px solid ${C.border}`, borderRadius: "6px", overflow: "hidden" } },
-              [half("H3 Latent Upscaler", !kim, "A : 기존 방식 : H3 Latent Up Scaler", "h3"),
-               half("H3 Kimchy Up Scaler", kim, "B : 신규 추가 : H3 Kimchy Up Scaler", "kimchy")])]));
-          if (kim) kids.push(col([label("Latent upscale"), select([
-            { value: "neural", label: "Neural (Kimchy's trained upscaler)" },
+              [half("H3 Latent Upscaler", !tiled, "A : 기존 방식 : H3 Latent Up Scaler", "h3"),
+               half("H3 Latent Upscale Tiled (TJ)", tiled, "B : 신규 추가 : H3 Latent Upscale Tiled (TJ)", "tiled")])]));
+          if (tiled) kids.push(col([label("Latent upscale"), select([
+            { value: "neural", label: "Neural (trained upscaler)" },
             { value: "bicubic", label: "Bicubic (plain interpolation)" },
             { value: "trilinear", label: "Trilinear (plain interpolation)" }],
             state.ppH3UpModel, (v) => { state.ppH3UpModel = v; persist(); })]));
@@ -5105,22 +5105,22 @@ export function renderMinimaxH3(container: HTMLElement) {
           // Typing in Final MP must not rebuild the panel (that dropped focus and scrolled to the top); the two warnings update in place.
           const warnStyle = { fontSize: "10px", color: C.warn, lineHeight: "1.5" };
           const ratioWarn = el("div", { style: warnStyle });
-          const vramWarn = el("div", { text: "⚠ On a 16 GB VRAM card, above 1.6 MP the H3 Latent Upscaler can run out of VRAM and spill to the CPU (an hour or more). 1.6 is its sweet spot; the Kimchy upscaler handles 2.0.",
+          const vramWarn = el("div", { text: "⚠ On a 16 GB VRAM card, above 1.6 MP the H3 Latent Upscaler can run out of VRAM and spill to the CPU (an hour or more). 1.6 is its sweet spot; H3 Latent Upscale Tiled (TJ) handles 2.0 and above.",
             style: warnStyle });
           const refreshMpWarns = () => {
             // The neural latent upscaler is made for about 2x; at a ratio near 1 it leaves a diagonal grid on fine textures.
             const sm: any = state.ppSourceMeta || {};
-            const mpNow = kim ? state.ppH3KimFinalMp : state.ppH3FinalMp;
+            const mpNow = tiled ? state.ppH3TiledFinalMp : state.ppH3FinalMp;
             const ratio = sm.w && sm.h ? Math.sqrt(mpNow * 1e6 / (sm.w * sm.h)) : 0;
-            const showRatio = !!ratio && ratio < 1.3 && !(kim && state.ppH3UpModel !== "neural");
+            const showRatio = !!ratio && ratio < 1.3 && !(tiled && state.ppH3UpModel !== "neural");
             ratioWarn.style.display = showRatio ? "" : "none";
             if (showRatio) ratioWarn.textContent = `⚠ This is a ×${ratio.toFixed(2)} upscale. The neural upscaler is made for about ×2 and leaves a diagonal grid on fine textures (hair, fabric) near ×1. `
-              + (kim ? "Raise Final MP, or switch Latent upscale to Bicubic for a small ratio." : "Raise Final MP, or use the Kimchy upscaler with Bicubic for a small ratio.");
-            // the Kimchy node samples in tiles, so it can go past what fits in VRAM; the whole-picture step cannot
-            vramWarn.style.display = !kim && (state.ppH3FinalMp ?? 1.6) > 1.6 ? "" : "none";
+              + (tiled ? "Raise Final MP, or switch Latent upscale to Bicubic for a small ratio." : "Raise Final MP, or use H3 Latent Upscale Tiled (TJ) with Bicubic for a small ratio.");
+            // the TJ Tiled node samples in tiles, so it can go past what fits in VRAM; the whole-picture step cannot
+            vramWarn.style.display = !tiled && (state.ppH3FinalMp ?? 1.6) > 1.6 ? "" : "none";
           };
-          kids.push(col([label("Final MP"), numberField(kim ? state.ppH3KimFinalMp : state.ppH3FinalMp,
-            (v) => { (state as any)[kim ? "ppH3KimFinalMp" : "ppH3FinalMp"] = Math.max(0.1, v); persist(); refreshMpWarns(); }, 0.1)]));
+          kids.push(col([label("Final MP"), numberField(tiled ? state.ppH3TiledFinalMp : state.ppH3FinalMp,
+            (v) => { (state as any)[tiled ? "ppH3TiledFinalMp" : "ppH3FinalMp"] = Math.max(0.1, v); persist(); refreshMpWarns(); }, 0.1)]));
           refreshMpWarns();
           kids.push(ratioWarn, vramWarn);
           kids.push(col([label("Activation chunk rows"), numberField(state.ppH3ChunkRows ?? 2048,
@@ -5131,8 +5131,8 @@ export function renderMinimaxH3(container: HTMLElement) {
           kids.push(checkboxRow("Split mode (long clips)", !!state.ppH3Split, (v) => { state.ppH3Split = v; persist(); ppH3SplitWrap.style.display = v ? "" : "none"; },
             { title: "Cut a long clip into pieces of the length you set, upscale each piece on its own queue turn, then join them with ffmpeg into one clip." }));
           kids.push(ppH3SplitWrap);
-          kids.push(el("div", { text: (kim
-              ? `Kimchy: encodes the clip, runs one step at its own size${kind === "fl" ? " (first and last frame as keyframes)" : ""}, then the Kimchy node upscales to Final MP and runs its tile step on the prompt alone. `
+          kids.push(el("div", { text: (tiled
+              ? `H3 Latent Upscale Tiled (TJ): encodes the clip, runs one step at its own size${kind === "fl" ? " (first and last frame as keyframes)" : ""}, then the Tiled node upscales to Final MP and runs its tile step on the prompt alone. `
               : `Re-runs only the last step of an 8-step H3 clip: upscales the latent to Final MP, then runs that step${kind === "fl" ? " with the first and last frame as keyframes" : ""}. `)
             + `This clip runs as ${kind === "ref" ? "Reference (REF2VA)" : "First/Last (FL2VA)"} (● marks the LoRA it uses). `
             + "These settings are separate from the main H3 modes. A ONE STUDIO clip's own prompt is used; any other clip is read from its frames and written as an H3 brief.",
@@ -5312,59 +5312,59 @@ export function renderMinimaxH3(container: HTMLElement) {
   // They take `info` (what the run needs to be shown and finished) instead of reading the closure of one click, so a
   // run that was queued before a reload can be picked up again.
   function ppProgress(info: any) {
-    let kimDone = 0, kimMark = 0, kimTimer: number | null = null, kimExec: ((ev: any) => void) | null = null;
-    const kimDurs: number[] = [];
+    let tiledDone = 0, tiledMark = 0, tiledTimer: number | null = null, tiledExec: ((ev: any) => void) | null = null;
+    const tiledDurs: number[] = [];
     const fmtDur = (ms: number) => { const t = Math.round(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
     // one tile = one single-step sample, shown like the console bar: "1/1 [00:45<00:00, 45.12s/it]"
     const fmtIt = (ms: number) => `${(ms / 1000).toFixed(2)}s/it`;
-    // tile 1 also covers the Kimchy node's load and latent upscale, so the estimate leans on the tiles after it
-    const kimLine = () => {
-      const cur = Math.min(kimDone + 1, info.kimTiles);
-      const parts = [`Postprocess: Kimchy tile ${cur}/${info.kimTiles}`];
-      if (kimDone < info.kimTiles) parts.push(`running ${fmtDur(Date.now() - kimMark)}`);
-      if (kimDurs.length) parts.push(`tile ${kimDurs.length} took ${fmtDur(kimDurs[kimDurs.length - 1])} (${fmtIt(kimDurs[kimDurs.length - 1])}${kimDurs.length === 1 ? ", incl. load" : ""})`);
-      const base = kimDurs.length > 1 ? kimDurs.slice(1) : kimDurs;
-      if (base.length && kimDone < info.kimTiles) {
+    // tile 1 also covers the TJ Tiled node's load and latent upscale, so the estimate leans on the tiles after it
+    const tiledLine = () => {
+      const cur = Math.min(tiledDone + 1, info.tiledTiles);
+      const parts = [`Postprocess: Tiled upscale tile ${cur}/${info.tiledTiles}`];
+      if (tiledDone < info.tiledTiles) parts.push(`running ${fmtDur(Date.now() - tiledMark)}`);
+      if (tiledDurs.length) parts.push(`tile ${tiledDurs.length} took ${fmtDur(tiledDurs[tiledDurs.length - 1])} (${fmtIt(tiledDurs[tiledDurs.length - 1])}${tiledDurs.length === 1 ? ", incl. load" : ""})`);
+      const base = tiledDurs.length > 1 ? tiledDurs.slice(1) : tiledDurs;
+      if (base.length && tiledDone < info.tiledTiles) {
         const avg = base.reduce((a, d) => a + d, 0) / base.length;
-        parts.push(`avg ${fmtIt(avg)}`, `ETA ~${fmtDur(Math.max(0, avg * (info.kimTiles - kimDone) - (Date.now() - kimMark)))}`);
+        parts.push(`avg ${fmtIt(avg)}`, `ETA ~${fmtDur(Math.max(0, avg * (info.tiledTiles - tiledDone) - (Date.now() - tiledMark)))}`);
       }
       if (info.resumed) parts.push("reconnected: tile numbers restart here, the run itself is unaffected");
-      return parts.join(" · ") + (kimDone >= info.kimTiles ? " — finishing" : "");
+      return parts.join(" · ") + (tiledDone >= info.tiledTiles ? " — finishing" : "");
     };
     // the bar counts finished tiles, plus a share of the running one once an average is known
-    const kimBar = () => {
-      const base = kimDurs.length > 1 ? kimDurs.slice(1) : kimDurs;
+    const tiledBar = () => {
+      const base = tiledDurs.length > 1 ? tiledDurs.slice(1) : tiledDurs;
       const avg = base.length ? base.reduce((a, d) => a + d, 0) / base.length : 0;
-      const part = avg ? Math.min(0.95, (Date.now() - kimMark) / avg) : 0;
-      const frac = (kimDone + (kimDone < info.kimTiles ? part : 0)) / info.kimTiles;
-      const lo = info.kimLo || info.barBase;
+      const part = avg ? Math.min(0.95, (Date.now() - tiledMark) / avg) : 0;
+      const frac = (tiledDone + (tiledDone < info.tiledTiles ? part : 0)) / info.tiledTiles;
+      const lo = info.tiledLo || info.barBase;
       barInner.style.width = `${Math.min(100, lo + (98 - lo) * frac).toFixed(1)}%`;
     };
     return {
       start() {
-        if (!info.kimTiles) return;
-        kimMark = Date.now();
-        // the clock for tile 1 starts when the Kimchy node starts, not when the queue was submitted
-        kimExec = (ev: any) => { const d = ev && "detail" in ev ? ev.detail : ev; if ((d && d.node != null ? d.node : d) === "MM:hr_kimchy_upscale") kimMark = Date.now(); };
-        comfyApi.addEventListener("executing", kimExec);
-        kimTimer = window.setInterval(() => { if (kimDone < info.kimTiles) { setStatus(kimLine()); kimBar(); } }, 1000);
+        if (!info.tiledTiles) return;
+        tiledMark = Date.now();
+        // the clock for tile 1 starts when the TJ Tiled node starts, not when the queue was submitted
+        tiledExec = (ev: any) => { const d = ev && "detail" in ev ? ev.detail : ev; if ((d && d.node != null ? d.node : d) === "MM:hr_tiled_upscale") tiledMark = Date.now(); };
+        comfyApi.addEventListener("executing", tiledExec);
+        tiledTimer = window.setInterval(() => { if (tiledDone < info.tiledTiles) { setStatus(tiledLine()); tiledBar(); } }, 1000);
       },
       stop() {
-        if (kimTimer) window.clearInterval(kimTimer);
-        if (kimExec) comfyApi.removeEventListener("executing", kimExec);
+        if (tiledTimer) window.clearInterval(tiledTimer);
+        if (tiledExec) comfyApi.removeEventListener("executing", tiledExec);
       },
       onProgress: (v: number, m: number, nodeId?: string) => {
-        // the Kimchy upscaler runs one single-step sampler per tile, so each tile is one tick of 1/1
-        if (info.kimTiles && nodeId === "MM:hr_kimchy_upscale" && m === 1) {
-          if (v >= 1) { kimDurs.push(Date.now() - kimMark); kimMark = Date.now(); kimDone++; }
-          setStatus(kimLine()); kimBar();
+        // the TJ Tiled upscaler runs one single-step sampler per tile, so each tile is one tick of 1/1
+        if (info.tiledTiles && nodeId === "MM:hr_tiled_upscale" && m === 1) {
+          if (v >= 1) { tiledDurs.push(Date.now() - tiledMark); tiledMark = Date.now(); tiledDone++; }
+          setStatus(tiledLine()); tiledBar();
           return;
         }
-        // Latent Upscale (Use H3): the sampler is the step at the clip's own size (Kimchy) or the last step (H3 Latent Upscaler)
+        // Latent Upscale (Use H3): the sampler is the step at the clip's own size (TJ Tiled) or the last step (H3 Latent Upscaler)
         if (info.h3 && nodeId === "MM:hr_sampler") {
-          const hi = info.kimTiles ? info.kimLo : 95;
+          const hi = info.tiledTiles ? info.tiledLo : 95;
           barInner.style.width = `${(info.barBase + (hi - info.barBase) * (v / (m || 1))).toFixed(1)}%`;
-          setStatus(`Postprocess: ${info.kimTiles ? "step 1 at the clip's own size" : "last step"} — ${Math.round((v / (m || 1)) * 100)}%`);
+          setStatus(`Postprocess: ${info.tiledTiles ? "step 1 at the clip's own size" : "last step"} — ${Math.round((v / (m || 1)) * 100)}%`);
           return;
         }
         barInner.style.width = `${Math.round(info.barBase + (100 - info.barBase) * (v / (m || 1)))}%`;
@@ -5524,8 +5524,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       // to a real/final one.
       const ppMethod = (state.upscaleMode && state.upscaleMode !== "none" ? state.upscaleMode : "flashvsr") as string;
       let ltxState: any = null, h3State: any = null, h3Opts: any = null, usedPrompt = "";
-      let h3Cap = 0, kimTiles = 0, barBase = 0;   // barBase: share of the bar the prompt stages already used
-      let kimLo = 0;   // where the Kimchy tile step starts on the bar (after the first step)
+      let h3Cap = 0, tiledTiles = 0, barBase = 0;   // barBase: share of the bar the prompt stages already used
+      let tiledLo = 0;   // where the TJ Tiled tile step starts on the bar (after the first step)
       let h3Total = 0, h3Fps = FPS;   // the source's frame count and rate, for Split mode
       if (state.ppUpscaleOn && ppMethod === "h3lat") {
         const info: any = _ppSrcInfo || {};
@@ -5542,13 +5542,13 @@ export function renderMinimaxH3(container: HTMLElement) {
         h3Cap = frames;
         const w0 = info.width || sm0.w, h0 = info.height || sm0.h;
         const kind = ppH3Kind(state.ppSourceFullMeta);
-        if (state.ppH3Upscaler === "kimchy" && (w0 % 32 || h0 % 32)) throw new Error(`Latent Upscale (Use H3) needs a clip whose width and height are multiples of 32 (this one is ${w0}×${h0}).`);
+        if (state.ppH3Upscaler === "tiled" && (w0 % 32 || h0 % 32)) throw new Error(`Latent Upscale (Use H3) needs a clip whose width and height are multiples of 32 (this one is ${w0}×${h0}).`);
         const finalSize = sizeForMp(w0, h0, hiresMp(ppH3State(state, kind)).final);
         setStatus("Postprocess: writing the H3 prompt…");
         usedPrompt = await ppH3Prompt(frames / FPS);
         barBase = 25; barInner.style.width = "25%";
         h3State = ppH3State(state, kind);
-        if (state.ppH3Upscaler === "kimchy") { kimTiles = kimchyTileCount(w0, h0, hiresMp(h3State).final); kimLo = 55; }
+        if (state.ppH3Upscaler === "tiled") { tiledTiles = tiledTileCount(w0, h0, hiresMp(h3State).final); tiledLo = 55; }
         h3Opts = { promptText: usedPrompt, frames, srcSize: { width: w0, height: h0 }, finalSize, hasAudio: info.has_audio !== false, seed: randomSeed(),
           upscalerModel: PP_H3_UP_MODELS[state.ppH3UpModel] };
       }
@@ -5626,7 +5626,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         nodeId: instanceId, saveNode: built.saveNode, usedSteps: built.usedSteps,
         upscaleUsedInfo: built.upscaleUsedInfo || null, usedPrompt, full, startS, endS,
         source: state.ppSource, sourceMeta: state.ppSourceMeta, sourceFullMeta: state.ppSourceFullMeta,
-        kimTiles, kimLo, barBase, h3: !!h3Opts,
+        tiledTiles, tiledLo, barBase, h3: !!h3Opts,
       };
       const h3Split = !!(state.ppUpscaleOn && ppMethod === "h3lat" && full && state.ppH3Split);
       const segPlan: any = (state.ppUpscaleOn && ppMethod === "ltx" && full) ? await ltxSegmentPasses(state, state.ppSource, state.ppSourceMeta)
@@ -5889,7 +5889,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
-      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresKimStartMp: rs.hiresKimStartMp, hiresKimFinalMp: rs.hiresKimFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresSplitStep: rs.hiresSplitStep, hiresUpscaler: rs.hiresUpscaler,
+      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresTiledStartMp: rs.hiresTiledStartMp, hiresTiledFinalMp: rs.hiresTiledFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresSplitStep: rs.hiresSplitStep, hiresUpscaler: rs.hiresUpscaler,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
       // accel stays for pre-split readers only (this session's own Reuse now reads the axis
       // fields below directly) — a peer session on the node port confirmed accelMode is
@@ -6620,9 +6620,9 @@ export function renderMinimaxH3(container: HTMLElement) {
       state.hiresFinish = !!meta.hiresFinish;
       if (meta.hiresStartMp != null) state.hiresStartMp = meta.hiresStartMp;
       if (meta.hiresFinalMp != null) state.hiresFinalMp = meta.hiresFinalMp;
-      if (meta.hiresKimStartMp != null) state.hiresKimStartMp = meta.hiresKimStartMp;
-      if (meta.hiresKimFinalMp != null) state.hiresKimFinalMp = meta.hiresKimFinalMp;
-      state.hiresUpscaler = meta.hiresUpscaler === "kimchy" ? "kimchy" : "h3";
+      if ((meta.hiresTiledStartMp ?? meta.hiresKimStartMp) != null) state.hiresTiledStartMp = meta.hiresTiledStartMp ?? meta.hiresKimStartMp;
+      if ((meta.hiresTiledFinalMp ?? meta.hiresKimFinalMp) != null) state.hiresTiledFinalMp = meta.hiresTiledFinalMp ?? meta.hiresKimFinalMp;
+      state.hiresUpscaler = (meta.hiresUpscaler === "tiled" || meta.hiresUpscaler === "kimchy") ? "tiled" : "h3";
       if (meta.hiresChunkRows != null) state.hiresChunkRows = meta.hiresChunkRows;
       if (meta.hiresSplitStep != null) state.hiresSplitStep = meta.hiresSplitStep;
       if (meta.frames != null) state.clipFrames = meta.frames;

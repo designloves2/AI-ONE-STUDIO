@@ -1,5 +1,6 @@
 import "./style.css";
 import { createTopbar } from "./shared/topbar";
+import { startLlmLive } from "./shared/llmLive";
 import { renderLanding } from "./landing/menu";
 import { registerTool, startRouter } from "./router";
 import { renderMinimaxH3 } from "./tools/minimax_h3/view";
@@ -34,6 +35,7 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.className = "flex flex-col h-screen overflow-hidden";
 
 app.appendChild(createTopbar());
+startLlmLive();   // the LLM live line at the bottom-left (node web/shared/llm_live.js)
 
 const content = document.createElement("main");
 content.className = "flex-1 min-h-0 flex flex-col overflow-y-auto";

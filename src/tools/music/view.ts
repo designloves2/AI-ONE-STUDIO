@@ -18,6 +18,7 @@ import {
 } from "./core";
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
 import { comfyApi, jget, jpost, playableAudioUrl, uploadCoverAudio } from "./api";
+import { noteNativeGraph } from "../../shared/llmLive";
 import { openPianoRoll } from "./pianoRoll";
 import { melodySeconds } from "./melodyCore";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
@@ -1148,7 +1149,7 @@ export function renderMusic(container: HTMLElement) {
   async function submitPrompt(graph: any, label: string): Promise<any> {
     const body = { prompt: graph, client_id: comfyApi.clientId,
       extra_data: { extra_pnginfo: { workflow: { nodes: [], links: [], extra: { tj_music: label } } } } };
-    return comfyApi.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+    return comfyApi.fetchApi("/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).then((d) => { noteNativeGraph(graph, d?.prompt_id, comfyApi); return d; });
   }
 
   function cleanTitle(raw: string) {

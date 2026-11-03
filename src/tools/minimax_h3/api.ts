@@ -1,4 +1,5 @@
 import { getComfyBase } from "../../shared/comfyBase";
+import { LLM_LIVE_CLIENT_ID, noteNativeGraph } from "../../shared/llmLive";
 // api.ts — MiniMax H3의 백엔드 호출 (원본 web/minimax/api_minimax.js 이식).
 // 프롬프트 에디터의 LLM(Ollama) 기능은 ComfyUI가 서빙하는 `/minimax_h3_one/llm/*` 라우트를
 // 그대로 부르므로, 이 파일만으로도 ComfyUI가 CORS 허용 상태로 켜져 있으면 바로 동작한다
@@ -771,13 +772,9 @@ export async function deleteVideo(filename: string, subfolder?: string): Promise
   return r.json();
 }
 
-const CLIENT_ID = (() => {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return String(Math.random()).slice(2);
-  }
-})();
+// The page's shared websocket client: ComfyUI sends a prompt's progress events only to the client that queued it, and the LLM live line
+// (shared/llmLive.ts) listens on that socket.
+const CLIENT_ID = LLM_LIVE_CLIENT_ID;
 
 /**
  * Submits a small graph straight to /prompt and polls /history (no websocket needed —
@@ -802,6 +799,7 @@ async function submitGraph(promptGraph: Record<string, any>, timeoutMs = 1_200_0
     throw new Error((data.error.message || "queue failed") + detail);
   }
   const promptId = data.prompt_id as string;
+  noteNativeGraph(promptGraph, promptId);   // a TextGenerate graph shows the LLM live line
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     await new Promise((r) => setTimeout(r, 700));

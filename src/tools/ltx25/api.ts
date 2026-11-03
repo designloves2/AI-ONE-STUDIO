@@ -2,6 +2,7 @@
 // api.ts — /ltx25_one/* wrappers. Copy of ComfyUI-TJ_NODE_STUDIO_ONE/web/ltx25/api_ltx25.js (node v1.41.0); only the imports differ.
 // api_ltx25.js — Backend communication for LTX 2.5 ONE STUDIO (TJ)
 import { comfyApi as api } from "./comfyClient";
+import { noteNativeGraph } from "../../shared/llmLive";
 import { API, SUBFOLDER } from "./core";
 
 export async function getModels() {
@@ -569,6 +570,7 @@ export function queuePrompt(promptGraph, { onProgress, onNode, onQueued, sampler
         return;
       }
       promptId = data.prompt_id;
+      noteNativeGraph(promptGraph, promptId, api);   // a TextGenerate graph shows the LLM live line
       try { onQueued?.(promptId); } catch {}
       pollHistory();
     } catch (e) { finish(reject, e); }

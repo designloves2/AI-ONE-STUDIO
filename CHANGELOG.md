@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.18.0] — 2026-11-03
+
+### Added
+- **LLM live line** (node `web/shared/llm_live.js`, `SPEC_RELAY_LLM_LIVE_LOG.md`, node commits up to 1d387e5): a small line at the bottom-left of every page for each running LLM call, e.g. `thinking · 210 tok · 17 tok/s · 12 s` (backend and model in front only when several calls run). Phases reading input / thinking / writing / done / error, `~` before estimated numbers, `cut off (max tokens)` when the answer was cut, `no change for 30 s` for a streaming call that went quiet, done stays 5 s and error 8 s, at most 3 lines, seconds tick every second. Fed by the `tj_llm_progress` websocket event of the studio LLM routes (local GGUF and ComfyUI TextGenerate stream real counts; OpenRouter / Custom send start and end only, so their counts are estimates). TextGenerate graphs the page queues itself (H3 native brief / image analysis, LTX 2.5, MusicMaker) show the same line from ComfyUI's `progress` events. New module `src/shared/llmLive.ts`; H3's native graphs are now queued under the page's shared websocket client so their progress events reach the line. Needs a ComfyUI restart for the server side.
+
 ## [0.17.1] — 2026-11-03
 
 ### Added

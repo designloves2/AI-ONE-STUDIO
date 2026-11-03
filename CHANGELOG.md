@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.18.1] — 2026-11-03
+
+### Fixed
+- Image tools (Anima, Klein, Krea2, Moss, Qwen Image 2.1, Qwen Image Edit 2511, SDXL, Z-Image): the saved source / control image box checks with a `HEAD` request whether the file is gone (404). If you replaced the image while that check was still running, the old answer emptied the new image and forgot its saved file name, and Generate then said "No source image uploaded." Now the box compares its `src` with the one it started the check with and leaves a replaced image alone (node commit 8898422).
+
 ## [0.18.0] — 2026-11-03
 
 ### Added

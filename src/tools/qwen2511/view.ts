@@ -572,7 +572,9 @@ export function renderQwen2511(root: HTMLElement) {
     // and forget the saved name when the server says the file is gone (404). (node c79a4c9)
     img.addEventListener("error", async () => {
       if (!img.getAttribute("src")) return;
-      const gone = await fetch(img.src, { method: "HEAD" }).then((r) => r.status === 404, () => false);
+      const checked = img.src;
+      const gone = await fetch(checked, { method: "HEAD" }).then((r) => r.status === 404, () => false);
+      if (img.src !== checked) return;   // replaced while the check ran: leave the new image (and its saved name) alone
       img.style.display = "none";
       hint.style.display = "";
       clearBtn.style.display = "none";

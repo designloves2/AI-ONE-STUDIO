@@ -77,9 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.18.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.18.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-03 v0.18.1: 이미지 도구 8종의 원본 이미지 칸 — 404 확인 중에 이미지를 바꾸면 새 이미지가 지워지던 버그 수정(노드 8898422, `PORT_LEDGER.md` 행 81). 경쟁 상황 자체는 미검증.
 - 2026-11-03 v0.18.0: LLM 실시간 줄(화면 왼쪽 아래) 추가 — `src/shared/llmLive.ts`, `tj_llm_progress` + 웹이 직접 큐에 넣는 TextGenerate 그래프. `PORT_LEDGER.md` 행 80(행 79 정정). 로컬 GGUF 실제 호출로 줄(입력 읽는 중 -> 쓰는 중 토큰 수 -> 완료) 확인함. OpenRouter/Custom·네이티브 TextGenerate 그래프 실제 실행은 미검증.
 - 2026-11-03: 노드 e0f4075(LLM 라우트 `tj_llm_progress`/`call_id`/`usage`) 확인 — 서버만 바뀜, 웹 변경 없음(`PORT_LEDGER.md` 행 79). 웹에 `~토큰` 표시를 넣으려면 노드에 없는 UI라 표시 위치 결정이 먼저 필요.
 - 2026-11-03 v0.17.1: 설치 배치 `install_comfyui_dependencies.bat`에 Tiled 팩 추가(REPOS[26], ALT[26]), 설치 안내 문서 갱신. `PORT_LEDGER.md` 행 78(행 77의 "웹에 설치 목록 없음" 정정). 배치 실행은 미검증. 웹 배치는 노드의 목록(29번까지)보다 짧음 — 이번 지시 범위 밖.

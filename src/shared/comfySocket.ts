@@ -2,9 +2,10 @@
 // 각 도구는 자기만의 clientId로 별도 소켓을 쓰지만, 이 소켓들은 도구 페이지와 무관하게 항상
 //떠 있는 topbar 위젯용이라 페이지 전환에 영향받지 않는 자체 clientId/소켓 하나만 쓴다.
 import { getComfyBase, getComfyWsBase } from "./comfyBase";
+import { uuid } from "./uuid";
 
 export const COMFY_BASE = getComfyBase();
-export const CLIENT_ID = crypto.randomUUID();
+export const CLIENT_ID = uuid();
 
 type Listener = (data: any) => void;
 const listeners = new Map<string, Set<Listener>>();

@@ -1,4 +1,5 @@
 import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
+import { uuid } from "../../shared/uuid";
 // comfyClient.ts — ComfyUI 웹소켓 기반 이벤트/큐 클라이언트 (MusicMaker).
 // MiniMax H3의 comfyClient.ts와 동일 패턴. 원본 노드(one_node_music.js)는 ComfyUI의
 // scripts/api.js(`api`)를 그대로 썼고 — `api.clientId`, `api.fetchApi`,
@@ -11,11 +12,11 @@ const CLIENT_ID = (() => {
   try {
     const existing = sessionStorage.getItem("mmm_client_id");
     if (existing) return existing;
-    const id = crypto.randomUUID();
+    const id = uuid();
     sessionStorage.setItem("mmm_client_id", id);
     return id;
   } catch {
-    return crypto.randomUUID();
+    return uuid();
   }
 })();
 

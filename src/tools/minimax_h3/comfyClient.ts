@@ -1,4 +1,5 @@
 import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
+import { uuid } from "../../shared/uuid";
 import { API } from "./core";
 // comfyClient.ts — ComfyUI 웹소켓 기반 큐잉/이벤트 클라이언트.
 // 원본 ComfyUI 프론트엔드의 scripts/api.js(EventTarget 인터페이스)를 독립 사이트에서
@@ -21,11 +22,11 @@ const CLIENT_ID = (() => {
   try {
     const existing = sessionStorage.getItem("mmh3_client_id");
     if (existing) return existing;
-    const id = crypto.randomUUID();
+    const id = uuid();
     sessionStorage.setItem("mmh3_client_id", id);
     return id;
   } catch {
-    return crypto.randomUUID();
+    return uuid();
   }
 })();
 

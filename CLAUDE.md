@@ -77,9 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.18.2**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.18.3**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-08 v0.18.3: LAN 주소(http)로 열면 앱이 시작 못 하던 문제 수정 — `crypto.randomUUID()`는 보안 컨텍스트에서만 있음. 새 코드는 `src/shared/uuid.ts`의 `uuid()`를 쓸 것. `PORT_LEDGER.md` 행 83. 실제 다른 PC에서의 접속은 미검증.
 - 2026-11-08 v0.18.2: 전체 점검 — 버그 3건 수정(도구 화면을 다시 열 때마다 큐 감시 타이머가 쌓임: `src/shared/viewScope.ts`, 인용문 속 `@태그` 번역 실패: `bilingual.ts`, LLM 줄이 안 사라질 수 있음: `llmLive.ts`). `PORT_LEDGER.md` 행 82. 새 화면 코드에서 `setInterval`/`document.addEventListener`를 직접 쓰지 말고 `viewInterval`/`viewListener`를 쓸 것(라우터가 화면을 다시 그리므로).
 - 2026-11-03 v0.18.1: 이미지 도구 8종의 원본 이미지 칸 — 404 확인 중에 이미지를 바꾸면 새 이미지가 지워지던 버그 수정(노드 8898422, `PORT_LEDGER.md` 행 81). 경쟁 상황 자체는 미검증.
 - 2026-11-03 v0.18.0: LLM 실시간 줄(화면 왼쪽 아래) 추가 — `src/shared/llmLive.ts`, `tj_llm_progress` + 웹이 직접 큐에 넣는 TextGenerate 그래프. `PORT_LEDGER.md` 행 80(행 79 정정). 로컬 GGUF 실제 호출로 줄(입력 읽는 중 -> 쓰는 중 토큰 수 -> 완료) 확인함. OpenRouter/Custom·네이티브 TextGenerate 그래프 실제 실행은 미검증.

@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.18.3] — 2026-11-08
+
+### Fixed
+- **The app did not start when opened over plain http from another machine** (e.g. `http://192.168.x.x:8774`; `vite.config.ts` opens the dev server to the LAN on purpose). Eleven client modules and the shared socket called `crypto.randomUUID()` while the module loaded; that function exists only in secure contexts (https or localhost), so the call threw before anything was drawn. New `src/shared/uuid.ts` (`uuid()`: `randomUUID` when present, else a v4 id from `getRandomValues`, else `Math.random`) replaces every call (`shared/comfySocket.ts` and the `comfyClient.ts` of anima, klein, krea2, ltx25, minimax_h3, moss, music, qwen21, qwen2511, sdxl, zimage). The existing clipboard calls already have fallbacks.
+
 ## [0.18.2] — 2026-11-08
 
 Full audit of the web app (static review + checks in the browser). Three real bugs found and fixed:

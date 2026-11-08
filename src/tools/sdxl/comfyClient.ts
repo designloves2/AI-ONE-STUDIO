@@ -1,11 +1,12 @@
 import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
+import { uuid } from "../../shared/uuid";
 // comfyClient.ts — ComfyUI 웹소켓 큐잉/이벤트 클라이언트 (SDXL).
 // Krea2/H3와 동일 패턴 — clientId는 탭/페이지 로드마다 새로 발급 (localStorage에 영구 저장하면
 // 유령 소켓이 progress/executed 이벤트를 가로채는 문제가 있었음, 이 세션에서 실제로 겪은 버그).
 const BASE = getComfyBase();
 const WS_BASE = getComfyWsBase();
 
-const CLIENT_ID = crypto.randomUUID();
+const CLIENT_ID = uuid();
 
 type Listener = (detail: any) => void;
 const listeners = new Map<string, Set<Listener>>();

@@ -1,4 +1,5 @@
 import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
+import { uuid } from "../../shared/uuid";
 // comfyClient.ts — ComfyUI websocket + fetch client for LTX 2.5 ONE STUDIO.
 // Gives the ported node code the same `api` surface it was written against (ComfyUI's scripts/api.js):
 // addEventListener(type, ev => ev.detail...), removeEventListener, clientId, fetchApi.
@@ -10,11 +11,11 @@ const CLIENT_ID = (() => {
   try {
     const existing = sessionStorage.getItem("ltx25_client_id");
     if (existing) return existing;
-    const id = crypto.randomUUID();
+    const id = uuid();
     sessionStorage.setItem("ltx25_client_id", id);
     return id;
   } catch {
-    return crypto.randomUUID();
+    return uuid();
   }
 })();
 

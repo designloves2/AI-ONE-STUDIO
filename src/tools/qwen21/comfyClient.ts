@@ -1,10 +1,11 @@
 import { getComfyBase, getComfyWsBase } from "../../shared/comfyBase";
+import { uuid } from "../../shared/uuid";
 // comfyClient.ts — ComfyUI 웹소켓 큐잉/이벤트 클라이언트 (QWEN IMAGE 2.1). qwen2511/comfyClient.ts와
 // 100% 동일한 범용 구현 — 도구별 상태가 없으므로 그대로 복제.
 const BASE = getComfyBase();
 const WS_BASE = getComfyWsBase();
 
-const CLIENT_ID = crypto.randomUUID();
+const CLIENT_ID = uuid();
 
 type Listener = (detail: any) => void;
 const listeners = new Map<string, Set<Listener>>();

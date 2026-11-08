@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.18.5] — 2026-11-08
+
+### Fixed
+- **LTX 2.5: the Resize settings and "Save unprocessed" were lost on every reload** (node commit a74267c). `defaultState()` in `src/tools/ltx25/core.ts` is an allow-list; the screen saved `resizeMode`, `resizeUpscaleMethod`, `resizeTargetPx`, `resizeRatioW`, `resizeRatioH`, `resizeMegapixels`, `resizeTargetWidth`, `resizeTargetHeight`, `resizeCropMode` and `saveUnprocessed`, but they were not in the list, so loading dropped them. Added with the node's defaults. The same check (keys the screen writes vs. keys in `defaultState`) found nothing missing in H3, Krea 2, Z-Image, Klein, Qwen 2.1, Qwen 2511, SDXL, Anima, Moss and MusicMaker.
+
 ## [0.18.4] — 2026-11-08
 
 ### Changed

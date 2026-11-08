@@ -1171,6 +1171,17 @@ export function defaultState(saved) {
     ppInterpolateTargetFps: saved.ppInterpolateTargetFps ?? null,
     ppInterpolateScale: saved.ppInterpolateScale ?? 1.0,
     ppResizeOn: saved.ppResizeOn ?? false,
+    // Resize bar / post-process settings and "save unprocessed": written by the screen, so they must be listed here or they are lost on reload
+    resizeMode: saved.resizeMode || "Long side",
+    resizeUpscaleMethod: saved.resizeUpscaleMethod || "lanczos",
+    resizeTargetPx: saved.resizeTargetPx ?? 1920,
+    resizeRatioW: saved.resizeRatioW ?? 16,
+    resizeRatioH: saved.resizeRatioH ?? 9,
+    resizeMegapixels: saved.resizeMegapixels ?? 1.0,
+    resizeTargetWidth: saved.resizeTargetWidth ?? 1920,
+    resizeTargetHeight: saved.resizeTargetHeight ?? 1080,
+    resizeCropMode: saved.resizeCropMode || "crop",
+    saveUnprocessed: saved.saveUnprocessed ?? false,
   };
 }
 

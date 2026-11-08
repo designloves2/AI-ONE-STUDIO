@@ -60,7 +60,7 @@ function lineText(c: Call, now: number, withName: boolean): string {
 
 function render() {
   const now = Date.now();
-  for (const [id, c] of calls) if (c.hideAt && now > c.hideAt) calls.delete(id);
+  for (const [id, c] of calls) if ((c.hideAt && now > c.hideAt) || now - c.seen > 30 * 60 * 1000) calls.delete(id);
   const b = ensureBox();
   if (!calls.size) { b.style.display = "none"; return; }
   b.style.display = "flex";
@@ -90,11 +90,20 @@ function onEvent(ev: LiveEvent | null | undefined) {
 
 // ── ComfyUI TextGenerate run through the queue ─────────────────────────────────────────────────────────────────────────────
 const natives = new Map<string, { nodes: Record<string, number>; model: string; start: number }>();   // prompt_id -> its TextGenerate nodes
+// A cached graph can finish before the queue answer reaches this page: its end event arrives first, with nothing registered yet.
+// Remember such prompt ids briefly so noteNativeGraph() does not open a line that nothing would ever close.
+const endedEarly = new Map<string, number>();
+function rememberEnded(pid: string) {
+  const now = Date.now();
+  endedEarly.set(pid, now);
+  for (const [id, t] of endedEarly) if (now - t > 60000) endedEarly.delete(id);
+}
 
 /** Call right after a graph was queued from this page (with the prompt_id the server answered). Graphs without a TextGenerate node are ignored. */
 export function noteNativeGraph(graph: any, promptId: any, api?: { addEventListener: (type: string, fn: (e: any) => void) => void }) {
   try {
     if (!graph || typeof graph !== "object" || !promptId) return;
+    if (endedEarly.has(String(promptId))) return;
     const nodes: Record<string, number> = {};
     let model = "";
     for (const [id, n] of Object.entries<any>(graph)) {
@@ -128,7 +137,7 @@ const onProgress = (d: any) => {
 const onEnd = (phase: string) => (d: any) => {
   const pid = String(d?.prompt_id || "");
   const info = natives.get(pid);
-  if (!info) return;
+  if (!info) { if (pid) rememberEnded(pid); return; }
   const prev = calls.get("native-" + pid);
   nativeEvent(pid, phase, prev?.ev?.output_tokens || 0, Math.max(...Object.values(info.nodes)),
     { finish_reason: prev?.ev?.finish_reason || (phase === "error" ? "error" : "stop") });

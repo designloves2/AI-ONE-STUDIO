@@ -3,6 +3,7 @@
 // 외부 큐 배너)을 따르되, Krea2는 단발성(single-shot) 생성이라 릴레이 루프가 없다.
 // 상태 필드/그래프는 원본 web/krea2/*.js 와 1:1로 맞춘다 (core.ts/graphBuilder.ts 주석 참고).
 import type { Krea2State } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, DEPTH_CKPTS, SEND_TO,
@@ -780,7 +781,7 @@ export function renderKrea2(root: HTMLElement) {
 
   // ── External queue banner (ComfyUI 실제 큐 상태 폴링) ─────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -894,7 +895,7 @@ export function renderKrea2(root: HTMLElement) {
   // ── ESC로 열려있는 오버레이 닫기 (원본 동일 동작) ───────────────────────────
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

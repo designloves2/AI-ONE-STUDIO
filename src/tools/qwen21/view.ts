@@ -5,6 +5,7 @@
 // (imageSlot)를 그대로 재사용하고, Edit/Inpaint는 마스크 파일 대신 새 드로잉 도구(maskDraw.ts)로
 // 주석을 그려 추가 레퍼런스 이미지로 넣는다.
 import type { Q21State, Q21Mode, PaintSubMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, SUBFOLDER, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, MAX_REF_IMAGES, MAX_EDIT_EXTRA, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
@@ -1044,7 +1045,7 @@ export function renderQwen21(root: HTMLElement) {
 
   // ── External queue banner ─────────────────────────────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -1184,7 +1185,7 @@ export function renderQwen21(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

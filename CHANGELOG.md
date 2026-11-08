@@ -3,6 +3,15 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.18.2] — 2026-11-08
+
+Full audit of the web app (static review + checks in the browser). Three real bugs found and fixed:
+
+### Fixed
+- **Timers and global listeners piled up with every visit to a tool.** `router.ts` redraws the whole screen on each hash change, but the 8 image tools (Anima, Klein, Krea2, Moss, Qwen Image 2.1, Qwen Image Edit 2511, SDXL, Z-Image) and MiniMax H3 started a 4-second ComfyUI `/queue` poll (and the image tools an Esc key handler) that nothing stopped. Measured: 1 visit = 2 `/queue` requests per 8 s, 5 visits = 11 per 8 s, still running on the landing page. New `src/shared/viewScope.ts` (`viewInterval`, `viewListener`, `disposeView()`); the router calls `disposeView()` before drawing the next screen. After the fix: 6 visits = still 1 poller, 0 requests on the landing page.
+- **A quoted line containing an `@tag` could not be translated.** In `bilingual.ts` the `@tag` is masked first and the quote around it afterwards, so the quote's marker held another marker; `unmaskProtected()` did not expand it and rejected the translation (`says "Hello @maya"` always failed with "lost or repeated a protected part"). Nested markers are now expanded (and counted as used); lost or doubled markers are still rejected. The same logic is in the node's `bilingual.js` (reported to the studio session).
+- **LLM live line could stay on screen for ever** (`llmLive.ts`): a cached TextGenerate graph can finish before the queue answer reaches the page, so its end event came first and the line opened afterwards was never closed. Such prompt ids are now remembered for a minute, and any line that heard nothing for 30 minutes is dropped.
+
 ## [0.18.1] — 2026-11-03
 
 ### Fixed

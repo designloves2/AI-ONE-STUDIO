@@ -46,13 +46,16 @@ export function maskProtected(text: any, extra: any[] = []) {
 export function unmaskProtected(translated: any, tokens: string[]): string | null {
   const seen = new Set<number>();
   let ok = true;
-  const out = String(translated || "").replace(MARK_RE, (_: string, n: string) => {
+  // A protected part can hold an earlier marker (an @token inside quoted speech is masked first, then the quote around it),
+  // so a token is expanded again for the markers it contains; those count as used too.
+  const expand = (text: string, depth: number): string => depth > 8 ? text : text.replace(MARK_RE, (_: string, n: string) => {
     const i = Number(n);
     if (!(i in tokens)) return "";   // a marker the model made up
     if (seen.has(i)) { ok = false; return ""; }
     seen.add(i);
-    return tokens[i];
+    return expand(tokens[i], depth + 1);
   });
+  const out = expand(String(translated || ""), 0);
   return ok && seen.size === tokens.length ? out : null;
 }
 

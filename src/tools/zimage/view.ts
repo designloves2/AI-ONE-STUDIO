@@ -5,6 +5,7 @@
 // 7개 모드 버튼 전부 노출(원본 one_node_z_image_turbo.js MODES 그대로) — 미구현 모드(Phase 2:
 // Inpaint/Re-BG/ControlNet/Face Redraw)는 좌측에 "Coming soon" 안내만 표시하고 Generate는 막는다.
 import type { ZImageState, ZImageMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO, IMPLEMENTED_MODES,
@@ -751,7 +752,7 @@ export function renderZImage(root: HTMLElement) {
 
   // ── External queue banner ─────────────────────────────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -880,7 +881,7 @@ export function renderZImage(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

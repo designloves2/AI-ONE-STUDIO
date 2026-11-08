@@ -2,6 +2,7 @@
 // Send-to/Compare/Reset/Unload/Settings/Gallery/Help 패턴)을 그대로 따르되, Anima 고유의 4모드
 // (T2I/Inpainting/Any Control/Depth Control)와 TURBO 토글(Steps/CFG 자동 전환)을 반영한다.
 import type { AnimaState, AnimaMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS, SEND_TO,
   SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG, LORA_UI_CAP,
@@ -244,7 +245,7 @@ export function renderAnima(root: HTMLElement) {
 
   // ── External queue banner (ComfyUI 실제 큐 상태 폴링) ─────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -759,7 +760,7 @@ export function renderAnima(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

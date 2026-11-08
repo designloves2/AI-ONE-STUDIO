@@ -2,6 +2,7 @@
 // 패턴(450px 좌측 패널, 180px 프롬프트, Generate/Stop 동일 위치)을 재사용하되, Klein 고유
 // 기능(KV Cache 토글, Inpaint↔Outpaint 서브모드, Edit 다중 레퍼런스, Faceswap 전용 LoRA)을 추가한다.
 import type { KleinState, KleinMode, PaintSubMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, MAX_EDIT_REFS, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
@@ -757,7 +758,7 @@ export function renderKlein(root: HTMLElement) {
 
   // ── External queue banner ─────────────────────────────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -886,7 +887,7 @@ export function renderKlein(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

@@ -4,6 +4,7 @@
 // 원본에 없으므로 이식하지 않는다. Templates/Prompt-Expand는 원본에도 있고(pool="sdxl") 이 사이트
 // 초기 포팅 때 빠졌던 것 — SPEC_PROMPT_TEMPLATE_SYNC.md 계기로 추가.
 import type { SDXLState, SDXLMode, UpscaleMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
@@ -651,7 +652,7 @@ export function renderSDXL(root: HTMLElement) {
   renderLeftPanel();
 
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -780,7 +781,7 @@ export function renderSDXL(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

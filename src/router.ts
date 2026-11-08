@@ -1,5 +1,6 @@
 // router.ts — 해시 기반 수동 화면 전환 (SPA 라우터 불필요, 도구 6개뿐)
 import { TOOLS, toolFromHash, type ToolId } from "./shared/tools";
+import { disposeView } from "./shared/viewScope";
 
 export type RenderFn = (container: HTMLElement) => void;
 
@@ -27,6 +28,7 @@ export function startRouter(container: HTMLElement, renderLanding: RenderFn) {
   function render() {
     const hash = location.hash || "";
     const tool = toolFromHash(hash);
+    disposeView();   // timers / global listeners of the screen that is being replaced
     container.innerHTML = "";
 
     if (!tool) {

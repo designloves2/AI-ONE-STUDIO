@@ -3,6 +3,7 @@
 // 반영한다. 원본 근거: ComfyUI-TJ_NODE_STUDIO_ONE/web/moss/one_node_moss.js (node f730ee9, ca925eb, 680f142).
 // 노드 전용(Prompt/pipe Override, prompt/settings 출력, ModelPreviewOverrideKJ 라이브 프리뷰, 1310x1034 크기)은 옮기지 않는다.
 import type { MossState, MossMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS, SEND_TO, LORA_UI_CAP, snap16,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed,
@@ -244,7 +245,7 @@ export function renderMoss(root: HTMLElement) {
 
   // ── External queue banner (ComfyUI 실제 큐 상태 폴링) ─────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -764,7 +765,7 @@ export function renderMoss(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

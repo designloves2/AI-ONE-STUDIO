@@ -2,6 +2,7 @@
 // Send-to/Compare/Reset/Unload/Settings/Gallery/Help 패턴)을 그대로 따르되, KV Cache 버튼은 없고
 // 대신 7개 모드(T2I/I2I/EDIT/PAINT/FACESWAP/ANGLE/UPSCALE)와 ANGLE 모드의 3D 카메라 컨트롤을 추가한다.
 import type { QEState, QEMode, PaintSubMode } from "./core";
+import { viewInterval, viewListener } from "../../shared/viewScope";
 import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS,
   LORA_UI_CAP, MAX_EDIT_REFS, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
@@ -805,7 +806,7 @@ export function renderQwen2511(root: HTMLElement) {
 
   // ── External queue banner ─────────────────────────────────────────────
   function startQueuePolling() {
-    setInterval(async () => {
+    viewInterval(async () => {
       const q = await api.getQueueStatus();
       if (samplingActive) { externalQueueBanner.style.display = "none"; return; }
       if (queuedPromptId && (q.runningPromptIds.includes(queuedPromptId) || q.pendingPromptIds.includes(queuedPromptId))) {
@@ -934,7 +935,7 @@ export function renderQwen2511(root: HTMLElement) {
 
   applyMobileCollapsibleLayout(body, leftPanel, leftScroll, rightPanel);
 
-  document.addEventListener("keydown", (e) => {
+  viewListener(document, "keydown", (e) => {
     if (e.key !== "Escape") return;
     if (promptExpandOv.el.style.display !== "none") { promptExpandOv.hide(); return; }
     if (templateOv.el.style.display !== "none") { templateOv.hide(); return; }

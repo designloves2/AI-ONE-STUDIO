@@ -4,6 +4,7 @@
 // 살려 좌측 컨트롤 레일(고정폭, 스크롤) + 우측 프리뷰/프롬프트(넓은 가변폭)로 재배치했다.
 // 백엔드 연결은 다음 단계(§4-2) — 지금은 정적 UI + 로컬 상태 저장까지만 동작한다.
 import type { MinimaxState } from "./core";
+import { viewInterval } from "../../shared/viewScope";
 import {
   ASPECTS,
   IMAGE_GEN_MODES,
@@ -1222,7 +1223,7 @@ export function renderMinimaxH3(container: HTMLElement) {
       }
     };
     poll();
-    queuePollTimer = window.setInterval(poll, 4000);
+    queuePollTimer = viewInterval(poll, 4000);   // stops when the screen is replaced
   }
 
   let runStart = 0;

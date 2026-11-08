@@ -1002,6 +1002,8 @@ export function ppH3State(s: any, kind = "fl"): any {
     clipName: s.clipName, vaeVideo: s.vaeVideo, vaeAudio: s.vaeAudio,
     // the LoRAs are Postprocess's own
     turboMode: s.ppH3TurboMode, pddFile: s.ppH3PddFile, pddFileReference: s.ppH3PddFileReference, pddLoraStrength: s.ppH3PddStrength,
+    // Postprocess has no Start MP of its own: 0.1 (the smallest allowed Final MP) keeps hiresMp() from raising its Final MP
+    hiresStartMp: 0.1, hiresTiledStartMp: 0.1,
     hiresUpscaler: s.ppH3Upscaler, hiresFinalMp: s.ppH3FinalMp, hiresTiledFinalMp: s.ppH3TiledFinalMp,
     hiresChunkRows: s.ppH3ChunkRows, hiresNoOpt: s.ppH3NoOpt,
     loras: [], sampler: "euler", scheduler: "simple", shiftVideo: 12, shiftAudio: 3,
@@ -1033,9 +1035,11 @@ export function hiresSplitStep(state: any): number {
 
 /** Start / Final MP of the selected 7+1 upscaler — A and B keep separate values. */
 export function hiresMp(state: any): { start: number; final: number } {
-  return state.hiresUpscaler === "tiled"
+  const mp = state.hiresUpscaler === "tiled"
     ? { start: state.hiresTiledStartMp ?? 0.5, final: state.hiresTiledFinalMp ?? 2.0 }
     : { start: state.hiresStartMp ?? 0.7, final: state.hiresFinalMp ?? 1.6 };
+  // The second stage is an upscale: a Final MP below Start MP would shrink the picture, so it is raised to Start MP.
+  return { start: mp.start, final: Math.max(mp.final, mp.start) };
 }
 
 /** Stage-1 size, the size the latent upscaler lands on (both 32-aligned), and the ratio between them. */

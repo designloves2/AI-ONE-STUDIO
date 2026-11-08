@@ -2317,7 +2317,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     // (a rebuild put the column back at the top while you were typing).
     const hiresText = () => {
       const hs = hiresSizes(state);
-      return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale})`;
+      const mp = hiresMp(state);
+      const rawFinal = state.hiresUpscaler === "tiled" ? (state.hiresTiledFinalMp ?? 2.0) : (state.hiresFinalMp ?? 1.6);
+      const raised = rawFinal < mp.start ? " · Final MP is below Start MP, so it is raised to Start MP" : "";
+      return `${hs.start.width}×${hs.start.height} → ${hs.final.width}×${hs.final.height} (×${hs.scale})${raised}`;
     };
     const hiresLine = el("div", { text: hiresText(), style: { fontSize: "10px", color: C.muted } });
     // the 8 turbo steps are split in two: the LOW Sigma steps are typed in, the HIGH Sigma steps are 8 minus that

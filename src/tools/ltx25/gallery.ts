@@ -1065,7 +1065,7 @@ export function createGalleryOverlay(state, ctx) {
       colorFix: fvsrColorFixCb.checked,
       tileSize: Math.min(1024, Math.max(32, parseInt(fvsrTileIn.value, 10) || 384)),
       tileOverlap: Math.min(512, Math.max(8, parseInt(fvsrOverlapIn.value, 10) || 32)),
-      seed: parseInt(fvsrSeedIn.value, 10) || 42,
+      seed: Number.isFinite(parseInt(fvsrSeedIn.value, 10)) ? parseInt(fvsrSeedIn.value, 10) : 42,   // 0 = random (the graph builder draws it)
     } : null;
     const rtxSizeMode = rtxSizeModeSel.value;
     // This file's own probed resolution — Short/Long/W×H each compute against it, not a

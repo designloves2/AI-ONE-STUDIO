@@ -3,6 +3,12 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.18.4] — 2026-11-08
+
+### Changed
+- **Split Sigma: Final MP can no longer be lower than Start MP** (web-only change, asked by the user). The second stage is an upscale, but a Final MP below Start MP shrank the picture. `hiresMp()` now raises Final MP to Start MP (both upscalers), so the size line, the graph and the Tiled node all use the raised value, and the size line says `Final MP is below Start MP, so it is raised to Start MP`. The typed value is kept, so raising Start MP again brings it back. Postprocess -> Latent Upscale (Use H3) has no Start MP and is not affected (`ppH3State` passes the smallest Start MP, 0.1).
+- **FlashVSR seed 0 now means a random seed** (LTX 2.5 and MiniMax H3). Before, the LTX gallery turned 0 into 42 and the other paths ran with seed 0. `buildFlashVSR` draws a random seed when it gets 0 and writes it into the params object, so the clip metadata records the seed that really ran. The saved value stays 0, so every run is a new random one; an empty / non-numeric value in the LTX gallery still means 42.
+
 ## [0.18.3] — 2026-11-08
 
 ### Fixed

@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, hiresSplitStep, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
+import { randomSeed, SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, hiresSplitStep, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -184,6 +184,8 @@ export interface FlashVSRParams {
 // everything else below is fixed at the values from the shipped API workflow
 // ([TJ]FlashVSR-Upscale.json) and never surfaced.
 function buildFlashVSR(g: Graph, pipeId: string, nodeId: string, p: FlashVSRParams, images: any) {
+  // Seed 0 means a random seed. Set on the params object itself so flashvsrUsed() (clip metadata) records the seed that ran.
+  if (p && p.seed != null && Number(p.seed) === 0) p.seed = randomSeed();
   g[pipeId] = { class_type: "FlashVSRInitPipe", inputs: {
     model: p.model || "FlashVSR-v1.1",
     mode: p.mode || "tiny",

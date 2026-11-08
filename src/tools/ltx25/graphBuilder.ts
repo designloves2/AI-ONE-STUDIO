@@ -9,7 +9,7 @@
 //
 // Optional third-party nodes are gated on `avail` (from /ltx25_one/node_availability):
 // a missing pack disables that one feature rather than failing the whole prompt.
-import { SUBFOLDER, FPS, DEFAULT_FRAMES, emptyTimeline, resolveResolution, computeRtxTarget } from "./core";
+import { randomSeed, SUBFOLDER, FPS, DEFAULT_FRAMES, emptyTimeline, resolveResolution, computeRtxTarget } from "./core";
 
 // Builds the RTXVideoSuperResolution node (+ an optional ImageCrop node ahead of it for
 // the "wh" size mode's forced crop, per computeRtxTarget) and returns the final image
@@ -153,6 +153,8 @@ function saveVideoNode(g, ids, images, audio, fps, filenamePrefix, avail, previe
 // overlap/seed/seed control); everything else below is fixed at the values from the
 // shipped API workflow ([TJ]FlashVSR-Upscale.json) and never surfaced.
 function buildFlashVSR(g, pipeId, nodeId, p, images) {
+  // Seed 0 means a random seed. Set on the params object itself so flashvsrUsed() (clip metadata) records the seed that ran.
+  if (p && p.seed != null && Number(p.seed) === 0) p.seed = randomSeed();
   g[pipeId] = { class_type: "FlashVSRInitPipe", inputs: {
     model: p.model || "FlashVSR-v1.1",
     mode: p.mode || "tiny",

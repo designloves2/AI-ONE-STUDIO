@@ -2571,6 +2571,77 @@ export function buildCharacterSheetGridGraph(opts: CharacterSheetGridOpts, avail
   return { graph: g, saveNode: CSG.save };
 }
 
+// ── Official MiniMax H3 Image nodes — Text to Image / Reference to Image ────────────
+//
+// UNETLoader → (LoRAs) → KSampler, CLIPLoader(minimax) + VAELoader →
+// MiniMaxH3ImageConditioning (+ ConditioningZeroOut as the negative) → VAEDecode → Save.
+// Character Sheet does NOT use this: it keeps buildImageGenGraph's video-pipeline route.
+const IMGO = {
+  unet: "IMGO:unet", clip: "IMGO:clip", vae: "IMGO:vae", cond: "IMGO:cond", neg: "IMGO:neg",
+  sampler: "IMGO:sampler", decode: "IMGO:decode", save: "IMGO:save",
+  ref: (i: number) => `IMGO:ref_${i}`, refMp: (i: number) => `IMGO:refmp_${i}`, refSnap: (i: number) => `IMGO:refsnap_${i}`,
+};
+
+export interface OfficialImageOpts {
+  subMode: "t2i" | "ref2i";
+  final: boolean;
+  refImages?: string[] | null;
+  refImageMps?: number[];   // per reference image: megapixels to scale it to, 0 = send as uploaded
+  prompt: string;
+  seed: number;
+  previewRes: { width: number; height: number };
+  finalRes: { width: number; height: number };
+  filenamePrefix: string;
+  steps?: number;
+  savePreview?: boolean;
+}
+
+export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | undefined, opts: OfficialImageOpts) {
+  const { subMode, final, refImages, refImageMps, prompt, seed, previewRes, finalRes, filenamePrefix, steps, savePreview } = opts;
+  for (const n of ["MiniMaxH3ImageConditioning", "ConditioningZeroOut"])
+    if (!has(avail, n)) throw new Error(`${n} is not available — update ComfyUI to a version with the official MiniMax H3 Image nodes, then restart.`);
+  const refList = (refImages || []).filter(Boolean).slice(0, 9);
+  if (subMode === "ref2i" && !refList.length) throw new Error("Reference to Image needs at least one reference image.");
+  if (refList.length && !has(avail, "ResizeImageMaskNode")) throw new Error("ResizeImageMaskNode is not available — update ComfyUI.");
+  const pick = (own: string | undefined, fallback: string | undefined) => (own && own !== "none") ? own : fallback;
+  const unetName = subMode === "ref2i" ? pick(state.imgUnetRef2i, state.unetReference) : pick(state.imgUnetT2i, state.unetFirstLast);
+  const clipName = pick(state.imgClip, state.clipName), vaeName = pick(state.imgVae, state.vaeVideo);
+  if (!unetName || unetName === "none") throw new Error("Image MODEL is not set — check ⚙ Settings → H3 Model → Image Generator models.");
+  if (!clipName || clipName === "none") throw new Error("Image CLIP is not set — check ⚙ Settings → H3 Model.");
+  if (!vaeName || vaeName === "none") throw new Error("Image VAE is not set — check ⚙ Settings → H3 Model.");
+  const res = final ? finalRes : previewRes;
+  const g: Graph = {};
+  g[IMGO.unet] = { class_type: "UNETLoader", inputs: { unet_name: unetName, weight_dtype: "default" } };
+  const model = buildImageLoraChain(g, state, [IMGO.unet, 0]);
+  g[IMGO.clip] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "minimax", device: "default" } };
+  g[IMGO.vae] = { class_type: "VAELoader", inputs: { vae_name: vaeName } };
+
+  const condInputs: Record<string, any> = { clip: [IMGO.clip, 0], vae: [IMGO.vae, 0], prompt, width: res.width, height: res.height };
+  refList.forEach((name, i) => {
+    g[IMGO.ref(i)] = { class_type: "LoadImage", inputs: { image: name } };
+    let link: any = [IMGO.ref(i), 0];
+    const mp = Number(refImageMps?.[i] ?? 1.0);
+    if (mp > 0) {   // 0 = send as uploaded
+      g[IMGO.refMp(i)] = { class_type: "ResizeImageMaskNode", inputs: {
+        input: link, resize_type: "scale total pixels", "resize_type.megapixels": mp, scale_method: "area" } };
+      link = [IMGO.refMp(i), 0];
+    }
+    g[IMGO.refSnap(i)] = { class_type: "ResizeImageMaskNode", inputs: {
+      input: link, resize_type: "scale to multiple", "resize_type.multiple": 32, scale_method: "area" } };
+    condInputs[`images.image_${i}`] = [IMGO.refSnap(i), 0];
+  });
+  g[IMGO.cond] = { class_type: "MiniMaxH3ImageConditioning", inputs: condInputs };
+  g[IMGO.neg] = { class_type: "ConditioningZeroOut", inputs: { conditioning: [IMGO.cond, 0] } };
+  g[IMGO.sampler] = { class_type: "KSampler", inputs: {
+    model, positive: [IMGO.cond, 0], negative: [IMGO.neg, 0], latent_image: [IMGO.cond, 1],
+    seed: seed ?? 0, steps: Math.max(1, Math.round(steps ?? 6)), cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 } };
+  g[IMGO.decode] = { class_type: "VAEDecode", inputs: { samples: [IMGO.sampler, 0], vae: [IMGO.vae, 0] } };
+  g[IMGO.save] = (final || savePreview)
+    ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [IMGO.decode, 0] } }
+    : { class_type: "PreviewImage", inputs: { images: [IMGO.decode, 0] } };
+  return { graph: g, saveNode: IMGO.save };
+}
+
 // ── H3 image gallery post-process (Deblur + RTX VSR only) ─────────────────────────────
 //
 // The dedicated H3 image gallery keeps only Deblur/RTX VSR from the video gallery's wider

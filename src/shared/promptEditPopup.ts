@@ -62,7 +62,7 @@ export interface PromptEditPopupConfig {
    * against — every per-tool default lives here instead, applied from loadModelsOnce()'s own
    * populateSelect() call once the list is actually populated.
    */
-  defaultModelFormat?: string;
+  defaultModelFormat?: string | (() => string);
   /** A tool's own system prompt for Prompt Enhance (a string, or a function of the current mode), sent as system_override in
    *  place of the generic Model Format one. Refine keeps its own instruction (node attachLLMPanel `systemPrompt`). */
   systemPrompt?: string | (() => string);
@@ -83,6 +83,9 @@ export interface PromptEditPopupHandle {
   /** Refine on the tool's main prompt without opening Prompt Edit (node `llmApi.refine()`): instruction popup -> LLM ->
    *  original / refined compare -> Apply writes the current mode's prompt back. */
   refine(): Promise<void>;
+  /** Set the Model Format to the tool's current default (a function `defaultModelFormat` follows the tool's mode), also over a format the
+   *  user picked by hand — called when the mode changes (node attachLLMPanel `syncFormat`). */
+  syncFormat(): void;
 }
 
 function selStyle(sel: HTMLSelectElement) {
@@ -736,6 +739,17 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     });
   }
 
+  // defaultModelFormat may be a function of the tool's current mode (H3 Image Generator: Text to Image / Reference to Image).
+  const resolveDefaultFormat = (): string => (typeof cfg.defaultModelFormat === "function" ? cfg.defaultModelFormat() : cfg.defaultModelFormat) || "";
+  /** `force` (a mode switch) sets it even after the user picked another format by hand. */
+  function syncFormat() {
+    const want = resolveDefaultFormat();
+    if (!want || !Array.from(modelFmtSel.options).some((o) => o.value === want)) return;
+    llm.model_format = want;
+    modelFmtSel.value = want;
+    saveLLM();
+  }
+
   // ── load model lists once ─────────────────────────────────────────────
   let modelsLoaded = false;
   function populateSelect(sel: HTMLSelectElement, opts: string[], current: string) {
@@ -760,7 +774,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       if (d.mmproj?.length) populateSelect(mmprojSel, ["none", ...d.mmproj.filter((m: string) => m !== "none")], llm.mmproj_file || "none");
       if (d.vision_tasks?.length) populateSelect(vtSel, d.vision_tasks, llm.vision_task!);
       if (d.model_formats?.length) {
-        const def = cfg.defaultModelFormat;
+        const def = resolveDefaultFormat();
         const shouldApplyDefault = def && d.model_formats.includes(def) && !modelFormatTouched;
         if (shouldApplyDefault) { llm.model_format = def; saveLLM(); }
         populateSelect(modelFmtSel, d.model_formats, llm.model_format!);
@@ -795,5 +809,5 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
     return promptTA.value;
   }
 
-  return { el: ov, show, hide, enhance, refine: refineMain };
+  return { el: ov, show, hide, enhance, refine: refineMain, syncFormat };
 }

@@ -126,7 +126,7 @@ import { comfyApi, queuePrompt } from "./comfyClient";
 import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
-import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildImageGenGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
+import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildOfficialImageGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
 import { hiresActive, hiresSizes, hiresMp, hiresSplitStep, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, tiledTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
 import { attachBilingual, type BilingualHandle } from "../../shared/bilingualUi";
 import { ensureEnglish, fieldNeedsEnglish, fieldSetBoth } from "../../shared/bilingual";
@@ -1331,6 +1331,14 @@ export function renderMinimaxH3(container: HTMLElement) {
   // have, with this tool's own pool; opened by imgTemplateOv (mounted next to promptEditOv).
   const tplBtn = el("button", { type: "button", text: "📋 Templates", title: "Prompt templates and tag presets", style: { ...smallBtnStyle, display: "none", border: `1px solid ${BRAND}`, fontWeight: "600" } });
   tplBtn.addEventListener("click", () => imgTemplateOv?.show());
+  // Auto Enhance (Image Generator T2I / Ref2I): run Prompt Enhance on the prompt right before Generate
+  const autoEnhChk = el("input", { type: "checkbox", style: { cursor: "pointer", margin: "0" } }) as HTMLInputElement;
+  autoEnhChk.checked = !!state.imgAutoEnhance;
+  autoEnhChk.addEventListener("change", () => { state.imgAutoEnhance = autoEnhChk.checked; persist(); });
+  const autoEnhLbl = el("label", {
+    title: "Automatically run Prompt Enhance on the current prompt right before Generate, updating the prompt in place.",
+    style: { display: "none", alignItems: "center", gap: "4px", fontSize: "11px", color: C.muted, cursor: "pointer", marginLeft: "auto" },
+  }, [autoEnhChk, el("span", { text: "Auto Enhance" })]);
   let imgTemplateOv: ReturnType<typeof createTemplateOverlay> | null = null;
   // Character Sheet's own pair, same slot as writeBtn/editBtn — occupies that spot instead of a separate row.
   const sysPromptSaveBtn = el("button", { type: "button", text: "💾 System Prompt Save", title: "Save the current box contents as the system prompt", style: { ...smallBtnStyle, display: "none", border: `1px solid ${BRAND}`, fontWeight: "600", marginLeft: "auto" } });
@@ -1361,7 +1369,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // Merge clips: the counterpart of Split into clips; the dialog lives in Prompt Edit
   const mergeBtn = el("button", { type: "button", text: "🔗 Merge clips", title: "Join clips into longer ones: pick which clips go together", style: smallBtnStyle });
   mergeBtn.addEventListener("click", () => { void promptEditOv?.openMerge(); });
-  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, mergeBtn, addBtn, resetTAHBtn);
+  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, autoEnhLbl, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, mergeBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
   // Sibling wrapper, not a child of promptList itself — promptList gets its innerHTML wiped
@@ -1899,7 +1907,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     // textareas — none of that exists in Image Generator's single plain prompt box, and Postprocess has no prompt at all,
     // so they are hidden in those two (Face Refine / LTX Upscale keep them, as in the node).
     tagBtnRow.style.display = isImageGen || isPostprocess ? "none" : "";
-    refineBtn.style.display = isImageGen || isPostprocess ? "none" : "";
+    const isImgPrompt = isImageGen && state.imageGenMode !== "charsheet";
+    refineBtn.style.display = (isImageGen && !isImgPrompt) || isPostprocess ? "none" : "";
+    autoEnhLbl.style.display = isImgPrompt ? "flex" : "none";
     writeBtn.style.display = isImageGen || isPostprocess ? "none" : "";
     const isCharSheetHdr = isImageGen && state.imageGenMode === "charsheet";
     // editBtn is repurposed as t2i/ref2i's own "🔍 Prompt Edit" (see its click handler's imagegen branch) — only truly
@@ -3881,7 +3891,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftPanel.appendChild(panel([
       label("Image Generator mode"),
       modeBar(IMAGE_GEN_MODES.map((m) => ({ key: m.key, label: m.label })), subMode, (v) => {
-        state.imageGenMode = v; persist(); renderLeft(); renderPrompts(); restoreModeResult();
+        state.imageGenMode = v; persist(); try { imgPromptEditOv.syncFormat(); } catch {} renderLeft(); renderPrompts(); restoreModeResult();
       }),
     ]));
 
@@ -3920,21 +3930,26 @@ export function renderMinimaxH3(container: HTMLElement) {
       ]));
     }
 
+    const imgResInfo = el("div", { style: { fontSize: "11px", color: C.muted, lineHeight: "1.5" } });
+    const updateImgRes = () => {
+      const r = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgFinalMp ?? 1.0);
+      imgResInfo.textContent = `→ ${r.width} × ${r.height} px (${(r.width * r.height / 1e6).toFixed(2)} MP, multiples of 32)`;
+    };
+    updateImgRes();
     leftPanel.appendChild(panel([
-      label("Canvas"),
-      row([col([label("Aspect"), select(ASPECTS.map((a) => ({ value: a.label, label: a.label })), state.imgAspect || "2:3 Portrait", (v) => { state.imgAspect = v; persist(); })])]),
+      label("Resolution"),
+      row([col([label("Aspect"), select(ASPECTS.map((a) => ({ value: a.label, label: a.label })), state.imgAspect || "2:3 Portrait", (v) => { state.imgAspect = v; persist(); updateImgRes(); })])]),
       row([
-        col([label("Preview MP"), numberField(state.imgPreviewMp ?? 0.2, (v) => { state.imgPreviewMp = Math.max(0.05, v); persist(); }, 0.05)]),
-        col([label("Final MP"), numberField(state.imgFinalMp ?? 1.0, (v) => { state.imgFinalMp = Math.max(0.1, v); persist(); }, 0.1)]),
+        col([label("MP"), numberField(state.imgFinalMp ?? 1.0, (v) => { state.imgFinalMp = Math.max(0.1, v); persist(); updateImgRes(); }, 0.1)]),
       ]),
-      checkboxRow("Save Preview to Gallery", !!state.imgPreviewSaveToGallery, (v) => { state.imgPreviewSaveToGallery = v; persist(); }),
+      imgResInfo,
     ]));
 
     leftPanel.appendChild(panel([mountImgLoraPanel()]));
 
     // Latent — T2I/Ref2I only (same as the node). Basic = 8-frame clip latent read back as a
     // still; Fizgig = ComfyUI-Fizgig-H3-Still's one-frame latent + its own decode, one pass.
-    if (subMode === "t2i" || subMode === "ref2i") {
+    if (false) {   // legacy video-pipeline Latent choice — T2I / Ref2I now use the official MiniMax H3 Image nodes
       const fizgigOn = state.imgLatentMode === "fizgig";
       leftPanel.appendChild(panel([
         label("Latent"),
@@ -3950,6 +3965,15 @@ export function renderMinimaxH3(container: HTMLElement) {
       ]));
     }
 
+    if (subMode === "t2i" || subMode === "ref2i") {
+      leftPanel.appendChild(panel([
+        label("Steps"),
+        row([col([numberField(state.imgOfficialSteps ?? 6, (v) => { state.imgOfficialSteps = Math.max(1, Math.round(v)); persist(); }, 1)])]),
+        el("div", { text: "Official MiniMax H3 Image nodes — one sampling pass at the chosen resolution (cfg 1, euler, simple). 6 steps is the template's default.",
+          style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+      ]));
+    }
+    if (false) {   // legacy Turbo LoRA slots — not used by the official image nodes
     const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";
     const turboOn = !!state.imgTurboOn;
     leftPanel.appendChild(panel([
@@ -3971,6 +3995,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         text: "Steps sets the first (preview) pass only — 20+ for a plain render (no turbo LoRA); a turbo LoRA is trained for far fewer, typically 3/4/8 depending on the LoRA. 2nd Pass Steps picks which fixed sigma schedule the final-resolution pass uses — independent of Steps and Turbo.",
         style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
     ]));
+    }
 
     if (subMode === "charsheet") {
       if (!state.charSheetPrompt) { state.charSheetPrompt = CHARSHEET_PROMPT_TEMPLATE; persist(); }
@@ -4043,6 +4068,9 @@ export function renderMinimaxH3(container: HTMLElement) {
         leftPanel.appendChild(panel([editBtn2]));
       }
     }
+
+    // Generate / Stop / seed row below the panel, like every other mode (without it a page loaded while in Image Generator had no Generate button)
+    leftOuter.appendChild(seedGenWrap);
   }
 
   // Small dedicated LoRA panel for Image Generator's own imgLoras list (up to 3 slots) —
@@ -4094,21 +4122,27 @@ export function renderMinimaxH3(container: HTMLElement) {
         const av = await getNodeAvailability();
         ctx.availability = av.available || {}; ctx.availabilityInfo = av;
       }
+      if (state.imgAutoEnhance && (state.imgPrompt || "").trim()) {
+        genBtn.textContent = "⏳ Enhancing…";
+        imgPromptEditOv.syncFormat();
+        await imgPromptEditOv.enhance(state.imgPrompt || "");
+        try { imgInlineBil?.refresh(); } catch {}
+        persist();
+      }
       await ensureEnglishPrompts("image");
       const previewRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgPreviewMp ?? 0.2);
       const finalRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgFinalMp ?? 1.0);
       const seed = state.seedMode === "fixed" ? (state.seed ?? 0) : randomSeed();
       if (state.seedMode !== "fixed") { state.seed = seed; persist(); seedInput.value = String(seed); }
       const turboKey = subMode === "ref2i" ? "imgTurboLoraRef2i" : "imgTurboLoraT2i";
-      const built = buildImageGenGraph(state, ctx.availability || {}, {
+      const built = buildOfficialImageGraph(state, ctx.availability || {}, {
         subMode, final: opts.final,
-        refImages: state.imgRefImages, refImageSize: state.imgRefImageSize || "max",
+        refImages: subMode === "ref2i" ? state.imgRefImages : null,
+        refImageMps: (state as any).imgRefImagesMp || [],
         prompt: state.imgPrompt || "", seed, previewRes, finalRes,
         filenamePrefix: `${state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER}/img_${Date.now()}`,
-        steps: state.imgSteps ?? 20, secondPassSteps: state.imgSecondPassSteps ?? 3,
-        turboOn: !!state.imgTurboOn, turboLora: (state as any)[turboKey], turboLoraStrength: state.imgTurboLoraStrength ?? 1.0,
+        steps: state.imgOfficialSteps ?? 6,
         savePreview: !!state.imgPreviewSaveToGallery,
-        latentMode: state.imgLatentMode,
       });
       const res = await queuePrompt(built.graph, {
         onProgress: (v: number, m: number) => setStatus(`Image Generator — ${Math.round((v / (m || 1)) * 100)}%`),
@@ -4126,7 +4160,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           imgLoras: state.imgLoras || [], subMode,
           refImages: subMode === "ref2i" ? (state.imgRefImages || []) : [],
           refImageSize: state.imgRefImageSize || "max", seed,
-          imgSteps: state.imgSteps ?? 20, imgSecondPassSteps: state.imgSecondPassSteps ?? 3,
+          imgOfficialSteps: state.imgOfficialSteps ?? 6, imgSteps: state.imgSteps ?? 20, imgSecondPassSteps: state.imgSecondPassSteps ?? 3,
           imgLatentMode: state.imgLatentMode === "fizgig" ? "fizgig" : "basic",
           imgTurboOn: !!state.imgTurboOn,
           imgTurboLora: state.imgTurboOn ? ((state as any)[turboKey] || null) : null,
@@ -4429,7 +4463,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     seedRowPanel.style.display = isPP ? "none" : "";
     ppRowPanel.style.display = isPP ? "" : "none";
     ppPreviewBtn.style.display = isPP ? "" : "none";
-    imgPreviewBtn.style.display = isImgGenPreviewable ? "" : "none";
+    imgPreviewBtn.style.display = "none";   // the official image nodes are one pass: no separate preview
+    void isImgGenPreviewable;
     if (state.generationMode === "ltxupscale") { renderLtxUpscaleLeft(); return; }
     if (state.generationMode === "facerefine") { renderFaceRefineLeft(); return; }
     if (state.generationMode === "imagegen") { renderImageGenLeft(); return; }
@@ -6866,6 +6901,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (Array.isArray(meta.refImages)) state.imgRefImages = meta.refImages.slice();
     if (meta.refImageSize) state.imgRefImageSize = meta.refImageSize;
     if (meta.imgSteps != null) state.imgSteps = meta.imgSteps;
+    if (meta.imgOfficialSteps != null) state.imgOfficialSteps = meta.imgOfficialSteps;
     if (meta.imgSecondPassSteps != null) state.imgSecondPassSteps = meta.imgSecondPassSteps;
     state.imgLatentMode = meta.imgLatentMode === "fizgig" ? "fizgig" : "basic";
     if (meta.imgTurboOn != null) state.imgTurboOn = !!meta.imgTurboOn;
@@ -6936,6 +6972,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     viewUrl: (filename) => viewUrl(filename),
     llm: imgLlmState,
     saveLlm: () => saveLLMSettings(imgLlmState),
+    // official T2I / R2I prompts are Model Formats (nodes.py h3_image_formats.json), picked by the current mode
+    defaultModelFormat: () => state.imageGenMode === "ref2i" ? "MiniMax H3 Image (R2I)" : state.imageGenMode === "t2i" ? "MiniMax H3 Image (T2I)" : "",
     openSettings: () => settingsOv.openImageLlmSettings(),
     title: "🔍 Prompt Edit",
   });
@@ -6953,7 +6991,10 @@ export function renderMinimaxH3(container: HTMLElement) {
     const idx = Number(lastFocusedPromptTA?.dataset.clipIndex);
     return Number.isFinite(idx) ? idx : null;
   };
-  refineBtn.addEventListener("click", () => promptEditOv.openRefine(lastFocusedClipIndex()));
+  refineBtn.addEventListener("click", () => {
+    if (state.generationMode === "imagegen" && state.imageGenMode !== "charsheet") { void imgPromptEditOv.refine(); return; }   // Image Generator: its own prompt box
+    promptEditOv.openRefine(lastFocusedClipIndex());
+  });
   writeBtn.addEventListener("click", () => promptEditOv.openWrite(lastFocusedClipIndex()));
 
   const commonPromptOv = createCommonPromptOverlay(state, { persist, showPopup }, () => {

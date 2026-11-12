@@ -273,8 +273,28 @@ set REPOS[25]=https://github.com/shootthesound/ComfyUI-Fizgig-H3-Still
 rem H3 Latent Upscale Tiled (TJ) - MiniMax H3 Split Sigma, Upscaler B (TJLatentUpscaleTiledMP). Apache-2.0, external pack.
 rem It replaces the AI-KIMCHY Kimchy pack; do not install both.
 set REPOS[26]=https://github.com/designloves2/H3-Latent-Upscale-Tiled-TJ-
+rem FlashVSR VSR - MiniMax H3's 4th Upscale option (FlashVSRInitPipe/FlashVSRNodeAdv),
+rem tiled diffusion video super-resolution. Model weights are NOT installed by this
+rem script - download the whole "FlashVSR" folder from
+rem https://huggingface.co/JunhaoZhuang/FlashVSR into ComfyUI/models/ (the node's own
+rem description names this path).
+set REPOS[27]=https://github.com/lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast
+rem VOSR2 - one-step image super-resolution, the UPSCALE tab next to SeedVR2 in every image
+rem node. The model bundle (~7 GB) downloads itself into models/vosr2 on its first run.
+set REPOS[28]=https://github.com/ylchen333/ComfyUI-VOSR2
+rem H3 Face Refine (face track / crop / per-frame denoise / stitch) - MiniMax H3 Face Refine MMH3 tab.
+set REPOS[29]=https://github.com/Carasibana/ComfyUI-H3-FaceRefine
+rem H3 3D latent upscaler - MiniMax H3 Split Sigma and Image Generator.
+set REPOS[30]=https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler
+rem ReCaVSR - MiniMax H3's Upscale / Postprocess "ReCaVSR" method (ReCaVSRLoader / ReCaVSRUpscale), one-step streaming
+rem video super-resolution on Wan2.2. Model weights are NOT installed by this script - put the transformer (int8 ConvRot
+rem from https://huggingface.co/PedroMarinhoDev/ReCaVSR-ComfyUI or bf16 from https://huggingface.co/kopper/ReCaVSR) plus
+rem prompt.safetensors and flashdecoder.safetensors (kopper/ReCaVSR) into ComfyUI/models/recavsr. Its requirements.txt
+rem (triton, opencv-python-headless) are installed with the pack. RelayVSR (the other new method) is ComfyUI core: its model
+rem (Comfy-Org/RelayVSR, diffusion_models + vae) needs no pack.
+set REPOS[31]=https://github.com/PedroMarinhoDev/ComfyUI-ReCaVSR
 
-set COUNT=27
+set COUNT=32
 
 rem ComfyUI Manager names some packs' folders after their pyproject "name", not
 rem the repo. Clone under that name so a later Manager install/update doesn't drop
@@ -284,6 +304,9 @@ set "ALT[21]=rife_comfyui_wrapper"
 set "ALT[22]=h3-optimizations"
 set "ALT[24]=comfyui-ace-step-ksampler"
 set "ALT[26]=comfyui-tj_latent_upscale_tiled"
+set "ALT[28]=comfyui-vosr2"
+set "ALT[29]=comfyui-h3-facerefine"
+set "ALT[31]=comfyui-recavsr"
 
 echo [NOTE] pip may print "dependency resolver" conflict warnings below
 echo        (e.g. protobuf version clashes between RMBG and audio tools) -
@@ -296,7 +319,7 @@ echo.
 
 rem The whole loop body lives in a called subroutine instead of a nested
 rem parenthesized for/if block, so "do" only ever runs a single command.
-for /L %%i in (0,1,26) do call :InstallRepo %%i
+for /L %%i in (0,1,31) do call :InstallRepo %%i
 goto AFTER_REPOS
 
 :InstallRepo

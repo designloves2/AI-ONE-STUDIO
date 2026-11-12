@@ -212,6 +212,91 @@ function buildFlashVSR(g: Graph, pipeId: string, nodeId: string, p: FlashVSRPara
     seed: p.seed ?? 42,
   } };
 }
+// ReCaVSR (PedroMarinhoDev/ComfyUI-ReCaVSR) and RelayVSR (ComfyUI core) — two more video super-resolution methods, used by the
+// inline per-clip Upscale and by Postprocess. Node ids are made per caller (the "MM:" and "PPX:" families).
+function vsrIds(prefix: string) {
+  return {
+    rcLoad: `${prefix}recavsr_load`, rcVae: `${prefix}recavsr_vae`, rcUp: `${prefix}recavsr`, rcFrames: `${prefix}recavsr_frames`,
+    rlUnet: `${prefix}relayvsr_unet`, rlVae: `${prefix}relayvsr_vae`, rlCond: `${prefix}relayvsr_cond`,
+    rlSamp: `${prefix}relayvsr_sampler`, rlDec: `${prefix}relayvsr_decode`,
+  };
+}
+const VSR_MM = vsrIds("MM:");
+const VSR_PP = vsrIds("PPX:");
+
+export interface RecaVsrParams {
+  transformer?: string; vae?: string; scale?: number; colorFix?: string; seed?: number; decoder?: string; kernels?: string;
+  kvOffload?: boolean; encoder?: string;
+}
+export interface RelayVsrParams { unet?: string; vae?: string; seed?: number }
+
+/** ReCaVSR: ReCaVSRLoader -> ReCaVSRUpscale (frames in, a VIDEO out) -> GetVideoComponents (frames again, so the rest of the
+ *  graph — audio, saving, the next step — works on frames like every other method). Returns the frames link. */
+function buildReCaVSR(g: Graph, ids: ReturnType<typeof vsrIds>, p: RecaVsrParams, images: any, fps: number, avail: Avail | undefined) {
+  if (!has(avail, "ReCaVSRUpscale") || !has(avail, "ReCaVSRLoader") || !has(avail, "GetVideoComponents"))
+    throw new Error("ReCaVSR is not installed (ReCaVSRLoader / ReCaVSRUpscale) — run install_requirements and restart ComfyUI.");
+  if (!p.transformer) throw new Error("ReCaVSR: no transformer file selected — pick one in Settings → UpScale Model.");
+  const decoder = p.decoder || "flashdecoder";
+  if (decoder === "vae" && !p.vae) throw new Error("ReCaVSR: the 'vae' decoder needs the Wan 2.2 VAE — pick it in Settings → UpScale Model.");
+  g[ids.rcLoad] = { class_type: "ReCaVSRLoader", inputs: { transformer: p.transformer } };
+  const inputs: Record<string, any> = {
+    model: [ids.rcLoad, 0], images,
+    scale: Math.min(8, Math.max(0.5, p.scale ?? 2)),
+    color_fix: p.colorFix || "wavelet",
+    seed: Math.max(0, Math.round(Number(p.seed ?? 42)) || 0),
+    decoder,
+    kernels: p.kernels || "fast",
+    kv_offload: !!p.kvOffload,
+    encoder: p.encoder || "auto",
+    fps: Math.round(fps || FPS) || FPS,
+  };
+  if (decoder === "vae") {
+    g[ids.rcVae] = { class_type: "VAELoader", inputs: { vae_name: p.vae } };
+    inputs.vae = [ids.rcVae, 0];
+  }
+  g[ids.rcUp] = { class_type: "ReCaVSRUpscale", inputs };
+  g[ids.rcFrames] = { class_type: "GetVideoComponents", inputs: { video: [ids.rcUp, 0] } };
+  return [ids.rcFrames, 0];
+}
+export function recavsrUsed(p: RecaVsrParams) {
+  return {
+    method: "recavsr" as const, scale: p.scale ?? 2, colorFix: p.colorFix || "wavelet", decoder: p.decoder || "flashdecoder",
+    kernels: p.kernels || "fast", kvOffload: !!p.kvOffload, encoder: p.encoder || "auto", seed: p.seed ?? 42,
+    transformer: p.transformer || "",
+  };
+}
+function recavsrParamsFromState(state: MinimaxState): RecaVsrParams {
+  return {
+    transformer: state.recavsrTransformer, vae: state.recavsrVae, scale: state.recavsrScale, colorFix: state.recavsrColorFix,
+    seed: state.recavsrSeed, decoder: state.recavsrDecoder, kernels: state.recavsrKernels,
+    kvOffload: state.recavsrKvOffload, encoder: state.recavsrEncoder,
+  };
+}
+
+/** RelayVSR: UNETLoader -> RelayVSRConditioning -> KSampler (1 step, cfg 1) -> VSRDecode. The upscale factor is the model's own
+ *  (the x2 file doubles, the x4 file quadruples). Returns the frames link. */
+function buildRelayVSR(g: Graph, ids: ReturnType<typeof vsrIds>, p: RelayVsrParams, images: any, avail: Avail | undefined) {
+  if (!has(avail, "RelayVSRConditioning") || !has(avail, "VSRDecode"))
+    throw new Error("RelayVSR is not available (RelayVSRConditioning / VSRDecode are ComfyUI core nodes) — update ComfyUI.");
+  if (!p.unet) throw new Error("RelayVSR: no model selected — pick the RelayVSR UNET in Settings → UpScale Model.");
+  if (!p.vae) throw new Error("RelayVSR: no VAE selected — pick the RelayVSR VAE in Settings → UpScale Model.");
+  g[ids.rlUnet] = { class_type: "UNETLoader", inputs: { unet_name: p.unet, weight_dtype: "default" } };
+  g[ids.rlCond] = { class_type: "RelayVSRConditioning", inputs: { model: [ids.rlUnet, 0], images } };
+  g[ids.rlSamp] = { class_type: "KSampler", inputs: {
+    model: [ids.rlUnet, 0], positive: [ids.rlCond, 0], negative: [ids.rlCond, 0], latent_image: [ids.rlCond, 1],
+    seed: p.seed ?? randomSeed(), steps: 1, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1,
+  }};
+  g[ids.rlVae] = { class_type: "VAELoader", inputs: { vae_name: p.vae } };
+  g[ids.rlDec] = { class_type: "VSRDecode", inputs: { vae: [ids.rlVae, 0], samples: [ids.rlSamp, 0], images, detail: 1 } };
+  return [ids.rlDec, 0];
+}
+export function relayvsrUsed(p: RelayVsrParams) {
+  return { method: "relayvsr" as const, model: p.unet || "", vae: p.vae || "" };
+}
+function relayvsrParamsFromState(state: MinimaxState): RelayVsrParams {
+  return { unet: state.relayvsrUnet, vae: state.relayvsrVae, seed: randomSeed() };
+}
+
 /** Normalizes a flashvsr params object into the shape saved as clip metadata's upscale.* field. */
 export function flashvsrUsed(p: FlashVSRParams) {
   return {
@@ -1042,7 +1127,7 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
   // upscaled clip and to show its real dimensions. Set only inside the branch that wires the
   // node, never recomputed from raw state.
   let deblurUsed: string | null = null;
-  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | { method: "rtx"; width: number; height: number; quality: string } | ReturnType<typeof flashvsrUsed> | null = null;
+  let upscaleUsed: { method: "model"; model: string } | { method: "rtx"; scale: number; quality: string } | { method: "rtx"; width: number; height: number; quality: string } | ReturnType<typeof flashvsrUsed> | ReturnType<typeof recavsrUsed> | ReturnType<typeof relayvsrUsed> | null = null;
   // Deblur runs on the decoded frames before any upscale, at their own resolution. It is
   // independent of the upscale setting: Upscale = None still deblurs.
   if (state.deblurStrength && state.deblurStrength !== "none" && has(avail, "TJ_RTXDeblur")) {
@@ -1064,6 +1149,14 @@ export function buildClipGraph(state: MinimaxState, avail: Avail | undefined, op
     buildFlashVSR(g, N.fvsrPipe, N.fvsr, fvsrParams, images);
     images = [N.fvsr, 0];
     upscaleUsed = flashvsrUsed(fvsrParams);
+  } else if (up === "recavsr") {
+    const rcParams = recavsrParamsFromState(state);
+    images = buildReCaVSR(g, VSR_MM, rcParams, images, FPS, avail);
+    upscaleUsed = recavsrUsed(rcParams);
+  } else if (up === "relayvsr") {
+    const rlParams = relayvsrParamsFromState(state);
+    images = buildRelayVSR(g, VSR_MM, rlParams, images, avail);
+    upscaleUsed = relayvsrUsed(rlParams);
   }
 
   const clipTag = String(clipIndex + 1).padStart(3, "0");
@@ -1837,7 +1930,7 @@ export interface PostprocessGraphOpts {
   denoise?: { enabled?: boolean; strength?: string };
   upscale?: {
     enabled?: boolean;
-    method?: "flashvsr" | "rtx" | "model" | "h3lat" | "ltx" | "none";
+    method?: "flashvsr" | "recavsr" | "relayvsr" | "rtx" | "model" | "h3lat" | "ltx" | "none";
     // h3lat: Latent Upscale (Use H3) — the state its builders read + { promptText, frames, srcSize, finalSize, hasAudio, seed, upscalerModel }
     h3State?: any; h3?: any;
     // ltx: LTX 2.5 Upscale — the LTX settings state + an optional first-frame anchor file (split pieces)
@@ -1847,6 +1940,7 @@ export interface PostprocessGraphOpts {
     rtxShort?: number; rtxLong?: number; rtxW?: number; rtxH?: number; rtxCropAnchor?: string;
     srcW?: number; srcH?: number;
     flashvsr?: FlashVSRParams;
+    recavsr?: RecaVsrParams; relayvsr?: RelayVsrParams;
     // Two-pass upscale (flashvsr / model only): an RTX VSR (TJ) pass after the first method.
     // pass2 carries its own RTX settings, independent of the rtx* fields above.
     twoPass?: boolean;
@@ -1909,6 +2003,12 @@ export function buildPostprocessGraph(opts: PostprocessGraphOpts, avail?: Avail)
       buildFlashVSR(g, PPX.fvsrPipe, PPX.fvsr, upscale.flashvsr || {}, images);
       images = [PPX.fvsr, 0];
       upscaleUsedInfo = flashvsrUsed(upscale.flashvsr || {});
+    } else if (upscale.method === "recavsr") {
+      images = buildReCaVSR(g, VSR_PP, upscale.recavsr || {}, images, fps, avail);
+      upscaleUsedInfo = recavsrUsed(upscale.recavsr || {});
+    } else if (upscale.method === "relayvsr") {
+      images = buildRelayVSR(g, VSR_PP, upscale.relayvsr || {}, images, avail);
+      upscaleUsedInfo = relayvsrUsed(upscale.relayvsr || {});
     } else if (upscale.method === "h3lat") {
       const r = addH3LastStep(g, upscale.h3State, avail, { images, audio, ...upscale.h3 });
       images = r.images;

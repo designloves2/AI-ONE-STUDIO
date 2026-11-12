@@ -25,6 +25,10 @@ import {
   UPSCALE_MODES,
   FLASHVSR_MODELS,
   FLASHVSR_MODES,
+  RECAVSR_COLOR_FIX,
+  RECAVSR_DECODERS,
+  RECAVSR_KERNELS,
+  RECAVSR_ENCODERS,
   attnBackendBlockedReason,
   attnForwardBlockedReason,
   attnForwardOverlapNote,
@@ -2695,6 +2699,60 @@ export function renderMinimaxH3(container: HTMLElement) {
     apply();
   }
 
+  // ReCaVSR / RelayVSR (video super-resolution) — the option rows shared by the left-panel Upscale section and Postprocess → C. Upscale.
+  // The model files themselves are picked in Settings → UpScale Model; what is picked is shown here so a missing one is obvious.
+  function vsrOptionRows(kind: string): HTMLElement[] {
+    const av: Record<string, boolean> = ctx.availability || {};
+    const base = (p: any) => String(p || "").split(/[\\/]/).pop();
+    const small = (color: string) => ({ fontSize: "10px", color, lineHeight: "1.5" });
+    const picked = (text: string, name: string) => el("div", { text: name ? `${text}: ${base(name)}` : `⚠ ${text}: none — set it in Settings → UpScale Model`, style: small(name ? C.muted : C.warn) });
+    const choice = (list: string[], key: string, def: string, after?: () => void) => select(list.map((x) => ({ value: x, label: x })), (state as any)[key] || def, (x) => { (state as any)[key] = x; persist(); after?.(); });
+    if (kind === "recavsr") {
+      return ([
+        row([
+          col([labelHelp("Scale (×)", "Output size = input size × scale. The model was trained for 4×; 2× and 1.5× are the reference's other settings. "
+            + "0.5–8 in steps of 0.25. A bigger scale needs much more VRAM and time — 2× is the setting for a 16GB card."),
+            numberField(state.recavsrScale ?? 2, (n) => { state.recavsrScale = Math.min(8, Math.max(0.5, Math.round(n * 4) / 4)); persist(); }, 0.25)]),
+          col([labelHelp("Color fix", "Per-frame colour match to the input. none: off. adain: matches mean and variance. wavelet: keeps the input's low frequencies."),
+            choice(RECAVSR_COLOR_FIX, "recavsrColorFix", "wavelet")]),
+        ]),
+        row([
+          col([labelHelp("Decoder", "flashdecoder: the model's own LQ-conditioned decoder — streaming and 25–40× faster. "
+            + "vae: the stock Wan 2.2 VAE (pick it in Settings → UpScale Model), decoded at the end — finer texture, but much slower and it needs the whole video at once."),
+            choice(RECAVSR_DECODERS, "recavsrDecoder", "flashdecoder", () => renderLeft())]),
+          col([labelHelp("Kernels", "fast: fused norm / rope / residual kernels and retuned attention tiles — about 47 dB from exact, no visible difference, 7–24% faster "
+            + "(the decoder's window kernel needs an RTX 30 series card or newer). exact: the reference's own sequence of operations, bit for bit."),
+            choice(RECAVSR_KERNELS, "recavsrKernels", "fast")]),
+        ]),
+        row([
+          col([labelHelp("Encoder", "How the upscaled video is encoded as it is made. hevc nvenc / h264 nvenc: NVIDIA's video encoder (constant quality 19 / 17; "
+            + "H.264 up to 4096 px a side). h264: x264 on the CPU, CRF 14. auto tries them in that order and falls back down the same order."),
+            choice(RECAVSR_ENCODERS, "recavsrEncoder", "auto")]),
+          col([labelHelp("Seed", "Seed of the one-step noise."),
+            numberField(state.recavsrSeed ?? 42, (n) => { state.recavsrSeed = Math.max(0, Math.round(n)); persist(); }, 1)]),
+        ]),
+        checkboxRow("KV offload", !!state.recavsrKvOffload, (c) => { state.recavsrKvOffload = c; persist(); },
+          { title: "Keep the attention history (the past latent frames every block attends) in RAM instead of VRAM — about 0.8 MB per output token, 5 GB at 4× of 480p. For outputs that do not fit the card; costs the transfer time each step." }),
+        picked("Transformer", state.recavsrTransformer),
+        state.recavsrDecoder === "vae" ? picked("Wan 2.2 VAE", state.recavsrVae) : null,
+        el("div", { text: "ReCaVSR runs the whole clip in streaming blocks (21 frames, then 8). Its own encoder step writes an intermediate video that is read back as frames, "
+          + "so this method keeps the clip's audio and joins the rest of the pipeline like any other upscale.", style: small(C.muted) }),
+        (!av.ReCaVSRUpscale || !av.ReCaVSRLoader) ? el("div", { html: "⚠ <code>ReCaVSRLoader</code> / <code>ReCaVSRUpscale</code> not installed — install ComfyUI-ReCaVSR "
+          + "(install_requirements) and restart ComfyUI.", style: small(C.warn) }) : null,
+      ] as (HTMLElement | null)[]).filter(Boolean) as HTMLElement[];
+    }
+    const x4 = /x4/i.test(base(state.relayvsrUnet) || "");
+    return ([
+      picked("UNET", state.relayvsrUnet),
+      picked("VAE", state.relayvsrVae),
+      x4 ? el("div", { text: "⚠ The x4 model is hard to run on a 16GB card — use the x2 pair (relayvsr_x2_… with relayvsr_flash_vae_x2_…).", style: small(C.warn) }) : null,
+      el("div", { text: "RelayVSR has no scale setting: the x2 file doubles and the x4 file quadruples the size. One sampling step; only every 15th frame goes through the model "
+        + "and the VSR decoder restores all of them. The model files are picked in Settings → UpScale Model.", style: small(C.muted) }),
+      (!av.RelayVSRConditioning || !av.VSRDecode) ? el("div", { html: "⚠ <code>RelayVSRConditioning</code> / <code>VSRDecode</code> not found — "
+        + "they are ComfyUI core nodes; update ComfyUI.", style: small(C.warn) }) : null,
+    ] as (HTMLElement | null)[]).filter(Boolean) as HTMLElement[];
+  }
+
   // LTX LoRA list editor, shared by Postprocess → C. Upscale → LTX 2.5 Upscale (node v1.47.0 makeLtxLoraWrap).
   function makeLtxLoraWrap(): HTMLElement {
     if (!availableLoras.length) getModels().then((d) => { availableLoras = d.loras || []; renderLeft(); }).catch(() => {});
@@ -4689,6 +4747,10 @@ export function renderMinimaxH3(container: HTMLElement) {
                 }) : null,
               ]
             : []),
+          // ReCaVSR / RelayVSR — all their options (the model files are in Settings → UpScale Model)
+          ...((state.upscaleMode === "recavsr" || state.upscaleMode === "relayvsr")
+            ? [col(vsrOptionRows(state.upscaleMode))]
+            : []),
           // SPEC_MINIMAX_H3_INLINE_POSTPROCESS_META.md §6 — only meaningful once deblur or
           // upscale is doing something: off just saves the final clip, on also keeps the raw
           // decode as a separate `_raw` file (never joins a stitch or the last-frame chain).
@@ -5037,6 +5099,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     const PP_UPSCALE_METHODS = [
       { value: "h3lat", label: "Latent Upscale (Use H3)" },
       { value: "flashvsr", label: "FlashVSR" },
+      { value: "recavsr", label: "ReCaVSR" },
+      { value: "relayvsr", label: "RelayVSR" },
       { value: "ltx", label: "LTX 2.5 Upscale" },
       { value: "rtx", label: "RTX VSR(TJ)" },
       { value: "model", label: "Model" },
@@ -5057,6 +5121,8 @@ export function renderMinimaxH3(container: HTMLElement) {
             col([label("Scale"), numberField(state.flashvsrScale ?? 2, (v) => { state.flashvsrScale = Math.min(4, Math.max(2, Math.round(v))); persist(); }, 1)]),
             col([label("Tile"), numberField(state.flashvsrTileSize ?? 384, (v) => { state.flashvsrTileSize = Math.max(32, Math.round(v)); persist(); }, 32)]),
           ]));
+        } else if (method === "recavsr" || method === "relayvsr") {
+          kids.push(...vsrOptionRows(method));
         } else if (method === "rtx") {
           kids.push(...rtxSizeControlsKeyed(RTX_KEYS_SOLO));
         } else if (method === "h3lat") {
@@ -5165,7 +5231,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             kids.push(el("div", { text: "2nd pass — RTX VSR (TJ)", style: { fontSize: "11px", fontWeight: "700", color: BRAND } }));
             kids.push(...rtxSizeControlsKeyed(RTX_KEYS_PASS2));
             kids.push(el("div", {
-              text: `${method === "flashvsr" ? "FlashVSR" : "Model"} → RTX VSR → next effect. These RTX settings belong to the 2nd pass only; the standalone RTX VSR method keeps its own. Scale multiplies the first pass's output; Short / Long / W×H are sized by the node from the frames it receives (needs a TJ_NODE with those options).`,
+              text: `${(PP_UPSCALE_METHODS.find((m) => m.value === method) || { label: "Model" }).label} → RTX VSR → next effect. These RTX settings belong to the 2nd pass only; the standalone RTX VSR method keeps its own. Scale multiplies the first pass's output; Short / Long / W×H are sized by the node from the frames it receives (needs a TJ_NODE with those options).`,
               style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
           }
         }
@@ -5602,6 +5668,12 @@ export function renderMinimaxH3(container: HTMLElement) {
             colorFix: state.flashvsrColorFix, tileSize: state.flashvsrTileSize,
             tileOverlap: state.flashvsrTileOverlap, seed: randomSeed(),
           },
+          recavsr: {
+            transformer: state.recavsrTransformer, vae: state.recavsrVae, scale: state.recavsrScale, colorFix: state.recavsrColorFix,
+            seed: state.recavsrSeed, decoder: state.recavsrDecoder, kernels: state.recavsrKernels,
+            kvOffload: state.recavsrKvOffload, encoder: state.recavsrEncoder,
+          },
+          relayvsr: { unet: state.relayvsrUnet, vae: state.relayvsrVae, seed: randomSeed() },
         },
         skinRetouch: {
           enabled: state.ppSkinRetouchOn, evenness: state.ppSkinEvenness, smoothing: state.ppSkinSmoothing,

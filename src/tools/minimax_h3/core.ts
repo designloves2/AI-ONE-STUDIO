@@ -365,6 +365,12 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   flashvsrTileOverlap: number;
   flashvsrSeed: number;
   flashvsrSeedMode: string;
+  // ReCaVSR / RelayVSR (node SPEC_RELAY_VSR_UPSCALERS.md)
+  recavsrScale: number; recavsrColorFix: string; recavsrSeed: number; recavsrDecoder: string; recavsrKernels: string;
+  recavsrKvOffload: boolean; recavsrEncoder: string;
+  recavsrTransformer: string; recavsrVae: string; relayvsrUnet: string; relayvsrVae: string;
+  // official MiniMax H3 Image nodes (T2I / R2I): own steps + optional image-only models (empty = fall back to the video models)
+  imgOfficialSteps: number; imgAutoEnhance: boolean; imgUnetT2i: string; imgUnetRef2i: string; imgClip: string; imgVae: string;
 
   // Sigma shift (MiniMaxH3SigmaShift)
   shiftVideo: number;
@@ -1635,10 +1641,18 @@ export const UPSCALE_MODES = [
   { key: "model", label: "Upscale Model" },
   { key: "rtx", label: "RTX VSR" },
   { key: "flashvsr", label: "FlashVSR VSR" },
+  { key: "recavsr",  label: "ReCaVSR" },
+  { key: "relayvsr", label: "RelayVSR" },
 ];
 // FlashVSRInitPipe's own combo choices (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — read straight
 // off /object_info/FlashVSRInitPipe, not guessed.
 export const FLASHVSR_MODELS = ["FlashVSR", "FlashVSR-v1.1"];
+// ReCaVSR (PedroMarinhoDev/ComfyUI-ReCaVSR) — the combo choices of ReCaVSRUpscale, read straight off
+// /object_info/ReCaVSRUpscale. RelayVSR needs no list: its nodes are ComfyUI core and take no options here.
+export const RECAVSR_COLOR_FIX = ["none", "adain", "wavelet"];
+export const RECAVSR_DECODERS  = ["flashdecoder", "vae"];
+export const RECAVSR_KERNELS   = ["fast", "exact"];
+export const RECAVSR_ENCODERS  = ["auto", "hevc nvenc", "h264 nvenc", "h264"];
 export const FLASHVSR_MODES = ["tiny", "tiny-long", "full"];
 
 export const CONTINUITY_MODES = [
@@ -2361,6 +2375,20 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     flashvsrTileOverlap: saved.flashvsrTileOverlap ?? 32,
     flashvsrSeed: saved.flashvsrSeed ?? 42,
     flashvsrSeedMode: saved.flashvsrSeedMode || "fixed",
+    // ReCaVSR — every option of ReCaVSRUpscale is exposed. Scale 4 is what the model was trained for (2 and 1.5 are
+    // the reference's other settings); the default is 2 for a 16GB card.
+    recavsrScale:     saved.recavsrScale     ?? 2,
+    recavsrColorFix:  saved.recavsrColorFix  || "wavelet",
+    recavsrSeed:      saved.recavsrSeed      ?? 42,
+    recavsrDecoder:   saved.recavsrDecoder   || "flashdecoder",
+    recavsrKernels:   saved.recavsrKernels   || "fast",
+    recavsrKvOffload: saved.recavsrKvOffload === true,
+    recavsrEncoder:   saved.recavsrEncoder   || "auto",
+    // The model files of ReCaVSR / RelayVSR are picked in Settings -> UpScale Model (and kept in the config file).
+    recavsrTransformer: saved.recavsrTransformer || "",
+    recavsrVae:         saved.recavsrVae         || "",
+    relayvsrUnet:       saved.relayvsrUnet       || "",
+    relayvsrVae:        saved.relayvsrVae        || "",
     shiftVideo: saved.shiftVideo ?? 12,
     shiftAudio: saved.shiftAudio ?? 3,
     useSageAttn: saved.useSageAttn ?? true,
@@ -2432,6 +2460,11 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     imgSaveSubfolder: saved.imgSaveSubfolder || "",
     imgPreviewSaveToGallery: !!saved.imgPreviewSaveToGallery,
     imgSteps: saved.imgSteps ?? 20,
+    // official MiniMax H3 Image nodes (T2I / R2I): own steps + optional image-only models (empty = fall back to the video models)
+    imgOfficialSteps: saved.imgOfficialSteps ?? 6,
+    imgAutoEnhance: saved.imgAutoEnhance ?? false,
+    imgUnetT2i: saved.imgUnetT2i || "", imgUnetRef2i: saved.imgUnetRef2i || "",
+    imgClip: saved.imgClip || "", imgVae: saved.imgVae || "",
     imgSecondPassSteps: saved.imgSecondPassSteps ?? 3,
     imgLatentMode: saved.imgLatentMode === "fizgig" ? "fizgig" : "basic",
     imgTurboOn: !!saved.imgTurboOn,

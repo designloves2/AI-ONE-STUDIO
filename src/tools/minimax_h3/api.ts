@@ -21,6 +21,7 @@ export interface ModelLists {
   vaes?: string[];
   loras?: string[];
   upscale_models?: string[];
+  recavsr_models?: string[];   // ReCaVSR transformer / flashdecoder files (models/recavsr)
   vae_approx?: string[];
   // pdd_acc folder dropped 2026-09-11 — PDD is core-native since ComfyUI v0.35.0 and the
   // Acc file is a plain model-only LoRA now, picked from `loras`.
@@ -69,6 +70,7 @@ export interface MmhConfig {
   clip_name?: string;
   vae_video?: string;
   vae_audio?: string;
+  img_unet_t2i?: string; img_unet_ref2i?: string; img_clip?: string; img_vae?: string;   // Image Generator (official H3 Image nodes) models
   turbo_lora?: string;
   turbo_lora_strength?: number;
   pdd_file?: string;
@@ -81,6 +83,7 @@ export interface MmhConfig {
   pdd_lora_strength?: number;
   turbo_mode?: string;
   upscale_model?: string;
+  recavsr_transformer?: string; recavsr_vae?: string; relayvsr_unet?: string; relayvsr_vae?: string;
   save_subfolder?: string;
   prompt_suffix?: string;
   avg_minutes_per_clip?: number;
@@ -305,6 +308,10 @@ export const MMH3_OPTIONAL_NODES = [
   "TJ_RTXDeblur",
   // FlashVSR VSR (lihaoyun6/ComfyUI-FlashVSR_Ultra_Fast) — main Upscale accordion + gallery.
   "FlashVSRInitPipe", "FlashVSRNodeAdv",
+  // ReCaVSR (PedroMarinhoDev/ComfyUI-ReCaVSR) and RelayVSR (ComfyUI core: RelayVSRConditioning / VSRDecode) — two more
+  // Upscale / Postprocess methods; GetVideoComponents (core) turns ReCaVSR's VIDEO back into frames.
+  "MiniMaxH3ImageConditioning", "ConditioningZeroOut", "ResizeImageMaskNode",
+  "ReCaVSRLoader", "ReCaVSRUpscale", "RelayVSRConditioning", "VSRDecode", "GetVideoComponents",
   // Postprocess mode (PORT_LEDGER row 428) — Deblur/Denoise/Upscale(RTX VSR TJ)/Skin Retouch/
   // Resize are TJ_NODE-native; GLSLShader/SplitImageWithAlpha are ComfyUI core (Add Grain step —
   // GLSLShader's own IMAGE0 output is RGBA, SplitImageWithAlpha strips it back to RGB for

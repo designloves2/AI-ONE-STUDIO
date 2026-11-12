@@ -4,6 +4,7 @@
 // Tabs: Models · Sampling · Preview · Output. Everything here is set once and reused
 // by every clip; per-run choices live in the node's left panel instead.
 import { C, BRAND, el, clear, SUBFOLDER } from "./core";
+import { mountNativeLLMOptions } from "../../shared/nativeLlmOpts";
 import { panel, label, button, numberField, row, col } from "./uiCommon";
 import { getModels, getConfig, saveConfig, getNodeAvailability, listVideos, getTempSize, clearTempFiles } from "./api";
 import { customLLMControls } from "../../shared/customLlmControls";
@@ -206,11 +207,21 @@ export function createSettingsOverlay(state, ctx) {
     ]));
 
     renderModelPickers();
+    nativeOptsBox = panel([mountNativeLLMOptions(null)]);   // Generate Text details, shared by every tool
+    wrap.appendChild(nativeOptsBox);
+    refreshNativeOpts();
     return wrap;
   }
 
   // Two model pickers, swapped out by source. Declared at module scope inside
   // the LLM tab so the model pickers can be re-rendered when availability arrives.
+  // Generate Text details are for the Native (ComfyUI CLIP) backend only — hide them when every role uses another backend
+  let nativeOptsBox = null;
+  function refreshNativeOpts() {
+    if (!nativeOptsBox) return;
+    const isNative = (k) => { const v = state[k] || state.h3LlmBackend || "native"; return v !== "openrouter" && v !== "llamagguf" && v !== "custom"; };
+    nativeOptsBox.style.display = ["h3BriefBackend", "h3VisionBackend"].some(isNative) ? "" : "none";
+  }
   let renderModelPickersInto = null;
   let quickChanged = null;   // set while the Prompt Edit LLM popup is open
   let _orModels = null;
@@ -267,6 +278,7 @@ export function createSettingsOverlay(state, ctx) {
 
   // h3Only renders just the Brief and Vision rows (what the Prompt Edit popup needs).
   function renderModelPickers(target = renderModelPickersInto, h3Only = false) {
+    refreshNativeOpts();
     const wrap2 = target;
     if (!wrap2) return;
     clear(wrap2);

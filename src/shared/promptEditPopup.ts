@@ -7,6 +7,7 @@
 // Edit/Enhance/Image→Prompt 3-tab layout. DOM conventions (el()/C/BRAND) follow
 // src/tools/minimax_h3/promptEdit.ts, this repo's other full-screen popup.
 import { el } from "./ui";
+import { nativeNums } from "./nativeLlmOpts";
 import { attachBilingual, type BilingualHandle } from "./bilingualUi";
 import { fieldSetBoth, fieldSetView, fieldFill, fieldText, translateText } from "./bilingual";
 import { useKoFor } from "./koSetting";
@@ -610,6 +611,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           max_tokens: llm.max_tokens,
           temperature: llm.temperature,
           seed: llm.seed,
+          ...nativeNums(llm.backend_vision || "local"),
         }),
       });
       const d = await r.json();
@@ -652,6 +654,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           model_format: llm.model_format,
           aesthetic: llm.aesthetic,
           extra_instructions: llm.extra_instructions,
+          ...nativeNums(llm.backend_text || "local"),
           ...(sysPrompt ? { system_override: sysPrompt } : {}),
         }),
       });
@@ -681,6 +684,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
         n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens,
         temperature: llm.temperature, seed: llm.seed,
         model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions,
+        ...nativeNums(llm.backend_text || llm.backend || "local"),
       }),
     });
     const d = await r.json();

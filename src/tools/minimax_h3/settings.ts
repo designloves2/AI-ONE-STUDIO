@@ -2,6 +2,7 @@
 // 탭: Models · Sampling · Preview · Output. 여기서 정한 값은 매 실행에 재사용되고,
 // 실행마다 바뀌는 값(steps, accel 등)은 좌측 패널에 남아있다 — 원본과 동일한 구분.
 import type { MinimaxState } from "./core";
+import { mountNativeLLMOptions } from "../../shared/nativeLlmOpts";
 import { SUBFOLDER } from "./core";
 import { button, checkboxRow, clear, col, el, label, numberField, panel, row, searchableSelect } from "../../shared/ui";
 import { fetchOrModels, pushLlmConfig, fetchLlmKeyHint } from "../../shared/llmBackendPanel";
@@ -334,6 +335,13 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
   }
 
   // ══ Sampling tab ════════════════════════════════════════════════════════
+  // Generate Text details are for the Native (ComfyUI CLIP) backend only — hide them when every role uses another backend
+  let nativeOptsBox: HTMLElement | null = null;
+  function refreshNativeOpts() {
+    if (!nativeOptsBox) return;
+    const isNative = (k: string) => { const v = (state as any)[k] || (state as any).h3LlmBackend || "native"; return v !== "openrouter" && v !== "llamagguf" && v !== "custom"; };
+    nativeOptsBox.style.display = ["h3BriefBackend", "h3VisionBackend", "ltxVisionBackend"].some(isNative) ? "" : "none";
+  }
   let renderModelPickersInto: HTMLElement | null = null;
   let quickChanged: (() => void) | null = null;   // set while the Prompt Edit LLM popup is open
 
@@ -351,6 +359,9 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       ])
     );
     renderModelPickers();
+    nativeOptsBox = panel([mountNativeLLMOptions(null)]);   // Generate Text details, shared by every tool
+    wrap.appendChild(nativeOptsBox);
+    refreshNativeOpts();
     return wrap;
   }
 
@@ -379,6 +390,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
 
   // h3Only renders just the Brief and Vision rows (what the Prompt Edit popup needs).
   function renderModelPickers(target: HTMLElement | null = renderModelPickersInto, h3Only = false) {
+    refreshNativeOpts();
     const wrap2 = target;
     if (!wrap2) return;
     clear(wrap2);

@@ -5,6 +5,7 @@
 // lives on the SERVER (/tj_shared/llm_settings — see llmSettingsStore.ts), so the values equal the ones
 // every image tool's popup uses. Port of the node's web/shared/llm_panel.js mountLLMSettingsSection.
 import { getComfyBase } from "./comfyBase";
+import { mountNativeLLMOptions } from "./nativeLlmOpts";
 import { C } from "../identity";
 import { createLlmBackendGroup } from "./llmBackendPanel";
 import { loadLLMSettings, saveLLMSettings, trackLLM } from "./llmSettingsStore";
@@ -74,7 +75,8 @@ export function mountLLMSettingsSection(host: HTMLElement): void {
   Object.assign(body.style, { display: "flex", flexDirection: "column", gap: "10px" });
   wrap.appendChild(body);
 
-  const group = createLlmBackendGroup(llm, saveLLM);
+  let updateAdvVisibility = () => {};
+  const group = createLlmBackendGroup(llm, saveLLM, () => updateAdvVisibility());
   const enhBlock = group.makeBlock("text");
   const i2pBlock = group.makeBlock("vision");
   // Local GGUF rows (the shared block leaves `localOnly` for the caller): text role needs the GGUF model,
@@ -104,6 +106,15 @@ export function mountLLMSettingsSection(host: HTMLElement): void {
     labelRow("Seed", numberInput(llm.seed, 0, 999999999, 1, (v) => { llm.seed = v; saveLLM(); })),
   );
   body.appendChild(advRow);
+  const nativeBox = mountNativeLLMOptions(null);   // ComfyUI native Generate Text details
+  body.appendChild(nativeBox);
+  // GGUF row only when a role uses Local GGUF; the native block only when a role uses ComfyUI Native
+  updateAdvVisibility = () => {
+    const bs = [llm.backend_text || llm.backend || "local", llm.backend_vision || llm.backend || "local"];
+    advRow.style.display = bs.some((b: string) => b !== "comfy" && b !== "openrouter" && b !== "custom") ? "grid" : "none";
+    nativeBox.style.display = bs.includes("comfy") ? "flex" : "none";
+  };
+  updateAdvVisibility();
 
   fetchApi("/tj_studio_one/llm/models").then((r) => r.json()).then((d: any) => {
     if (d.or_model_text && !llm.or_model) { llm.or_model = d.or_model_text; saveLLM(); }

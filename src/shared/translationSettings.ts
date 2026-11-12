@@ -3,6 +3,7 @@
 // (translateConfig.ts), so a change here shows in every tool and page at once (the panel re-draws when the server pushes it).
 // Port of ComfyUI-TJ_NODE_STUDIO_ONE/web/shared/translation_settings.js (node v1.49.2).
 import { comfyFetch } from "./comfySocket";
+import { mountNativeLLMOptions } from "./nativeLlmOpts";
 import { getTranslateConfig, loadTranslateConfig, onTranslateConfig, setTranslateConfig } from "./translateConfig";
 import { customLLMControls } from "./customLlmControls";
 import { fetchOrModels } from "./llmBackendPanel";
@@ -113,7 +114,7 @@ export function translationSettingsPanel(theme: Partial<TranslationTheme> = {}, 
     } else {
       control.appendChild(div("loading…", { fontSize: "11px", color: T.muted }));
       localModels().then((d) => {
-        control.replaceChildren(col([label("CLIP checkpoint"), select(["none", ...d.textEncoders.filter((x) => x !== "none")], t.native_clip || "none", (v) => save({ native_clip: v === "none" ? "" : v }))]));
+        control.replaceChildren(col([label("CLIP checkpoint"), select(["none", ...d.textEncoders.filter((x) => x !== "none")], t.native_clip || "none", (v) => save({ native_clip: v === "none" ? "" : v }))]), mountNativeLLMOptions(null));
       });
     }
   }

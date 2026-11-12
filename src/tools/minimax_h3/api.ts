@@ -1,4 +1,5 @@
 import { getComfyBase } from "../../shared/comfyBase";
+import { nativeGenNode } from "../../shared/nativeLlmOpts";
 import { LLM_LIVE_CLIENT_ID, noteNativeGraph } from "../../shared/llmLive";
 // api.ts — MiniMax H3의 백엔드 호출 (원본 web/minimax/api_minimax.js 이식).
 // 프롬프트 에디터의 LLM(Ollama) 기능은 ComfyUI가 서빙하는 `/minimax_h3_one/llm/*` 라우트를
@@ -850,24 +851,7 @@ export async function analyzeImagesNative(clipName: string, images: string[], pr
         batch_select: "",
       },
     },
-    gen: {
-      class_type: "TextGenerate",
-      inputs: {
-        clip: ["clip", 0],
-        prompt: promptText,
-        image: ["batch", 0],
-        max_length: 1024,
-        sampling_mode: "on",
-        "sampling_mode.temperature": 0.7,
-        "sampling_mode.top_k": 64,
-        "sampling_mode.top_p": 0.95,
-        "sampling_mode.min_p": 0.05,
-        "sampling_mode.repetition_penalty": 1.05,
-        "sampling_mode.seed": 0,
-        thinking: false,
-        use_default_template: true,
-      },
-    },
+    gen: await nativeGenNode(["clip", 0], promptText, { images: ["batch", 0], maxLength: 1024 }),
     out: { class_type: "TJStudioOneTextOutput", inputs: { text: ["gen", 0] } },
   };
   const outputs = await submitGraph(g);
@@ -883,23 +867,7 @@ export async function writeBriefNative(clipName: string, systemPrompt: string, u
     clip: isGgufLtx
       ? { class_type: "TJ_LTX25ClipLoaderGGUF", inputs: { clip_name: clipName } }
       : { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: clipType, device: "default" } },
-    gen: {
-      class_type: "TextGenerate",
-      inputs: {
-        clip: ["clip", 0],
-        prompt: `${systemPrompt}\n\n${userPrompt}`,
-        max_length: 2048,
-        sampling_mode: "on",
-        "sampling_mode.temperature": 0.7,
-        "sampling_mode.top_k": 64,
-        "sampling_mode.top_p": 0.95,
-        "sampling_mode.min_p": 0.05,
-        "sampling_mode.repetition_penalty": 1.05,
-        "sampling_mode.seed": 0,
-        thinking: false,
-        use_default_template: true,
-      },
-    },
+    gen: await nativeGenNode(["clip", 0], `${systemPrompt}\n\n${userPrompt}`, { images: null, maxLength: 2048 }),
     out: { class_type: "TJStudioOneTextOutput", inputs: { text: ["gen", 0] } },
   };
   const outputs = await submitGraph(g);

@@ -19,6 +19,7 @@ import {
 import { buildMusicGraph, effectiveDuration } from "./graphBuilder";
 import { comfyApi, jget, jpost, playableAudioUrl, uploadCoverAudio } from "./api";
 import { noteNativeGraph } from "../../shared/llmLive";
+import { nativeGenNode, mountNativeLLMOptions } from "../../shared/nativeLlmOpts";
 import { openPianoRoll } from "./pianoRoll";
 import { melodySeconds } from "./melodyCore";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
@@ -612,7 +613,7 @@ export function renderMusic(container: HTMLElement) {
       : { class_type: "CLIPLoader",     inputs: { clip_name: state.llmClip, type: state.llmClipType || "qwen_image" } };
     const graph: any = {
       "tg:c": loader,
-      "tg:t": { class_type: "TextGenerate", inputs: { clip: ["tg:c", 0], prompt: composed, max_length: 2048, sampling_mode: "off", thinking: false, use_default_template: true } },
+      "tg:t": await nativeGenNode(["tg:c", 0], composed, { maxLength: 2048 }),
       "tg:p": { class_type: "PreviewAny", inputs: { source: ["tg:t", 0] } },
     };
     const res = await submitPrompt(graph, `MusicMaker · LLM (${role})`);
@@ -1819,6 +1820,7 @@ export function renderMusic(container: HTMLElement) {
         b.appendChild(setNote("Runs ComfyUI's native TextGenerate node — a GGUF/safetensors LLM loaded through a CLIP loader. No extra packages."));
         const clipOpts = [...(m.text_encoders || []), ...(ctx.llmModels || [])];
         b.appendChild(fieldCol(`CLIP / GGUF model (${clipOpts.length})`, searchSel(clipOpts, pending.llm_clip ?? cfg.llm_clip, (v) => { pending.llm_clip = v; }, { placeholder: "search text encoders…" })));
+        b.appendChild(mountNativeLLMOptions(null));
         b.appendChild(fieldCol("CLIP loader type", sel(LLM_CLIP_TYPES, pending.llm_clip_type ?? cfg.llm_clip_type ?? "qwen_image", (v) => { pending.llm_clip_type = v; })));
       } else {
         if (!ctx.llmModels) { try { ctx.llmModels = (await comfyApi.fetchApi("/tj_studio_one/llm/models").then((r) => r.json()).catch(() => ({}))).gguf || []; } catch { ctx.llmModels = []; } }

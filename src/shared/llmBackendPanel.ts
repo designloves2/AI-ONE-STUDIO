@@ -99,7 +99,7 @@ function sel(options: string[], value: string, onChange: (v: string) => void) {
   return s;
 }
 
-export function createLlmBackendGroup(state: LlmBackendState, save: () => void): LlmBackendGroup {
+export function createLlmBackendGroup(state: LlmBackendState, save: () => void, onSync?: () => void): LlmBackendGroup {
   const legacy = state.backend || "local";
   state.backend_text = state.backend_text || legacy;
   state.backend_vision = state.backend_vision || legacy;
@@ -215,6 +215,7 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void):
         comfyGroup.style.display = comfy ? "flex" : "none";
         customGroup.style.display = custom ? "flex" : "none";
         block.localOnly.forEach((r) => (r.style.display = or || comfy || custom ? "none" : "flex"));
+        onSync?.();
       },
       fill(orModels, keyHint) {
         if (orModels && orModels.length) {

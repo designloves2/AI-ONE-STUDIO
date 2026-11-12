@@ -107,7 +107,7 @@ export function noteNativeGraph(graph: any, promptId: any, api?: { addEventListe
     const nodes: Record<string, number> = {};
     let model = "";
     for (const [id, n] of Object.entries<any>(graph)) {
-      if (n?.class_type !== "TextGenerate") continue;
+      if (n?.class_type !== "TextGenerate" && n?.class_type !== "TextGenerateV2") continue;
       nodes[id] = Number(n.inputs?.max_length) || 0;
       const link = n.inputs?.clip;
       const loader = Array.isArray(link) ? graph[String(link[0])] : null;

@@ -371,7 +371,7 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   recavsrTransformer: string; recavsrVae: string; relayvsrUnet: string; relayvsrVae: string;
   relayvsrSeed: number;   // fixed by default, editable (same idea as recavsrSeed)
   // official MiniMax H3 Image nodes (T2I / R2I): own steps + optional image-only models (empty = fall back to the video models)
-  imgOfficialSteps: number; imgAutoEnhance: boolean; imgUnetT2i: string; imgUnetRef2i: string; imgClip: string; imgVae: string;
+  imgOfficialSteps: number; imgSampler: string; imgScheduler: string; imgCfg: number; imgShiftOn: boolean; imgShift: number; imgPromptWeight: boolean; imgWarnNoRef: boolean; imgAutoEnhance: boolean; imgUnetT2i: string; imgUnetRef2i: string; imgClip: string; imgVae: string;
 
   // Sigma shift (MiniMaxH3SigmaShift)
   shiftVideo: number;
@@ -2464,6 +2464,9 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     imgSteps: saved.imgSteps ?? 20,
     // official MiniMax H3 Image nodes (T2I / R2I): own steps + optional image-only models (empty = fall back to the video models)
     imgOfficialSteps: saved.imgOfficialSteps ?? 6,
+    imgSampler: saved.imgSampler || "euler", imgScheduler: saved.imgScheduler || "simple", imgCfg: saved.imgCfg ?? 1,
+    imgShiftOn: !!saved.imgShiftOn, imgShift: saved.imgShift ?? 3,
+    imgPromptWeight: saved.imgPromptWeight ?? true, imgWarnNoRef: saved.imgWarnNoRef ?? true,
     imgAutoEnhance: saved.imgAutoEnhance ?? false,
     imgUnetT2i: saved.imgUnetT2i || "", imgUnetRef2i: saved.imgUnetRef2i || "",
     imgClip: saved.imgClip || "", imgVae: saved.imgVae || "",

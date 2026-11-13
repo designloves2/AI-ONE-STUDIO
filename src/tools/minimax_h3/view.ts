@@ -71,7 +71,8 @@ import {
   saveState,
   turboModesFor,
 } from "./core";
-import { applyMobileCollapsibleLayout, button, checkboxRow, clear, col, el, helpDot, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
+import { attachPanZoom } from "../../shared/panZoom";
+import { applyMobileCollapsibleLayout, openFullscreen, button, checkboxRow, clear, col, el, helpDot, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { takeReuse } from "../../shared/galleryHandoff";
 import { openAudioGalleryPicker } from "../../shared/audioGalleryPicker";
@@ -676,7 +677,32 @@ export function renderMinimaxH3(container: HTMLElement) {
   // Postprocess Generate run all cover the full clip, same as the original).
   let lastCompareRange: { start: number; end: number } | null = null;
   fsBtn.addEventListener("click", () => {
-    if (lastResultURL) window.open(lastResultURL, "_blank");
+    if (!lastResultURL) return;
+    if (previewImg.style.display === "block" && resultVid.style.display !== "block") openFullscreen(lastResultURL, "image");
+    else window.open(lastResultURL, "_blank");
+  });
+  // Image results: wheel = zoom, drag = pan, double-click = fit (not for video results)
+  attachPanZoom(previewBox, () => [previewImg], { enabled: () => previewImg.style.display === "block" });
+  // T2I final result -> reference image in Reference to Image
+  let lastImgOut: { filename: string; subfolder: string; type: string } | null = null;
+  const sendR2iBtn = el("button", {
+    type: "button", text: "\u27A1 Send to R2I", title: "Use this picture as a reference image in Reference to Image",
+    class: "absolute bottom-1.5 right-1.5 z-[6] hidden",
+    style: { background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", borderRadius: "4px", padding: "3px 8px", cursor: "pointer", fontSize: "11px" },
+  });
+  previewBox.appendChild(sendR2iBtn);
+  sendR2iBtn.addEventListener("click", async () => {
+    if (!lastImgOut) return;
+    if ((state.imgRefImages || []).length >= 9) { showPopup("9 reference images max.", true); return; }
+    try {
+      const name = await copyOutputToInput(lastImgOut.filename, lastImgOut.subfolder || "", lastImgOut.type || "output");
+      state.imgRefImages = [...(state.imgRefImages || []), name];
+      (state as any).imgRefImagesMp = [...(((state as any).imgRefImagesMp) || []), 1.0];
+      state.imageGenMode = "ref2i"; persist();
+      try { imgPromptEditOv.syncFormat(); } catch {}
+      renderLeft(); renderPrompts();
+      showPopup("Added as a reference image in Reference to Image.", false);
+    } catch (e: any) { showPopup(e?.message || String(e), true); }
   });
   compareBtn.addEventListener("click", () => {
     if (!lastResultURL || !lastCompareSource) return;
@@ -1115,6 +1141,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     // these modes, so a separate fullscreen button is redundant there.
     fsBtn.classList.toggle("hidden", hasOriginal);
     compareBtn.classList.toggle("hidden", !hasOriginal);
+    sendR2iBtn.classList.add("hidden");
   }
   function resetPreview() {
     placeholder.style.display = "block";
@@ -1133,6 +1160,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     badge.classList.add("hidden");
     fsBtn.classList.add("hidden");
     compareBtn.classList.add("hidden");
+    sendR2iBtn.classList.add("hidden");
   }
 
   const onKJPreview = (d: any) => {
@@ -3840,8 +3868,9 @@ export function renderMinimaxH3(container: HTMLElement) {
     previewImg.style.display = "block";
     badge.classList.remove("hidden");
     lastCompareSource = null;
-    fsBtn.classList.add("hidden");
+    fsBtn.classList.remove("hidden");
     compareBtn.classList.add("hidden");
+    sendR2iBtn.classList.add("hidden");
   }
 
   // ── Image Generator mode (generationMode "imagegen") ───────────────────────────────────
@@ -3969,10 +3998,23 @@ export function renderMinimaxH3(container: HTMLElement) {
 
     if (subMode === "t2i" || subMode === "ref2i") {
       leftPanel.appendChild(panel([
-        label("Steps"),
-        row([col([numberField(state.imgOfficialSteps ?? 6, (v) => { state.imgOfficialSteps = Math.max(1, Math.round(v)); persist(); }, 1)])]),
-        el("div", { text: "Official MiniMax H3 Image nodes — one sampling pass at the chosen resolution (cfg 1, euler, simple). 6 steps is the template's default.",
+        label("Sampling"),
+        row([
+          col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.imgSampler || "euler", (v) => { state.imgSampler = v; persist(); })]),
+          col([label("Scheduler"), select(SCHEDULERS.map((s) => ({ value: s, label: s })), state.imgScheduler || "simple", (v) => { state.imgScheduler = v; persist(); })]),
+        ]),
+        row([
+          col([label("Steps"), numberField(state.imgOfficialSteps ?? 6, (v) => { state.imgOfficialSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),
+          col([label("CFG"), numberField(state.imgCfg ?? 1, (v) => { state.imgCfg = v; persist(); }, 0.1)]),
+        ]),
+        checkboxRow("Use Shift", !!state.imgShiftOn, (v) => { state.imgShiftOn = v; persist(); renderLeft(); }),
+        ...(state.imgShiftOn ? [row([col([label("Shift"), numberField(state.imgShift ?? 3, (v) => { state.imgShift = Math.max(0.01, v); persist(); }, 0.1)])])] : []),
+        el("div", { text: "Official MiniMax H3 Image nodes — one sampling pass at the chosen resolution. Template defaults: euler · simple · cfg 1 · 6 steps. Shift is off by default (the model's own shift is used); turn it on to patch the model with the H3 Sigma Shift node.",
           style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }),
+        ...(subMode === "t2i" ? [checkboxRow("H3 prompt weight", state.imgPromptWeight !== false, (v) => { state.imgPromptWeight = v; persist(); },
+          { title: "Text to Image works better with a reference: when on, a 1024x1024 pure-black image (#000000, an Empty Image node) is added as reference image 0. Leave it on for better results; turn it off to send the prompt alone." })] : []),
+        ...(subMode === "ref2i" ? [checkboxRow("Warn if no reference image", state.imgWarnNoRef !== false, (v) => { state.imgWarnNoRef = v; persist(); },
+          { title: "Reference to Image needs at least one picture. When on, Generate shows a notice popup instead of running if no reference image is loaded; turn it off to run without one." })] : []),
       ]));
     }
     if (false) {   // legacy Turbo LoRA slots — not used by the official image nodes
@@ -4109,8 +4151,8 @@ export function renderMinimaxH3(container: HTMLElement) {
   async function runImageGen(opts: { final: boolean }) {
     if (running) return;
     const subMode = (state.imageGenMode === "ref2i" ? "ref2i" : "t2i") as "t2i" | "ref2i";
-    if (subMode === "ref2i" && !(state.imgRefImages || []).filter(Boolean).length) {
-      showPopup("Pick at least one reference image first.", true); return;
+    if (subMode === "ref2i" && state.imgWarnNoRef !== false && !(state.imgRefImages || []).filter(Boolean).length) {
+      showPopup('Reference to Image needs at least one reference image \u2014 add a picture in the Reference Images box first (or turn off "Warn if no reference image" to run without one).', true); return;
     }
     running = true; stopRequested = false;
     genBtn.disabled = true;
@@ -4145,6 +4187,9 @@ export function renderMinimaxH3(container: HTMLElement) {
         prompt: state.imgPrompt || "", seed, previewRes, finalRes,
         filenamePrefix: `${state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER}/img_${Date.now()}`,
         steps: state.imgOfficialSteps ?? 6,
+        sampler: state.imgSampler, scheduler: state.imgScheduler, cfg: state.imgCfg ?? 1,
+        shiftOn: !!state.imgShiftOn, shift: state.imgShift ?? 3,
+        promptWeight: state.imgPromptWeight !== false, warnNoRef: state.imgWarnNoRef !== false,
         savePreview: !!state.imgPreviewSaveToGallery,
       });
       const res = await queuePrompt(built.graph, {
@@ -4154,6 +4199,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       if (!o) throw new Error("No output produced.");
       const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");
       showResultImage(url);
+      lastImgOut = opts.final ? { filename: o.filename, subfolder: o.subfolder || "", type: o.type || "output" } : null;
+      sendR2iBtn.classList.toggle("hidden", !(opts.final && subMode === "t2i"));
       if (opts.final) {
         await saveMeta(o.filename, o.subfolder || (state.imgSaveSubfolder || state.saveSubfolder || SUBFOLDER), {
           created: Date.now(), prompt: state.imgPrompt || "",
@@ -4163,6 +4210,8 @@ export function renderMinimaxH3(container: HTMLElement) {
           imgLoras: state.imgLoras || [], subMode,
           refImages: subMode === "ref2i" ? (state.imgRefImages || []) : [],
           refImageSize: state.imgRefImageSize || "max", seed,
+          imgSampler: state.imgSampler || "euler", imgScheduler: state.imgScheduler || "simple", imgCfg: state.imgCfg ?? 1,
+          imgShiftOn: !!state.imgShiftOn, imgShift: state.imgShift ?? 3, imgPromptWeight: state.imgPromptWeight !== false,
           imgOfficialSteps: state.imgOfficialSteps ?? 6, imgSteps: state.imgSteps ?? 20, imgSecondPassSteps: state.imgSecondPassSteps ?? 3,
           imgLatentMode: state.imgLatentMode === "fizgig" ? "fizgig" : "basic",
           imgTurboOn: !!state.imgTurboOn,
@@ -6905,6 +6954,12 @@ export function renderMinimaxH3(container: HTMLElement) {
     if (meta.refImageSize) state.imgRefImageSize = meta.refImageSize;
     if (meta.imgSteps != null) state.imgSteps = meta.imgSteps;
     if (meta.imgOfficialSteps != null) state.imgOfficialSteps = meta.imgOfficialSteps;
+    if (meta.imgSampler) state.imgSampler = meta.imgSampler;
+    if (meta.imgScheduler) state.imgScheduler = meta.imgScheduler;
+    if (meta.imgCfg != null) state.imgCfg = meta.imgCfg;
+    if (meta.imgShiftOn != null) state.imgShiftOn = !!meta.imgShiftOn;
+    if (meta.imgShift != null) state.imgShift = meta.imgShift;
+    if (meta.imgPromptWeight != null) state.imgPromptWeight = !!meta.imgPromptWeight;
     if (meta.imgSecondPassSteps != null) state.imgSecondPassSteps = meta.imgSecondPassSteps;
     state.imgLatentMode = meta.imgLatentMode === "fizgig" ? "fizgig" : "basic";
     if (meta.imgTurboOn != null) state.imgTurboOn = !!meta.imgTurboOn;

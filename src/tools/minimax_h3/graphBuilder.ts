@@ -2594,14 +2594,18 @@ export interface OfficialImageOpts {
   filenamePrefix: string;
   steps?: number;
   savePreview?: boolean;
+  sampler?: string; scheduler?: string; cfg?: number;
+  shiftOn?: boolean; shift?: number;
+  promptWeight?: boolean;   // T2I only: pure-black 1024x1024 as reference image 0
+  warnNoRef?: boolean;      // R2I: false = run without a reference instead of throwing
 }
 
 export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | undefined, opts: OfficialImageOpts) {
-  const { subMode, final, refImages, refImageMps, prompt, seed, previewRes, finalRes, filenamePrefix, steps, savePreview } = opts;
+  const { subMode, final, refImages, refImageMps, prompt, seed, previewRes, finalRes, filenamePrefix, steps, savePreview, sampler, scheduler, cfg, shiftOn, shift, promptWeight, warnNoRef } = opts;
   for (const n of ["MiniMaxH3ImageConditioning", "ConditioningZeroOut"])
     if (!has(avail, n)) throw new Error(`${n} is not available — update ComfyUI to a version with the official MiniMax H3 Image nodes, then restart.`);
   const refList = (refImages || []).filter(Boolean).slice(0, 9);
-  if (subMode === "ref2i" && !refList.length) throw new Error("Reference to Image needs at least one reference image.");
+  if (subMode === "ref2i" && !refList.length && warnNoRef !== false) throw new Error("Reference to Image needs at least one reference image.");
   if (refList.length && !has(avail, "ResizeImageMaskNode")) throw new Error("ResizeImageMaskNode is not available — update ComfyUI.");
   const pick = (own: string | undefined, fallback: string | undefined) => (own && own !== "none") ? own : fallback;
   const unetName = subMode === "ref2i" ? pick(state.imgUnetRef2i, state.unetReference) : pick(state.imgUnetT2i, state.unetFirstLast);
@@ -2612,7 +2616,14 @@ export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | unde
   const res = final ? finalRes : previewRes;
   const g: Graph = {};
   g[IMGO.unet] = { class_type: "UNETLoader", inputs: { unet_name: unetName, weight_dtype: "default" } };
-  const model = buildImageLoraChain(g, state, [IMGO.unet, 0]);
+  let model: any = buildImageLoraChain(g, state, [IMGO.unet, 0]);
+  if (shiftOn) {
+    const sh = Math.max(0.01, Number(shift ?? 3));
+    if (has(avail, "MiniMaxH3SigmaShift")) g["IMGO:shift"] = { class_type: "MiniMaxH3SigmaShift", inputs: { model, shift_video: sh, shift_audio: 3 } };
+    else if (has(avail, "ModelSamplingAuraFlow")) g["IMGO:shift"] = { class_type: "ModelSamplingAuraFlow", inputs: { model, shift: sh } };
+    else throw new Error("Shift needs the MiniMaxH3SigmaShift (or ModelSamplingAuraFlow) node — update ComfyUI, or turn off Use Shift.");
+    model = ["IMGO:shift", 0];
+  }
   g[IMGO.clip] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "minimax", device: "default" } };
   g[IMGO.vae] = { class_type: "VAELoader", inputs: { vae_name: vaeName } };
 
@@ -2630,11 +2641,16 @@ export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | unde
       input: link, resize_type: "scale to multiple", "resize_type.multiple": 32, scale_method: "area" } };
     condInputs[`images.image_${i}`] = [IMGO.refSnap(i), 0];
   });
+  if (subMode === "t2i" && promptWeight !== false) {
+    if (!has(avail, "EmptyImage")) throw new Error("EmptyImage is not available — update ComfyUI, or turn off H3 prompt weight.");
+    g["IMGO:black"] = { class_type: "EmptyImage", inputs: { width: 1024, height: 1024, batch_size: 1, color: 0 } };
+    condInputs["images.image_0"] = ["IMGO:black", 0];
+  }
   g[IMGO.cond] = { class_type: "MiniMaxH3ImageConditioning", inputs: condInputs };
   g[IMGO.neg] = { class_type: "ConditioningZeroOut", inputs: { conditioning: [IMGO.cond, 0] } };
   g[IMGO.sampler] = { class_type: "KSampler", inputs: {
     model, positive: [IMGO.cond, 0], negative: [IMGO.neg, 0], latent_image: [IMGO.cond, 1],
-    seed: seed ?? 0, steps: Math.max(1, Math.round(steps ?? 6)), cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 } };
+    seed: seed ?? 0, steps: Math.max(1, Math.round(steps ?? 6)), cfg: cfg ?? 1, sampler_name: sampler || "euler", scheduler: scheduler || "simple", denoise: 1 } };
   g[IMGO.decode] = { class_type: "VAEDecode", inputs: { samples: [IMGO.sampler, 0], vae: [IMGO.vae, 0] } };
   g[IMGO.save] = (final || savePreview)
     ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [IMGO.decode, 0] } }

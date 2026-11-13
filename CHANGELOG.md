@@ -3,6 +3,17 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.20.0] — 2026-11-13
+
+Ports node v1.53.0 (commit c8cf45e, `SPEC_RELAY_H3_IMAGE_OPTIONS.md`): Image Generator Text to Image / Reference to Image extras (ledger row 93). Character Sheet is untouched.
+
+### Added
+- Result image mouse controls: wheel = zoom, left drag = pan, double-click = fit (images only); the fullscreen button now also shows for image results (opens the image viewer).
+- Sampling panel: Sampler (euler), Scheduler (simple), Steps (6), CFG (1), Use Shift (off) + Shift (3, min 0.01). Shift on adds `MiniMaxH3SigmaShift` (`ModelSamplingAuraFlow` as fallback) between the LoRA chain and the KSampler. New state keys `imgSampler, imgScheduler, imgCfg, imgShiftOn, imgShift` (saved in the image meta and restored by Reuse).
+- Text to Image: `H3 prompt weight` (`imgPromptWeight`, default on) adds an `EmptyImage` 1024x1024 black as `images.image_0`.
+- Reference to Image: `Warn if no reference image` (`imgWarnNoRef`, default on) shows a notice popup instead of running with no reference; off runs without one.
+- `Send to R2I` button on the final Text to Image result: copies the picture to input, adds it as a reference image (MP 1.0, 9 max) and switches to Reference to Image.
+
 ## [0.19.1] — 2026-11-13
 
 Ports node v1.52.1 (RelayVSR seed, n_ctx 16000, Image Generator prompt bar) and everything done on the web side since v0.19.0 (verification run of ReCaVSR / RelayVSR / Reference to Image on the studio session's order, ledger rows 90 - 92).

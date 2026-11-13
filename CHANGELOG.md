@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.20.2] — 2026-11-13
+
+### Changed
+- H3 Image Generator Sampling panel: Sampler and Scheduler now list everything ComfyUI offers (read from the KSampler definition via `shared/samplerLists.ts`), not the short built-in list; a saved value stays selectable (ledger row 95).
+
 ## [0.20.1] — 2026-11-13
 
 ### Fixed

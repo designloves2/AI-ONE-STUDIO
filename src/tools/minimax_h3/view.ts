@@ -72,6 +72,7 @@ import {
   turboModesFor,
 } from "./core";
 import { attachPanZoom } from "../../shared/panZoom";
+import { SAMPLERS as FULL_SAMPLERS, SCHEDULERS as FULL_SCHEDULERS, withCurrent } from "../../shared/samplerLists";
 import { applyMobileCollapsibleLayout, openFullscreen, button, checkboxRow, clear, col, el, helpDot, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
 import { takeReuse } from "../../shared/galleryHandoff";
@@ -4000,8 +4001,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       leftPanel.appendChild(panel([
         label("Sampling"),
         row([
-          col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.imgSampler || "euler", (v) => { state.imgSampler = v; persist(); })]),
-          col([label("Scheduler"), select(SCHEDULERS.map((s) => ({ value: s, label: s })), state.imgScheduler || "simple", (v) => { state.imgScheduler = v; persist(); })]),
+          col([label("Sampler"), select(withCurrent(FULL_SAMPLERS, state.imgSampler || "euler").map((s) => ({ value: s, label: s })), state.imgSampler || "euler", (v) => { state.imgSampler = v; persist(); })]),
+          col([label("Scheduler"), select(withCurrent(FULL_SCHEDULERS, state.imgScheduler || "simple").map((s) => ({ value: s, label: s })), state.imgScheduler || "simple", (v) => { state.imgScheduler = v; persist(); })]),
         ]),
         row([
           col([label("Steps"), numberField(state.imgOfficialSteps ?? 6, (v) => { state.imgOfficialSteps = Math.max(1, Math.round(v)); persist(); }, 1)]),

@@ -10,6 +10,8 @@
 - The Generate button said `Enhancing…` for the rest of the run; it goes back to `Rendering…` when the enhance is done.
 
 ### Changed
+- **RelayVSR seed is fixed at 42 by default and editable** (node, next release). Before, every run used a random seed. New state key `relayvsrSeed` (42, in the `defaultState` list), a `Seed` box in the RelayVSR option panel (left Upscale section and Postprocess C. Upscale), `buildRelayVSR` uses `p.seed ?? 42`, Postprocess and the clip graph pass `state.relayvsrSeed ?? 42`, and `relayvsrUsed` records the seed in the clip meta. The same clip now gives the same result. ReCaVSR already had its Seed box with default 42.
+- **`n_ctx` defaults are 16000 everywhere** (node, next release): the image tools' LLM panel and default LLM objects (4096 before), the H3 / LTX local LLM calls and settings (16384 before), the translation's llama context (16384 before). Saved user values are not touched.
 - Image Generator prompt header order is now Auto Enhance, Refine, Prompt Edit, Templates (node, next release): Auto Enhance sits just left of Refine and no longer floats to the right.
 
 ## [0.19.0] — 2026-11-13

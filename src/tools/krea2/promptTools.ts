@@ -65,7 +65,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
       // "Caption + Format" is the only vision task that actually applies Model Format/Aesthetic
       // (TJ_ImageToPrompt ignores model_format for every other task) — default to it so the
       // dropdown below isn't a silent no-op (node llm_panel.js, same fix).
-      vision_task: "Caption + Format (apply model_format below)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
+      vision_task: "Caption + Format (apply model_format below)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 16000, max_tokens: 1000, temperature: 0.7, seed: 0 },
     loadLLMSettings()
   );
   function saveLLM() { saveLLMSettings(llm); }

@@ -369,6 +369,7 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   recavsrScale: number; recavsrColorFix: string; recavsrSeed: number; recavsrDecoder: string; recavsrKernels: string;
   recavsrKvOffload: boolean; recavsrEncoder: string;
   recavsrTransformer: string; recavsrVae: string; relayvsrUnet: string; relayvsrVae: string;
+  relayvsrSeed: number;   // fixed by default, editable (same idea as recavsrSeed)
   // official MiniMax H3 Image nodes (T2I / R2I): own steps + optional image-only models (empty = fall back to the video models)
   imgOfficialSteps: number; imgAutoEnhance: boolean; imgUnetT2i: string; imgUnetRef2i: string; imgClip: string; imgVae: string;
 
@@ -2336,7 +2337,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     // 16384, not llama.cpp's/the route's own 4096 default — H3's system prompt (guide + few-shot
     // examples) plus a real request measured 5436 tokens on its own in testing, already over
     // 4096 before generation even starts (observed failure: a silent empty result, no error).
-    h3LlamaNCtx: saved.h3LlamaNCtx ?? 16384,
+    h3LlamaNCtx: saved.h3LlamaNCtx ?? 16000,
     // 4096 — a real full brief (opening style + multiple [Shot N] + Ambient sound + Music) got
     // cut off mid-sentence at 2000 in testing; a truncated brief is exactly as unusable as an
     // empty one.
@@ -2389,6 +2390,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     recavsrVae:         saved.recavsrVae         || "",
     relayvsrUnet:       saved.relayvsrUnet       || "",
     relayvsrVae:        saved.relayvsrVae        || "",
+    relayvsrSeed:       saved.relayvsrSeed       ?? 42,   // fixed by default, editable (same idea as recavsrSeed)
     shiftVideo: saved.shiftVideo ?? 12,
     shiftAudio: saved.shiftAudio ?? 3,
     useSageAttn: saved.useSageAttn ?? true,

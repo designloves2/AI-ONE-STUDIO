@@ -55,7 +55,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
   const panelEdit = el("div", { style: { display: "flex", flex: "1" } }, [editTA]);
 
   const llm = Object.assign(
-    { backend: "local", backend_text: "local", backend_vision: "local", or_model: "", or_model_vision: "", custom_base_text: "", custom_model_text: "", custom_ctx_text: 0, custom_base_vision: "", custom_model_vision: "", custom_ctx_vision: 0, gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 4096, max_tokens: 1000, temperature: 0.7, seed: 0 },
+    { backend: "local", backend_text: "local", backend_vision: "local", or_model: "", or_model_vision: "", custom_base_text: "", custom_model_text: "", custom_ctx_text: 0, custom_base_vision: "", custom_model_vision: "", custom_ctx_vision: 0, gguf_model: "", mmproj_file: "none", vision_task: "Caption (plain description)", model_format: "Universal Natural Language", aesthetic: "None (no aesthetic injection)", extra_instructions: "", custom_instruction: "", n_gpu_layers: -1, n_ctx: 16000, max_tokens: 1000, temperature: 0.7, seed: 0 },
     loadLLMSettings()
   );
   function saveLLM() { saveLLMSettings(llm); }

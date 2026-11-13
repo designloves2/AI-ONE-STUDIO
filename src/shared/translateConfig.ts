@@ -18,7 +18,7 @@ export interface TranslateConfig {
 
 const DEFAULTS: TranslateConfig = {
   backend: "native", native_clip: "", or_model: "", llama_model: "",
-  llama_n_ctx: 16384, llama_max_tokens: 4096,
+  llama_n_ctx: 16000, llama_max_tokens: 4096,
   custom_base: "", custom_model: "", custom_ctx: 0,
 };
 

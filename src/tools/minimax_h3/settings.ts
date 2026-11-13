@@ -490,7 +490,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
           // Defaults to 16384, not llama.cpp's own 4096: H3's system prompt (guide + few-shot
           // examples) plus a real request measured 5436 tokens on its own in testing, already
           // over 4096 before generation even starts (silent empty result, no error).
-          const nCtxField = numberField(state.h3LlamaNCtx ?? 16384, (v) => { state.h3LlamaNCtx = Math.max(512, Math.round(v)); changed(); }, 512);
+          const nCtxField = numberField(state.h3LlamaNCtx ?? 16000, (v) => { state.h3LlamaNCtx = Math.max(512, Math.round(v)); changed(); }, 512);
           holder.appendChild(col([label("Context length (n_ctx)"), nCtxField]));
           // A truncated brief is exactly as unusable as an empty one — this needs real
           // headroom (a full multi-shot brief measured well over 2000 tokens).
@@ -834,7 +834,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
           if (!list.length) list.push("(none found)");
           box.appendChild(col([label("GGUF model"), searchableSelect(list, t.llama_model || list[0], (v) => save({ llama_model: v })).el]));
           box.appendChild(col([label("Context length (n_ctx)"),
-            numberField(t.llama_n_ctx ?? 16384, (v) => save({ llama_n_ctx: Math.max(512, Math.round(v)) }), 512)]));
+            numberField(t.llama_n_ctx ?? 16000, (v) => save({ llama_n_ctx: Math.max(512, Math.round(v)) }), 512)]));
           box.appendChild(col([label("Max output tokens"),
             numberField(t.llama_max_tokens ?? 4096, (v) => save({ llama_max_tokens: Math.max(256, Math.round(v)) }), 256)]));
         });
@@ -988,7 +988,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       h3_llama_vision_model: state.h3LlamaVisionModel || "",
       h3_llama_vision_mmproj: state.h3LlamaVisionMmproj || "",
       h3_llama_brief_model: state.h3LlamaBriefModel || "",
-      h3_llama_n_ctx: state.h3LlamaNCtx ?? 16384,
+      h3_llama_n_ctx: state.h3LlamaNCtx ?? 16000,
       h3_llama_max_tokens: state.h3LlamaMaxTokens ?? 4096,
       ltx_llama_model: state.ltxLlamaModel || "",
       ltx_llama_mmproj: state.ltxLlamaMmproj || "",
@@ -1191,7 +1191,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
       h3_llama_vision_model: state.h3LlamaVisionModel || "",
       h3_llama_vision_mmproj: state.h3LlamaVisionMmproj || "",
       h3_llama_brief_model: state.h3LlamaBriefModel || "",
-      h3_llama_n_ctx: state.h3LlamaNCtx ?? 16384,
+      h3_llama_n_ctx: state.h3LlamaNCtx ?? 16000,
       h3_llama_max_tokens: state.h3LlamaMaxTokens ?? 4096,
     }).catch(() => {});
   }

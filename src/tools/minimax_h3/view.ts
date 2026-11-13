@@ -2755,6 +2755,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     return ([
       picked("UNET", state.relayvsrUnet),
       picked("VAE", state.relayvsrVae),
+      row([col([labelHelp("Seed", "Seed of the one-step sampler. Fixed at 42 by default, so the same clip gives the same result; change it to get another variation."),
+        numberField(state.relayvsrSeed ?? 42, (n) => { state.relayvsrSeed = Math.max(0, Math.round(n)); persist(); }, 1)])]),
       x4 ? el("div", { text: "⚠ The x4 model is hard to run on a 16GB card — use the x2 pair (relayvsr_x2_… with relayvsr_flash_vae_x2_…).", style: small(C.warn) }) : null,
       el("div", { text: "RelayVSR has no scale setting: the x2 file doubles and the x4 file quadruples the size. One sampling step; only every 15th frame goes through the model "
         + "and the VSR decoder restores all of them. The model files are picked in Settings → UpScale Model.", style: small(C.muted) }),
@@ -4113,7 +4115,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     running = true; stopRequested = false;
     genBtn.disabled = true;
     const genLabel = genBtn.textContent;
-    genBtn.textContent = opts.final ? "⏳ Rendering…" : "⏳ Preview…";
+    genBtn.textContent = "⏳ Running…";
     setStatus(opts.final ? "Image Generator — rendering…" : "Image Generator — preview…");
     resetPreview();
     startClock();
@@ -4128,7 +4130,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         await imgPromptEditOv.enhance(state.imgPrompt || "");
         try { imgInlineBil?.refresh(); } catch {}
         persist();
-        genBtn.textContent = opts.final ? "⏳ Rendering…" : "⏳ Preview…";   // the render follows the enhance
+        genBtn.textContent = "⏳ Running…";   // the render follows the enhance
       }
       await ensureEnglishPrompts("image");
       const previewRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgPreviewMp ?? 0.2);
@@ -5709,7 +5711,7 @@ export function renderMinimaxH3(container: HTMLElement) {
             seed: state.recavsrSeed, decoder: state.recavsrDecoder, kernels: state.recavsrKernels,
             kvOffload: state.recavsrKvOffload, encoder: state.recavsrEncoder,
           },
-          relayvsr: { unet: state.relayvsrUnet, vae: state.relayvsrVae, seed: randomSeed() },
+          relayvsr: { unet: state.relayvsrUnet, vae: state.relayvsrVae, seed: state.relayvsrSeed ?? 42 },
         },
         skinRetouch: {
           enabled: state.ppSkinRetouchOn, evenness: state.ppSkinEvenness, smoothing: state.ppSkinSmoothing,

@@ -77,10 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.18.5**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.19.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
-- 2026-11-13 (미릴리즈, 버전/태그 없음): 노드 미커밋 작업 3가지를 웹으로 이식 완료 — [1] ReCaVSR·RelayVSR 업스케일(행 86), [2] H3 Image Generator 공식 노드 T2I/R2I + Generate 버튼 버그 수정(행 87), [3] ComfyUI 네이티브 Generate Text 옵션(행 88, `src/shared/nativeLlmOpts.ts`). 웹 설치 배치에 웹이 쓰는 팩 5개 추가. 스튜디오 세션 지시: 웹 버전업·릴리즈·태그는 사용자에게 먼저 확인(커밋만 했고 push 전).
+- 2026-11-13 v0.19.0 (노드 v1.52.0, 커밋 70275ae·태그 v1.52.0 대응): 노드 작업 3가지 이식 릴리즈 — [1] ReCaVSR·RelayVSR 업스케일(행 86), [2] H3 Image Generator 공식 노드 T2I/R2I + Generate 버튼 버그 수정(행 87), [3] ComfyUI 네이티브 Generate Text 옵션(행 88, `src/shared/nativeLlmOpts.ts`). 웹 설치 배치에 웹이 쓰는 팩 5개 추가. `PORT_LEDGER.md` 행 89. 미검증: 실제 ReCaVSR/RelayVSR 렌더, Reference to Image, 실행 중 LLM으로 Auto Enhance/Refine, 설치 배치 실행.
 - 2026-11-08 v0.18.5: LTX 2.5 Resize 설정 9개와 `saveUnprocessed`가 새로고침하면 사라지던 문제 수정(`defaultState` 허용 목록에 없었음, 노드 a74267c). 화면이 `state.x =`로 쓰는 키는 반드시 해당 도구 `core.ts`의 `defaultState`에도 넣을 것. `PORT_LEDGER.md` 행 85.
 - 2026-11-08 v0.18.4: (웹 전용, 사용자 요청) Split Sigma Final MP가 Start MP보다 작으면 Start MP로 올림(`hiresMp()`), FlashVSR 시드 0 = 랜덤(LTX·H3). 노드는 그대로라 노드와 차이가 생김 — 노드 세션에 알림. `PORT_LEDGER.md` 행 84. 실제 렌더는 미검증.
 - 2026-11-08 v0.18.3: LAN 주소(http)로 열면 앱이 시작 못 하던 문제 수정 — `crypto.randomUUID()`는 보안 컨텍스트에서만 있음. 새 코드는 `src/shared/uuid.ts`의 `uuid()`를 쓸 것. `PORT_LEDGER.md` 행 83. 실제 다른 PC에서의 접속은 미검증.

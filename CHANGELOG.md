@@ -3,7 +3,9 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
-## [Unreleased]
+## [0.19.0] — 2026-11-13
+
+Ports the node's v1.52.0 work (ledger rows 86 - 88): ReCaVSR / RelayVSR upscale, the H3 Image Generator on the official image nodes, and the shared ComfyUI native Generate Text options.
 
 ### Added
 - **H3 Upscale: ReCaVSR and RelayVSR** (node `SPEC_RELAY_VSR_UPSCALERS.md`, node not released yet). Two more video super-resolution methods in the left Upscale section and in Postprocess -> C. Upscale (method list: Latent Upscale (Use H3) / FlashVSR / ReCaVSR / RelayVSR / LTX 2.5 Upscale / RTX VSR(TJ) / Model). `buildReCaVSR` (`ReCaVSRLoader` -> `ReCaVSRUpscale` -> `GetVideoComponents`) and `buildRelayVSR` (`UNETLoader` -> `RelayVSRConditioning` -> 1-step `KSampler` -> `VSRDecode`), new state keys `recavsr*` / `relayvsr*`, option panels (`vsrOptionRows`), Settings -> UpScale Model panels for the model files (RelayVSR UNET / VAE, ReCaVSR transformer / Wan 2.2 VAE with download paths), four config keys, `recavsr_models`, and the five nodes in the availability list. Clip metadata records `{method: "recavsr" | "relayvsr", ...}`.

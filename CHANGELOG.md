@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.20.1] — 2026-11-13
+
+### Fixed
+- Text to Image failed with "EmptyImage is not available" when H3 prompt weight was on: EmptyImage (and ModelSamplingAuraFlow, the Shift fallback) are ComfyUI core nodes and are never in the availability list, so the `has()` check always refused them. The checks are removed; the node does not have them either (ledger row 94).
+
 ## [0.20.0] — 2026-11-13
 
 Ports node v1.53.0 (commit c8cf45e, `SPEC_RELAY_H3_IMAGE_OPTIONS.md`): Image Generator Text to Image / Reference to Image extras (ledger row 93). Character Sheet is untouched.

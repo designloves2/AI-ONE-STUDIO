@@ -77,9 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.20.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.20.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-13 v0.20.1: T2I에서 "EmptyImage is not available"로 막히던 버그 수정 — 기본 노드(EmptyImage, ModelSamplingAuraFlow)는 가용성 목록에 없어서 `has()` 검사를 지움. 코어 노드는 `has()`로 막지 말 것(목록에 있는 것은 `MMH3_CORE_NODES`와 H3 Image 노드뿐). `PORT_LEDGER.md` 행 94. 실제 T2I 렌더는 미검증.
 - 2026-11-13 v0.20.0 (노드 v1.53.0, 커밋 c8cf45e 대응): Image Generator T2I/R2I 추가 기능 — 결과 이미지 휠 확대·드래그·더블클릭 맞춤 + ⛶ 전체화면, Sampling 패널(Sampler/Scheduler/Steps/CFG/Use Shift+Shift, `MiniMaxH3SigmaShift`), T2I `H3 prompt weight`(EmptyImage 검정을 images.image_0), R2I `Warn if no reference image`, `➡ Send to R2I`. Character Sheet 미수정. `PORT_LEDGER.md` 행 93. 타입 검사·빌드만 함. 미검증: 화면에서의 휠/드래그 동작, Shift·prompt weight 그래프의 실제 렌더, Send to R2I.
 - 2026-11-13 v0.19.1 (노드 v1.52.1, 커밋 8cc7618·태그 v1.52.1 대응): v0.19.0 이후 전부 릴리즈 — 같은 영상 검증(ReCaVSR 노드와 완전 동일, RelayVSR 기준선 안, R2I + Auto Enhance/Refine 실제 LLM 확인; `PORT_LEDGER.md` 행 90), Auto Enhance가 R2I에서 T2I 모델 포맷을 쓰던 문제 수정, RelayVSR Seed 기본 42 고정 + 옵션 칸, n_ctx 기본값 16000, Image Generator 프롬프트 줄(Auto Enhance가 Refine 왼쪽, 버튼 글자 `Running…`; 행 91). README 갱신(행 92). 미검증: Seed 칸 화면 표시와 시드 지정 RelayVSR 실행, ReCaVSR/RelayVSR 2단계(two-pass) 조합, 실제 설치 배치 실행.
 - 2026-11-13 v0.19.0 (노드 v1.52.0, 커밋 70275ae·태그 v1.52.0 대응): 노드 작업 3가지 이식 릴리즈 — [1] ReCaVSR·RelayVSR 업스케일(행 86), [2] H3 Image Generator 공식 노드 T2I/R2I + Generate 버튼 버그 수정(행 87), [3] ComfyUI 네이티브 Generate Text 옵션(행 88, `src/shared/nativeLlmOpts.ts`). 웹 설치 배치에 웹이 쓰는 팩 5개 추가. `PORT_LEDGER.md` 행 89. 미검증: 실제 ReCaVSR/RelayVSR 렌더, Reference to Image, 실행 중 LLM으로 Auto Enhance/Refine, 설치 배치 실행.

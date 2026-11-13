@@ -2620,8 +2620,7 @@ export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | unde
   if (shiftOn) {
     const sh = Math.max(0.01, Number(shift ?? 3));
     if (has(avail, "MiniMaxH3SigmaShift")) g["IMGO:shift"] = { class_type: "MiniMaxH3SigmaShift", inputs: { model, shift_video: sh, shift_audio: 3 } };
-    else if (has(avail, "ModelSamplingAuraFlow")) g["IMGO:shift"] = { class_type: "ModelSamplingAuraFlow", inputs: { model, shift: sh } };
-    else throw new Error("Shift needs the MiniMaxH3SigmaShift (or ModelSamplingAuraFlow) node — update ComfyUI, or turn off Use Shift.");
+    else g["IMGO:shift"] = { class_type: "ModelSamplingAuraFlow", inputs: { model, shift: sh } };
     model = ["IMGO:shift", 0];
   }
   g[IMGO.clip] = { class_type: "CLIPLoader", inputs: { clip_name: clipName, type: "minimax", device: "default" } };
@@ -2642,7 +2641,6 @@ export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | unde
     condInputs[`images.image_${i}`] = [IMGO.refSnap(i), 0];
   });
   if (subMode === "t2i" && promptWeight !== false) {
-    if (!has(avail, "EmptyImage")) throw new Error("EmptyImage is not available — update ComfyUI, or turn off H3 prompt weight.");
     g["IMGO:black"] = { class_type: "EmptyImage", inputs: { width: 1024, height: 1024, batch_size: 1, color: 0 } };
     condInputs["images.image_0"] = ["IMGO:black", 0];
   }

@@ -1337,7 +1337,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   autoEnhChk.addEventListener("change", () => { state.imgAutoEnhance = autoEnhChk.checked; persist(); });
   const autoEnhLbl = el("label", {
     title: "Automatically run Prompt Enhance on the current prompt right before Generate, updating the prompt in place.",
-    style: { display: "none", alignItems: "center", gap: "4px", fontSize: "11px", color: C.muted, cursor: "pointer", marginLeft: "auto" },
+    style: { display: "none", alignItems: "center", gap: "4px", fontSize: "11px", color: C.muted, cursor: "pointer" },
   }, [autoEnhChk, el("span", { text: "Auto Enhance" })]);
   let imgTemplateOv: ReturnType<typeof createTemplateOverlay> | null = null;
   // Character Sheet's own pair, same slot as writeBtn/editBtn — occupies that spot instead of a separate row.
@@ -1369,7 +1369,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // Merge clips: the counterpart of Split into clips; the dialog lives in Prompt Edit
   const mergeBtn = el("button", { type: "button", text: "🔗 Merge clips", title: "Join clips into longer ones: pick which clips go together", style: smallBtnStyle });
   mergeBtn.addEventListener("click", () => { void promptEditOv?.openMerge(); });
-  promptHdr.append(commonBtn, refineBtn, writeBtn, editBtn, tplBtn, autoEnhLbl, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, mergeBtn, addBtn, resetTAHBtn);
+  promptHdr.append(commonBtn, autoEnhLbl, refineBtn, writeBtn, editBtn, tplBtn, sysPromptSaveBtn, sysPromptResetBtn, splitBtn, mergeBtn, addBtn, resetTAHBtn);
 
   const promptList = el("div", { class: "flex flex-col gap-2 flex-1 overflow-y-auto" });
   // Sibling wrapper, not a child of promptList itself — promptList gets its innerHTML wiped
@@ -4128,6 +4128,7 @@ export function renderMinimaxH3(container: HTMLElement) {
         await imgPromptEditOv.enhance(state.imgPrompt || "");
         try { imgInlineBil?.refresh(); } catch {}
         persist();
+        genBtn.textContent = opts.final ? "⏳ Rendering…" : "⏳ Preview…";   // the render follows the enhance
       }
       await ensureEnglishPrompts("image");
       const previewRes = resolveResolution(state.imgAspect || "2:3 Portrait", state.imgPreviewMp ?? 0.2);

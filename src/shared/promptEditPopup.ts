@@ -748,9 +748,11 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
   /** `force` (a mode switch) sets it even after the user picked another format by hand. */
   function syncFormat() {
     const want = resolveDefaultFormat();
-    if (!want || !Array.from(modelFmtSel.options).some((o) => o.value === want)) return;
+    if (!want) return;
+    // Set it even while the format list is not loaded yet (the popup loads it only when it is first opened, but Auto Enhance runs
+    // without opening it): the list is filled from llm.model_format later, and the request reads llm.model_format.
     llm.model_format = want;
-    modelFmtSel.value = want;
+    if (Array.from(modelFmtSel.options).some((o) => o.value === want)) modelFmtSel.value = want;
     saveLLM();
   }
 

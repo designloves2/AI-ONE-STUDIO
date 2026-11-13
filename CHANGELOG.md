@@ -3,6 +3,15 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [Unreleased]
+
+### Fixed
+- **Image Generator Auto Enhance used the wrong Model Format in Reference to Image.** `syncFormat()` of the Prompt Edit popup did nothing while the format list was not loaded, and the list is loaded only when the popup is opened for the first time; Auto Enhance runs without opening it, so a Reference to Image run enhanced with `MiniMax H3 Image (T2I)`. `syncFormat()` now sets `llm.model_format` at once (the list is filled from it later). Found by the real run on the studio session's order (ledger row 90).
+- The Generate button said `Enhancing…` for the rest of the run; it goes back to `Rendering…` when the enhance is done.
+
+### Changed
+- Image Generator prompt header order is now Auto Enhance, Refine, Prompt Edit, Templates (node, next release): Auto Enhance sits just left of Refine and no longer floats to the right.
+
 ## [0.19.0] — 2026-11-13
 
 Ports the node's v1.52.0 work (ledger rows 86 - 88): ReCaVSR / RelayVSR upscale, the H3 Image Generator on the official image nodes, and the shared ComfyUI native Generate Text options.

@@ -3,7 +3,9 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
-## [Unreleased]
+## [0.19.1] — 2026-11-13
+
+Ports node v1.52.1 (RelayVSR seed, n_ctx 16000, Image Generator prompt bar) and everything done on the web side since v0.19.0 (verification run of ReCaVSR / RelayVSR / Reference to Image on the studio session's order, ledger rows 90 - 92).
 
 ### Fixed
 - **Image Generator Auto Enhance used the wrong Model Format in Reference to Image.** `syncFormat()` of the Prompt Edit popup did nothing while the format list was not loaded, and the list is loaded only when the popup is opened for the first time; Auto Enhance runs without opening it, so a Reference to Image run enhanced with `MiniMax H3 Image (T2I)`. `syncFormat()` now sets `llm.model_format` at once (the list is filled from it later). Found by the real run on the studio session's order (ledger row 90).

@@ -77,11 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.19.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.19.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
-- 2026-11-13 (미릴리즈, push만): 스튜디오 세션 지시로 RelayVSR Seed(기본 42 고정, 옵션 칸 추가), n_ctx 기본값 전부 16000, 버튼 글자 `Running…` 적용(`PORT_LEDGER.md` 행 91, 타입 검사만 함). 버전업·태그·릴리즈는 사용자 지시 전까지 안 함.
-- 2026-11-13 (미릴리즈, 커밋만): 스튜디오 세션 지시로 같은 영상(MMH3-4_clip001_00183.mp4)으로 웹 검증 — ReCaVSR 노드와 완전 동일(PSNR inf), RelayVSR 기준선 안(43.22~43.32 dB), R2I + Auto Enhance + Refine 실제 LLM 동작 확인(`PORT_LEDGER.md` 행 90). 검증 중 찾은 버그 수정: Auto Enhance가 R2I에서 T2I 모델 포맷을 쓰던 문제(`promptEditPopup.ts` `syncFormat`). 프롬프트 머리줄 순서 Auto Enhance → Refine → Prompt Edit → Templates.
+- 2026-11-13 v0.19.1 (노드 v1.52.1, 커밋 8cc7618·태그 v1.52.1 대응): v0.19.0 이후 전부 릴리즈 — 같은 영상 검증(ReCaVSR 노드와 완전 동일, RelayVSR 기준선 안, R2I + Auto Enhance/Refine 실제 LLM 확인; `PORT_LEDGER.md` 행 90), Auto Enhance가 R2I에서 T2I 모델 포맷을 쓰던 문제 수정, RelayVSR Seed 기본 42 고정 + 옵션 칸, n_ctx 기본값 16000, Image Generator 프롬프트 줄(Auto Enhance가 Refine 왼쪽, 버튼 글자 `Running…`; 행 91). README 갱신(행 92). 미검증: Seed 칸 화면 표시와 시드 지정 RelayVSR 실행, ReCaVSR/RelayVSR 2단계(two-pass) 조합, 실제 설치 배치 실행.
 - 2026-11-13 v0.19.0 (노드 v1.52.0, 커밋 70275ae·태그 v1.52.0 대응): 노드 작업 3가지 이식 릴리즈 — [1] ReCaVSR·RelayVSR 업스케일(행 86), [2] H3 Image Generator 공식 노드 T2I/R2I + Generate 버튼 버그 수정(행 87), [3] ComfyUI 네이티브 Generate Text 옵션(행 88, `src/shared/nativeLlmOpts.ts`). 웹 설치 배치에 웹이 쓰는 팩 5개 추가. `PORT_LEDGER.md` 행 89. 미검증: 실제 ReCaVSR/RelayVSR 렌더, Reference to Image, 실행 중 LLM으로 Auto Enhance/Refine, 설치 배치 실행.
 - 2026-11-08 v0.18.5: LTX 2.5 Resize 설정 9개와 `saveUnprocessed`가 새로고침하면 사라지던 문제 수정(`defaultState` 허용 목록에 없었음, 노드 a74267c). 화면이 `state.x =`로 쓰는 키는 반드시 해당 도구 `core.ts`의 `defaultState`에도 넣을 것. `PORT_LEDGER.md` 행 85.
 - 2026-11-08 v0.18.4: (웹 전용, 사용자 요청) Split Sigma Final MP가 Start MP보다 작으면 Start MP로 올림(`hiresMp()`), FlashVSR 시드 0 = 랜덤(LTX·H3). 노드는 그대로라 노드와 차이가 생김 — 노드 세션에 알림. `PORT_LEDGER.md` 행 84. 실제 렌더는 미검증.

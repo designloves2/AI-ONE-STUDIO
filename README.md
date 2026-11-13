@@ -55,7 +55,7 @@ engine, and this project is just the frontend that calls it.**
 
 | 도구 / Tool | 대상 모델 / Target Model | 지원 모드 / Supported Modes |
 |---|---|---|
-| 🎬 **MiniMax H3** | MiniMax H3 영상+오디오 생성 모델<br><sub>MiniMax H3 video + audio model</sub> | Text / First-Last(FL2VA) / Reference(REF2VA) · One-Take 연속 생성 + 자동 합본 · Face Refine · LTX Upscale · Image Generator(T2I/Ref2I) · Character Sheet · Postprocess(Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize) · FlashVSR · 라이브 프리뷰<br><sub>One-Take continuity + auto-stitch · Face Refine · LTX Upscale · Image Generator · Character Sheet · Postprocess · FlashVSR · live preview</sub> |
+| 🎬 **MiniMax H3** | MiniMax H3 영상+오디오 생성 모델<br><sub>MiniMax H3 video + audio model</sub> | Text / First-Last(FL2VA) / Reference(REF2VA) · One-Take 연속 생성 + 자동 합본 · Face Refine · LTX Upscale · Image Generator(T2I/Ref2I) · Character Sheet · Postprocess(Deblur/Denoise/Upscale/Skin Retouch/Grain/Interpolate/Resize) · FlashVSR · ReCaVSR · RelayVSR · 라이브 프리뷰<br><sub>One-Take continuity + auto-stitch · Face Refine · LTX Upscale · Image Generator (official H3 image nodes) · Character Sheet · Postprocess · FlashVSR · ReCaVSR · RelayVSR · live preview</sub> |
 | 🎵 **MusicMaker** | MiniMax Music 3 · Ace-Step 1.5 · YuE2 (음악 생성)<br><sub>MiniMax Music 3 · Ace-Step 1.5 · YuE2 music generation</sub> | Song / Instrumental · 가사·스타일 LLM(Local GGUF / OpenRouter / ComfyUI) · 생성 큐 · SUNO식 플레이리스트(새로고침) + 앨범 커버(Krea2 / 복사·붙여넣기·업로드·갤러리) · YuE2 Melody Editor(피아노롤→ABC) · 생성 시 원본 파일에 태그 삽입(다운로드는 원본 그대로)<br><sub>lyrics/style LLM · generation queue · SUNO-style playlist (refresh) + album cover (Krea2 / copy·paste·upload·gallery) · YuE2 Melody Editor (piano roll → ABC) · tags embedded in the saved file at generation time (download serves the original)</sub> |
 | 🖼 **Krea 2** | Krea.ai 이미지 생성 모델<br><sub>Krea.ai image generation model</sub> | T2I · I2I · ControlNet(depth/canny) · Identity · Upscale(SeedVR2) |
 | 🖼 **Z-Image** | Z-Image Turbo | T2I · I2I · Inpaint · Outpaint · RE-BG · ControlNet · Face Redraw · Upscale |
@@ -111,6 +111,13 @@ MusicMaker)에 **Connect Custom**(OpenAI 호환 서버) 옵션이 있습니다. 
 달라도 노드와 웹이 같은 값을 봅니다 (H3 설정의 "Image LLM"에서도 편집). 이미지 도구에는 **Auto Enhance**
 (Generate 직전 자동 Prompt Enhance) 체크칸이 있고, H3 갤러리는 설정(Settings → Output)의 개수만큼씩
 "Load more"로 불러옵니다.
+
+### 업스케일 · 이미지 생성 · 네이티브 LLM 옵션 / Upscale, image generation, native LLM options
+- **ReCaVSR · RelayVSR**: H3 왼쪽 Upscale 섹션과 Postprocess ▸ C. Upscale 에서 고를 수 있는 두 영상 초해상 방식입니다. 모델 파일은 설정(⚙) ▸ UpScale Model 탭에서 고릅니다(ReCaVSR 는 `ComfyUI-ReCaVSR` 팩, RelayVSR 는 ComfyUI 코어 노드). ReCaVSR 옵션: Scale · Color fix · Decoder · Kernels · Encoder · Seed · KV offload. RelayVSR 옵션: **Seed 하나**(기본 42 고정, 같은 클립이면 같은 결과; 바꾸면 다른 변주). 배율은 모델이 정합니다(x2 파일은 2배, x4 파일은 4배; 16GB 카드는 x2 쌍 권장).
+  *ReCaVSR and RelayVSR are two video super-resolution methods in the H3 Upscale section and in Postprocess > C. Upscale. Pick the model files in Settings > UpScale Model. RelayVSR has one option, **Seed** (fixed at 42 by default, so the same clip gives the same result); its scale is the model's own.*
+- **Image Generator (Text to Image / Reference to Image)** 는 공식 MiniMax H3 Image 노드를 씁니다(Character Sheet 는 그대로). 해상도는 Aspect + MP 한 칸, Steps 기본 6, 이미지 전용 MODEL/CLIP/VAE 는 설정 ▸ H3 Model(비우면 영상 모델 사용). 프롬프트 줄은 **Auto Enhance → Refine → Prompt Edit → Templates** 순서이고, 시스템 프롬프트는 모드에 따라 `MiniMax H3 Image (T2I)` / `(R2I)` 모델 포맷이 자동으로 선택됩니다.
+- **ComfyUI native Generate Text 옵션**: 모든 LLM 설정에 "ComfyUI native — Generate Text details" 블록(max_length · Sampling · temperature · top_k · top_p · min_p · penalties · seed · thinking · mtp)이 있고 H3 · LTX · MusicMaker · 번역의 네이티브 호출이 같은 값을 씁니다. 서버에 `TextGenerateV2` 가 있으면 그것을, 없으면 `TextGenerate` 를 씁니다.
+- 로컬 LLM(llama) **n_ctx 기본값은 16000** 입니다(이미 저장한 값은 그대로).
 
 Every prompt-LLM picker (MiniMax H3 Brief / Vision / LTX Upscale, the image tools' Prompt Enhance and
 Image → Prompt Write, MusicMaker) offers **Connect Custom** (any OpenAI-compatible server). API keys are held only in

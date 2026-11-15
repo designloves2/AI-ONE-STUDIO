@@ -249,6 +249,8 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   hiresStartMp: number;
   hiresFinalMp: number;
   hiresChunkRows: number;
+  hiresHighSteps: number;   // Split Sigma: HIGH steps; LOW = total - HIGH (total = Turbo step)
+  hiresTotalOverride?: number;   // Postprocess: the clip's own Turbo step
   hiresSplitStep: number; // Split Sigma: how many of the 8 turbo steps run small before the latent upscale (H3 Latent Upscaler only; 7 is recommended)
   clipFrames: number;
   clipLengthCustom: boolean;
@@ -519,7 +521,7 @@ export interface MinimaxState extends BilKeys<"promptHeader" | "promptFooter" | 
   // UI/state but never registered in defaultState() silently reverting to defaults on reload).
   // Postprocess → Latent Upscale (Use H3): own model / turbo / upscaler settings (a new field starts from the main value once)
   ppH3TurboMode: string; ppH3PddFile: string; ppH3PddFileReference: string; ppH3LastFixed: boolean; ppH3PddStrength: number;
-  ppH3Upscaler: "h3" | "tiled"; ppH3UpModel: string; ppH3FinalMp: number; ppH3TiledFinalMp: number; ppH3ChunkRows: number; ppH3NoOpt: boolean;
+  ppH3Upscaler: "h3" | "tiled"; ppH3UpModel: string; ppH3FinalMp: number; ppH3TiledFinalMp: number; ppH3ChunkRows: number; ppH3NoOpt: boolean; ppH3Steps: number; ppH3HighSteps: number;
   ppH3Split: boolean; ppH3SegMode: "seconds" | "count"; ppH3SegSeconds: number; ppH3SegCount: number;
   // A run that was in flight when the page went away (kept through the state whitelist, so a reload can reattach)
   // (_ltxRelay above; clip generation keeps its run record in the view's own RunProgress)
@@ -1013,6 +1015,7 @@ export function ppH3State(s: any, kind = "fl"): any {
     hiresStartMp: 0.1, hiresTiledStartMp: 0.1,
     hiresUpscaler: s.ppH3Upscaler, hiresFinalMp: s.ppH3FinalMp, hiresTiledFinalMp: s.ppH3TiledFinalMp,
     hiresChunkRows: s.ppH3ChunkRows, hiresNoOpt: s.ppH3NoOpt,
+    hiresTotalOverride: s.ppH3Steps ?? 8, hiresHighSteps: s.ppH3HighSteps ?? 1,
     loras: [], sampler: "euler", scheduler: "simple", shiftVideo: 12, shiftAudio: 3,
   };
 }
@@ -1033,11 +1036,21 @@ export function sizeForMp(srcW: number, srcH: number, mp: number) {
   return { width: snap(h * ratio), height: snap(h) };
 }
 
-/** Split Sigma step: the first N of the 8 steps run at Start MP, the rest at Final MP. Only the H3 Latent Upscaler lets it change; TJ Tiled stays at 7. */
+/** Split Sigma: the whole schedule is the Turbo step count (Postprocess passes the clip's own via hiresTotalOverride). */
+export function hiresTotalSteps(state: any): number {
+  if (state.hiresTotalOverride) return Math.max(2, Math.round(Number(state.hiresTotalOverride) || 8));
+  if ((state.turboMode || "none") === "none") return 8;
+  return Math.max(2, Math.round(Number(state.pddNfe) || 8));
+}
+/** HIGH Sigma steps: run after the latent upscale (1 .. total - 1). */
+export function hiresHighSteps(state: any): number {
+  const total = hiresTotalSteps(state);
+  const n = Math.round(Number(state.hiresHighSteps ?? 1));
+  return Math.min(total - 1, Math.max(1, Number.isFinite(n) ? n : 1));
+}
+/** LOW Sigma steps = Turbo step - HIGH: the first N steps run small, the rest at Final MP. */
 export function hiresSplitStep(state: any): number {
-  if (state.hiresUpscaler === "tiled") return 7;
-  const n = Math.round(Number(state.hiresSplitStep ?? 7));
-  return Number.isFinite(n) ? Math.min(7, Math.max(1, n)) : 7;
+  return hiresTotalSteps(state) - hiresHighSteps(state);
 }
 
 /** Start / Final MP of the selected 7+1 upscaler — A and B keep separate values. */
@@ -1387,7 +1400,7 @@ export const RECIPE_KEYS = [
   "fp16Accum",
   // 7+1 hi-res finish: the checkbox and its sizes travel with a saved recipe, but it is
   // not a matching axis — a built-in preset never turns it on or off.
-  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresTiledStartMp", "hiresTiledFinalMp", "hiresChunkRows", "hiresSplitStep",
+  "hiresFinish", "hiresUpscaler", "hiresNoOpt", "hiresLastFixed", "hiresStartMp", "hiresFinalMp", "hiresTiledStartMp", "hiresTiledFinalMp", "hiresChunkRows", "hiresSplitStep", "hiresHighSteps",
 ] as const;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
@@ -1442,6 +1455,7 @@ export interface UserPipelinePreset {
   hiresTiledFinalMp?: number;
   hiresChunkRows?: number;
   hiresSplitStep?: number;
+  hiresHighSteps?: number;
 }
 
 /** Same matching rule as matchPreset(), against the user's own saved list. */
@@ -2249,6 +2263,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     hiresStartMp: saved.hiresStartMp ?? 0.7,
     hiresFinalMp: saved.hiresFinalMp ?? 1.6,
     hiresChunkRows: saved.hiresChunkRows ?? 2048,   // H3 Memory Optimization "Activation chunk rows" of the Split Sigma last step
+    hiresHighSteps: saved.hiresHighSteps ?? (saved.hiresSplitStep != null ? Math.max(1, 8 - saved.hiresSplitStep) : 1),
     hiresSplitStep: saved.hiresSplitStep ?? 7,   // Split Sigma: how many of the 8 turbo steps run small before the latent upscale (H3 Latent Upscaler only; 7 is recommended)
     clipFrames: saved.clipFrames ?? DEFAULT_FRAMES,
     clipLengthCustom: !!saved.clipLengthCustom,
@@ -2516,6 +2531,7 @@ export function defaultState(saved: Partial<MinimaxState> = {}): MinimaxState {
     ppH3TiledFinalMp: (saved as any).ppH3TiledFinalMp ?? (saved as any).ppH3KimFinalMp ?? 2.0,
     ppH3ChunkRows: (saved as any).ppH3ChunkRows ?? 2048,
     ppH3NoOpt: !!(saved as any).ppH3NoOpt,
+    ppH3Steps: (saved as any).ppH3Steps ?? 8, ppH3HighSteps: (saved as any).ppH3HighSteps ?? 1,
     // long clips: the Latent Upscale runs in pieces of ppH3SegSeconds (or ppH3SegCount pieces), then they are joined
     ppH3Split: !!(saved as any).ppH3Split,
     ppH3SegMode: (saved as any).ppH3SegMode === "count" ? "count" : "seconds",

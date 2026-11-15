@@ -3,6 +3,16 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [Unreleased]
+
+Ports the node changes after v1.53.1 (commits 3665c80 and 5f63d93, `SPEC_RELAY_AFTER_V1_53_1.md`; ledger row 96). Not released yet.
+
+### Changed
+- H3 video Sampling panel (T2VA / FL2VA / REF2VA): Sampler and Scheduler list everything ComfyUI offers, like the image panel.
+- Split Sigma: Turbo step = LOW + HIGH (4 / 6 / 8 step LoRAs). The Turbo steps box is no longer locked, for both the H3 Latent Upscaler and the Tiled upscaler; new key `hiresHighSteps` (default 1, converted from the old `hiresSplitStep` as 8 - LOW), saved in the clip meta; the Tiled HIGH box has the "1 recommended" tooltip.
+- Postprocess > Latent Upscale (Use H3): new `Turbo step` (`ppH3Steps`, 8) and `HIGH Sigma step` (`ppH3HighSteps`, 1) boxes; only the HIGH steps are sampled.
+- Postprocess > Latent Upscale (Use H3) uses the clip meta first (`ppH3Plan`): an H3 prompt runs as recorded without the LLM (REF2VA with its saved reference images when all are still in input, T2VA without keyframes, FL2VA as before). Otherwise only the first and last frame are analysed and an existing prompt is revised into a First/Last brief.
+
 ## [0.20.2] — 2026-11-13
 
 ### Changed

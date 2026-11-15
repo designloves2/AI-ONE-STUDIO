@@ -1,7 +1,7 @@
 // graphBuilder.ts — MiniMax H3 워크플로 그래프 빌더 (원본: web/minimax/graph_builder_minimax.js)
 // state를 ComfyUI API 그래프(JSON)로 조립한다. 순수 로직이라 거의 그대로 이식.
 import type { MinimaxState, LoraEntry } from "./core";
-import { randomSeed, SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, hiresSplitStep, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
+import { randomSeed, SUBFOLDER, FPS, resolveResolution, computeRtxTarget, hiresActive, hiresSizes, hiresMp, hiresSplitStep, hiresTotalSteps, framesToSeconds, ONE_TAKE_OVERLAP_FRAMES, attnForwardBlockedReason, blockCacheBlockedReason, h3OptimizerBlockedReason, pddFileForMode, CHARSHEET_FRAMES, CHARSHEET_DEFAULT_FRAME_INDICES } from "./core";
 
 export { ONE_TAKE_OVERLAP_FRAMES };
 
@@ -377,7 +377,7 @@ export function turboLoraForMode(state: MinimaxState): string {
  * the normal step count instead of reporting a turbo number the run won't use. */
 export function effectiveSteps(state: MinimaxState, avail?: Avail): number {
   const eff = turboEffective(state, avail);
-  if (hiresActive(state)) return 8;
+  if (hiresActive(state)) return hiresTotalSteps(state);
   if (eff === "larryvrh") return state.turboSteps ?? 4;
   if (eff === "lightx2v") return state.slaTurboSteps ?? 6;
   // Turbo LoRA (Basic): an ordinary step count — any turbo LoRA can be loaded, so there is
@@ -518,8 +518,8 @@ function buildHiresStage(g: Graph, state: MinimaxState, avail: Avail | undefined
     shift_video: pdd ? 12 : (state.shiftVideo ?? 12), shift_audio: pdd ? 3 : (state.shiftAudio ?? 3) } };
   let stageModel = [N.hrShift, 0];
   if (schedule) {
-    g[N.sched] = { class_type: "BasicScheduler", inputs: { model: stageModel, scheduler: schedule.scheduler || "simple", steps: 8, denoise: 1 } };
-    g[N.hrSplit] = { class_type: "SplitSigmas", inputs: { sigmas: [N.sched, 0], step: 7 } };
+    g[N.sched] = { class_type: "BasicScheduler", inputs: { model: stageModel, scheduler: schedule.scheduler || "simple", steps: hiresTotalSteps(state), denoise: 1 } };
+    g[N.hrSplit] = { class_type: "SplitSigmas", inputs: { sigmas: [N.sched, 0], step: hiresSplitStep(state) } };
     lowSigmas = [N.hrSplit, 1];
   }
   if (!state.hiresNoOpt) {
@@ -593,10 +593,18 @@ export function addH3LastStep(g: Graph, state0: MinimaxState, avail: Avail | und
     g[id] = ref
       ? { class_type: "MiniMaxH3ReferenceToVideo", inputs: {
           clip: [N.clip, 0], vae: [N.vaeV, 0], audio_vae: [N.vaeA, 0], prompt,
-          width: size.width, height: size.height, length: o.frames, ref_image_size: "match" } }
+          width: size.width, height: size.height, length: o.frames, ref_image_size: o.refImageSize || "match" } }
       : { class_type: "MiniMaxH3ImageToVideo", inputs: {
           clip: [N.clip, 0], vae: [N.vaeV, 0], prompt, width: size.width, height: size.height, length: o.frames } };
-    if (!ref && keyframes) {
+    if (ref) {
+      // the clip's saved reference images (only when all of them are still in the input folder)
+      (o.refImages || []).slice(0, 9).forEach((name: string, i: number) => {
+        if (!name) return;
+        g[`${id}_ref${i}`] = { class_type: "LoadImage", inputs: { image: name } };
+        g[id].inputs[`ref_images.ref_image_${i}`] = resizeToMp(g, `${id}_refmp${i}`, [`${id}_ref${i}`, 0], (o.refImagesMp || [])[i]);
+      });
+    }
+    if (!ref && keyframes && !o.noKeyframes) {
       g[id].inputs.first_frame = [N.hrFirst, 0];
       g[id].inputs.last_frame = [N.hrLast, 0];
     }

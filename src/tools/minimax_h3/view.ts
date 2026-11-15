@@ -19,7 +19,6 @@ import {
   CLIP_LENGTHS,
   FPS,
   SAMPLERS,
-  SCHEDULERS,
   SUBFOLDER,
   TEMP_PREVIEW_SUBFOLDER,
   UPSCALE_MODES,
@@ -129,7 +128,7 @@ import { createPromptEditPopup } from "../../shared/promptEditPopup";
 import { loadLLMSettings, saveLLMSettings } from "../../shared/llmSettingsStore";
 import { openImageGalleryPicker, INPUT_TOOL_ID } from "../../shared/imageGalleryPicker";
 import { buildClipGraph, buildLtxUpscaleGraph, buildFaceRefineGraph, buildOfficialImageGraph, buildCharacterSheetVideoGraph, buildCharacterSheetGridGraph, buildPostprocessGraph, NODE_IDS, ONE_TAKE_OVERLAP_FRAMES, previewNodeKey, turboEffective, turboFallbackReason, effectiveSteps } from "./graphBuilder";
-import { hiresActive, hiresSizes, hiresMp, hiresSplitStep, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, tiledTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
+import { hiresActive, hiresSizes, hiresMp, hiresSplitStep, hiresTotalSteps, hiresHighSteps, sizeForMp, ppH3State, ppH3Kind, PP_H3_UP_MODELS, tiledTileCount, normalizeAssetRef, h3ProtectWords } from "./core";
 import { attachBilingual, type BilingualHandle } from "../../shared/bilingualUi";
 import { ensureEnglish, fieldNeedsEnglish, fieldSetBoth } from "../../shared/bilingual";
 import { translateLlm } from "../../shared/translateConfig";
@@ -1458,7 +1457,7 @@ export function renderMinimaxH3(container: HTMLElement) {
   // original" is the whole job. Mirrors renderLtxPrompt/ltxWritePrompt/ltxConvertToLtx (node
   // 8427b5b + review rounds).
   let _ltxBusy = false;
-  async function grabSampleFrames(srcFile: string = state.ltxSource, perSec = 1.5, maxN = 10, minN = 3): Promise<string[]> {
+  async function grabSampleFrames(srcFile: string = state.ltxSource, perSec = 1.5, maxN = 10, minN = 3, edges = false): Promise<string[]> {
     // client-side: sample several frames spread across the clip (not just frame 0) and upload each
     // as a PNG — one frame alone can't show action or camera movement, and the LTX-2.5 prompt format
     // needs both. Roughly 1.5 frames/sec of clip, clamped so a short clip still gets a minimum spread
@@ -1473,14 +1472,14 @@ export function renderMinimaxH3(container: HTMLElement) {
       setTimeout(() => rej(new Error("Source video load timed out.")), 15000);
     });
     const dur = Math.max(0.1, v.duration || 0);
-    const count = Math.min(maxN, Math.max(minN, Math.round(dur * perSec)));
+    const count = edges ? 2 : Math.min(maxN, Math.max(minN, Math.round(dur * perSec)));
     const cv = document.createElement("canvas");
     cv.width = v.videoWidth || 1024; cv.height = v.videoHeight || 576;
     const ctx2d = cv.getContext("2d")!;
     const files: string[] = [];
     for (let i = 0; i < count; i++) {
       // spread across the clip, never quite touching either edge (encode padding / black frames)
-      const t = Math.min(dur - 0.05, Math.max(0.05, (dur * (i + 0.5)) / count));
+      const t = edges ? (i === 0 ? 0.05 : Math.max(0.05, dur - 0.05)) : Math.min(dur - 0.05, Math.max(0.05, (dur * (i + 0.5)) / count));
       try { v.currentTime = t; await new Promise((r) => v.addEventListener("seeked", r, { once: true })); } catch {}
       ctx2d.drawImage(v, 0, 0, cv.width, cv.height);
       const blob: Blob = await new Promise((r) => cv.toBlob((bl) => r(bl!), "image/png"));
@@ -2367,11 +2366,20 @@ export function renderMinimaxH3(container: HTMLElement) {
     };
     const hiresLine = el("div", { text: hiresText(), style: { fontSize: "10px", color: C.muted } });
     // the 8 turbo steps are split in two: the LOW Sigma steps are typed in, the HIGH Sigma steps are 8 minus that
+    const TILED_HIGH_TIP = "Tiled upscale samples tile by tile and takes a long time, so HIGH Sigma step 1 is recommended.";
     const highText = () => {
-      const high = 8 - hiresSplitStep(state);
-      return `HIGH Sigma: ${high} step${high > 1 ? "s" : ""} (8 − LOW) — the latent upscale runs here, then these steps at Final MP`;
+      const total = hiresTotalSteps(state);
+      return `Turbo step ${total} = LOW + HIGH. The latent upscale runs after the LOW Sigma steps, then the HIGH Sigma steps run at Final MP.`
+        + (state.hiresUpscaler === "tiled" ? " Tiled is slow, so HIGH Sigma step 1 is recommended." : " LOW 7 / HIGH 1 is recommended for 8 steps.");
     };
     const highLine = el("div", { text: highText(), style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
+    let lowField: HTMLInputElement | null = null, highField: HTMLInputElement | null = null;
+    // LOW + HIGH = Turbo step: typing one fills the other; a new Turbo step keeps HIGH in range (updated in place, no re-render)
+    const syncSplit = () => {
+      if (lowField) lowField.value = String(hiresSplitStep(state));
+      if (highField) highField.value = String(hiresHighSteps(state));
+      highLine.textContent = highText();
+    };
     // Split Sigma: shown for Turbo None and Turbo LoRA (Basic); node hiresRows().
     const hiresRows = () => [
       // the explanation is a tooltip on a "?" next to the checkbox, not a text block under it
@@ -2380,7 +2388,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           state.hiresFinish = v;
           persist(); renderLeft(); refreshPlan();
         }),
-        helpDot("Needs an 8-step turbo: the Turbo LoRA above, or Turbo None with an 8-step checkpoint. Steps are fixed at 8: LOW Sigma steps run small, the HIGH Sigma steps (8 − LOW) run after the latent upscale (7 LOW is recommended)."),
+        helpDot("Needs a turbo model: the Turbo LoRA above (4 / 6 / 8 steps), or Turbo None with an 8-step checkpoint. The whole schedule is the Turbo step; LOW Sigma steps run small, the HIGH Sigma steps run after the latent upscale (LOW + HIGH = Turbo step)."),
       ]),
       ...(hiresOn ? [
         (() => {
@@ -2417,10 +2425,21 @@ export function renderMinimaxH3(container: HTMLElement) {
             ] : []),
           ]);
         })(),
-        ...(state.hiresUpscaler === "tiled" ? [] : [
-          col([label("LOW Sigma step (1~7, 7 recommended)"), numberField(hiresSplitStep(state),
-            (v) => { state.hiresSplitStep = Math.min(7, Math.max(1, Math.round(v))); persist(); highLine.textContent = highText(); refreshPlan(); }, 1)]),
-        ]),
+        (() => {
+          lowField = numberField(hiresSplitStep(state), (v) => {
+            const total = hiresTotalSteps(state);
+            state.hiresHighSteps = total - Math.min(total - 1, Math.max(1, Math.round(v)));
+            persist(); syncSplit(); refreshPlan();
+          }, 1);
+          highField = numberField(hiresHighSteps(state), (v) => {
+            state.hiresHighSteps = Math.min(hiresTotalSteps(state) - 1, Math.max(1, Math.round(v)));
+            persist(); syncSplit(); refreshPlan();
+          }, 1);
+          return row([
+            col([label("LOW Sigma step"), lowField]),
+            col([state.hiresUpscaler === "tiled" ? labelHelp("HIGH Sigma step", TILED_HIGH_TIP) : label("HIGH Sigma step"), highField]),
+          ]);
+        })(),
         highLine,
         checkboxRow("Bypass H3 Memory Optimization on the last step", !!state.hiresNoOpt, (v) => {
           state.hiresNoOpt = v; persist(); renderLeft();
@@ -2485,9 +2504,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           searchableSelect(pddOpts, state.pddFileReference || "none", (v) => { state.pddFileReference = v; rememberImgConfig({ pdd_file_reference: v }); renderLeft(); }).el]),
         row([
           col([label("steps"), (() => {
-            const f = numberField(hiresOn ? 8 : (Number(state.pddNfe) || 8), (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); syncTurboDependents(); }, 1);
-            if (hiresOn) { f.disabled = true; f.style.opacity = "0.4"; }
-            return f;
+            return numberField(Number(state.pddNfe) || 8, (v) => { state.pddNfe = String(Math.max(1, Math.round(v))); persist(); syncTurboDependents(); if (hiresOn) { syncSplit(); refreshPlan(); } }, 1);
           })()]),
           col([label("lora strength"), n(state.pddLoraStrength ?? 1.0, (v) => (state.pddLoraStrength = v))]),
         ]),
@@ -2915,22 +2932,34 @@ export function renderMinimaxH3(container: HTMLElement) {
     } finally { state.ltxPrompt = keep.p; state.ltxSource = keep.s; }
   }
 
-  // Prompt for Postprocess → Latent Upscale (Use H3): a ONE STUDIO H3 clip keeps its own brief; anything else (LTX
-  // prompt, reference-mode brief, no meta) is written as an H3 first/last brief from frames.
-  async function ppH3Prompt(seconds: number): Promise<string> {
-    const meta = String(state.ppSourceFullMeta?.prompt || "").trim();
-    const own = meta && /integrated_multimodal_description|\[Shot 1\]/.test(meta)
-      && !/<(?:Picture|Video|Audio)\b|@\w/.test(meta) && state.ppSourceFullMeta?.mode !== "reference";
-    if (own) return meta;
+  // Postprocess → Latent Upscale (Use H3): the clip's own meta first, the LLM last.
+  //  1. an H3 prompt in the meta runs as recorded, no LLM: REF2VA with all saved reference images still in input -> Reference model
+  //     with them; any other mode without reference tags -> FL2VA (T2VA without keyframes).
+  //  2. otherwise FL2VA + LLM from the first and last frame only; an existing prompt is revised into a First/Last brief.
+  async function ppH3Plan(seconds: number): Promise<{ promptText: string; kind: "ref" | "fl"; refImages?: string[]; refImagesMp?: number[]; refImageSize?: string; noKeyframes?: boolean }> {
+    const full: any = state.ppSourceFullMeta || {};
+    const meta = String(full.prompt || "").trim();
+    const isH3 = !!meta && /integrated_multimodal_description|\[Shot 1\]|<(?:Picture|Video|Audio)\b/.test(meta);
+    if (isH3) {
+      if (full.mode === "reference") {
+        const refs: string[] = (Array.isArray(full.refImages) ? full.refImages : []).filter(Boolean).slice(0, 9);
+        if (refs.length) {
+          const ok = await Promise.all(refs.map((n) => fetch(`${comfyApi.base}/view?filename=${encodeURIComponent(n)}&type=input`, { method: "HEAD" }).then((r) => r.ok).catch(() => false)));
+          if (ok.every(Boolean)) return { promptText: meta, kind: "ref", refImages: refs, refImagesMp: Array.isArray(full.refImagesMp) ? full.refImagesMp : [], refImageSize: full.refImageSize || "match" };
+        }
+      } else if (!/<(?:Picture|Video|Audio)\b|@\w/.test(meta)) {
+        return { promptText: meta, kind: "fl", noKeyframes: full.mode === "t2v" };
+      }
+    }
     barInner.style.width = "3%"; setStatus("Postprocess: sampling frames…");
-    const frames = await grabSampleFrames(state.ppSource, 1, 8, 2);
+    const frames = await grabSampleFrames(state.ppSource, 1, 2, 2, true);
     // the bar steps through the prompt stages (frames 3% → analysis 8–18% → brief 20%); rendering fills the rest
     const onStage = (t: string) => {
       const m = /Analyzing image (\d+)\/(\d+)/.exec(t);
       barInner.style.width = /Writing/.test(t) ? "20%" : m ? `${8 + 10 * Number(m[1]) / Number(m[2])}%` : /Analyzing/.test(t) ? "8%" : barInner.style.width;
       setStatus(`Postprocess: ${t}`);
     };
-    return await promptEditOv.writeFromVideo({ base: meta, frames, seconds, onStage });
+    return { promptText: await promptEditOv.writeFromVideo({ base: meta, frames, seconds, onStage }), kind: "fl" };
   }
 
   function renderLtxUpscaleLeft() {
@@ -4901,8 +4930,8 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftPanel.appendChild(
       accordion("sampling", "Sampling", `${state.sampler || "er_sde"} · ${state.scheduler || "simple"}`, () => [
         row([
-          col([label("Sampler"), select(SAMPLERS.map((s) => ({ value: s, label: s })), state.sampler || "er_sde", (v) => { state.sampler = v; persist(); })]),
-          col([label("Scheduler"), select(SCHEDULERS.map((s) => ({ value: s, label: s })), state.scheduler || "simple", (v) => { state.scheduler = v; persist(); })]),
+          col([label("Sampler"), select(withCurrent(FULL_SAMPLERS, state.sampler || "er_sde").map((s) => ({ value: s, label: s })), state.sampler || "er_sde", (v) => { state.sampler = v; persist(); })]),
+          col([label("Scheduler"), select(withCurrent(FULL_SCHEDULERS, state.scheduler || "simple").map((s) => ({ value: s, label: s })), state.scheduler || "simple", (v) => { state.scheduler = v; persist(); })]),
         ]),
         col([label("Denoise"), n(state.denoise ?? 1.0, (v) => (state.denoise = v), 0.01)]),
         row([
@@ -5258,6 +5287,26 @@ export function renderMinimaxH3(container: HTMLElement) {
             { value: "bicubic", label: "Bicubic (plain interpolation)" },
             { value: "trilinear", label: "Trilinear (plain interpolation)" }],
             state.ppH3UpModel, (v) => { state.ppH3UpModel = v; persist(); })]));
+          {
+            const ppHighTip = "Tiled upscale samples tile by tile and takes a long time, so HIGH Sigma step 1 is recommended.";
+            const ppTotal = () => Math.max(2, Math.round(state.ppH3Steps ?? 8));
+            const ppHigh = () => Math.min(ppTotal() - 1, Math.max(1, Math.round(state.ppH3HighSteps ?? 1)));
+            const ppDesc = el("div", { style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } });
+            const ppText = () => `Turbo step = the step count this clip was made with (its Turbo LoRA: 4, 6, 8 …); the schedule is LOW ${ppTotal() - ppHigh()} + HIGH ${ppHigh()}. The clip is upscaled, then only the HIGH Sigma steps are sampled (refine). `
+              + (tiled ? "Tiled is slow, so HIGH Sigma step 1 is recommended." : "HIGH 1 is recommended.");
+            ppDesc.textContent = ppText();
+            const ppTotalF = numberField(ppTotal(), (v) => {
+              state.ppH3Steps = Math.max(2, Math.round(v)); state.ppH3HighSteps = ppHigh(); persist();
+              ppHighF.value = String(ppHigh()); ppDesc.textContent = ppText();
+            }, 1);
+            const ppHighF: HTMLInputElement = numberField(ppHigh(), (v) => {
+              state.ppH3HighSteps = Math.min(ppTotal() - 1, Math.max(1, Math.round(v))); persist(); ppDesc.textContent = ppText();
+            }, 1);
+            kids.push(row([
+              col([label("Turbo step"), ppTotalF]),
+              col([tiled ? labelHelp("HIGH Sigma step", ppHighTip) : label("HIGH Sigma step"), ppHighF]),
+            ]), ppDesc);
+          }
           kids.push(checkboxRow("Bypass H3 Memory Optimization", !!state.ppH3NoOpt, (v) => { state.ppH3NoOpt = v; persist(); },
             { title: "Skip only the H3 Memory Optimization node. Use it with FastH3 checkpoints." }));
           // Typing in Final MP must not rebuild the panel (that dropped focus and scrolled to the top); the two warnings update in place.
@@ -5291,9 +5340,9 @@ export function renderMinimaxH3(container: HTMLElement) {
           kids.push(ppH3SplitWrap);
           kids.push(el("div", { text: (tiled
               ? `H3 Latent Upscale Tiled (TJ): encodes the clip, runs one step at its own size${kind === "fl" ? " (first and last frame as keyframes)" : ""}, then the Tiled node upscales to Final MP and runs its tile step on the prompt alone. `
-              : `Re-runs only the last step of an 8-step H3 clip: upscales the latent to Final MP, then runs that step${kind === "fl" ? " with the first and last frame as keyframes" : ""}. `)
+              : `Re-runs only the HIGH Sigma steps of an H3 clip (its Turbo step = LOW + HIGH): upscales the latent to Final MP, then runs those steps${kind === "fl" ? " with the first and last frame as keyframes" : ""}. `)
             + `This clip runs as ${kind === "ref" ? "Reference (REF2VA)" : "First/Last (FL2VA)"} (● marks the LoRA it uses). `
-            + "These settings are separate from the main H3 modes. A ONE STUDIO clip's own prompt is used; any other clip is read from its frames and written as an H3 brief.",
+            + "These settings are separate from the main H3 modes. A ONE STUDIO H3 clip's saved prompt is used as it is (no LLM); without it, the first and last frame are read and written as a First/Last brief.",
             style: { fontSize: "10px", color: C.muted, lineHeight: "1.5" } }));
         } else if (method === "ltx") {
           if (!ltxUpscaleReady(state)) {
@@ -5699,15 +5748,16 @@ export function renderMinimaxH3(container: HTMLElement) {
         if (frames < 5) throw new Error("The clip is too short for Latent Upscale (Use H3).");
         h3Cap = frames;
         const w0 = info.width || sm0.w, h0 = info.height || sm0.h;
-        const kind = ppH3Kind(state.ppSourceFullMeta);
         if (state.ppH3Upscaler === "tiled" && (w0 % 32 || h0 % 32)) throw new Error(`Latent Upscale (Use H3) needs a clip whose width and height are multiples of 32 (this one is ${w0}×${h0}).`);
+        setStatus("Postprocess: reading the clip's meta…");
+        const plan = await ppH3Plan(frames / FPS);
+        const kind = plan.kind;
         const finalSize = sizeForMp(w0, h0, hiresMp(ppH3State(state, kind)).final);
-        setStatus("Postprocess: writing the H3 prompt…");
-        usedPrompt = await ppH3Prompt(frames / FPS);
+        usedPrompt = plan.promptText;
         barBase = 25; barInner.style.width = "25%";
         h3State = ppH3State(state, kind);
         if (state.ppH3Upscaler === "tiled") { tiledTiles = tiledTileCount(w0, h0, hiresMp(h3State).final); tiledLo = 55; }
-        h3Opts = { promptText: usedPrompt, frames, srcSize: { width: w0, height: h0 }, finalSize, hasAudio: info.has_audio !== false, seed: randomSeed(),
+        h3Opts = { promptText: usedPrompt, refImages: plan.refImages, refImagesMp: plan.refImagesMp, refImageSize: plan.refImageSize, noKeyframes: plan.noKeyframes, frames, srcSize: { width: w0, height: h0 }, finalSize, hasAudio: info.has_audio !== false, seed: randomSeed(),
           upscalerModel: PP_H3_UP_MODELS[state.ppH3UpModel] };
       }
       if (state.ppUpscaleOn && ppMethod === "ltx") {
@@ -6053,7 +6103,7 @@ export function renderMinimaxH3(container: HTMLElement) {
     return {
       v: 1, prompt: String(promptTextVal || ""), promptHeader: rs.promptHeader || "", promptFooter: rs.promptFooter || "",
       w: width, h: height, mode: rs.generationMode || "t2v", aspect: rs.aspect, megapixels: rs.megapixels,
-      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresTiledStartMp: rs.hiresTiledStartMp, hiresTiledFinalMp: rs.hiresTiledFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresSplitStep: rs.hiresSplitStep, hiresUpscaler: rs.hiresUpscaler,
+      hiresFinish: hiresActive(rs), hiresStartMp: rs.hiresStartMp, hiresFinalMp: rs.hiresFinalMp, hiresTiledStartMp: rs.hiresTiledStartMp, hiresTiledFinalMp: rs.hiresTiledFinalMp, hiresChunkRows: rs.hiresChunkRows, hiresHighSteps: rs.hiresHighSteps, hiresUpscaler: rs.hiresUpscaler,
       frames: rs.clipFrames, steps: rs.steps, sampler: rs.sampler,
       // accel stays for pre-split readers only (this session's own Reuse now reads the axis
       // fields below directly) — a peer session on the node port confirmed accelMode is
@@ -6788,7 +6838,8 @@ export function renderMinimaxH3(container: HTMLElement) {
       if ((meta.hiresTiledFinalMp ?? meta.hiresKimFinalMp) != null) state.hiresTiledFinalMp = meta.hiresTiledFinalMp ?? meta.hiresKimFinalMp;
       state.hiresUpscaler = (meta.hiresUpscaler === "tiled" || meta.hiresUpscaler === "kimchy") ? "tiled" : "h3";
       if (meta.hiresChunkRows != null) state.hiresChunkRows = meta.hiresChunkRows;
-      if (meta.hiresSplitStep != null) state.hiresSplitStep = meta.hiresSplitStep;
+      if (meta.hiresHighSteps != null) state.hiresHighSteps = meta.hiresHighSteps;
+      else if (meta.hiresSplitStep != null) state.hiresHighSteps = Math.max(1, 8 - meta.hiresSplitStep);
       if (meta.frames != null) state.clipFrames = meta.frames;
       if (meta.steps != null) state.steps = meta.steps;
       if (meta.sampler != null) state.sampler = meta.sampler;

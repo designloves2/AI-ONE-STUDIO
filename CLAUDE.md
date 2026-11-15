@@ -77,10 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.20.2**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.21.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
-- 2026-11-15 (미릴리즈, 로컬 커밋만): 노드 v1.53.1 이후(3665c80, 5f63d93) 이식 — H3 영상 Sampler/Scheduler 전체 목록, Split Sigma = Turbo step의 LOW + HIGH(`hiresHighSteps`, 4/6/8 스텝 로라, Tiled 포함), Postprocess Use H3의 Turbo step/HIGH 입력(`ppH3Steps`, `ppH3HighSteps`), 클립 메타 우선 `ppH3Plan`(LLM은 최후, 첫·끝 프레임 2장). `PORT_LEDGER.md` 행 96. 타입 검사·빌드만 함, 푸시·버전업·태그는 사용자 지시 전까지 안 함. 미검증: 실제 렌더, 화면, REF2VA/T2VA 재실행, LLM 경로.
+- 2026-11-15 v0.21.0: 노드 v1.53.1 이후(3665c80, 5f63d93) 이식 — H3 영상 Sampler/Scheduler 전체 목록, Split Sigma = Turbo step의 LOW + HIGH(`hiresHighSteps`, 4/6/8 스텝 로라, Tiled 포함), Postprocess Use H3의 Turbo step/HIGH 입력(`ppH3Steps`, `ppH3HighSteps`), 클립 메타 우선 `ppH3Plan`(LLM은 최후, 첫·끝 프레임 2장). `PORT_LEDGER.md` 행 96·97. 타입 검사·빌드만 함. 미검증: 실제 렌더, 화면, REF2VA/T2VA 재실행, LLM 경로.
 - 2026-11-13 v0.20.2: H3 Image Generator Sampling 패널의 Sampler/Scheduler가 ComfyUI 전체 목록을 보여줌(`shared/samplerLists.ts`). `PORT_LEDGER.md` 행 95. 화면 확인은 미검증.
 - 2026-11-13 v0.20.1: T2I에서 "EmptyImage is not available"로 막히던 버그 수정 — 기본 노드(EmptyImage, ModelSamplingAuraFlow)는 가용성 목록에 없어서 `has()` 검사를 지움. 코어 노드는 `has()`로 막지 말 것(목록에 있는 것은 `MMH3_CORE_NODES`와 H3 Image 노드뿐). `PORT_LEDGER.md` 행 94. 실제 T2I 렌더는 미검증.
 - 2026-11-13 v0.20.0 (노드 v1.53.0, 커밋 c8cf45e 대응): Image Generator T2I/R2I 추가 기능 — 결과 이미지 휠 확대·드래그·더블클릭 맞춤 + ⛶ 전체화면, Sampling 패널(Sampler/Scheduler/Steps/CFG/Use Shift+Shift, `MiniMaxH3SigmaShift`), T2I `H3 prompt weight`(EmptyImage 검정을 images.image_0), R2I `Warn if no reference image`, `➡ Send to R2I`. Character Sheet 미수정. `PORT_LEDGER.md` 행 93. 타입 검사·빌드만 함. 미검증: 화면에서의 휠/드래그 동작, Shift·prompt weight 그래프의 실제 렌더, Send to R2I.

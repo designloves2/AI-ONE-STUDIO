@@ -3,9 +3,9 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
-## [Unreleased]
+## [0.21.0] — 2026-11-15
 
-Ports the node changes after v1.53.1 (commits 3665c80 and 5f63d93, `SPEC_RELAY_AFTER_V1_53_1.md`; ledger row 96). Not released yet.
+Ports the node changes after v1.53.1 (commits 3665c80 and 5f63d93, `SPEC_RELAY_AFTER_V1_53_1.md`; ledger rows 96 - 97).
 
 ### Changed
 - H3 video Sampling panel (T2VA / FL2VA / REF2VA): Sampler and Scheduler list everything ComfyUI offers, like the image panel.

@@ -3,9 +3,13 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.21.1] — 2026-11-15
+
+Docs only: this is the web port of node v1.54.0 (commit f72a6c4, tag v1.54.0), which is the node release of the changes already released in v0.21.0. README now describes Split Sigma (Turbo step = LOW + HIGH) and Postprocess Latent Upscale (Use H3) (ledger row 98).
+
 ## [0.21.0] — 2026-11-15
 
-Ports the node changes after v1.53.1 (commits 3665c80 and 5f63d93, `SPEC_RELAY_AFTER_V1_53_1.md`; ledger rows 96 - 97).
+Ports node v1.54.0 (the changes after v1.53.1: commits 3665c80 and 5f63d93, `SPEC_RELAY_AFTER_V1_53_1.md`; ledger rows 96 - 97).
 
 ### Changed
 - H3 video Sampling panel (T2VA / FL2VA / REF2VA): Sampler and Scheduler list everything ComfyUI offers, like the image panel.

@@ -111,13 +111,25 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     return wrap;
   }
 
-  // 화면이 넓으니 탭으로 하나씩 전환하는 대신 좌/우 2컬럼으로 동시에 보여준다:
-  // 왼쪽 = Models + Sampling, 오른쪽 = Preview + Output.
-  const bodyWrap = el("div", { class: "aos-mmh3-settings-body flex-1 overflow-hidden flex gap-3 min-h-0" });
-  const leftCol = el("div", { class: "aos-mmh3-settings-col flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
-  const rightCol = el("div", { class: "aos-mmh3-settings-col flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
-  bodyWrap.append(leftCol, rightCol);
-  ov.appendChild(bodyWrap);
+  // Tab bar — same tabs and order as the node's settings (ui_app_settings_minimax.js). One tab is shown at a time.
+  const TABS = ["H3 Model", "UpScale Model", "FaceRefine Model", "LLM Setting", "Image LLM", "Translation LLM", "Preview", "Output"];
+  let activeTab = "H3 Model";
+  const tabBar = el("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px", flexShrink: "0" } });
+  const bodyWrap = el("div", { class: "aos-mmh3-settings-body flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-0" });
+  ov.append(tabBar, bodyWrap);
+  function renderTabs() {
+    clear(tabBar);
+    TABS.forEach((t) => {
+      const active = t === activeTab;
+      const b = el("button", { type: "button", text: t, style: {
+        cursor: "pointer", fontFamily: "inherit", fontSize: "12px", padding: "6px 14px", borderRadius: "6px",
+        fontWeight: active ? "700" : "400", background: active ? BRAND : C.bg2, color: "#fff",
+        border: `1px solid ${active ? BRAND : C.border}`,
+      } });
+      b.addEventListener("click", () => { activeTab = t; renderTabs(); renderBody(); });
+      tabBar.appendChild(b);
+    });
+  }
 
   function sectionHeading(text: string) {
     return el("div", { text, class: "text-xs font-bold tracking-wide uppercase", style: { color: BRAND, marginTop: "2px" } });
@@ -761,22 +773,22 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     return el("div", { class: `aos-mmh3-sec-${cls} flex flex-col gap-2` }, [sectionHeading(heading), body]);
   }
 
+  // The pack status panel sits under all three model tabs (as in the node).
+  function withPacks(tab: () => HTMLElement) {
+    return () => {
+      const box = el("div", { class: "flex flex-col gap-2" });
+      box.append(tab(), section("packs", "Third-party pack status", packStatusTab()));
+      return box;
+    };
+  }
+
   function renderBody() {
-    clear(leftCol);
-    clear(rightCol);
-    leftCol.append(
-      section("h3model", "H3 Model", h3ModelTab()),
-      section("upscalemodel", "UpScale Model", upscaleModelTab()),
-      section("facerefinemodel", "FaceRefine Model", faceRefineModelTab()),
-      section("preview", "Preview", previewTab()),
-    );
-    rightCol.append(
-      section("sampling", "LLM Setting", samplingTab()),
-      section("imagellm", "Image LLM", imageLlmTab()),
-      section("translatellm", "Translation LLM", translationTab()),
-      section("output", "Output", outputTab()),
-      section("packs", "Third-party pack status", packStatusTab()),
-    );
+    clear(bodyWrap);
+    const fn: Record<string, () => HTMLElement> = {
+      "H3 Model": withPacks(h3ModelTab), "UpScale Model": withPacks(upscaleModelTab), "FaceRefine Model": withPacks(faceRefineModelTab),
+      "LLM Setting": samplingTab, "Image LLM": imageLlmTab, "Translation LLM": translationTab, Preview: previewTab, Output: outputTab,
+    };
+    bodyWrap.appendChild(fn[activeTab]());
     refreshPackStatusText();
   }
 
@@ -1167,6 +1179,7 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     .catch(() => {})
     .finally(refreshModels);
 
+  renderTabs();
   renderBody();
 
   // The Brief / Vision part of Save All, written on its own — the Prompt Edit popup saves
@@ -1229,15 +1242,17 @@ export function createSettingsOverlay(state: MinimaxState, ctx: SettingsCtx): Se
     openLlmQuick,
     show() {
       ov.style.display = "flex";
+      renderTabs();
       refreshModels();
       renderBody();
     },
     /** Opens the overlay straight on the Image LLM section (the Image Generator's Prompt Edit popup's settings button). */
     openImageLlmSettings() {
       ov.style.display = "flex";
+      activeTab = "Image LLM";
+      renderTabs();
       refreshModels();
       renderBody();
-      ov.querySelector(".aos-mmh3-sec-imagellm")?.scrollIntoView({ block: "start" });
     },
     hide() {
       ov.style.display = "none";

@@ -1,0 +1,14 @@
+{
+  "_note": "Path prefixes ComfyUI (core + the TJ_NODE_STUDIO_ONE packs + Manager) serves. Shared by vite.config.ts (dev proxy) and serve.mjs (production server) so the two lists cannot drift. Add new routes here.",
+  "paths": [
+    "/prompt", "/queue", "/interrupt", "/free", "/history", "/view", "/upload",
+    "/object_info", "/system_stats", "/embeddings", "/extensions", "/internal",
+    "/manager", "/api", "/userdata",
+    "/shared", "/tj_shared", "/tj_studio_one",
+    "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/qwenimage21_one", "/sdxl_one",
+    "/flux_klein", "/z_image_turbo", "/anima_one", "/moss_one", "/music_one",
+    "/itda_studio_one", "/ltx25_one",
+    "/h3_facerefine"
+  ],
+  "originPreserved": ["/tj_node"]
+}

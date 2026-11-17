@@ -33,3 +33,8 @@ public/comfy_port.txt
 
 # graphify plugin output
 graphify-out/
+
+# desktop app (Tauri)
+/src-tauri/target/
+/src-tauri/bundle/
+/src-tauri/gen/

@@ -3,6 +3,16 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.22.0] — 2026-11-18
+
+### Added
+- Desktop app (Tauri / Rust shell): an installer and a portable zip. The shell starts the bundled `serve.mjs` (Node, hidden, fixed port 8778) and opens it in a window; closing the app stops the server. Automatic update check against the GitHub release (`latest.json`, signed). Built after Canvers' `docs/DESKTOP_APP.md`; see `docs/DESKTOP_APP.md` here (ledger row 100).
+- Production server `serve.mjs` (`npm start`, `start.bat`): serves `dist/`, forwards ComfyUI routes and `/ws` (https/wss and Cloudflare service-token headers supported), no timeout on long LLM/render calls. The route list lives in `comfy_paths.json`, shared with `vite.config.ts`.
+- Local / remote connection setup (`server-lib/connection.mjs`, page `/aos/connect`, menu Connection): this PC, another AI ONE STUDIO server, or a ComfyUI behind a domain / tunnel / service token. Saved in `%APPDATA%\cloud.tjtj.aionestudio\connection.json`.
+
+### Changed
+- H3 Settings is now tabbed like the node: H3 Model, UpScale Model, FaceRefine Model, LLM Setting, Image LLM, Translation LLM, Preview, Output (Node Skin is not ported). The pack status panel sits under the three model tabs; the Image Generator's Prompt Edit settings button opens the Image LLM tab.
+
 ## [0.21.2] — 2026-11-17
 
 ### Fixed

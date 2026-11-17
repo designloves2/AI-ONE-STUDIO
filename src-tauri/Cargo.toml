@@ -1,0 +1,26 @@
+[package]
+name = "ai-one-studio"
+version = "0.22.0"
+description = "AI ONE STUDIO"
+edition = "2021"
+
+[lib]
+name = "ai_one_studio_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde_json = "1"
+sys-locale = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

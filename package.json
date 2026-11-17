@@ -1,15 +1,20 @@
 {
   "name": "ai-one-studio",
   "private": true,
-  "version": "0.21.2",
+  "version": "0.22.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node serve.mjs",
+    "app:prepare": "node scripts/prepare-app.mjs",
+    "app:dev": "npm run build && npm run app:prepare && tauri dev",
+    "app:build": "npm run build && npm run app:prepare && tauri build"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.12.5",
     "@types/three": "0.170.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",

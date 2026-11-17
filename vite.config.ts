@@ -51,20 +51,9 @@ const longProxy = (extra: Record<string, unknown> = {}) => ({
 // or LAN visit the frontend talks to its own origin (getComfyBase() === "") and Vite forwards
 // these here — so a direct :8774→:8188 request, which the studio-only --enable-cors-header would
 // otherwise block, never happens.
-const comfyPaths = [
-  "/prompt", "/queue", "/interrupt", "/free", "/history", "/view", "/upload",
-  "/object_info", "/system_stats", "/embeddings", "/extensions", "/internal",
-  "/manager", "/api", "/userdata",
-  "/shared", "/tj_shared", "/tj_studio_one",
-  "/minimax_h3_one", "/krea2_one", "/qwen2511_one", "/qwenimage21_one", "/sdxl_one",
-  "/flux_klein", "/z_image_turbo", "/anima_one", "/moss_one", "/music_one",
-  "/itda_studio_one", "/ltx25_one",
-  // ComfyUI-H3-FaceRefine's own picker route - unprefixed (not under /minimax_h3_one/),
-  // registered by the third-party pack itself. Same class of miss as /music_one before it:
-  // without this, a dev-server request to /h3_facerefine/scan falls through to the SPA
-  // fallback instead of reaching ComfyUI.
-  "/h3_facerefine",
-];
+// The list lives in comfy_paths.json, shared with the production server (serve.mjs) so the two cannot drift.
+// (/h3_facerefine is ComfyUI-H3-FaceRefine's own unprefixed picker route; without it a request falls through to the SPA fallback.)
+const comfyPaths: string[] = JSON.parse(readFileSync(resolve(root, "comfy_paths.json"), "utf8")).paths;
 
 export default defineConfig({
   plugins: [tailwindcss()],

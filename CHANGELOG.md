@@ -3,6 +3,14 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.22.3] — 2026-11-18
+
+### Fixed
+- Node v1.55.0 (c4d7d31): the H3 Image Generator's T2I / Reference-to-Image graph now applies all 4 LoRAs the panel allows (it used only the first 3, so a 4th was silently ignored). `buildImageLoraChain(g, state, model, max = 3)`, called with 4 only from `buildOfficialImageGraph`; the Character Sheet chain stays at 3 (ledger row 103).
+
+### Changed
+- The LLM live line ("writing · 32 tok · 4.7 tok/s · 7 s") moved from the bottom-left corner (where it covered the Generate button) to the bottom center (`shared/llmLive.ts`), as in the core's `llm_live.js`.
+
 ## [0.22.2] — 2026-11-18
 
 ### Fixed

@@ -32,7 +32,7 @@ function ensureBox(): HTMLDivElement {
   if (box) return box;
   box = document.createElement("div");
   Object.assign(box.style, {
-    position: "fixed", left: "12px", bottom: "12px", zIndex: "10001", display: "none", flexDirection: "column", gap: "4px",
+    position: "fixed", left: "50%", transform: "translateX(-50%)", alignItems: "center", bottom: "12px", zIndex: "10001", display: "none", flexDirection: "column", gap: "4px",
     maxWidth: "min(720px, 90vw)", pointerEvents: "none", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: "11px",
   });
   document.body.appendChild(box);

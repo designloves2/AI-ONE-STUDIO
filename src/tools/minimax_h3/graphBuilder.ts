@@ -2209,10 +2209,10 @@ export const IMG_PASS2_SIGMAS_BY_STEPS: Record<number, string> = {
 // matches it, so this is the one place both must agree if it's ever changed.
 const IMG_LENGTH = 8;
 
-function buildImageLoraChain(g: Graph, state: MinimaxState, modelLink: any) {
+function buildImageLoraChain(g: Graph, state: MinimaxState, modelLink: any, max = 3) {
   const loras: LoraEntry[] = Array.isArray(state.imgLoras) ? state.imgLoras : [];
   let link = modelLink;
-  loras.slice(0, 3).forEach((l, i) => {
+  loras.slice(0, max).forEach((l, i) => {
     if (!l || l.enabled === false || !l.name || l.name === "none") return;
     g[IMG.lora(i)] = { class_type: "LoraLoaderModelOnly", inputs: {
       lora_name: l.name, strength_model: l.strength ?? 1.0, model: link,
@@ -2624,7 +2624,7 @@ export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | unde
   const res = final ? finalRes : previewRes;
   const g: Graph = {};
   g[IMGO.unet] = { class_type: "UNETLoader", inputs: { unet_name: unetName, weight_dtype: "default" } };
-  let model: any = buildImageLoraChain(g, state, [IMGO.unet, 0]);
+  let model: any = buildImageLoraChain(g, state, [IMGO.unet, 0], 4);   // the LoRA panel allows 4; Character Sheet's chain stays at 3
   if (shiftOn) {
     const sh = Math.max(0.01, Number(shift ?? 3));
     if (has(avail, "MiniMaxH3SigmaShift")) g["IMGO:shift"] = { class_type: "MiniMaxH3SigmaShift", inputs: { model, shift_video: sh, shift_audio: 3 } };

@@ -78,9 +78,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.22.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.22.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-18 v0.22.1: (1) 데스크톱 앱에 로컬/원격 선택 화면으로 돌아가는 방법 — 모든 페이지 오른쪽 아래 ⇄ 버튼, 메뉴 단축키 Ctrl+Shift+K, 메뉴는 `navigate`로 이동(`src-tauri/src/lib.rs`). Canvers 세션에 조언으로 전달함. (2) 노드 5dcc490 이식 — H3 이미지 갤러리 선택 모드의 "Images / Video frames" 탭(`listImages` scope), 프리뷰 프레임 도착 시 큐 배너 숨김; 갤러리 삭제는 서버가 세트 삭제하므로 웹 변경 없음. `PORT_LEDGER.md` 행 101. 미검증: 앱 창에서 ⇄ 버튼·단축키, 갤러리 탭 화면, 실제 frames 폴더, 0.22.0에서 0.22.1로 자동 업데이트.
 - 2026-11-18 v0.22.0 (웹 전용): (1) **데스크톱 앱(Tauri/Rust)** — 설치 파일 + 포터블 zip. 앱이 번들된 `serve.mjs`(포트 8778 고정)를 숨김으로 띄우고 창으로 연다. 자동 업데이트(GitHub `latest.json`, 서명). 설명은 `docs/DESKTOP_APP.md`. (2) 운영용 서버 `serve.mjs`(`npm start`, `start.bat`) + ComfyUI 경로 목록 `comfy_paths.json`(vite.config.ts와 공유 — 새 라우트는 여기에만 추가). (3) 로컬/원격 연결 설정(`server-lib/connection.mjs`, `/aos/connect`). (4) H3 설정 화면을 노드처럼 8개 탭으로. `PORT_LEDGER.md` 행 100. 미검증: 설치 후 앱 창, 연결 메뉴, 자동 업데이트, 원격/https/토큰 경로, 긴 렌더, 탭의 모바일 화면. 업데이트 서명 키는 `C:\Users\desig\.tauri\ai-one-studio.key`+`.pass`(저장소에 넣지 말 것, 백업 필요). 빌드에는 Windows SDK `rc.exe` 경로가 PATH에 있어야 함(사용자 PATH에 등록됨). 앱 창의 localStorage는 브라우저(8774)와 별개 저장소.
 - 2026-11-17 v0.21.2: (1) OpenRouter 모델 목록이 한 개만 보이던 문제 — 실패/빈 목록을 페이지 내내 캐시하던 것을 고침(`fetchOrModels`, `llmBackendPanel.ts`). (2) H3 Image Generator 실행 중 "waiting in the ComfyUI queue" 문구가 안 사라지고 미리보기가 없던 문제 — `samplingActive` 설정 + 공용 라이브 미리보기(`shared/livePreview.ts`) 연결. `PORT_LEDGER.md` 행 99. 미검증: 실제 이미지 생성과 라이브 프레임(KJNodes 필요), OpenRouter 목록 화면.
 - 2026-11-15 v0.21.1 (문서만): 노드가 이 변경을 v1.54.0(커밋 f72a6c4, 태그 v1.54.0)으로 릴리즈 — 웹 v0.21.0이 그 이식. README에 Split Sigma / Postprocess Latent Upscale 설명 추가, `PORT_LEDGER.md` 행 98.

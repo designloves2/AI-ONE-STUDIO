@@ -3,6 +3,15 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.22.1] — 2026-11-18
+
+### Added
+- Desktop app: a way back to the local / remote choice screen. A small ⇄ button in the bottom-right corner of every page (remote or local), the Connection menu item with the shortcut Ctrl+Shift+K, and the menu now navigates the window itself (works from a remote page too) (ledger row 101).
+- Node 5dcc490 port: H3 image gallery picker shows "Images / Video frames" tabs (picker mode only, reset on close; `listImages` takes `scope`, `&scope=frames` for the clips' last-frame folder). When a live preview frame arrives during an Image Generator run the queue banner is hidden.
+
+### Notes
+- Gallery delete needs no web change: the web only calls the server's `/minimax_h3_one/delete`, which already removes media, meta json and both thumbnails.
+
 ## [0.22.0] — 2026-11-18
 
 ### Added

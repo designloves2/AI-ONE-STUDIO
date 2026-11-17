@@ -744,9 +744,10 @@ export interface GalleryImage {
 // Image Generator's own dedicated listing (/minimax_h3_one/images) — separate route from
 // /videos above, so the H3 image gallery is its own thing, not a filtered view of the
 // video gallery's data. Node parity: api_minimax.js listImages.
-export async function listImages(subfolder?: string, opts: { offset?: number; limit?: number } = {}): Promise<{ images: GalleryImage[] } & Record<string, any>> {
-  const { offset = 0, limit = 120 } = opts;
-  const r = await fetchApi(`${API}/images?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(subfolder || SUBFOLDER)}`);
+export async function listImages(subfolder?: string, opts: { offset?: number; limit?: number; scope?: string } = {}): Promise<{ images: GalleryImage[] } & Record<string, any>> {
+  const { offset = 0, limit = 120, scope = "" } = opts;
+  // scope "" = the images (the server leaves the <folder>/frames last-frame extracts out); scope "frames" = only those frames
+  const r = await fetchApi(`${API}/images?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(subfolder || SUBFOLDER)}${scope ? `&scope=${encodeURIComponent(scope)}` : ""}`);
   if (!r.ok) return { images: [] };
   return r.json();
 }

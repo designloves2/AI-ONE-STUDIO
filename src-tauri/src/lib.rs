@@ -7,7 +7,8 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::menu::{MenuBuilder, SubmenuBuilder};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::UpdaterExt;
@@ -55,6 +56,17 @@ fn start_server(app: &tauri::AppHandle) -> Result<Option<Child>, String> {
     }
     cmd.spawn().map(Some).map_err(|e| format!("could not start the AI ONE STUDIO server: {e}"))
 }
+
+/// a small corner button on every page (remote or local) that goes back to the local / remote choice screen
+const SWITCH_JS: &str = r#"(function(){try{
+  var h=location.hostname;if(location.pathname==="/aos/connect"||h==="tauri.localhost"||location.protocol==="tauri:"||location.protocol==="about:")return;
+  if(document.getElementById("aos-switch"))return;
+  var b=document.createElement("a");b.id="aos-switch";b.href="http://127.0.0.1:8778/aos/connect";
+  b.title="Connection: local / remote (Ctrl+Shift+K)";b.textContent="\u21C4";
+  b.style.cssText="position:fixed;right:8px;bottom:8px;z-index:2147483647;width:24px;height:24px;line-height:24px;text-align:center;border-radius:12px;background:#7612DA;color:#fff;font:14px system-ui,sans-serif;text-decoration:none;opacity:.35;cursor:pointer";
+  b.onmouseenter=function(){b.style.opacity="1"};b.onmouseleave=function(){b.style.opacity=".35"};
+  (document.body||document.documentElement).appendChild(b);
+}catch(e){}})();"#;
 
 /// stop the server we started (it runs from the install folder, which an update must be able to replace)
 fn stop_server(app: &tauri::AppHandle) {
@@ -110,11 +122,16 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) && webview.label() == "main" {
+                let _ = webview.eval(SWITCH_JS);
+            }
+        })
         .setup(|app| {
             let menu = MenuBuilder::new(app)
                 .item(
                     &SubmenuBuilder::new(app, tr("연결", "Connection"))
-                        .text("connect", tr("연결 설정…", "Connection settings…"))
+                        .item(&MenuItemBuilder::with_id("connect", tr("연결 설정… (로컬 / 원격)", "Connection settings… (local / remote)")).accelerator("CmdOrCtrl+Shift+K").build(app)?)
                         .separator()
                         .quit()
                         .build()?,
@@ -124,7 +141,9 @@ pub fn run() {
             app.on_menu_event(|app, event| {
                 if event.id() == "connect" {
                     if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.eval(&format!("window.location.replace('http://127.0.0.1:{PORT}/aos/connect')"));
+                        if let Ok(u) = format!("http://127.0.0.1:{PORT}/aos/connect").parse::<tauri::Url>() {
+                            let _ = w.navigate(u);
+                        }
                     }
                 }
             });

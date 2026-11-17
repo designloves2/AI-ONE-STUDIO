@@ -4233,6 +4233,7 @@ export function renderMinimaxH3(container: HTMLElement) {
           await addLivePreview(built.graph, instanceId, comfyApi);
           stopLive = listenLivePreview(instanceId, comfyApi, (url, step, total) => {
             if (!samplingActive) return;
+            externalQueueBanner.classList.add("hidden"); externalQueueBanner.classList.remove("flex");   // a frame means our own run is sampling (node: hideBusyBanner)
             showPreviewFrame(url);
             if (step && total) showStepBar(previewBox, step, total);
           });

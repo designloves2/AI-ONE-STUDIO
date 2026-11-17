@@ -673,7 +673,28 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     document.body.appendChild(pop);
   }
 
-  const fetchImagePage = (offset: number, limit: number) => listImages(imgFolder(state), { offset, limit });
+  // Picker-only tab: the clips' extracted last frames live in <folder>/frames and are NOT shown in the image gallery
+  // (node ui_gallery_minimax_images.js galleryScope / mkTab / syncTabs). Reset whenever the gallery closes.
+  let galleryScope = "";
+  const tabButtons: Array<HTMLButtonElement & { _v?: string }> = [];
+  const mkTab = (label: string, value: string) => {
+    const b = el("button", { type: "button", text: label, style: {
+      cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "5px 11px", borderRadius: "6px",
+      border: `1px solid ${C.border}`, background: C.bg2, color: C.text,
+    } }) as HTMLButtonElement & { _v?: string };
+    b.addEventListener("click", () => { galleryScope = value; syncTabs(); refresh(); });
+    b._v = value; tabButtons.push(b); return b;
+  };
+  const tabsBox = el("div", { style: { display: "none", gap: "6px" } }, [mkTab("Images", ""), mkTab("Video frames", "frames")]);
+  function syncTabs() {
+    tabsBox.style.display = pickCallback ? "flex" : "none";
+    for (const b of tabButtons) {
+      const on = b._v === galleryScope;
+      b.style.background = on ? BRAND : C.bg2; b.style.borderColor = on ? BRAND : C.border;
+    }
+  }
+  hdr.insertBefore(tabsBox, countTag);
+  const fetchImagePage = (offset: number, limit: number) => listImages(imgFolder(state), { offset, limit, scope: galleryScope });
 
   // A refresh (or a delete) re-fetches at least as many images as were showing, so the
   // grid does not snap back to the first page.
@@ -695,10 +716,10 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
     renderGrid();
   }
 
-  function show() { ov.style.display = "flex"; refresh(); }
+  function show() { ov.style.display = "flex"; if (!pickCallback) galleryScope = ""; syncTabs(); refresh(); }
   function hide() {
     ov.style.display = "none";
-    pickCallback = null;
+    pickCallback = null; galleryScope = ""; syncTabs();
     setPostMode(false);
     setSelectMode(false);
   }

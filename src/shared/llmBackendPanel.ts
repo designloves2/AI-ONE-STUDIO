@@ -17,14 +17,23 @@ export const backendName = (b?: string) => b === "openrouter" ? "OpenRouter" : b
 const fetchApi = (path: string, opts?: RequestInit) => fetch(`${getComfyBase()}${path}`, { ...opts, credentials: "include" });
 
 let _orModelsCache: string[] | null = null;
+let _orModelsInflight: Promise<string[]> | null = null;
+/** Full OpenRouter model list. Only a non-empty answer is cached: a failed or empty one (server just started,
+ *  openrouter.ai unreachable for a moment) used to stick for the whole page life, leaving the picker with one entry. */
 export async function fetchOrModels(): Promise<string[]> {
-  if (_orModelsCache) return _orModelsCache;
-  try {
-    const r = await fetchApi("/music_one/openrouter_models");
-    const d = await r.json();
-    _orModelsCache = Array.isArray(d.models) ? d.models : [];
-  } catch { _orModelsCache = []; }
-  return _orModelsCache || [];
+  if (_orModelsCache && _orModelsCache.length) return _orModelsCache;
+  if (_orModelsInflight) return _orModelsInflight;
+  _orModelsInflight = (async () => {
+    try {
+      const r = await fetchApi("/music_one/openrouter_models");
+      const d = await r.json();
+      const list: string[] = Array.isArray(d.models) ? d.models : [];
+      if (list.length) _orModelsCache = list;
+      return list;
+    } catch { return []; }
+    finally { _orModelsInflight = null; }
+  })();
+  return _orModelsInflight;
 }
 
 /** The masked `sk****…1234` hint for the shared OpenRouter key, or "" if none is set. */
@@ -163,6 +172,7 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void, 
     const orGroup = document.createElement("div");
     Object.assign(orGroup.style, { display: "flex", flexDirection: "column", gap: "6px" });
     // full OpenRouter list + filter box — no capability filter, user's choice (node d33aab3).
+    let orLoaded = false;
     const orSS = searchableSelect([getModel() || "Loading…"], getModel(),
       (v) => { setModel(v); save(); syncAll(); });
     orGroup.appendChild(lblRow(role === "vision" ? "OpenRouter model — vision (reads images)" : "OpenRouter model — text (writes prompt)", orSS.el));
@@ -211,6 +221,8 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void, 
         const or = b === "openrouter";
         const comfy = b === "comfy";
         orGroup.style.display = or ? "flex" : "none";
+        // the list may have failed to load earlier (server just started, OpenRouter unreachable): try again when it is shown
+        if (or && !orLoaded) fetchOrModels().then((ms) => { if (ms.length) block.fill(ms, ""); });
         const custom = b === "custom";
         comfyGroup.style.display = comfy ? "flex" : "none";
         customGroup.style.display = custom ? "flex" : "none";
@@ -219,6 +231,7 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void, 
       },
       fill(orModels, keyHint) {
         if (orModels && orModels.length) {
+          orLoaded = true;
           orSS.setOptions(getModel() ? orModels : ["", ...orModels]);   // no model set: an empty first option, nothing is picked for the user
           orSS.setValue(getModel());
         }

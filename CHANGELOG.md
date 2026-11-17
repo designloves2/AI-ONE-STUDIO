@@ -3,6 +3,12 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.21.2] — 2026-11-17
+
+### Fixed
+- OpenRouter model pickers (H3 settings and every image tool's LLM panel) showed one entry: a failed or empty model list was cached for the whole page life. Only a non-empty list is cached now, a request in flight is shared, and the picker retries when the OpenRouter group is shown (ledger row 99).
+- H3 Image Generator: the "waiting in the ComfyUI queue" banner stayed during a run and there was no live preview. The run now sets the sampling flag (banner clears on the first step), puts the shared live preview in front of the KSampler (needs KJNodes, follows the Preview setting) with a `Preview [n/total]` bar, and the status line shows the step.
+
 ## [0.21.1] — 2026-11-15
 
 Docs only: this is the web port of node v1.54.0 (commit f72a6c4, tag v1.54.0), which is the node release of the changes already released in v0.21.0. README now describes Split Sigma (Turbo step = LOW + HIGH) and Postprocess Latent Upscale (Use H3) (ledger row 98).

@@ -71,6 +71,7 @@ import {
   turboModesFor,
 } from "./core";
 import { attachPanZoom } from "../../shared/panZoom";
+import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
 import { SAMPLERS as FULL_SAMPLERS, SCHEDULERS as FULL_SCHEDULERS, withCurrent } from "../../shared/samplerLists";
 import { applyMobileCollapsibleLayout, openFullscreen, button, checkboxRow, clear, col, el, helpDot, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
@@ -4222,9 +4223,31 @@ export function renderMinimaxH3(container: HTMLElement) {
         promptWeight: state.imgPromptWeight !== false, warnNoRef: state.imgWarnNoRef !== false,
         savePreview: !!state.imgPreviewSaveToGallery,
       });
-      const res = await queuePrompt(built.graph, {
-        onProgress: (v: number, m: number) => setStatus(`Image Generator — ${Math.round((v / (m || 1)) * 100)}%`),
-      });
+      // samplingActive clears the "waiting in the ComfyUI queue" banner on the first step and lets live frames through;
+      // the KSampler gets a live preview like the other image tools (shared/livePreview.ts, needs KJNodes).
+      samplingActive = true;
+      let stopLive: () => void = () => {};
+      let res: any;
+      try {
+        if (state.previewEnabled !== false) {
+          await addLivePreview(built.graph, instanceId, comfyApi);
+          stopLive = listenLivePreview(instanceId, comfyApi, (url, step, total) => {
+            if (!samplingActive) return;
+            showPreviewFrame(url);
+            if (step && total) showStepBar(previewBox, step, total);
+          });
+        }
+        res = await queuePrompt(built.graph, {
+          samplerNode: built.sampler,
+          onProgress: (v: number, m: number) => {
+            placeholder.style.display = "none";
+            externalQueueBanner.classList.add("hidden"); externalQueueBanner.classList.remove("flex");
+            setStatus(`Image Generator — step ${v}/${m} (${Math.round((v / (m || 1)) * 100)}%)`);
+          },
+        });
+      } finally {
+        samplingActive = false; stopLive(); hideStepBar(previewBox);
+      }
       const o = firstOutput(res.byNode, built.saveNode);
       if (!o) throw new Error("No output produced.");
       const url = outputViewUrl(o.filename, o.subfolder || "", o.type || "output");

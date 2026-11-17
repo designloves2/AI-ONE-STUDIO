@@ -77,9 +77,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.21.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.21.2**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-17 v0.21.2: (1) OpenRouter 모델 목록이 한 개만 보이던 문제 — 실패/빈 목록을 페이지 내내 캐시하던 것을 고침(`fetchOrModels`, `llmBackendPanel.ts`). (2) H3 Image Generator 실행 중 "waiting in the ComfyUI queue" 문구가 안 사라지고 미리보기가 없던 문제 — `samplingActive` 설정 + 공용 라이브 미리보기(`shared/livePreview.ts`) 연결. `PORT_LEDGER.md` 행 99. 미검증: 실제 이미지 생성과 라이브 프레임(KJNodes 필요), OpenRouter 목록 화면.
 - 2026-11-15 v0.21.1 (문서만): 노드가 이 변경을 v1.54.0(커밋 f72a6c4, 태그 v1.54.0)으로 릴리즈 — 웹 v0.21.0이 그 이식. README에 Split Sigma / Postprocess Latent Upscale 설명 추가, `PORT_LEDGER.md` 행 98.
 - 2026-11-15 v0.21.0 (노드 v1.54.0 대응): 노드 v1.53.1 이후(3665c80, 5f63d93) 이식 — H3 영상 Sampler/Scheduler 전체 목록, Split Sigma = Turbo step의 LOW + HIGH(`hiresHighSteps`, 4/6/8 스텝 로라, Tiled 포함), Postprocess Use H3의 Turbo step/HIGH 입력(`ppH3Steps`, `ppH3HighSteps`), 클립 메타 우선 `ppH3Plan`(LLM은 최후, 첫·끝 프레임 2장). `PORT_LEDGER.md` 행 96·97. 타입 검사·빌드만 함. 미검증: 실제 렌더, 화면, REF2VA/T2VA 재실행, LLM 경로.
 - 2026-11-13 v0.20.2: H3 Image Generator Sampling 패널의 Sampler/Scheduler가 ComfyUI 전체 목록을 보여줌(`shared/samplerLists.ts`). `PORT_LEDGER.md` 행 95. 화면 확인은 미검증.

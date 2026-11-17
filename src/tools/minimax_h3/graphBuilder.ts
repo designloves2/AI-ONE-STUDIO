@@ -2661,7 +2661,7 @@ export function buildOfficialImageGraph(state: MinimaxState, avail: Avail | unde
   g[IMGO.save] = (final || savePreview)
     ? { class_type: "SaveImage", inputs: { filename_prefix: filenamePrefix, images: [IMGO.decode, 0] } }
     : { class_type: "PreviewImage", inputs: { images: [IMGO.decode, 0] } };
-  return { graph: g, saveNode: IMGO.save };
+  return { graph: g, saveNode: IMGO.save, sampler: IMGO.sampler };
 }
 
 // ── H3 image gallery post-process (Deblur + RTX VSR only) ─────────────────────────────

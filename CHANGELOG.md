@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.22.2] — 2026-11-18
+
+### Fixed
+- H3 Image Generator: adding a LoRA showed an empty picker. The Image Generator's LoRA panel never loaded the LoRA list itself (only the video modes' panels did), so the picker had only "none" unless another mode had been opened first. It now loads the list when it opens, and it is the node's panel: ⟳ rescan button, a card per LoRA (on/off, strength, picker, trigger word filled from the LoRA's metadata), "+ Add LoRA", 4 max (ledger row 102).
+
 ## [0.22.1] — 2026-11-18
 
 ### Added

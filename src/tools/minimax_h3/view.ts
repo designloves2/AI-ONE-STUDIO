@@ -4148,32 +4148,96 @@ export function renderMinimaxH3(container: HTMLElement) {
     leftOuter.appendChild(seedGenWrap);
   }
 
-  // Small dedicated LoRA panel for Image Generator's own imgLoras list (up to 3 slots) —
-  // never state.loras (the main pipeline's own list, a different render path entirely).
+  // Image Generator's own LoRA list (state.imgLoras) - never state.loras (the main pipeline's list, a different render path).
+  // Port of the node's mountImgLoraPanel: rescan button, one card per LoRA (on/off, strength, picker, trigger word), "+ Add LoRA".
+  // The picker list comes from /models; it is fetched here when nothing has loaded it yet (this mode never visits the other panels).
   function mountImgLoraPanel() {
     const wrap = el("div");
     function render() {
       clear(wrap);
       const loras = state.imgLoras || (state.imgLoras = []);
-      const head = el("div", { style: { display: "flex", alignItems: "center", gap: "6px" } });
-      head.append(label(`LoRA (${loras.filter((l) => l.enabled !== false && l.name && l.name !== "none").length}/${loras.length} on)`), el("div", { style: { flex: "1" } }),
-        button("+ Add", () => { if (loras.length < 3) { loras.push({ name: "none", strength: 1.0, triggerWord: "", enabled: true }); persist(); render(); } }));
-      const kids: (Node | null)[] = [head];
-      const all = ["none", ...availableLoras.filter((x) => x !== "none")];
-      loras.slice(0, 3).forEach((l, i) => {
-        const off = l.enabled === false;
-        const rowEl = el("div", { style: { display: "flex", gap: "6px", alignItems: "center" } });
-        const tog = el("button", { type: "button", text: off ? "OFF" : "ON", style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "10px", border: "none", fontWeight: "700", background: off ? "#444" : BRAND, color: "#fff" } });
-        tog.addEventListener("click", () => { l.enabled = off; persist(); render(); });
-        const picker = searchableSelect(all, l.name || "none", (v) => { l.name = v; persist(); });
-        const strWrap = el("div", { style: { width: "60px", flexShrink: "0" } });
-        strWrap.appendChild(numberField(l.strength ?? 1.0, (v) => { l.strength = v; persist(); }, 0.05));
-        const del = el("button", { type: "button", text: "✕", style: { flexShrink: "0", cursor: "pointer", background: "transparent", color: C.err, border: "none", fontSize: "11px" } });
-        del.addEventListener("click", () => { loras.splice(i, 1); persist(); render(); });
-        rowEl.append(tog, picker.el, strWrap, del);
-        kids.push(rowEl);
+      const countEl = label("");
+      const refreshCount = () => {
+        const on = loras.filter((l) => l.enabled !== false && l.name && l.name !== "none").length;
+        countEl.textContent = `LoRA (${on}/${loras.length} on)`;
+      };
+      refreshCount();
+
+      const reload = el("button", {
+        type: "button", text: "\u27F3", title: "Rescan the LoRA folder",
+        style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "1px 7px", borderRadius: "5px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` },
+      }) as HTMLButtonElement;
+      reload.addEventListener("click", async () => {
+        reload.disabled = true; reload.textContent = "\u2026";
+        try {
+          const before = availableLoras.length;
+          const d = await getModels();
+          availableLoras = d.loras || [];
+          const after = availableLoras.length;
+          showPopup(after === before ? `LoRA list refreshed \u2014 ${after} found.` : `LoRA list refreshed \u2014 ${after} found (${after - before > 0 ? "+" : ""}${after - before}).`, false);
+        } catch { showPopup("Could not refresh the model list \u2014 check that ComfyUI is running.", true); }
+        reload.disabled = false; reload.textContent = "\u27F3";
+        render();
       });
-      wrap.append(...kids.filter((k): k is Node => !!k));
+
+      const head0 = el("div", { class: "flex items-center gap-1.5" });
+      head0.append(countEl, el("div", { class: "flex-1" }), reload);
+      const kids: (Node | null)[] = [head0];
+      const all = ["none", ...availableLoras.filter((x) => x !== "none")];
+
+      loras.forEach((l, i) => {
+        const off = l.enabled === false;
+        const card = el("div", { class: "flex flex-col gap-1.5 p-1.5 rounded-md", style: { border: `1px solid ${off ? C.dim : C.border}`, opacity: off ? "0.55" : "1" } });
+        const head = el("div", { class: "flex items-center gap-1.5" });
+        const tog = el("button", { type: "button", text: off ? "OFF" : "ON", style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "10px", padding: "3px 9px", borderRadius: "10px", border: "none", fontWeight: "700", background: off ? "#444" : BRAND, color: "#fff" } });
+        tog.title = off ? "Switched off \u2014 neither the weights nor its trigger words are used" : "Switched on";
+        tog.addEventListener("click", () => { l.enabled = off; persist(); render(); });
+        const del = el("button", { type: "button", text: "\u2715", title: "Remove", style: { flexShrink: "0", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", background: "transparent", color: C.err, border: "none", padding: "2px 4px" } });
+        del.addEventListener("click", () => { state.imgLoras.splice(i, 1); persist(); render(); });
+        const strWrap = el("div", { class: "shrink-0", style: { width: "62px" } });
+        strWrap.appendChild(numberField(l.strength ?? 1.0, (v) => { l.strength = v; persist(); }, 0.05));
+        head.append(tog, el("div", { class: "flex-1" }), strWrap, del);
+
+        const tw = el("input", {
+          type: "text", placeholder: "Trigger word\u2026",
+          style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "4px", padding: "4px 6px", fontSize: "11px", fontFamily: "inherit", outline: "none" },
+        }) as HTMLInputElement;
+        tw.value = l.triggerWord || "";
+        tw.title = "Added to the image prompt while this LoRA is on";
+        tw.addEventListener("input", () => { l.triggerWord = tw.value; persist(); });
+
+        const picker = searchableSelect(all, l.name || "none", async (v) => {
+          const prev = l.name;
+          l.name = v; persist();
+          if (v && v !== "none") {
+            if (v !== prev) { l.triggerWord = ""; tw.value = ""; }
+            if (!l.triggerWord) {
+              tw.placeholder = "Loading\u2026";
+              try {
+                const d = await getLoraTriggers(v);
+                if (d.ok && d.triggers?.length) { l.triggerWord = d.triggers.join(", "); tw.value = l.triggerWord; persist(); }
+              } catch {}
+              tw.placeholder = "Trigger word\u2026";
+            }
+          } else { l.triggerWord = ""; tw.value = ""; persist(); }
+          refreshCount();
+        });
+
+        card.append(head, picker.el, tw);
+        kids.push(card);
+      });
+
+      const add = el("button", { type: "button", text: "+ Add LoRA", style: { width: "100%", cursor: "pointer", fontFamily: "inherit", fontSize: "11px", padding: "6px", borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}` } });
+      add.addEventListener("click", () => {
+        if (state.imgLoras.length >= 4) { showPopup("4 LoRAs max.", true); return; }
+        state.imgLoras.push({ name: "none", strength: 1.0, triggerWord: "", enabled: true });
+        persist(); render();
+      });
+      kids.push(add);
+      wrap.appendChild(panel(kids));
+    }
+    if (!availableLoras.length) {
+      getModels().then((d) => { availableLoras = d.loras || []; render(); }).catch(() => {});
     }
     render();
     return wrap;

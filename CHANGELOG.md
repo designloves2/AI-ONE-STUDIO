@@ -3,6 +3,11 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.22.4] — 2026-11-18
+
+### Fixed
+- Image tools' LLM settings (H3 Settings -> Image LLM and every image tool's LLM panel): the OpenRouter text model went back to the old one after saving. The panel saved the pick under the legacy key `or_model`, but the node, Prompt Edit and the panel's own loader read `or_model_text` first, so a stale `or_model_text` won on the next open. Picking a text model now writes both keys (`shared/llmBackendPanel.ts`, ledger row 104). A value already stored under `or_model_text` is not touched: pick the model once more.
+
 ## [0.22.3] — 2026-11-18
 
 ### Fixed

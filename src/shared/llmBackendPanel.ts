@@ -140,7 +140,9 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void, 
     const getModel = () => (role === "vision" ? state.or_model_vision : state.or_model) || "";
     const setModel = (v: string) => {
       if (role === "vision") { state.or_model_vision = v; pushLlmConfig({ or_model_vision: v }); }
-      else { state.or_model = v; pushLlmConfig({ or_model_text: v }); }
+      // The node (and Prompt Edit here) store the text model as `or_model_text`; `or_model` is the legacy name this panel used.
+      // Both must change together: readers prefer `or_model_text`, so an old value there would put the previous model back.
+      else { state.or_model = v; state.or_model_text = v; pushLlmConfig({ or_model_text: v }); }
     };
     const getBackend = () => (role === "vision" ? state.backend_vision : state.backend_text) || "local";
     const setBackend = (b: string) => {

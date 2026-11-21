@@ -25,6 +25,7 @@
 5. 노드 쪽 명세: 노드 저장소 루트의 `SPEC_RELAY_V1_xx_x.md`(버전별 이식 지시서) — 이 저장소 밖에 있음.
 6. `docs/HEADLESS_HANDOFF.md` — 서버용 `*-headless/` CLI 패키지 안내(웹앱 본체와는 별개).
 7. `docs/ONE_SHOT_INSTALL.md` — 새 PC에 ComfyUI+노드+웹앱을 설치하는 절차(AI에게 붙여넣는 방식).
+8. `docs/DESKTOP_APP.md`(Windows 데스크톱 앱, Tauri) · `docs/MACOS_APP_SPEC.md`(macOS 앱 작업 명세서, 맥 세션용).
 
 ## 3. 디렉터리 구조
 - `src/main.ts`, `src/router.ts` — 진입점과 라우팅(해시 `#krea2` 식). `src/landing/` 첫 화면, `src/gallery/` 갤러리.
@@ -81,6 +82,7 @@
 - 최신 릴리즈 **v0.22.4**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-21 (문서만, 릴리즈 없음): `docs/MACOS_APP_SPEC.md` — macOS 앱(Xcode, Swift + WKWebView) 작업 명세서를 맥 세션 전달용으로 작성. 맥은 **원격 접속 중심**(백엔드는 Windows 서버의 `serve.mjs`, 로컬 모드는 2단계), 서비스 토큰·ComfyUI 직접 주소는 1단계 제외. 맥 세션은 `macos/` 폴더에서만 작업하고 서버·웹앱 변경은 웹 세션에 요청. 사용자가 정할 것: Apple Developer 계정, 서버 주소 형태, 접속 보호(서버에 인증 없음), 배포 대상. 아직 맥 쪽 구현은 시작 안 됨.
 - 2026-11-18 v0.22.4: 이미지 도구 LLM 설정의 OpenRouter 텍스트 모델이 저장해도 예전 값(deepseek)으로 되돌아가던 문제 — 패널은 옛 키 `or_model`에만 저장했고 노드·Prompt Edit·불러오기는 `or_model_text`를 먼저 읽어서 서버에 남은 옛 `or_model_text`가 이겼음. 모델을 고르면 두 키를 같이 저장(`shared/llmBackendPanel.ts`). 서버의 옛 값은 건드리지 않음 → 사용자가 한 번 다시 고르면 됨. `PORT_LEDGER.md` 행 104. 미검증: 화면에서 고른 모델이 새로고침 후 유지되는지. LLM 설정 키 이름: 텍스트 `or_model_text`(+옛 `or_model`), 비전 `or_model_vision`.
 - 2026-11-18 v0.22.3: (1) 노드 v1.55.0(c4d7d31) 이식 — H3 이미지 T2I/R2I 그래프가 LoRA를 4개까지 적용(`buildImageLoraChain`의 `max`, 공식 그래프만 4, Character Sheet는 3 유지). (2) LLM 실시간 줄을 왼쪽 아래(Generate 버튼 위에 겹침)에서 하단 중앙으로 이동(`shared/llmLive.ts`). `PORT_LEDGER.md` 행 103. 미검증: 실제 LLM 호출 중 줄 표시, LoRA 4개 렌더, 설치된 앱 창에서의 위치. 좁은 창(800폭)에서는 가운데 줄이 Stop 버튼과, 넓은 창에서는 프롬프트 입력창 아래쪽과 겹칠 수 있음.
 - 2026-11-18 v0.22.2: H3 Image Generator에서 LoRA를 추가하면 목록이 안 나오던 문제 — 이미지 패널이 LoRA 목록을 스스로 불러오지 않았음(영상 모드 패널만 불러옴). 노드의 `mountImgLoraPanel`로 교체(⟳, 카드, 트리거 단어, 최대 4개)하고 열 때 목록을 불러옴. 화면에서 목록 797개 확인. `PORT_LEDGER.md` 행 102. 미검증: LoRA를 골라 실제 렌더. 노드 쪽 참고: UI는 4개까지 받지만 그래프(`buildImageLoraChain`)는 앞 3개만 적용 — 웹은 노드와 같게 둠.

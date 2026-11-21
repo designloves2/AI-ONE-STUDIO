@@ -13,6 +13,7 @@
 		A1000000000000000000000A /* ConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009; };
 		A1000000000000000000000C /* SwitchButtonScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000B; };
 		A1000000000000000000000E /* WebContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000D; };
+		A1000000000000000000F002 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000F001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		A1000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000010 /* AIOneStudio.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AIOneStudio.entitlements; sourceTree = "<group>"; };
 		A10000000000000000000011 /* AI ONE STUDIO.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AI ONE STUDIO.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000F001 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -47,6 +49,7 @@
 				A1000000000000000000000D /* WebContainer.swift */,
 				A1000000000000000000000F /* Info.plist */,
 				A10000000000000000000010 /* AIOneStudio.entitlements */,
+				A1000000000000000000F001 /* AppIcon.icns */,
 			); path = AIOneStudio; sourceTree = "<group>"; };
 		A10000000000000000000014 /* Products */ = {isa = PBXGroup; children = (
 				A10000000000000000000011 /* AI ONE STUDIO.app */,
@@ -66,7 +69,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A10000000000000000000019 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A10000000000000000000019 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000F002); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */

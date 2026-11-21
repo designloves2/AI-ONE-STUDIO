@@ -3,6 +3,8 @@
 작성: 웹 세션, 2026-11-21. 대상 독자: 이 저장소를 받아 **맥에서 Xcode로 앱을 만드는 세션/사람**.
 이 문서는 만들 것·만들지 않을 것·확인 방법까지 적은 명세입니다. 추측으로 채운 부분은 "확인 필요"로 표시했습니다.
 
+> 두 PC(웹/Windows, 맥)의 상황 전달 방식: **`docs/MAC_SYNC_FROM_WEB.md`**(웹 세션이 쓰는 변경 기록·맥 영향) ↔ **`macos/STATUS.md`**(맥 세션이 쓰는 진행 상황). 반드시 먼저 읽을 것.
+
 ## 0. 한 줄 요약
 Windows 앱(`docs/DESKTOP_APP.md`, Tauri/Rust)과 **같은 웹앱을 한 줄도 바꾸지 않고**, macOS에서는 **Swift + WKWebView 네이티브 껍데기**로 감쌉니다.
 맥 앱은 **원격 접속이 기본**입니다: 백엔드(ComfyUI + AI ONE STUDIO 서버 `serve.mjs`)는 **Windows PC**에서 돌고, 맥 앱은 그 주소를 창에 엽니다.
@@ -43,10 +45,12 @@ macos/
     WebContainer.swift          NSViewRepresentable WKWebView + 델리게이트들
     SwitchButtonScript.swift    ⇄ 버튼 주입용 JS 문자열(WKUserScript)
     Updater.swift               Sparkle 2 연결
+  appcast.xml                   Sparkle 업데이트 피드(저장소 파일, 릴리즈 아님)
+  STATUS.md                     맥 세션이 쓰는 진행 상황(웹 세션은 읽기만)
     Info.plist / AIOneStudio.entitlements
   scripts/
-    sync-mac-version.mjs        package.json 버전 → MARKETING_VERSION / CURRENT_PROJECT_VERSION
-    release-mac.sh              빌드 → 서명 → 공증 → dmg → appcast → GitHub 업로드
+    (맥 앱 버전은 웹 버전과 독립: Xcode의 MARKETING_VERSION을 직접 올린다)
+    release-mac.sh              빌드 → 서명 → 공증 → dmg → appcast.xml 갱신 → `mac-vX.Y.Z` 릴리즈(latest 아님)
 ```
 - 번들 ID: `cloud.tjtj.aionestudio` (Windows와 같은 식별자). 앱 이름 `AI ONE STUDIO`.
 - 최소 macOS **13 (Ventura)**, Apple Silicon + Intel 유니버설. (`isInspectable`가 13.3+라 디버그에서만 `#available`로 감쌉니다.)
@@ -127,17 +131,16 @@ macos/
 ## 8. 빌드·서명·배포
 **준비물(확인 필요: 사용자 계정 상태)**: 맥, Xcode 15+, **Apple Developer Program 계정**(Developer ID Application 인증서 + 공증용 앱 암호/API 키). 계정이 없으면 서명·공증 없이는 Gatekeeper 경고가 뜨므로 **사용자 결정 필요**.
 
-1. **버전**: 정본은 `package.json`의 `version`. `scripts/sync-mac-version.mjs`가 `MARKETING_VERSION`(= package.json 버전)과 `CURRENT_PROJECT_VERSION`(빌드 번호, 단조 증가)을 맞춘다. Windows 앱과 **같은 버전 번호**를 쓴다.
+1. **버전**: 맥 앱은 **웹 버전과 독립된 자체 버전**(`mac-v1.0.0`부터)을 쓴다. Xcode `MARKETING_VERSION`(표시 버전)과 `CURRENT_PROJECT_VERSION`(빌드 번호, 단조 증가)을 직접 올린다. 웹 화면 변경은 서버가 내려 주므로 맥 버전을 올릴 필요가 없다(`docs/MAC_SYNC_FROM_WEB.md` §2).
 2. **빌드**: `xcodebuild -project macos/AIOneStudio.xcodeproj -scheme AIOneStudio -configuration Release -archivePath build/AIOneStudio.xcarchive archive` → `xcodebuild -exportArchive`(method `developer-id`).
 3. **공증**: `xcrun notarytool submit <zip|dmg> --keychain-profile <프로필> --wait` → `xcrun stapler staple`.
 4. **DMG**: `create-dmg`(또는 `hdiutil`)로 `AI-ONE-STUDIO_<버전>_macOS.dmg` 생성(이름에 공백 없음 — GitHub가 공백을 바꿈). Applications 바로가기 포함.
 5. **자동 업데이트(Sparkle 2)**:
    - EdDSA 키 한 쌍을 `generate_keys`로 한 번만 만든다. **공개 키는 Info.plist(`SUPublicEDKey`)에, 비공개 키는 키체인에만**(저장소에 넣지 말 것, 잃어버리면 이미 설치된 앱에 업데이트를 보낼 수 없음 → 백업). Windows 서명 키(`.tauri\ai-one-studio.key`)와 **별개**.
-   - `SUFeedURL` = `https://github.com/designloves2/AI-ONE-STUDIO/releases/latest/download/appcast.xml`. `generate_appcast`로 만든 `appcast.xml`을 릴리즈에 올린다.
+   - `SUFeedURL` = `https://raw.githubusercontent.com/designloves2/AI-ONE-STUDIO/master/macos/appcast.xml` (**릴리즈 파일이 아니라 저장소 파일**). `generate_appcast`로 만든 `appcast.xml`을 `macos/appcast.xml`에 갱신·커밋한다. 각 항목의 dmg 주소는 `https://github.com/designloves2/AI-ONE-STUDIO/releases/download/mac-vX.Y.Z/<dmg 이름>`.
    - 업데이트 확인은 실행 시 자동(`SUEnableAutomaticChecks`) + 메뉴 "업데이트 확인…".
-   - **주의**: Windows는 `latest.json`을 쓰고 맥은 `appcast.xml`을 쓴다. 한 릴리즈에 **둘 다** 있어야 두 플랫폼이 각각 업데이트된다(§10 릴리즈 절차).
-6. **릴리즈 업로드**: 같은 태그 `vX.Y.Z`의 GitHub 릴리즈에 `gh release upload vX.Y.Z AI-ONE-STUDIO_X.Y.Z_macOS.dmg appcast.xml --clobber --repo designloves2/AI-ONE-STUDIO`.
-   - Windows 쪽 릴리즈 담당(웹 세션)이 먼저 `gh release create`로 릴리즈와 Windows 파일을 올린 뒤, 맥 쪽이 같은 태그에 파일을 **추가**한다. 맥 세션이 릴리즈를 새로 만들지 말 것(Windows `latest.json`을 덮어쓰거나 빠뜨릴 위험).
+   - **주의(Windows 업데이트 보호)**: Windows 앱의 자동 업데이트는 GitHub **"latest" 릴리즈**의 `latest.json`을 읽는다. 맥 릴리즈가 latest가 되면 Windows 업데이트가 조용히 실패하므로, 맥 릴리즈는 **반드시 `--latest=false`** 로 만든다.
+6. **릴리즈 업로드**: `gh release create mac-vX.Y.Z AI-ONE-STUDIO_X.Y.Z_macOS.dmg --latest=false --title "AI ONE STUDIO macOS X.Y.Z" --notes-file <노트> --repo designloves2/AI-ONE-STUDIO`, 그 뒤 `macos/appcast.xml`을 커밋·푸시. 맥 세션은 웹 릴리즈(`vX.Y.Z`)를 만들거나 덮어쓰지 않는다(Windows `latest.json` 보호).
 
 ## 9. 2단계(v1 이후, 지금 만들지 말 것)
 - **맥 로컬 모드**: 번들에 macOS용 `node` 바이너리 + `serve.mjs` + `server-lib` + `dist` + `comfy_paths.json`을 넣고 `Process`로 띄운 뒤(포트 8778) 창이 `http://127.0.0.1:8778/`을 연다. 맥에서 ComfyUI를 돌리는 사용자용. 이때 `AOS_APP=1`, `AOS_CONFIG=<Application Support>/connection.json` 환경변수가 Windows 앱과 같게 필요. 앱 종료 시 자식 프로세스 정리, 강제 종료 시 남은 서버 처리(Windows에서 겪은 문제: 이미 떠 있는 서버를 재사용하면 앱을 닫아도 서버가 남음).
@@ -147,7 +150,7 @@ macos/
 ## 10. 웹 세션(Windows) 쪽에서 해 줄 일 / 맥 세션이 확인할 서버 전제
 - Windows PC에서 `serve.mjs`가 떠 있어야 한다(`start.bat` 또는 Windows 앱). 맥에서 접속하려면 방화벽에서 **8778 인바운드 허용**(LAN) 또는 터널 연결.
 - 서버 코드 변경 요청이 생기면(예: `/aos/target`에 앱 최소 버전·서버 버전 필드 추가, 간단한 접속 비밀번호) 웹 세션에 요청. 맥 세션이 `serve.mjs`를 직접 고치지 않는다.
-- 릴리즈 절차 갱신(웹 세션): CHANGELOG/PORT_LEDGER/CLAUDE.md에 "macOS 앱" 항목 추가, 릴리즈 노트에 dmg 링크 추가. 맥 세션은 결과(커밋 해시, 파일 이름, 검증한 것/못 한 것)를 웹 세션에 보고.
+- 변경 전달: 웹 세션은 커밋/릴리즈마다 `docs/MAC_SYNC_FROM_WEB.md`의 변경 기록에 **맥 영향**(없음/확인/조치 필요)을 적고, 맥 세션은 `macos/STATUS.md`에 진행 상황·검증 결과·"웹 세션에 요청"을 적는다. 두 PC는 git으로만 주고받는다.
 
 ## 11. 검증 체크리스트 (수동 — 이 저장소엔 자동 테스트가 없음)
 맥에서 직접 확인하고 **한 것/못 한 것**을 구분해서 보고한다.
@@ -173,5 +176,5 @@ macos/
 
 ## 13. 완료 기준
 - §11 체크리스트 1~10 통과(맥에서 직접 확인) + 서명·공증된 dmg + 다른 맥 설치 확인.
-- 릴리즈에 dmg와 `appcast.xml`이 올라가 있고, 최신 릴리즈의 Windows `latest.json`도 그대로 있다.
+- `mac-vX.Y.Z` 릴리즈(latest 아님)에 dmg가 올라가 있고 `macos/appcast.xml`이 갱신되어 있으며, 최신(latest) 릴리즈의 Windows `latest.json`은 그대로 있다.
 - 맥 세션이 웹 세션에 보고: 커밋 해시, 태그, 릴리즈 URL, 확인한 것/못 한 것. 웹 세션이 CHANGELOG·PORT_LEDGER·CLAUDE.md에 반영.

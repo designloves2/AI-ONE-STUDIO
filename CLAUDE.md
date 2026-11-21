@@ -25,7 +25,7 @@
 5. 노드 쪽 명세: 노드 저장소 루트의 `SPEC_RELAY_V1_xx_x.md`(버전별 이식 지시서) — 이 저장소 밖에 있음.
 6. `docs/HEADLESS_HANDOFF.md` — 서버용 `*-headless/` CLI 패키지 안내(웹앱 본체와는 별개).
 7. `docs/ONE_SHOT_INSTALL.md` — 새 PC에 ComfyUI+노드+웹앱을 설치하는 절차(AI에게 붙여넣는 방식).
-8. `docs/DESKTOP_APP.md`(Windows 데스크톱 앱, Tauri) · `docs/MACOS_APP_SPEC.md`(macOS 앱 작업 명세서, 맥 세션용).
+8. `docs/DESKTOP_APP.md`(Windows 데스크톱 앱, Tauri) · `docs/MACOS_APP_SPEC.md`(macOS 앱 작업 명세서, 맥 세션용). 맥 전달: `docs/MAC_SYNC_FROM_WEB.md`(웹 세션이 쓰는 변경 기록·맥 영향), `macos/STATUS.md`(맥 세션이 쓰는 진행 상황).
 
 ## 3. 디렉터리 구조
 - `src/main.ts`, `src/router.ts` — 진입점과 라우팅(해시 `#krea2` 식). `src/landing/` 첫 화면, `src/gallery/` 갤러리.
@@ -115,7 +115,7 @@
 
 ## 9. 작업을 끝낼 때 갱신할 것
 1. `CHANGELOG.md`(새 버전 항목)  2. `PORT_LEDGER.md`(새 행: 무엇을, 어떻게 확인했고 무엇은 못 했는지)  3. `package.json` 버전
-4. **커밋/푸시/릴리즈/버전업을 할 때마다 이 `CLAUDE.md`를 반드시 갱신해 같은 커밋에 포함**(특히 8절: 최신 버전, 최근 작업, 미검증 항목, 다음 할 일; 낡은 구조·명령·규칙도 함께)  5. `npx tsc --noEmit -p .` 통과 확인 후 커밋·태그·push.
+4. **커밋/푸시/릴리즈/버전업을 할 때마다 `docs/MAC_SYNC_FROM_WEB.md`의 변경 기록에 한 줄 추가(커밋 해시·태그·맥 영향: 없음/확인/조치 필요)하고 같은 커밋에 포함**(맥은 다른 PC라 git 문서로만 전달됨; 맥 세션의 `macos/STATUS.md`는 읽기만). 또한 **이 `CLAUDE.md`를 반드시 갱신해 같은 커밋에 포함**(특히 8절: 최신 버전, 최근 작업, 미검증 항목, 다음 할 일; 낡은 구조·명령·규칙도 함께)  5. `npx tsc --noEmit -p .` 통과 확인 후 커밋·태그·push.
 - 보고는 쉬운 말로: 끝남/안 끝남, 되는 것/안 되는 것, **확인한 것과 확인 못 한 것을 구분**.
 
 ## 10. Claude Code 전용 기능에 기대는 부분 (다른 모델은 무시해도 됨)

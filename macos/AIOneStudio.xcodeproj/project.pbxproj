@@ -1,0 +1,89 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+/* Begin PBXBuildFile section */
+		A10000000000000000000002 /* AIOneStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000001; };
+		A10000000000000000000004 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003; };
+		A10000000000000000000006 /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005; };
+		A10000000000000000000008 /* ConnectionProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007; };
+		A1000000000000000000000A /* ConnectionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009; };
+		A1000000000000000000000C /* SwitchButtonScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000B; };
+		A1000000000000000000000E /* WebContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000D; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000001 /* AIOneStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIOneStudioApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000003 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A10000000000000000000005 /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
+		A10000000000000000000007 /* ConnectionProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionProbe.swift; sourceTree = "<group>"; };
+		A10000000000000000000009 /* ConnectionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStore.swift; sourceTree = "<group>"; };
+		A1000000000000000000000B /* SwitchButtonScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwitchButtonScript.swift; sourceTree = "<group>"; };
+		A1000000000000000000000D /* WebContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebContainer.swift; sourceTree = "<group>"; };
+		A1000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000000000000000000010 /* AIOneStudio.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AIOneStudio.entitlements; sourceTree = "<group>"; };
+		A10000000000000000000011 /* AI ONE STUDIO.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AI ONE STUDIO.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000018 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000000000012 = {isa = PBXGroup; children = (
+				A10000000000000000000013 /* AIOneStudio */,
+				A10000000000000000000014 /* Products */,
+			); sourceTree = "<group>"; };
+		A10000000000000000000013 /* AIOneStudio */ = {isa = PBXGroup; children = (
+				A10000000000000000000001 /* AIOneStudioApp.swift */,
+				A10000000000000000000003 /* AppModel.swift */,
+				A10000000000000000000005 /* ConnectView.swift */,
+				A10000000000000000000007 /* ConnectionProbe.swift */,
+				A10000000000000000000009 /* ConnectionStore.swift */,
+				A1000000000000000000000B /* SwitchButtonScript.swift */,
+				A1000000000000000000000D /* WebContainer.swift */,
+				A1000000000000000000000F /* Info.plist */,
+				A10000000000000000000010 /* AIOneStudio.entitlements */,
+			); path = AIOneStudio; sourceTree = "<group>"; };
+		A10000000000000000000014 /* Products */ = {isa = PBXGroup; children = (
+				A10000000000000000000011 /* AI ONE STUDIO.app */,
+			); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000000000016 /* AIOneStudio */ = {isa = PBXNativeTarget; buildConfigurationList = A1000000000000000000001B; buildPhases = (
+				A10000000000000000000017,
+				A10000000000000000000018,
+				A10000000000000000000019,
+			); buildRules = (); dependencies = (); name = AIOneStudio; productName = AIOneStudio; productReference = A10000000000000000000011; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000015 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1500; LastUpgradeCheck = 1500; }; buildConfigurationList = A1000000000000000000001A; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, ko, Base); mainGroup = A10000000000000000000012; productRefGroup = A10000000000000000000014; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000016); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000019 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000017 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000002, A10000000000000000000004, A10000000000000000000006, A10000000000000000000008, A1000000000000000000000A, A1000000000000000000000C, A1000000000000000000000E); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A1000000000000000000001C /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_OPTIMIZATION_LEVEL = 0; ONLY_ACTIVE_ARCH = YES; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		A1000000000000000000001D /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_USER_SCRIPT_SANDBOXING = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; }; name = Release; };
+		A1000000000000000000001E /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = AIOneStudio/AIOneStudio.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = AIOneStudio/Info.plist; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = cloud.tjtj.aionestudio; PRODUCT_NAME = "AI ONE STUDIO"; SWIFT_EMIT_LOC_STRINGS = YES; }; name = Debug; };
+		A1000000000000000000001F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = AIOneStudio/AIOneStudio.entitlements; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; ENABLE_HARDENED_RUNTIME = YES; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = AIOneStudio/Info.plist; MARKETING_VERSION = 1.0.0; PRODUCT_BUNDLE_IDENTIFIER = cloud.tjtj.aionestudio; PRODUCT_NAME = "AI ONE STUDIO"; SWIFT_EMIT_LOC_STRINGS = YES; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A1000000000000000000001A = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000001C, A1000000000000000000001D); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A1000000000000000000001B = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000001E, A1000000000000000000001F); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000000000015;
+}

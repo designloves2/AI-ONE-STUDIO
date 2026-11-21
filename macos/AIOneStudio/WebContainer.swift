@@ -19,7 +19,7 @@ final class WebViewHolder: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
         super.init()
         view.navigationDelegate = self
         view.uiDelegate = self
-        view.allowsBackForwardNavigationGestures = false
+        view.allowsBackForwardNavigationGestures = true
         #if DEBUG
         if #available(macOS 13.3, *) { view.isInspectable = true }
         #endif
@@ -39,10 +39,6 @@ final class WebViewHolder: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
         if action.shouldPerformDownload { return decisionHandler(.download) }
         if let s = url.scheme, ["about", "blob", "data"].contains(s) { return decisionHandler(.allow) }
         guard let s = url.scheme, s == "http" || s == "https" else { return decisionHandler(.cancel) }
-        // main-frame navigation to another site (a link click): open in the default browser. Login redirects (not link clicks) stay in-window.
-        if action.targetFrame?.isMainFrame == true, action.navigationType == .linkActivated, !sameServer(url) {
-            NSWorkspace.shared.open(url); return decisionHandler(.cancel)
-        }
         decisionHandler(.allow)
     }
 
@@ -63,9 +59,8 @@ final class WebViewHolder: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
 
     // MARK: window.open / target=_blank
     func webView(_ wv: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard let url = action.request.url else { return nil }
-        if sameServer(url) { wv.load(URLRequest(url: url)) }
-        else if url.scheme == "http" || url.scheme == "https" { NSWorkspace.shared.open(url) }
+        // one window only: a link/popup that wants a new window opens here (login flows included)
+        if action.request.url != nil { wv.load(action.request) }
         return nil
     }
 

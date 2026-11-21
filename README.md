@@ -372,6 +372,63 @@ npm run build     # 프로덕션 빌드 / production build
 npm run preview   # 빌드 결과 미리보기 / preview the production build
 ```
 
+## 데스크톱 앱 (Windows · macOS) / Desktop Apps
+
+브라우저 주소창 없이 앱 창으로 쓰고 싶다면 설치형 앱이 있습니다. 두 앱 모두 **웹앱을 한 줄도 바꾸지 않고** 감싼 껍데기이고,
+GitHub [Releases](https://github.com/designloves2/AI-ONE-STUDIO/releases)에서 받을 수 있습니다.
+
+If you'd rather use it as an app window without a browser address bar, there are installable apps. Both are thin
+shells around the **unchanged web app** and are downloadable from GitHub
+[Releases](https://github.com/designloves2/AI-ONE-STUDIO/releases).
+
+| | Windows | macOS |
+|---|---|---|
+| 만든 방식 / Built with | Tauri (Rust) | Xcode (Swift + WKWebView) |
+| 받을 파일 / Download | `AI-ONE-STUDIO_<버전>_x64-setup.exe` (설치형) · `AI-ONE-STUDIO_<버전>_portable.zip` (포터블) — **Latest** 릴리즈 | `AI-ONE-STUDIO_<버전>_macOS.dmg` — `mac-v…` 릴리즈 |
+| 백엔드 / Backend | 앱이 서버(`serve.mjs`, 포트 **8778**)를 숨김으로 띄움 → **로컬 또는 원격** | **원격 전용**: Windows PC에서 돌아가는 서버 주소에 접속 |
+| 자동 업데이트 / Auto-update | 있음 (GitHub `latest.json`, 서명) | 아직 없음 / not yet |
+| 서명 / Signing | 코드 서명 인증서 없음 → 처음 실행 시 SmartScreen "추가 정보 → 실행" | 공증 안 됨(임시 배포, ad-hoc 서명) → 처음 한 번 우클릭 → 열기 |
+| 요구 / Requires | Windows 10+, WebView2 | macOS 13+ (Apple Silicon · Intel) |
+
+### 공통: 로컬 / 원격 연결 / Local vs. remote
+- **로컬**: ComfyUI가 같은 PC에서 돌아갑니다(Windows 앱). 앱 안의 서버가 `127.0.0.1:8188`(또는 `COMFY_URL`)로 요청을 넘깁니다.
+- **원격**: ComfyUI와 AI ONE STUDIO 서버가 **다른 PC·도메인·터널**에 있습니다. 처음 실행하면 연결 화면이 뜨고, 주소(도메인 · 터널 · `IP:포트`)를 넣으면
+  AI ONE STUDIO 서버인지 먼저 확인합니다. 로그인이 필요한 주소(Cloudflare Access 등)는 **앱 창 안에서 로그인**합니다.
+  선택은 저장되어 다음 실행부터 자동 적용됩니다.
+- **연결 설정으로 돌아가기**: 메뉴 **연결 → 연결 설정…**, 단축키 **Ctrl+Shift+K**(macOS **⌘⇧K**), 또는 화면 오른쪽 아래의 작은 **⇄** 버튼.
+- **맥은 렌더하지 않습니다.** 맥 앱은 화면만 보여 주고, 렌더·LLM은 Windows 서버(ComfyUI)가 합니다.
+
+<sub>**Local**: ComfyUI runs on the same PC (Windows app); the built-in server forwards to `127.0.0.1:8188` (or `COMFY_URL`).
+**Remote**: ComfyUI and the AI ONE STUDIO server are on another PC / domain / tunnel. On first launch a connection screen
+asks for the address (domain, tunnel or `IP:port`) and checks that it is an AI ONE STUDIO server; sign-in walls
+(Cloudflare Access, etc.) are handled **inside the app window**. The choice is saved and applied on the next launch.
+**Back to the connection screen**: menu **Connection → Connection settings…**, **Ctrl+Shift+K** (**⌘⇧K** on macOS), or the
+small **⇄** button in the bottom-right corner. **The Mac app does not render** — it only shows the screen; rendering and
+LLM calls run on the Windows server (ComfyUI).</sub>
+
+### 서버만 따로 실행하기 / Running just the server
+앱 없이도 브라우저로 쓰는 운영 서버가 있습니다(맥 앱이 접속하는 서버가 바로 이것입니다).
+<sub>There is also a production server for browser use without the app (this is the server the Mac app connects to).</sub>
+
+```bash
+npm install
+npm run build
+npm start         # node serve.mjs → http://127.0.0.1:8778 (PORT 환경변수로 변경 / override with PORT)
+```
+
+- ComfyUI 주소: `COMFY_URL` > `VITE_COMFY_PORT` > `dist/comfy_port.txt` > `8188`.
+- Windows에서는 `start.bat`이 `git pull` → `npm install` → `npm run build` → 서버 실행까지 한 번에 합니다.
+- ⚠️ **서버에는 로그인(인증)이 없습니다.** 인터넷에 직접 열지 말고 Cloudflare Access / VPN 등 뒤에 두세요.
+  <br><sub>**The server has no sign-in.** Don't expose it to the internet directly; put it behind Cloudflare Access, a VPN, etc.</sub>
+- 서버 주소(출처)가 다르면 브라우저/앱에 저장된 설정(localStorage)도 따로 보입니다 — 앱 창의 `127.0.0.1:8778`은 브라우저의 `127.0.0.1:8774`와 **다른 저장소**입니다.
+  <br><sub>Saved settings (localStorage) belong to the address: the app window's `127.0.0.1:8778` is a different store from the browser's `127.0.0.1:8774`.</sub>
+
+### 직접 만들기 / Building the apps
+- **Windows**: Rust(MSVC), Node, WebView2, Windows SDK의 `rc.exe` 경로(PATH)가 필요합니다. `npm run app:build` — 업데이트 서명 키 환경변수가 필요합니다. 자세한 것은 [`docs/DESKTOP_APP.md`](docs/DESKTOP_APP.md).
+  <br><sub>Needs Rust (MSVC), Node, WebView2 and the Windows SDK's `rc.exe` folder on PATH. `npm run app:build` needs the updater signing key in the environment. See [`docs/DESKTOP_APP.md`](docs/DESKTOP_APP.md).</sub>
+- **macOS**: Xcode 프로젝트는 [`macos/`](macos/)에 있고 작업 명세는 [`docs/MACOS_APP_SPEC.md`](docs/MACOS_APP_SPEC.md), 진행 상황은 [`macos/STATUS.md`](macos/STATUS.md)입니다.
+  <br><sub>The Xcode project is in [`macos/`](macos/); the work spec is [`docs/MACOS_APP_SPEC.md`](docs/MACOS_APP_SPEC.md) and progress is in [`macos/STATUS.md`](macos/STATUS.md).</sub>
+
 ## 외부(모바일 등)에서 접속하기 / Accessing From Outside (Mobile, etc.)
 
 이 사이트는 **페이지를 연 호스트 이름을 보고** ComfyUI 주소를 자동으로 고릅니다.
@@ -448,6 +505,12 @@ src/
     anima/
     music/                # MusicMaker (MiniMax Music 3 / Ace-Step / YuE2)
     itda/                 # ITDA ONE STUDIO 타임라인 (데스크톱 전용) / timeline (desktop only)
+serve.mjs              # 운영 서버(`npm start`, 포트 8778) / production server
+comfy_paths.json       # ComfyUI로 넘길 경로 목록 (vite.config.ts와 공유) / ComfyUI route list (shared with vite.config.ts)
+server-lib/            # 서버의 연결 설정(원격/로컬) / server-side connection setup
+src-tauri/             # Windows 앱 (Tauri, Rust) / Windows app
+macos/                 # macOS 앱 (Xcode, Swift + WKWebView) / macOS app
+scripts/               # 앱 번들·릴리즈 스크립트 / app bundle & release scripts
 ```
 
 루트의 `*-headless/` 폴더들은 Hermes 렌더 큐 에이전트용 무의존 Node CLI입니다 — 개요는 [`HEADLESS_HANDOFF.md`](docs/HEADLESS_HANDOFF.md), 작업용 스펙 문서는 [`docs/`](docs/).

@@ -38,6 +38,7 @@ PC가 다르므로 두 세션은 **git(GitHub `designloves2/AI-ONE-STUDIO`, 브�
 형식: `날짜 · 웹 버전 · 커밋 · 태그 · 요약 · 맥 영향`
 
 - **2026-11-21 · (문서) · c13311f · 태그 없음** — `docs/MACOS_APP_SPEC.md` 맥 앱 작업 명세서 추가. 맥 영향: **조치 필요(시작점)** — 이 명세가 맥 작업의 출발점.
+- **2026-11-21 · (문서) · README 개정 · 태그 없음** — README에 "데스크톱 앱(Windows · macOS)" 절과 프로젝트 구조(serve.mjs, comfy_paths.json, server-lib, src-tauri, macos, scripts) 추가. 맥 영향: **없음**(맥 앱 설명 문구만. 맥 릴리즈 mac-v1.0.0·macos/STATUS.md 내용을 반영함).
 - **2026-11-21 · (문서) · 983ba18 · 태그 없음** — 이 파일(`docs/MAC_SYNC_FROM_WEB.md`)과 `macos/STATUS.md` 추가, 명세 §8 수정(맥 앱 자체 버전, 릴리즈 `mac-vX.Y.Z` + `--latest=false`, 업데이트 피드 `macos/appcast.xml`). 맥 영향: **확인** — 맥 릴리즈·피드 방식이 명세 초안(c13311f)과 달라졌으니 최신 명세를 따를 것.
 - **2026-11-18 · v0.22.4 · 99adc8d · v0.22.4** — 이미지 도구 LLM 설정의 OpenRouter 텍스트 모델이 되돌아가던 문제(`or_model` + `or_model_text` 같이 저장). 맥 영향: **없음**.
 - **2026-11-18 · v0.22.3 · a4dcae7 · v0.22.3** — H3 이미지 LoRA 4개 적용, LLM 실시간 줄을 하단 중앙으로. 맥 영향: **없음**(화면 안의 위치만).

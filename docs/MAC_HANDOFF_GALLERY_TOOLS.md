@@ -1,7 +1,7 @@
-# 맥 세션 전달 문서 — 갤러리 도구(🧹 Tools) 반영 (웹 v0.23.0 예정)
+# 맥 세션 전달 문서 — 갤러리 도구(🧹 Tools) 반영 (웹 v0.23.0, 커밋 f2ab360)
 
 작성: 웹 세션. 읽는 사람: 맥 세션. 변경 기록 전체는 `docs/MAC_SYNC_FROM_WEB.md`, 맥 쪽 진행은 `macos/STATUS.md`.
-**커밋 해시·태그는 웹 세션이 커밋한 뒤 `docs/MAC_SYNC_FROM_WEB.md` 맨 위 항목에 채운다.** 아래 "올릴 버전"은 예정값이다.
+릴리즈됨: 웹 `v0.23.0`(커밋 `f2ab360`), https://github.com/designloves2/AI-ONE-STUDIO/releases/tag/v0.23.0
 
 ## 1. 결론 먼저 — 맥 앱은 이번에 다시 빌드할 필요가 없다
 - 이번 변경은 **웹 화면(갤러리 🧹 Tools 팝업)** 뿐이다. 맥 앱은 Windows 서버가 내려 주는 화면을 창에 여는 껍데기라서,

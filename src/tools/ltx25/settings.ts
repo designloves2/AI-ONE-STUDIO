@@ -10,6 +10,7 @@ import { getModels, getConfig, saveConfig, getNodeAvailability, listVideos, getT
 import { customLLMControls } from "../../shared/customLlmControls";
 import { translationSettingsPanel } from "../../shared/translationSettings";
 import { comfyApi as __comfy } from "./comfyClient";
+import { fetchOrModels } from "../../shared/llmBackendPanel";
 // Absolute ComfyUI paths ("/view?...", "/ltx25_one/...") go to the configured ComfyUI base (same origin locally, the tunnel externally).
 const __B = __comfy.base;
 const fetch = (u: any, o?: any) => window.fetch(typeof u === "string" && u.startsWith("/") ? __B + u : u, { credentials: "include", ...(o || {}) });
@@ -224,13 +225,9 @@ export function createSettingsOverlay(state, ctx) {
   }
   let renderModelPickersInto = null;
   let quickChanged = null;   // set while the Prompt Edit LLM popup is open
-  let _orModels = null;
-  async function orModels() {
-    if (_orModels) return _orModels;
-    try { _orModels = (await (await fetch("/music_one/openrouter_models")).json()).models || []; }
-    catch { _orModels = []; }
-    return _orModels;
-  }
+  // The full OpenRouter list. A failed / empty answer is NOT remembered (the old copy cached [] for the whole page life, so the
+  // picker showed only the one stored model); requests in flight are shared. See shared/llmBackendPanel.ts fetchOrModels.
+  const orModels = () => fetchOrModels();
 
   // Same local llama.cpp backend the image nodes' shared Enhance/Image→Prompt panel
   // already uses (web/shared/llm_panel.js) — /tj_studio_one/llm/* is served by this
@@ -392,12 +389,22 @@ export function createSettingsOverlay(state, ctx) {
           fetch("/ltx25_one/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [cfgKey]: v }) }).catch(() => {});
         };
         const holder = el("div");
-        holder.appendChild(_selEl([el("option", { value: state[orModelKey] || "", text: state[orModelKey] || "loading models…" })]));
-        orModels().then(ms => {
-          if (!ms.length) return;
+        const loadList = () => {
           clear(holder);
-          holder.appendChild(searchableSelect(state[orModelKey] ? ms : ["", ...ms], state[orModelKey] || "", saveOr).el);
-        });
+          holder.appendChild(_selEl([el("option", { value: state[orModelKey] || "", text: state[orModelKey] || "loading models…" })]));
+          orModels().then(ms => {
+            clear(holder);
+            if (!ms.length) {
+              // list unavailable (key not set, OpenRouter or the server unreachable): say so and let the user retry
+              const msg = el("div", { text: "Could not load the OpenRouter model list \u2014 check the OpenRouter key / that ComfyUI is running.", style: { fontSize: "10px", color: C.warn, lineHeight: "1.5" } });
+              holder.append(_selEl([el("option", { value: state[orModelKey] || "", text: state[orModelKey] || "(no model)" })]), msg, button("\u27F3 Retry", loadList));
+              return;
+            }
+            const cur = state[orModelKey] || "";
+            holder.appendChild(searchableSelect(cur ? (ms.includes(cur) ? ms : [cur, ...ms]) : ["", ...ms], cur, saveOr).el);
+          });
+        };
+        loadList();
         control = col([label(orModelKey === "h3OrModelVision" ? "OpenRouter model (vision)" : "OpenRouter model (brief)"), holder]);
       } else if (nativeMissing.length) {
         control = el("div", { text: `⚠ Native needs: ${nativeMissing.join(", ")} (TJ_NODE / update ComfyUI)`,

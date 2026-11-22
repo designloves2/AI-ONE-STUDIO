@@ -72,6 +72,7 @@ import {
 } from "./core";
 import { attachPanZoom } from "../../shared/panZoom";
 import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
+import { fetchOrModels } from "../../shared/llmBackendPanel";
 import { SAMPLERS as FULL_SAMPLERS, SCHEDULERS as FULL_SCHEDULERS, withCurrent } from "../../shared/samplerLists";
 import { applyMobileCollapsibleLayout, openFullscreen, button, checkboxRow, clear, col, el, helpDot, iconBtn, label, labelHelp, modeBar, numberField, panel, row, searchableSelect, select, promptDialog, confirmDialog } from "../../shared/ui";
 import { keepTabAlive } from "../../shared/tabKeepAlive";
@@ -1740,9 +1741,10 @@ export function renderMinimaxH3(container: HTMLElement) {
         const s = el("select", { style: { width: "100%", boxSizing: "border-box", background: C.bg2, color: C.text, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "6px", fontSize: "12px", fontFamily: "inherit", outline: "none" } }) as HTMLSelectElement;
         s.appendChild(el("option", { value: state.ltxVisionOrModel || "", text: state.ltxVisionOrModel || "loading models…" }));
         s.addEventListener("change", () => { state.ltxVisionOrModel = s.value; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; });
-        comfyApi.fetchApi("/music_one/openrouter_models").then((r) => r.json()).then((d) => {
-          const ms: string[] = d.models || []; clear(s);
-          if (!ms.length) s.appendChild(el("option", { value: "", text: "(no models — set the OpenRouter key in Settings)" }));
+        fetchOrModels().then((ms) => {
+          clear(s);
+          if (!ms.length) s.appendChild(el("option", { value: "", text: "(no models \u2014 set the OpenRouter key in Settings, then reopen this)" }));
+          if (state.ltxVisionOrModel && ms.length && !ms.includes(state.ltxVisionOrModel)) ms = [state.ltxVisionOrModel, ...ms];   // keep the stored pick selectable
           ms.forEach((m) => { const o = el("option", { value: m, text: m }) as HTMLOptionElement; if (m === state.ltxVisionOrModel) o.selected = true; s.appendChild(o); });
           if (!state.ltxVisionOrModel && ms[0]) { state.ltxVisionOrModel = ms[0]; persist(); syncLlmCfg(); llmLabel.textContent = `LLM: ${ltxVisionLabel()}`; }
         }).catch(() => {});

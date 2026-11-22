@@ -3,6 +3,14 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.23.0] — 2026-11-22
+
+### Added
+- Gallery tools (node v1.56.0, 6341603): a `🧹 Tools` button in every gallery header (Klein, Z-Image, Krea2, SDXL, Qwen 2511, Qwen 2.1, Anima, Moss, H3 image, H3 video, LTX video; Music: a 🧹 icon next to the playlist refresh) opens a popup with three tabs - Cleanup (orphan metadata/thumbnails, temp files, missing thumbnails, empty folders, dead favorites; removed files go to the trash), Merge folder (output folder tree picker, preview, merge with rewritten metadata paths) and Trash (restore / delete / empty). New `src/shared/galleryTools.ts`; the server routes `/tj_shared/gallery_tools/*` come from the node pack, which must be **v1.56.0 or newer** with ComfyUI restarted (ledger row 106).
+
+### Fixed
+- LTX 2.5 Settings (LLM tab) and H3's LTX Upscale quick LLM window: the OpenRouter model picker showed only the stored model. The list loader remembered a failed or empty answer for the whole page life. Both now use the shared `fetchOrModels` (non-empty lists only, requests shared), the settings picker shows a retry button when the list cannot be loaded, and a stored model that is not in the list stays selectable (ledger row 105).
+
 ## [0.22.4] — 2026-11-18
 
 ### Fixed

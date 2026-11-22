@@ -79,9 +79,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.22.4**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.23.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-22 v0.23.0: (1) 노드 v1.56.0(6341603) **갤러리 도구** 이식 — 모든 갤러리 헤더 `🧹 Tools` 팝업(Cleanup / Merge folder / Trash), `src/shared/galleryTools.ts`, 서버 경로 `/tj_shared/gallery_tools/*`는 노드 팩 제공(**노드 팩 v1.56.0 이상 + ComfyUI 재시작 필요**). (2) LTX 2.5 설정·H3 LTX Upscale 빠른 LLM 창의 OpenRouter 목록이 저장된 모델 하나만 보이던 문제(실패 목록 기억) — `fetchOrModels` 사용. 맥 전달 문서 `docs/MAC_HANDOFF_GALLERY_TOOLS.md`(맥은 재빌드 불필요, `confirm()` 확인만). `PORT_LEDGER.md` 행 105·106. 미검증: 화면에서 팝업, 실제 정리·병합·복원, 맥 앱에서 confirm(), LTX 설정 목록 화면. 노드 쪽 참고: 노드의 LTX·H3 설정·`llm_panel.js`에 같은 목록 캐시 문제가 있음(노드 세션에 알림).
 - 2026-11-21 (문서만): 맥 세션이 `mac-v1.0.0`(커밋 494e824, 임시 배포: ad-hoc 서명·공증 없음, 자동 업데이트 없음, latest 아님)을 올림. README에 데스크톱 앱(Windows·macOS) 절·서버 단독 실행·프로젝트 구조 추가. 맥 쪽 상태는 `macos/STATUS.md`(맥 세션이 씀)에서 확인.
 - 2026-11-21 (문서만, 릴리즈 없음): `docs/MACOS_APP_SPEC.md` — macOS 앱(Xcode, Swift + WKWebView) 작업 명세서를 맥 세션 전달용으로 작성. 맥은 **원격 접속 중심**(백엔드는 Windows 서버의 `serve.mjs`, 로컬 모드는 2단계), 서비스 토큰·ComfyUI 직접 주소는 1단계 제외. 맥 세션은 `macos/` 폴더에서만 작업하고 서버·웹앱 변경은 웹 세션에 요청. 사용자가 정할 것: Apple Developer 계정, 서버 주소 형태, 접속 보호(서버에 인증 없음), 배포 대상. 아직 맥 쪽 구현은 시작 안 됨.
 - 2026-11-18 v0.22.4: 이미지 도구 LLM 설정의 OpenRouter 텍스트 모델이 저장해도 예전 값(deepseek)으로 되돌아가던 문제 — 패널은 옛 키 `or_model`에만 저장했고 노드·Prompt Edit·불러오기는 `or_model_text`를 먼저 읽어서 서버에 남은 옛 `or_model_text`가 이겼음. 모델을 고르면 두 키를 같이 저장(`shared/llmBackendPanel.ts`). 서버의 옛 값은 건드리지 않음 → 사용자가 한 번 다시 고르면 됨. `PORT_LEDGER.md` 행 104. 미검증: 화면에서 고른 모델이 새로고침 후 유지되는지. LLM 설정 키 이름: 텍스트 `or_model_text`(+옛 `or_model`), 비전 `or_model_vision`.

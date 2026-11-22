@@ -5,6 +5,7 @@
 import type { MinimaxState } from "./core";
 import { SUBFOLDER, FPS, UPSCALE_MODES, FLASHVSR_MODELS, FLASHVSR_MODES, computeRtxTarget, framesToSeconds, composeStitchedPrompt } from "./core";
 import { button, el, clear, confirmDialog, alertDialog, select, numberField } from "../../shared/ui";
+import { wireGalleryTools } from "../../shared/galleryTools";
 import { C, BRAND } from "../../identity";
 
 // "This is a stitch result" (card border / ★ badge / ★-only filter / Stitch mode button) used
@@ -403,7 +404,9 @@ export function createGalleryOverlay(state: MinimaxState, ctx: GalleryOverlayCtx
   resizeBtn.addEventListener("click", () => { if (!postRunning) setMode(mode === "resize" ? null : "resize"); });
   const revealBtn = button("👁 Show", () => {});
   wireRevealButton(revealBtn);
-  hdr.append(deleteSelBtn, filterSel, stitchBtn, upscaleBtn, interpBtn, resizeBtn, revealBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  const toolsBtn = button("🧹 Tools", () => {});
+  wireGalleryTools(toolsBtn, () => ({ nodeKey: "minimax_h3", folder: state.saveSubfolder || SUBFOLDER, onChanged: () => refresh() }));
+  hdr.append(deleteSelBtn, filterSel, stitchBtn, upscaleBtn, interpBtn, resizeBtn, revealBtn, toolsBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const stitchBar = el("div", { class: "hidden items-center gap-2 shrink-0 rounded-lg", style: { background: C.bg1, border: `1px solid ${BRAND}`, padding: "7px 10px" } });
   const stitchInfo = el("div", { class: "flex-1 text-[10.5px]", style: { color: C.text } });

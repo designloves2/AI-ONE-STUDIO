@@ -5,6 +5,7 @@
 // The node's results are videos, so the shared PNG gallery doesn't apply: this lists the
 // mp4s written into the output subfolder and plays them full screen with the keyboard
 // shortcuts you'd expect from a review pass.
+import { wireGalleryTools } from "../../shared/galleryTools";
 import { composeStitchedPrompt, C, BRAND, el, clear, SUBFOLDER, framesToSeconds, UPSCALE_MODES, FLASHVSR_MODELS, FLASHVSR_MODES, FPS, computeRtxTarget } from "./core";
 import { button, select, numberField } from "./uiCommon";
 import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
@@ -326,7 +327,9 @@ export function createGalleryOverlay(state, ctx) {
 
   const revealBtn = button("👁 Show", () => {});
   wireRevealButton(revealBtn);
-  hdr.append(filterSel, stitchBtn, upBtn, rifeBtn, resizeBtn, revealBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  const toolsBtn = button("🧹 Tools", () => {});
+  wireGalleryTools(toolsBtn, () => ({ nodeKey: "ltx25", folder: state.saveSubfolder || SUBFOLDER, onChanged: () => refresh() }));
+  hdr.append(filterSel, stitchBtn, upBtn, rifeBtn, resizeBtn, revealBtn, toolsBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const stitchBar = el("div", { style: {
     display: "none", flexShrink: "0", alignItems: "center", gap: "8px",

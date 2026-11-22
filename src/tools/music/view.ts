@@ -7,6 +7,7 @@
 // LLM: local / openrouter 는 POST /music_one/llm/run (서버측), comfy 는 원본대로
 // TextGenerate 그래프를 큐에 넣어 처리 — 웹은 API 키를 들지 않는다.
 import { fetchAllPages } from "../../shared/pagedList";
+import { openGalleryTools } from "../../shared/galleryTools";
 import { customLLMControls } from "../../shared/customLlmControls";
 import {
   C, BRAND, LEFT_W, PLAYER_H, PAD, API, SUBFOLDER, ensureMusicStyles,
@@ -274,7 +275,9 @@ export function renderMusic(container: HTMLElement) {
     try { await loadPlaylist(); statusEl.textContent = "Playlist refreshed"; }
     finally { refreshBtn.disabled = false; refreshBtn.style.opacity = ""; }
   };
-  plHead.append(searchIn, favTgl, refreshBtn, sortSel);
+  const toolsBtn: any = el("button", { className: "mmm-ib", text: "🧹", title: "Gallery tools: cleanup, merge folders, trash" });
+  toolsBtn.onclick = () => openGalleryTools({ nodeKey: "music", folder: SUB(), onChanged: () => loadPlaylist() });
+  plHead.append(searchIn, favTgl, refreshBtn, toolsBtn, sortSel);
   const plBody = el("div", { className: "mmm-lp", style: { flex: "1", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" } });
   playlistWrap.append(selBar, plHead, plBody);
 

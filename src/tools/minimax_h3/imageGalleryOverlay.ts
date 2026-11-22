@@ -14,6 +14,7 @@ import type { MinimaxState } from "./core";
 import { SUBFOLDER } from "./core";
 import { button, el, clear } from "../../shared/ui";
 import { createCacheButton, applyThumb } from "../../shared/thumbCache";
+import { wireGalleryTools } from "../../shared/galleryTools";
 import { C, BRAND } from "../../identity";
 import { listImages, revealOutputFolder, deleteImage, copyOutputToInput, discardInputCopy, saveMeta, type GalleryImage } from "./api";
 import { galleryPageSize, fetchFirst, mergeUnique, loadMoreButton } from "../../shared/galleryMore";
@@ -231,6 +232,8 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   const revealBtn = button("👁 Show", () => {});
   wireRevealButton(revealBtn);
   const cacheBtn = createCacheButton(() => ({ root: "output", subfolder: imgFolder(state), recursive: true }), () => refresh());
+  const toolsBtn = button("🧹 Tools", () => {});
+  wireGalleryTools(toolsBtn, () => ({ nodeKey: "minimax_h3", folder: imgFolder(state), onChanged: () => refresh() }));
   const folderBtn = el("button", { type: "button", text: "📂 Open folder", style: {
     cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", padding: "5px 11px",
     borderRadius: "6px", background: C.bg2, color: C.text, border: `1px solid ${C.border}`,
@@ -272,7 +275,7 @@ export function createImageGalleryOverlay(state: MinimaxState, ctx: ImageGallery
   }
   postBtn.addEventListener("click", () => setPostMode(!postMode));
 
-  hdr.append(bulkDeleteBtn, selectBtn, filterSel, postBtn, cacheBtn, revealBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
+  hdr.append(bulkDeleteBtn, selectBtn, filterSel, postBtn, cacheBtn, toolsBtn, revealBtn, refreshBtn, folderBtn, button("✕ Close", () => hide(), "danger"));
 
   const barStyle: Record<string, string> = {
     display: "none", flexShrink: "0", alignItems: "center", gap: "8px", flexWrap: "wrap",

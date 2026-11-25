@@ -3,7 +3,7 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
-## [Unreleased]
+## [0.23.1] — 2026-11-25
 
 ### Changed
 - LLM backend default is now **Connect Custom** (text and vision) wherever no value is stored yet: the 7 image tools' LLM state defaults, the shared LLM settings section, the backend panel and Prompt Edit fallbacks. Stored choices and server config are untouched. H3 / LTX 2.5 / Music / Translation still send or default to their old backend.

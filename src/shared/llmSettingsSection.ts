@@ -43,8 +43,8 @@ function populate(sel: HTMLSelectElement, opts: string[], current: string) {
 export function mountLLMSettingsSection(host: HTMLElement): void {
   const cfg = loadLLMSettings();
   const llm: any = trackLLM({
-    backend_text: cfg.backend_text || cfg.backend || "local",
-    backend_vision: cfg.backend_vision || cfg.backend || "local",
+    backend_text: cfg.backend_text || cfg.backend || "custom",
+    backend_vision: cfg.backend_vision || cfg.backend || "custom",
     or_model: cfg.or_model_text || cfg.or_model || "",
     or_model_vision: cfg.or_model_vision || cfg.or_model || "",
     custom_base_text: cfg.custom_base_text || "", custom_model_text: cfg.custom_model_text || "", custom_ctx_text: cfg.custom_ctx_text ?? 0,
@@ -110,7 +110,7 @@ export function mountLLMSettingsSection(host: HTMLElement): void {
   body.appendChild(nativeBox);
   // GGUF row only when a role uses Local GGUF; the native block only when a role uses ComfyUI Native
   updateAdvVisibility = () => {
-    const bs = [llm.backend_text || llm.backend || "local", llm.backend_vision || llm.backend || "local"];
+    const bs = [llm.backend_text || llm.backend || "custom", llm.backend_vision || llm.backend || "custom"];
     advRow.style.display = bs.some((b: string) => b !== "comfy" && b !== "openrouter" && b !== "custom") ? "grid" : "none";
     nativeBox.style.display = bs.includes("comfy") ? "flex" : "none";
   };

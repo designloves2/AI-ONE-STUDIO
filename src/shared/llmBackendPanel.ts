@@ -109,7 +109,7 @@ function sel(options: string[], value: string, onChange: (v: string) => void) {
 }
 
 export function createLlmBackendGroup(state: LlmBackendState, save: () => void, onSync?: () => void): LlmBackendGroup {
-  const legacy = state.backend || "local";
+  const legacy = state.backend || "custom";
   state.backend_text = state.backend_text || legacy;
   state.backend_vision = state.backend_vision || legacy;
   state.or_model = state.or_model || "";
@@ -144,7 +144,7 @@ export function createLlmBackendGroup(state: LlmBackendState, save: () => void, 
       // Both must change together: readers prefer `or_model_text`, so an old value there would put the previous model back.
       else { state.or_model = v; state.or_model_text = v; pushLlmConfig({ or_model_text: v }); }
     };
-    const getBackend = () => (role === "vision" ? state.backend_vision : state.backend_text) || "local";
+    const getBackend = () => (role === "vision" ? state.backend_vision : state.backend_text) || "custom";
     const setBackend = (b: string) => {
       if (role === "vision") { state.backend_vision = b; pushLlmConfig({ backend_vision: b }); }
       else { state.backend_text = b; pushLlmConfig({ backend_text: b }); }

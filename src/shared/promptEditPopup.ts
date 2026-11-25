@@ -593,7 +593,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           image_b64: imageB64,
-          backend: llm.backend_vision || "local",
+          backend: llm.backend_vision || "custom",
           or_model: llm.or_model_vision || llm.or_model,
           custom_base: llm.custom_base_vision,
           custom_model: llm.custom_model_vision,
@@ -611,7 +611,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           max_tokens: llm.max_tokens,
           temperature: llm.temperature,
           seed: llm.seed,
-          ...nativeNums(llm.backend_vision || "local"),
+          ...nativeNums(llm.backend_vision || "custom"),
         }),
       });
       const d = await r.json();
@@ -638,7 +638,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          backend: llm.backend_text || "local",
+          backend: llm.backend_text || "custom",
           or_model: llm.or_model,
           custom_base: llm.custom_base_text,
           custom_model: llm.custom_model_text,
@@ -654,7 +654,7 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
           model_format: llm.model_format,
           aesthetic: llm.aesthetic,
           extra_instructions: llm.extra_instructions,
-          ...nativeNums(llm.backend_text || "local"),
+          ...nativeNums(llm.backend_text || "custom"),
           ...(sysPrompt ? { system_override: sysPrompt } : {}),
         }),
       });
@@ -677,14 +677,14 @@ export function createPromptEditPopup(cfg: PromptEditPopupConfig): PromptEditPop
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt, refine_instruction: instruction,
-        backend: llm.backend_text || llm.backend || "local",
+        backend: llm.backend_text || llm.backend || "custom",
         or_model: llm.or_model_text || llm.or_model,
         custom_base: llm.custom_base_text, custom_model: llm.custom_model_text, custom_ctx: llm.custom_ctx_text,
         gguf_model: llm.gguf_model, text_encoder_name: llm.text_encoder_name, clip_loader_type: llm.clip_loader_type,
         n_gpu_layers: llm.n_gpu_layers, n_ctx: llm.n_ctx, max_tokens: llm.max_tokens,
         temperature: llm.temperature, seed: llm.seed,
         model_format: llm.model_format, aesthetic: llm.aesthetic, extra_instructions: llm.extra_instructions,
-        ...nativeNums(llm.backend_text || llm.backend || "local"),
+        ...nativeNums(llm.backend_text || llm.backend || "custom"),
       }),
     });
     const d = await r.json();

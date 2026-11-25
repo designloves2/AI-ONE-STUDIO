@@ -61,7 +61,7 @@ export function createPromptExpandOverlay(getPrompt: () => string, setPrompt: (t
 
   // ── LLM 공용 설정 (Enhance/Image→Prompt 두 탭이 gguf/model_format/aesthetic 등을 공유) ──
   const llm = Object.assign(
-    { backend: "local", backend_text: "local", backend_vision: "local", or_model: "", or_model_vision: "", custom_base_text: "", custom_model_text: "", custom_ctx_text: 0, custom_base_vision: "", custom_model_vision: "", custom_ctx_vision: 0, gguf_model: "", mmproj_file: "none", text_encoder_name: "", clip_loader_type: "Auto",
+    { backend: "custom", backend_text: "custom", backend_vision: "custom", or_model: "", or_model_vision: "", custom_base_text: "", custom_model_text: "", custom_ctx_text: 0, custom_base_vision: "", custom_model_vision: "", custom_ctx_vision: 0, gguf_model: "", mmproj_file: "none", text_encoder_name: "", clip_loader_type: "Auto",
       // "Caption + Format" is the only vision task that actually applies Model Format/Aesthetic
       // (TJ_ImageToPrompt ignores model_format for every other task) — default to it so the
       // dropdown below isn't a silent no-op (node llm_panel.js, same fix).

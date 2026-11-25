@@ -9,6 +9,7 @@ import { C } from "./reflibDom";
 import { getComfyBase } from "./comfyBase";
 import { applyThumb, createCacheButton } from "./thumbCache";
 import { mediaKey, isBlurred, attachSensitiveToggle, wireRevealButton } from "./sensitiveMedia";
+import { toolGalleryUrl } from "./imageGalleryPicker";
 const API = "/minimax_h3_one";
 // The node's IMAGE_GALLERY_TOOLS list (INPUT / OUTPUT first, then each image tool) — web's own export of that name
 // omits the input/output/anima/minimaxh3 entries, so the full list lives here.
@@ -23,7 +24,8 @@ const IMAGE_GALLERY_TOOLS = [
   { id: "sdxl", label: "SDXL", api: "/sdxl_one", subfolder: "one_sdxl" },
   { id: "anima", label: "Anima", api: "/anima_one", subfolder: "one_anima" },
   { id: "moss", label: "Moss Image", api: "/moss_one", subfolder: "one_moss" },
-  { id: "minimaxh3", label: "H3 Image", api: "/minimax_h3_one", subfolder: "one_minimax_h3" },
+  { id: "minimaxh3", label: "H3 Image", api: "/minimax_h3_one", subfolder: "one_minimax_h3", route: "images" },
+  { id: "minimaxh3f", label: "H3 Frames", api: "/minimax_h3_one", subfolder: "one_minimax_h3", route: "images", scope: "frames" },
 ];
 const base = () => getComfyBase();
 import { reflib, reflibError, CATEGORIES } from "./reflibApi";
@@ -60,7 +62,7 @@ async function fetchPage(tab, offset, folder, musicSub) {
     if (tab.kind === "image") {
       const url = tab.input ? `${tab.api}/input_gallery?offset=${offset}&limit=${PAGE}&subfolder=${sf}`
         : tab.output ? `${tab.api}/output_gallery?offset=${offset}&limit=${PAGE}&subfolder=${sf}`
-        : `${tab.api}/gallery?offset=${offset}&limit=${PAGE}&subfolder=${encodeURIComponent(tab.subfolder)}`;
+        : toolGalleryUrl(tab, offset, PAGE);
       const d = await getJson(url);
       const type = tab.input ? "input" : "output";
       return { rows: (d.images || []).map(r => ({ ...r, type })), total: d.total || 0 };

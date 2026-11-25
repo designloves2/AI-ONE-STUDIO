@@ -9,6 +9,7 @@ import {
   LORA_UI_CAP, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, DEPTH_CKPTS, SEND_TO,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8, buildAgentJob,
 } from "./core";
+import { createTurboToggle, applyTurboTemp } from "../../shared/turboLora";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
@@ -330,6 +331,9 @@ export function renderKrea2(root: HTMLElement) {
     (v) => { state.seedMode = v; persist(); }
   );
   const seedGenWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", paddingTop: "8px", borderTop: `1px solid ${C.border}` } });
+  const turboCtx: any = { persist };
+  const turboToggle = createTurboToggle(state as any, turboCtx);
+  seedGenWrap.appendChild(turboToggle.el);
   seedGenWrap.appendChild(panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]));
   leftBottomBar.appendChild(seedGenWrap);
 
@@ -363,6 +367,7 @@ export function renderKrea2(root: HTMLElement) {
     get availableLoras() { return availableLoras; },
     set availableLoras(v: string[]) { availableLoras = v; },
     appConfig,
+    refreshTurbo: () => turboCtx.refreshTurbo?.(),
     onModelsRefreshed: () => renderLeftPanel(),
     onOutputVisibilityChanged: () => renderOutputToggle(),
   } as any);
@@ -849,7 +854,9 @@ export function renderKrea2(root: HTMLElement) {
     }
 
     try {
-      const graph = buildGraph(state);
+      const _turbo = applyTurboTemp(state as any);
+      let graph: any;
+      try { graph = buildGraph(state); } finally { _turbo?.(); }
       await addLivePreview(graph, "krea2", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {

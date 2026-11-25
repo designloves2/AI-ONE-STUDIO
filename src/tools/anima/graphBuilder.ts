@@ -54,7 +54,7 @@ function baseGraph(state: AnimaState, promptText: string, unetName?: string) {
   if (turboOn) {
     const loraName = state.turboLora || "";
     if (!loraName) throw new Error("Turbo mode is ON but no Turbo LoRA is selected. Set one in ⚙ Settings.");
-    g["AN:turbo_lora"] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelOut, lora_name: loraName, strength_model: 1 } };
+    g["AN:turbo_lora"] = { class_type: "LoraLoaderModelOnly", inputs: { model: modelOut, lora_name: loraName, strength_model: state.turboStrength > 0 ? +state.turboStrength : 1 } };
     modelOut = ["AN:turbo_lora", 0];
   }
 

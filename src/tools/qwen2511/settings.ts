@@ -3,6 +3,7 @@
 // Steps=8/CFG=1로 자동 세팅) + Camera Angle LoRA(ANGLE 모드 전용) 섹션이 Klein/Z-Image에는 없는
 // Qwen 2511 고유 기능이다.
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { QEState } from "./core";
 import { C, el, SUBFOLDER, BRAND } from "./core";
@@ -225,6 +226,7 @@ export function createSettingsOverlay(state: QEState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "qwen2511" });
   return {
     el: ov,

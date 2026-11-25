@@ -67,6 +67,11 @@ export interface ZImageState {
   scheduler: string;
   seed: number;
   seedMode: string;
+
+  // Turbo LoRA (picked in Settings) + the Turbo Mode switch above SEED; see shared/turboLora.ts
+  turboLora: string;
+  turboStrength: number;
+  turboMode: boolean;
   autoEnhance: boolean;
 
   loras: LoraEntry[];
@@ -221,6 +226,10 @@ export function defaultState(saved: Partial<ZImageState> = {}): ZImageState {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+
+    turboLora: saved.turboLora || "",
+    turboStrength: saved.turboStrength ?? 1,
+    turboMode: saved.turboMode ?? false,
     autoEnhance: saved.autoEnhance ?? false,
 
     loras: Array.isArray(saved.loras)

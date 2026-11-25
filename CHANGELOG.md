@@ -3,6 +3,13 @@
 이 프로젝트의 주요 변경 사항을 기록합니다. 형식은 [Keep a Changelog](https://keepachangelog.com/)를
 느슨하게 따릅니다. 아직 버전 태그를 매기지 않고 있어 날짜 단위로 묶었습니다.
 
+## [0.24.0] — 2026-11-25
+
+### Added
+- Moss Image (node, SPEC_RELAY_MOSS_I2I_DEPTH_EDIT): mode bar is now T2I · R2I (bboxes) · I2I · EDIT · INPAINT. I2I has two tabs at the top of its left menu, Basic (as before) and Depth (MoGe 3 geometry of the source + MOSSImageControl through the color/depth control LoRA; control LoRA / MoGe model auto-picked, geometry mask or depth, Strength / Start / End). New EDIT mode: source image + up to 3 references, edit LoRA, edit format, image strength, size (MP), own Steps / CFG / Sampler / Scheduler, EDIT Enhance system prompt. Send to between all modes and the gallery "→ Edit" now go through one routine that also updates the I2I / Inpaint work size from the sent image and clears the Inpaint mask. Manual text rewritten (ledger row 108).
+- Turbo LoRA for the 8 image tools (Z-Image, Klein, Qwen 2511, Qwen 2.1, Krea2, SDXL, Anima, Moss; node `turbo_lora.js`): a Turbo LoRA picker + strength in Settings (Model tab), a "Turbo Mode" capsule toggle above SEED (grey "no Turbo LoRA" until a LoRA is chosen). While it is on, the LoRA is put first in the LoRA list only while the graph is built; the saved LoRA slots are not changed. Anima keeps its own picker and Steps / CFG switch and uses the new strength. New `src/shared/turboLora.ts` (ledger row 109).
+- Image picker and library import: new "H3 Image" (H3's own /images route, without the clips' last frames) and "H3 Frames" (scope=frames) tabs after Moss Image; `toolGalleryUrl()` builds the URL (ledger row 110).
+
 ## [0.23.1] — 2026-11-25
 
 ### Changed

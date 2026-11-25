@@ -8,6 +8,7 @@ import {
   SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, BASE_STEPS, BASE_CFG, TURBO_STEPS, TURBO_CFG, LORA_UI_CAP,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed,
 } from "./core";
+import { createTurboToggle } from "../../shared/turboLora";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
@@ -334,6 +335,12 @@ export function renderAnima(root: HTMLElement) {
     (v) => { state.seedMode = v; persist(); }
   );
   const seedGenWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", paddingTop: "8px", borderTop: `1px solid ${C.border}` } });
+  const turboCtx: any = { persist };
+  const turboToggle = createTurboToggle(state as any, turboCtx, { onChange: (on) => {
+    state.steps = on ? TURBO_STEPS : BASE_STEPS; state.cfg = on ? TURBO_CFG : BASE_CFG;
+    persist(); renderLeftPanel();
+  } });
+  seedGenWrap.appendChild(turboToggle.el);
   seedGenWrap.appendChild(panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]));
   leftBottomBar.appendChild(seedGenWrap);
 
@@ -349,6 +356,7 @@ export function renderAnima(root: HTMLElement) {
     get availableLoras() { return availableLoras; },
     set availableLoras(v: string[]) { availableLoras = v; },
     appConfig,
+    refreshTurbo: () => turboCtx.refreshTurbo?.(),
     onModelsRefreshed: () => renderLeftPanel(),
     onOutputVisibilityChanged: () => renderOutputToggle(),
   } as any);

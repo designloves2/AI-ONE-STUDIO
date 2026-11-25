@@ -13,6 +13,7 @@ import { attachPanZoom } from "../../shared/panZoom";
 
 const SEND_TARGETS: { mode: string; field: string; label: string }[] = [
   { mode: "i2i", field: "i2iImage", label: "→ I2I" },
+  { mode: "edit", field: "editImage", label: "→ Edit" },
   { mode: "inpaint", field: "inpaintImage", label: "→ Inpaint" },
 ];
 

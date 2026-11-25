@@ -2,6 +2,7 @@
 // 원본 근거: web/zimage/ui_app_settings.js — Krea2와 달리 ControlNet/Identity LoRA 슬롯이 없다
 // (그건 각각 CONTROLNET/FACE REDRAW 모드 좌측 패널에 있음 — Phase 2에서 이식 예정).
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { ZImageState } from "./core";
 import { C, el, SUBFOLDER } from "./core";
@@ -130,6 +131,7 @@ export function createSettingsOverlay(state: ZImageState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "zimage" });
   return {
     el: ov,

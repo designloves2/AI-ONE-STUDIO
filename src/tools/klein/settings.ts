@@ -1,6 +1,7 @@
 // settings.ts — Flux2 Klein Settings 오버레이 (모델 선택 + negative/suffix/저장 폴더).
 // 원본 근거: web/klein/ui_app_settings_klein.js
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { KleinState } from "./core";
 import { C, el, SUBFOLDER } from "./core";
@@ -139,6 +140,7 @@ export function createSettingsOverlay(state: KleinState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "klein" });
   return {
     el: ov,

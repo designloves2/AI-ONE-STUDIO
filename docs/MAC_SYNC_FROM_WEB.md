@@ -38,6 +38,7 @@ PC가 다르므로 두 세션은 **git(GitHub `designloves2/AI-ONE-STUDIO`, 브�
 형식: `날짜 · 웹 버전 · 커밋 · 태그 · 요약 · 맥 영향`
 
 - **2026-11-21 · (문서) · c13311f · 태그 없음** — `docs/MACOS_APP_SPEC.md` 맥 앱 작업 명세서 추가. 맥 영향: **조치 필요(시작점)** — 이 명세가 맥 작업의 출발점.
+- **2026-11-25 · v0.24.0 · 릴리즈 커밋 · v0.24.0** — 노드 Moss I2I Depth / EDIT, 터보 LoRA(8개 이미지 도구), picker H3 탭 이식(웹 화면만, `serve.mjs`·`comfy_paths.json` 변경 없음). 맥 영향: **없음**(새 dist만 서빙하면 맥에도 바로 적용).
 - **2026-11-25 · v0.23.1 · 릴리즈 커밋 · v0.23.1** — 이미지 도구 LLM 백엔드 기본값을 Connect Custom으로 변경(웹 화면만). 맥 영향: **없음**.
 - **2026-11-22 · v0.23.0 · f2ab360 · v0.23.0** — 노드 v1.56.0 갤러리 도구(🧹 Tools: 정리 / 폴더 병합 / 휴지통) 이식(모든 갤러리 헤더), LTX 2.5 설정 OpenRouter 목록 수정. 서버에 노드 팩 v1.56.0 이상 + ComfyUI 재시작 필요. 맥 영향: **확인** — 맥 재빌드·새 릴리즈 불필요(화면은 서버가 내려 줌). 새로 쓰는 `confirm()`이 맥 앱에서 동작하는지만 확인. 상세: `docs/MAC_HANDOFF_GALLERY_TOOLS.md`.
 - **2026-11-21 · (문서) · README 개정 · 태그 없음** — README에 "데스크톱 앱(Windows · macOS)" 절과 프로젝트 구조(serve.mjs, comfy_paths.json, server-lib, src-tauri, macos, scripts) 추가. 맥 영향: **없음**(맥 앱 설명 문구만. 맥 릴리즈 mac-v1.0.0·macos/STATUS.md 내용을 반영함).

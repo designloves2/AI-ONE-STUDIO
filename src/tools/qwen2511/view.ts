@@ -9,6 +9,7 @@ import {
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
   buildAnglePrompt,
 } from "./core";
+import { createTurboToggle, applyTurboTemp } from "../../shared/turboLora";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
@@ -338,6 +339,9 @@ export function renderQwen2511(root: HTMLElement) {
     (v) => { state.seedMode = v; persist(); }
   );
   const seedGenWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", paddingTop: "8px", borderTop: `1px solid ${C.border}` } });
+  const turboCtx: any = { persist };
+  const turboToggle = createTurboToggle(state as any, turboCtx);
+  seedGenWrap.appendChild(turboToggle.el);
   seedGenWrap.appendChild(panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]));
   leftBottomBar.appendChild(seedGenWrap);
 
@@ -354,6 +358,7 @@ export function renderQwen2511(root: HTMLElement) {
     get availableLoras() { return availableLoras; },
     set availableLoras(v: string[]) { availableLoras = v; },
     appConfig,
+    refreshTurbo: () => turboCtx.refreshTurbo?.(),
     onModelsRefreshed: () => { renderLeftPanel(); },
     onOutputVisibilityChanged: () => renderOutputToggle(),
     onLightningChange: () => { if (state.mode === "t2i" || state.mode === "i2i" || state.mode === "edit" || state.mode === "inpaint" || state.mode === "faceswap" || state.mode === "angle") renderLeftPanel(); },
@@ -890,7 +895,9 @@ export function renderQwen2511(root: HTMLElement) {
     }
 
     try {
-      const graph = buildGraph(state);
+      const _turbo = applyTurboTemp(state as any);
+      let graph: any;
+      try { graph = buildGraph(state); } finally { _turbo?.(); }
       await addLivePreview(graph, "qwen2511", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {

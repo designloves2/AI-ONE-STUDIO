@@ -1,5 +1,5 @@
 // view.ts — Moss Image ONE STUDIO 메인 화면 조립. Anima/Krea2의 웹 레이아웃(450px 좌측 패널, 180px 프롬프트,
-// Send-to/Compare/Reset/Unload/Settings/Gallery/Help 패턴)을 따르되, Moss 고유의 4모드(T2I / I2I / R2I (bboxes) / INPAINT)를
+// Send-to/Compare/Reset/Unload/Settings/Gallery/Help 패턴)을 따르되, Moss 고유의 5모드(T2I / R2I (bboxes) / I2I [Basic·Depth] / EDIT / INPAINT)를
 // 반영한다. 원본 근거: ComfyUI-TJ_NODE_STUDIO_ONE/web/moss/one_node_moss.js (node f730ee9, ca925eb, 680f142).
 // 노드 전용(Prompt/pipe Override, prompt/settings 출력, ModelPreviewOverrideKJ 라이브 프리뷰, 1310x1034 크기)은 옮기지 않는다.
 import type { MossState, MossMode } from "./core";
@@ -8,11 +8,12 @@ import {
   C, el, clear, BRAND, MODES, RESOLUTIONS, SAMPLERS, SCHEDULERS, SEND_TO, LORA_UI_CAP, snap16,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed,
 } from "./core";
+import { createTurboToggle, applyTurboTemp } from "../../shared/turboLora";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
 import { openImageGalleryPicker } from "../../shared/imageGalleryPicker";
-import { buildT2IGraph, buildI2IGraph, buildInpaintGraph, buildR2IGraph, OUTPUT_NODE } from "./graphBuilder";
+import { buildT2IGraph, buildI2IGraph, buildEditGraph, buildInpaintGraph, buildR2IGraph, OUTPUT_NODE } from "./graphBuilder";
 import { createR2IEditor } from "./r2iEditor";
 import { mossSystemPrompt } from "./systemPrompt";
 import { queuePrompt } from "./comfyClient";
@@ -127,6 +128,7 @@ export function renderMoss(root: HTMLElement) {
 
   function currentSourceFilename(): string {
     if (state.mode === "i2i") return state.i2iImage || "";
+    if (state.mode === "edit") return state.editImage || "";
     if (state.mode === "inpaint") return state.inpaintImage || "";
     return "";
   }
@@ -155,7 +157,7 @@ export function renderMoss(root: HTMLElement) {
     zoomLockBtn.style.display = "block";
     const resultURL = api.viewUrl(mr.filename, mr.subfolder || "", (mr.type as any) || "output", Date.now());
     const srcFile = currentSourceFilename();
-    if (compareEnabled && (state.mode === "i2i" || state.mode === "inpaint") && srcFile) {
+    if (compareEnabled && (state.mode === "i2i" || state.mode === "edit" || state.mode === "inpaint") && srcFile) {
       placeholderTxt.style.display = "none";
       resultImg.style.display = "none";
       compareViewEl = createCompareView(api.viewUrl(srcFile, "", "input"), resultURL);
@@ -183,6 +185,34 @@ export function renderMoss(root: HTMLElement) {
   sendToWrap.append(sendLeft, sendRight);
   rightPanel.appendChild(sendToWrap);
 
+  // A result (or gallery image) sent to another mode: becomes that mode's source image. I2I and INPAINT keep their own
+  // working size (set on upload), so it is taken from the image here too; EDIT scales by megapixels and needs none.
+  // INPAINT also drops its old mask, which was painted on a different picture. (node one_node_moss.js applySentImage)
+  function imageSize(filename: string): Promise<{ w: number; h: number } | null> {
+    return new Promise((res) => {
+      const im = new Image();
+      im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+      im.onerror = () => res(null);
+      im.src = api.viewUrl(filename, "", "input", Date.now());
+    });
+  }
+  async function applySentImage(mode: string, field: string, filename: string) {
+    const dim = await imageSize(filename);
+    (state as any)[field] = filename;
+    if (dim) {
+      if (mode === "i2i") { state.i2iWidth = snap16(dim.w); state.i2iHeight = snap16(dim.h); }
+      if (mode === "inpaint") { state.inpaintWidth = snap16(dim.w); state.inpaintHeight = snap16(dim.h); }
+    }
+    if (mode === "inpaint") state.inpaintMask = null;   // a mask painted on another picture no longer fits
+    state.mode = mode as MossMode;
+    persist();
+    renderModeBar();
+    renderLeftPanel();
+    refreshPromptBox();
+    renderSendTo();
+    restorePreviewForMode();
+  }
+
   function renderSendTo() {
     clear(sendLeft);
     const targets = SEND_TO[state.mode] || [];
@@ -199,14 +229,7 @@ export function renderMoss(root: HTMLElement) {
         btn.textContent = "Copying…";
         try {
           const n = await api.copyOutputToInput(mr.filename, mr.subfolder || "", mr.type || "output");
-          (state as any)[t.field] = n;
-          state.mode = t.mode;
-          persist();
-          renderModeBar();
-          renderLeftPanel();
-          refreshPromptBox();
-          renderSendTo();
-          restorePreviewForMode();
+          await applySentImage(t.mode, t.field, n);
         } catch {
           (btn as HTMLButtonElement).disabled = false;
           btn.textContent = t.label;
@@ -298,7 +321,9 @@ export function renderMoss(root: HTMLElement) {
   const imgBil = createImagePromptBilingual({ state, getModePrompt: (m: any) => getModePrompt(state, m), setModePrompt: (m: any, v: string) => setModePrompt(state, m, v), persist, onError: (m) => alert(m) });
   function refreshPromptBox() {
     imgBil.refresh();
-    promptTA.placeholder = state.mode === "r2i" ? "Describe the whole image (the boxes carry the details)…" : "Describe what you want to generate…";
+    promptTA.placeholder = state.mode === "r2i" ? "Describe the whole image (the boxes carry the details)…"
+      : state.mode === "edit" ? "Change only the X to Y. Keep the face, pose, background and composition unchanged."
+      : "Describe what you want to generate…";
     updatePromptCount();
   }
   refreshPromptBox();
@@ -339,6 +364,9 @@ export function renderMoss(root: HTMLElement) {
     (v) => { state.seedMode = v; persist(); }
   );
   const seedGenWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", paddingTop: "8px", borderTop: `1px solid ${C.border}` } });
+  const turboCtx: any = { persist };
+  const turboToggle = createTurboToggle(state as any, turboCtx);
+  seedGenWrap.appendChild(turboToggle.el);
   seedGenWrap.appendChild(panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]));
   leftBottomBar.appendChild(seedGenWrap);
 
@@ -354,6 +382,7 @@ export function renderMoss(root: HTMLElement) {
     get availableLoras() { return availableLoras; },
     set availableLoras(v: string[]) { availableLoras = v; },
     appConfig,
+    refreshTurbo: () => turboCtx.refreshTurbo?.(),
     onModelsRefreshed: () => renderLeftPanel(),
     onOutputVisibilityChanged: () => renderOutputToggle(),
   } as any);
@@ -363,16 +392,7 @@ export function renderMoss(root: HTMLElement) {
   const galleryOv = createGalleryOverlay(
     state,
     (meta: any) => { applyReuseMeta(meta); },
-    (mode: string, field: string, filename: string) => {
-      (state as any)[field] = filename;
-      state.mode = mode as MossMode;
-      persist();
-      renderModeBar();
-      renderLeftPanel();
-      refreshPromptBox();
-      renderSendTo();
-      restorePreviewForMode();
-    }
+    (mode: string, field: string, filename: string) => { void applySentImage(mode, field, filename); }
   );
   wrap.appendChild(galleryOv.el);
 
@@ -624,6 +644,126 @@ export function renderMoss(root: HTMLElement) {
     return panel([label(title), el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } }, [rng, valTxt])]);
   }
 
+  const noteStyle = { fontSize: "10px", color: C.muted, lineHeight: "1.4" };
+
+  // One LoRA (name + strength) picked from the installed LoRAs; the file the mode needs is chosen when none is set yet.
+  // (node ui_i2i_moss.js mountModeLora)
+  function modeLoraPanel(title: string, nameKey: "depthLora" | "editLora", strengthKey: "depthLoraStrength" | "editLoraStrength", match: RegExp, hint: string) {
+    const holder = el("div");
+    const note = el("div", { style: noteStyle });
+    async function build() {
+      let names = availableLoras.filter((n) => n && n !== "none");
+      if (!names.length) names = (await api.getObjectOptions("LoraLoaderModelOnly", "lora_name")).filter((n) => n && n !== "none");
+      if ((!state[nameKey] || state[nameKey] === "none") && names.length) {
+        const pick = names.find((n) => match.test(n));
+        if (pick) { state[nameKey] = pick; persist(); }
+      }
+      const opts = ["none", ...names];
+      if (state[nameKey] && !opts.includes(state[nameKey])) opts.push(state[nameKey]);
+      clear(holder);
+      const sync = () => {
+        const ok = state[nameKey] && state[nameKey] !== "none";
+        note.textContent = ok ? hint : `⚠ ${hint}`;
+        note.style.color = ok ? C.muted : C.warn;
+      };
+      const sel = select(opts.map((n) => ({ value: n, label: n })), state[nameKey] || "none", (v) => { state[nameKey] = v; persist(); sync(); });
+      const str = numberField(state[strengthKey] ?? 1, (v) => { state[strengthKey] = Math.max(0, Math.min(2, v || 0)); persist(); }, 0.05);
+      str.style.width = "60px";
+      holder.appendChild(panel([label(title), row([el("div", { style: { flex: "1", minWidth: "0" } }, [sel]), str], "4px"), note]));
+      sync();
+    }
+    void build();
+    return holder;
+  }
+
+  // I2I > Depth (node ui_i2i_moss.js mountDepthPanel)
+  function depthPanels(): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    out.push(modeLoraPanel("Control LoRA (strength)", "depthLora", "depthLoraStrength", /color_depth_control/i,
+      "moss_image_color_depth_control (models/loras): without it the control map is ignored."));
+    const mogeHolder = el("div");
+    out.push(mogeHolder);
+    api.getObjectOptions("LoadMoGeModel", "model_name").then((names) => {
+      clear(mogeHolder);
+      if (!names.length) {
+        mogeHolder.appendChild(panel([label("MoGe model"), el("div", { text: "⚠ No MoGe model found: put moge_3_vitg_fp16.safetensors in models/geometry_estimation (Comfy-Org/MoGe) and update ComfyUI (0.43+) for the MoGe nodes.", style: { ...noteStyle, color: C.warn } })]));
+        return;
+      }
+      if (!state.depthMoge || !names.includes(state.depthMoge)) { state.depthMoge = names.find((n) => /vitg/i.test(n)) || names[0]; persist(); }
+      mogeHolder.appendChild(panel([label("MoGe model (geometry estimation)"), select(names.map((n) => ({ value: n, label: n })), state.depthMoge, (v) => { state.depthMoge = v; persist(); })]));
+    });
+    out.push(panel([
+      label("Geometry used as control"),
+      select([{ value: "mask", label: "Silhouette (mask) — pose only, prompt has room" }, { value: "depth", label: "Depth — also face profile, shoulders, background falloff" }],
+        state.depthOutput || "mask", (v) => { state.depthOutput = v; persist(); }),
+      row([
+        col([label("Strength"), numberField(state.depthStrength ?? 1, (v) => { state.depthStrength = Math.max(0, Math.min(2, v || 0)); persist(); }, 0.05)]),
+        col([label("Start"), numberField(state.depthStart ?? 0, (v) => { state.depthStart = Math.max(0, Math.min(1, v || 0)); persist(); }, 0.05)]),
+        col([label("End"), numberField(state.depthEnd ?? 0.6, (v) => { state.depthEnd = Math.max(0, Math.min(1, v || 0)); persist(); }, 0.05)]),
+      ]),
+      el("div", { text: "Strength 1.0 is the trained value. Start / End pick the part of the run that is controlled: 0 to 0.6 fixes the layout and lets the last steps render freely; End 1.0 pins the geometry to the last step. Sampling uses the official control preset (temporal score rescaling 0.95, shift 5, skip layer guidance layer 24); CFG 3 and 25 steps are recommended.", style: noteStyle }),
+    ]));
+    return out;
+  }
+
+  // EDIT (node ui_edit_moss.js mountEditLeft)
+  const EDIT_FORMATS = ["Moss-Image-Edit", "ai-toolkit", "ai-toolkit (kv_cache off)"];
+  const MAX_EDIT_REFS = 3;
+  function editPanels(): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    out.push(panel([
+      label("Source Image"),
+      imageUploadSlot(state.editImage || "", (name) => { state.editImage = name || null; persist(); }),
+      el("div", { text: "Describe only the change in the prompt: \"Change only the X to Y. Keep the face, pose, background and composition unchanged.\"", style: noteStyle }),
+    ]));
+    const refsHolder = el("div");
+    const renderRefs = () => {
+      clear(refsHolder);
+      if (!Array.isArray(state.editRefs)) state.editRefs = [];
+      const items = state.editRefs.map((file, i) => {
+        const slot = imageUploadSlot(file || "", (name) => { state.editRefs[i] = name; persist(); });
+        const del = button("✕", () => { state.editRefs.splice(i, 1); persist(); renderRefs(); }, "danger");
+        return el("div", { style: { display: "flex", gap: "4px", alignItems: "flex-start" } }, [el("div", { style: { flex: "1", minWidth: "0" } }, [label(`Reference ${i + 2}`), slot]), del]);
+      });
+      const kids: (Node | null)[] = [label(`More references (up to ${MAX_EDIT_REFS}) — say in the prompt what each is for`), ...items];
+      if (state.editRefs.length < MAX_EDIT_REFS) kids.push(button("+ Add reference", () => { state.editRefs.push(""); persist(); renderRefs(); }));
+      refsHolder.appendChild(panel(kids));
+    };
+    renderRefs();
+    out.push(refsHolder);
+    out.push(modeLoraPanel("Edit LoRA (strength)", "editLora", "editLoraStrength", /moss_image_edit_lora/i,
+      "moss_image_edit_lora_rank_64_bf16 (models/loras): the edit layout is trained into this LoRA."));
+    const fmtHolder = el("div");
+    const fillFmt = (formats: string[]) => {
+      clear(fmtHolder);
+      const opts = formats.includes(state.editFormat) ? formats : [state.editFormat, ...formats];
+      fmtHolder.appendChild(select(opts.map((f) => ({ value: f, label: f })), state.editFormat, (v) => { state.editFormat = v; persist(); }));
+    };
+    fillFmt(EDIT_FORMATS);
+    api.getObjectOptions("TextEncodeMOSSImageEdit", "edit_format").then((list) => { if (list.length) fillFmt(list); });
+    out.push(panel([
+      label("Edit format (must match the LoRA)"), fmtHolder,
+      row([
+        col([label("Image strength"), numberField(state.editImageStrength ?? 1, (v) => { state.editImageStrength = Math.max(0, Math.min(2, v || 0)); persist(); }, 0.05)]),
+        col([label("Size (MP)"), numberField(state.editMp ?? 1, (v) => { state.editMp = Math.max(0.25, Math.min(4, v || 1)); persist(); }, 0.25)]),
+      ]),
+      el("div", { text: "The source and the references are scaled to this many megapixels (16 px steps); the result keeps the source's aspect ratio. About 0.26 MP is cheaper but looser: the model starts re-framing the subject.", style: noteStyle }),
+    ]));
+    // sampling: the values the LoRA author ships (30 / 4 / euler / normal, skip layer guidance layer 22)
+    out.push(panel([
+      row([
+        col([label("Steps"), numberField(state.editSteps ?? 30, (v) => { state.editSteps = Math.max(1, Math.min(100, Math.round(v) || 1)); persist(); }, 1)]),
+        col([label("CFG"), numberField(state.editCfg ?? 4, (v) => { state.editCfg = Math.max(0, Math.min(20, v || 0)); persist(); }, 0.25)]),
+      ]),
+      row([
+        col([label("Sampler"), select(withCurrent(SAMPLERS, state.editSampler), state.editSampler, (v) => { state.editSampler = v; persist(); })]),
+        col([label("Scheduler"), select(withCurrent(SCHEDULERS, state.editScheduler), state.editScheduler, (v) => { state.editScheduler = v; persist(); })]),
+      ]),
+      el("div", { text: "CFG 4 matters: the negative branch is what stops accessories appearing out of nowhere. Skip layer guidance (layer 22) is always on for EDIT.", style: noteStyle }),
+    ]));
+    return out;
+  }
+
   function renderLeftPanel() {
     clear(leftScroll);
     controlAutoSave = null;
@@ -631,15 +771,22 @@ export function renderMoss(root: HTMLElement) {
       samplingSection().forEach((p) => leftScroll.appendChild(p));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "i2i") {
-      // MOSS has no reference-image input, so I2I is the classic latent route: the source is scaled to the working size,
-      // encoded by the VAE and re-noised by DENOISE.
+      // Two tabs at the top: Basic (classic latent route: the source is scaled to the working size, encoded by the VAE and
+      // re-noised by DENOISE) | Depth (MoGe 3 geometry of the source + MOSSImageControl). Source + size are shared.
+      leftScroll.appendChild(modeBar([{ key: "basic", label: "Basic" }, { key: "depth", label: "Depth" }], state.i2iSubMode === "depth" ? "depth" : "basic", (key) => {
+        state.i2iSubMode = key as "basic" | "depth"; persist(); renderLeftPanel();
+      }));
       leftScroll.appendChild(panel([
         label("Source Image"),
         imageUploadSlot(state.i2iImage || "", (name) => { state.i2iImage = name || null; persist(); }, (w, h) => { state.i2iWidth = snap16(w); state.i2iHeight = snap16(h); persist(); renderLeftPanel(); }, !state.i2iWidth || !state.i2iHeight),
         sizeFields(() => state.i2iWidth, (v) => (state.i2iWidth = v), () => state.i2iHeight, (v) => (state.i2iHeight = v), () => state.i2iLockRatio, (v) => (state.i2iLockRatio = v)),
       ]));
-      leftScroll.appendChild(denoiseSlider("Denoise", () => state.i2iDenoise ?? 0.6, (v) => { state.i2iDenoise = v; }));
+      if (state.i2iSubMode === "depth") depthPanels().forEach((p) => leftScroll.appendChild(p));
+      else leftScroll.appendChild(denoiseSlider("Denoise", () => state.i2iDenoise ?? 0.6, (v) => { state.i2iDenoise = v; }));
       samplingSection(undefined, false).forEach((p) => leftScroll.appendChild(p));
+      leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
+    } else if (state.mode === "edit") {
+      editPanels().forEach((p) => leftScroll.appendChild(p));
       leftScroll.appendChild(panel([label("LoRA"), loraSection()]));
     } else if (state.mode === "r2i") {
       // Draw boxes on a canvas of the working size; the boxes + PROMPT go through MOSSImageLayoutPrompt.
@@ -669,6 +816,7 @@ export function renderMoss(root: HTMLElement) {
     if (!state.textEncoder) { warnTag.textContent = "⚙ Set Text Encoder in Settings"; return; }
     if (!state.vae) { warnTag.textContent = "⚙ Set VAE in Settings"; return; }
     if (state.mode === "i2i" && !state.i2iImage) { warnTag.textContent = "Upload an I2I source image"; return; }
+    if (state.mode === "edit" && !state.editImage) { warnTag.textContent = "Upload an EDIT source image"; return; }
     if (state.mode === "r2i" && !(state.r2iBoxes || []).some((b) => b && b.width > 0 && b.height > 0)) { warnTag.textContent = "Draw at least one box in R2I mode"; return; }
     if (state.mode === "inpaint") {
       if (!state.inpaintImage) { warnTag.textContent = "Upload an INPAINT source image"; return; }
@@ -715,11 +863,16 @@ export function renderMoss(root: HTMLElement) {
     }
 
     try {
-      const graph =
+      const _turbo = applyTurboTemp(state as any);
+      let graph: any;
+      try {
+        graph =
         state.mode === "t2i" ? buildT2IGraph(state) :
         state.mode === "i2i" ? buildI2IGraph(state) :
+        state.mode === "edit" ? buildEditGraph(state) :
         state.mode === "r2i" ? buildR2IGraph(state) :
         buildInpaintGraph(state);
+      } finally { _turbo?.(); }
       await addLivePreview(graph, "moss", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {
@@ -782,8 +935,9 @@ function createHelpOverlay() {
   hdr.append(el("div", { text: "❔ Moss Image Help", style: { color: "#fff", fontSize: "14px", fontWeight: "700", flex: "1" } }), button("✕", () => (ov.style.display = "none"), "danger"));
   const body = el("div", { style: { color: C.text, fontSize: "12px", lineHeight: "1.7" } });
   body.innerHTML = `
-    <b>Modes</b>: T2I, I2I, R2I (bboxes), INPAINT.<br>
-    <b>I2I</b>: the source image is encoded to a latent and re-noised; Denoise sets how far it may change (MOSS has no reference-image input).<br>
+    <b>Modes</b>: T2I, R2I (bboxes), I2I, EDIT, INPAINT.<br>
+    <b>I2I</b>: two tabs at the top. Basic: the source image is encoded to a latent and re-noised; Denoise sets how far it may change. Depth: MoGe 3 estimates the geometry of the source (silhouette or depth) and the control LoRA makes the new image keep that pose and framing; identity, clothes, light and style come from the prompt.<br>
+    <b>EDIT</b>: describe only the change ("Change only the X to Y. Keep the face, pose and background unchanged."). The source (and up to 3 more references) go through the edit LoRA, which redraws the same frame with only that change.<br>
     <b>R2I (bboxes)</b>: draw boxes on the canvas. Each box is an OBJECT (a described thing) or a TEXT block (exact words to render). Draw the background first and the foreground last; "Characters" = numbers of the object boxes to label as characters (e.g. 1, 3).<br>
     <b>INPAINT</b>: paint the area to repaint; only that area follows the prompt, the rest of the picture is kept.<br>
     <b>Size</b>: width and height are snapped to multiples of 16 (1080 renders as 1088).<br>

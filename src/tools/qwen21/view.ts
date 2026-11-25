@@ -11,6 +11,7 @@ import {
   LORA_UI_CAP, MAX_REF_IMAGES, MAX_EDIT_EXTRA, SEEDVR2_ATTN_MODES, SEEDVR2_COLOR_MODES, SEND_TO,
   defaultState, loadState, saveState, getModePrompt, setModePrompt, randomSeed, snap8,
 } from "./core";
+import { createTurboToggle, applyTurboTemp } from "../../shared/turboLora";
 import { panel, label, button, select, numberField, row, col, modeBar, iconBtn, checkboxRow, searchableSelect, confirmDialog, alertDialog, applyMobileCollapsibleLayout } from "../../shared/ui";
 import * as api from "./api";
 import { addLivePreview, listenLivePreview, showStepBar, hideStepBar } from "../../shared/livePreview";
@@ -402,6 +403,9 @@ export function renderQwen21(root: HTMLElement) {
     (v) => { state.seedMode = v; persist(); }
   );
   const seedGenWrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "6px", paddingTop: "8px", borderTop: `1px solid ${C.border}` } });
+  const turboCtx: any = { persist };
+  const turboToggle = createTurboToggle(state as any, turboCtx);
+  seedGenWrap.appendChild(turboToggle.el);
   seedGenWrap.appendChild(panel([row([col([label("SEED"), seedInput]), col([label("MODE"), seedModeDD])])]));
   leftBottomBar.appendChild(seedGenWrap);
 
@@ -417,6 +421,7 @@ export function renderQwen21(root: HTMLElement) {
     persist,
     get availableLoras() { return availableLoras; },
     set availableLoras(v: string[]) { availableLoras = v; },
+    refreshTurbo: () => turboCtx.refreshTurbo?.(),
     onModelsRefreshed: () => { renderLeftPanel(); },
     onCacheOrSageChange: () => {},
   } as any);
@@ -1137,7 +1142,9 @@ export function renderQwen21(root: HTMLElement) {
 
     try {
       // POSE: the pose picture (3D capture, or an automatic render) is prepared first and handed to the graph.
-      const graph = state.mode === "pose" ? await preparePoseGraph() : buildGraph(state);
+      const _turbo = applyTurboTemp(state as any);
+      let graph: any;
+      try { graph = state.mode === "pose" ? await preparePoseGraph() : buildGraph(state); } finally { _turbo?.(); }
       await addLivePreview(graph, "qwen21", comfyApi);
       const result = await queuePrompt(graph, {
         onProgress: (v, m) => {

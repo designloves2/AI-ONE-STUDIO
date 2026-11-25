@@ -1,6 +1,7 @@
 // settings.ts — Moss Settings 오버레이 (모델 3종 + negative + 저장 폴더 + 매뉴얼).
 // 원본 근거: web/moss/ui_app_settings_moss.js
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { MossState } from "./core";
 import { C, el, SUBFOLDER, MANUAL_TEXT } from "./core";
@@ -128,6 +129,7 @@ export function createSettingsOverlay(state: MossState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "moss" });
   return {
     el: ov,

@@ -5,6 +5,7 @@
 // 이름을 바꾼 파일을 못 고르는 문제). Model Override / Language 셀렉터는 이 웹앱이 LiteGraph
 // 노드가 아니라서 2511 포팅 때와 동일하게 옮기지 않는다(그 파일에 이미 그 전례가 있다).
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { Q21State } from "./core";
 import { C, el, SUBFOLDER, POSE_SAM3D_MODEL_DEFAULT, POSE_SYSTEM_PROMPT_DEFAULT } from "./core";
@@ -199,6 +200,7 @@ export function createSettingsOverlay(state: Q21State, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "qwen21" });
   return {
     el: ov,

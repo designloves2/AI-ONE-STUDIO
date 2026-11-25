@@ -16,6 +16,10 @@ export interface GalleryToolDef {
   label: string;
   api: string;
   subfolder: string;
+  /** the tool's own list route (default the generic "gallery") */
+  route?: string;
+  /** limits the list to a scope (H3 Frames) */
+  scope?: string;
 }
 
 export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
@@ -26,7 +30,18 @@ export const IMAGE_GALLERY_TOOLS: GalleryToolDef[] = [
   { id: "qwen21", label: "Qwen Image 2.1", api: "/qwenimage21_one", subfolder: "qwen21-one-tj" },
   { id: "sdxl", label: "SDXL", api: "/sdxl_one", subfolder: "one_sdxl" },
   { id: "moss", label: "Moss Image", api: "/moss_one", subfolder: "one_moss" },
+  // MiniMax H3's Image Generator stills. Listed by H3's own /images route, which leaves out the clips' extracted last frames
+  // (<folder>/frames) — those get their own tab right after it, so the image tab only shows what the Image Generator made and
+  // the frames can still be picked as an attachment.
+  { id: "minimaxh3", label: "H3 Image", api: "/minimax_h3_one", subfolder: "one_minimax_h3", route: "images" },
+  { id: "minimaxh3f", label: "H3 Frames", api: "/minimax_h3_one", subfolder: "one_minimax_h3", route: "images", scope: "frames" },
 ];
+
+// One page of a per-tool gallery (not INPUT / OUTPUT): the tool's own list route (default the generic /gallery),
+// optionally limited to a scope (H3 Frames).
+export function toolGalleryUrl(tool: { api: string; subfolder: string; route?: string; scope?: string }, offset: number, limit: number): string {
+  return `${tool.api}/${tool.route || "gallery"}?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(tool.subfolder)}${tool.scope ? `&scope=${tool.scope}` : ""}`;
+}
 
 // A pseudo tool for ComfyUI's own input/ directory — not one of the 5 galleries above. Backed
 // by the shared /tj_shared/input_gallery + /tj_shared/gallery_folders?root=input routes (the
@@ -100,7 +115,7 @@ async function fetchGallery(tool: GalleryToolDef, offset: number, limit: number,
   if (tool.id === INPUT_TOOL.id) return fetchRootGallery("input", offset, limit, folder);
   if (tool.id === OUTPUT_TOOL.id) return fetchRootGallery("output", offset, limit, folder);
   try {
-    const r = await fetch(`${BASE}${tool.api}/gallery?offset=${offset}&limit=${limit}&subfolder=${encodeURIComponent(tool.subfolder)}`, { credentials: "include" });
+    const r = await fetch(`${BASE}${toolGalleryUrl(tool, offset, limit)}`, { credentials: "include" });
     if (!r.ok) throw new Error(String(r.status));
     return await r.json();
   } catch {

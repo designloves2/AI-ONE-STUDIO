@@ -64,6 +64,11 @@ export interface SDXLState {
   scheduler: string;
   seed: number;
   seedMode: string;
+
+  // Turbo LoRA (picked in Settings) + the Turbo Mode switch above SEED; see shared/turboLora.ts
+  turboLora: string;
+  turboStrength: number;
+  turboMode: boolean;
   autoEnhance: boolean;
 
   loras: LoraEntry[];
@@ -203,6 +208,10 @@ export function defaultState(saved: Partial<SDXLState> = {}): SDXLState {
     scheduler: saved.scheduler || "karras",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+
+    turboLora: saved.turboLora || "",
+    turboStrength: saved.turboStrength ?? 1,
+    turboMode: saved.turboMode ?? false,
     autoEnhance: saved.autoEnhance ?? false,
 
     loras: Array.isArray(saved.loras)

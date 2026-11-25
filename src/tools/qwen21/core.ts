@@ -76,6 +76,11 @@ export interface Q21State {
   seed: number;
   seedMode: string;
 
+  // Turbo LoRA (picked in Settings) + the Turbo Mode switch above SEED; see shared/turboLora.ts
+  turboLora: string;
+  turboStrength: number;
+  turboMode: boolean;
+
   maxShift: number;
   baseShift: number;
 
@@ -248,6 +253,10 @@ export function defaultState(saved: Partial<Q21State> = {}): Q21State {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+
+    turboLora: saved.turboLora || "",
+    turboStrength: saved.turboStrength ?? 1,
+    turboMode: saved.turboMode ?? false,
 
     maxShift: saved.maxShift ?? 0.69,
     baseShift: saved.baseShift ?? 0.5,

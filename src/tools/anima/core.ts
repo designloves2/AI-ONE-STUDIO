@@ -88,6 +88,7 @@ export interface AnimaState {
   textEncoder: string;
   vae: string;
   turboLora: string;
+  turboStrength: number;
 
   // LoRA section (max 3, LoraLoaderModelOnly chain applied to every mode) — mirrors Krea2.
   loras: { name: string; strength: number; triggerWord?: string; enabled: boolean }[];
@@ -182,6 +183,7 @@ export function defaultState(saved: Partial<AnimaState> = {}): AnimaState {
     textEncoder: saved.textEncoder || "",
     vae: saved.vae || "",
     turboLora: saved.turboLora || "",
+    turboStrength: saved.turboStrength ?? 1,
 
     loras: Array.isArray(saved.loras)
       ? saved.loras.map((l: any) => ({ name: l.name || "none", strength: l.strength ?? 0.8, triggerWord: l.triggerWord || "", enabled: l.enabled !== false }))

@@ -79,9 +79,10 @@
 - 업스트림 `ComfyUI-TJ_NODE`의 변경은 `PORT_LEDGER.md`의 "Upstream" 구역 참고.
 
 ## 8. 현재 진행 상황 (2026-10-28 기준)
-- 최신 릴리즈 **v0.23.1**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
+- 최신 릴리즈 **v0.24.0**. 최근 흐름: v0.14.x 노드 v1.47/1.48(7+1 업스케일, Latent Upscale 분할 모드) → v0.15.0 노드 v1.49.0
   (KO/EN 토글, Translation LLM, Merge clips, Prompt Write 메뉴) → v0.15.1 번역 중 표시 → v0.15.2 노드 v1.49.2(번역 on/off, 설정 탭)
   → v0.15.3 OpenRouter 모델 비었을 때 안내. 각 항목은 `PORT_LEDGER.md` 행 65~73.
+- 2026-11-25 v0.24.0 (`PORT_LEDGER.md` 행 108~110): (1) 노드 Moss **I2I Depth 탭 + EDIT 모드** 이식(모드 순서 T2I·R2I·I2I·EDIT·INPAINT, `buildDepthGraph`/`buildEditGraph`, Send to는 `applySentImage`로 I2I/Inpaint 작업 크기 갱신 + Inpaint 마스크 삭제). (2) **터보 LoRA** 8개 이미지 도구(`src/shared/turboLora.ts`; 설정 Model 탭 선택·강도, Seed 위 Turbo Mode 토글, 그래프 빌드 때만 LoRA 맨 앞 삽입). (3) 이미지 불러오기·라이브러리 가져오기에 H3 Image / H3 Frames 탭(`toolGalleryUrl`). 노드가 알려 준 비교 화면 밀림 버그는 웹에 없음. 미검증: Depth/EDIT·터보 켠 실제 렌더, Send to 클릭, EDIT 패널 화면, 나머지 7개 도구 토글 화면, H3 picker 탭 화면. 웹 picker에는 Anima 탭이 원래 없음(노드엔 있음).
 - 2026-11-25 v0.23.1 (`PORT_LEDGER.md` 행 107): 이미지 도구 LLM 백엔드의 **기본값**(저장값이 없을 때)을 Local GGUF -> Connect Custom으로 변경(텍스트·비전). 저장된 값·서버 설정은 그대로. 자동 전환 코드는 사용자 요청으로 넣지 않음(OpenRouter 없는 사람도 있음). H3/LTX 2.5/Music(`backend: "local"` 고정)·번역·qwen21은 미변경, 요청 시 변경. 노드 TJ_NODE의 "모델 없음" 안내문 요청(오류 문구 표시, 첫 설정 안내)은 웹에 아직 미적용. 미검증: 화면.
 - 2026-11-22 v0.23.0: (1) 노드 v1.56.0(6341603) **갤러리 도구** 이식 — 모든 갤러리 헤더 `🧹 Tools` 팝업(Cleanup / Merge folder / Trash), `src/shared/galleryTools.ts`, 서버 경로 `/tj_shared/gallery_tools/*`는 노드 팩 제공(**노드 팩 v1.56.0 이상 + ComfyUI 재시작 필요**). (2) LTX 2.5 설정·H3 LTX Upscale 빠른 LLM 창의 OpenRouter 목록이 저장된 모델 하나만 보이던 문제(실패 목록 기억) — `fetchOrModels` 사용. 맥 전달 문서 `docs/MAC_HANDOFF_GALLERY_TOOLS.md`(맥은 재빌드 불필요, `confirm()` 확인만). `PORT_LEDGER.md` 행 105·106. 미검증: 화면에서 팝업, 실제 정리·병합·복원, 맥 앱에서 confirm(), LTX 설정 목록 화면. 노드 쪽 참고: 노드의 LTX·H3 설정·`llm_panel.js`에 같은 목록 캐시 문제가 있음(노드 세션에 알림).
 - 2026-11-21 (문서만): 맥 세션이 `mac-v1.0.0`(커밋 494e824, 임시 배포: ad-hoc 서명·공증 없음, 자동 업데이트 없음, latest 아님)을 올림. README에 데스크톱 앱(Windows·macOS) 절·서버 단독 실행·프로젝트 구조 추가. 맥 쪽 상태는 `macos/STATUS.md`(맥 세션이 씀)에서 확인.

@@ -1,6 +1,7 @@
 // settings.ts — Krea2 Settings 오버레이 (모델/ControlNet LoRA/Identity LoRA/저장 폴더 등).
 // 원본 근거: web/krea2/ui_app_settings_krea2.js
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { Krea2State } from "./core";
 import { C, el, SUBFOLDER, safeDepthCkpt } from "./core";
@@ -184,6 +185,7 @@ export function createSettingsOverlay(state: Krea2State, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "krea2" });
   return {
     el: ov,

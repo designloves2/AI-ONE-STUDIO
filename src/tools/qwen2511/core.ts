@@ -68,6 +68,11 @@ export interface QEState {
   scheduler: string;
   seed: number;
   seedMode: string;
+
+  // Turbo LoRA (picked in Settings) + the Turbo Mode switch above SEED; see shared/turboLora.ts
+  turboLora: string;
+  turboStrength: number;
+  turboMode: boolean;
   autoEnhance: boolean;
 
   lightningLora: SimpleLora;
@@ -258,6 +263,10 @@ export function defaultState(saved: Partial<QEState> = {}): QEState {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+
+    turboLora: saved.turboLora || "",
+    turboStrength: saved.turboStrength ?? 1,
+    turboMode: saved.turboMode ?? false,
     autoEnhance: saved.autoEnhance ?? false,
 
     lightningLora: saved.lightningLora

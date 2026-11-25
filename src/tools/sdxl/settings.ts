@@ -2,6 +2,7 @@
 // Checkpoint 모드(단일 ckpt)와 Separate 모드(UNet+DualCLIP+VAE)를 토글하고, 두 모드 모두에서
 // 공용으로 Refiner Checkpoint를 선택할 수 있다 — Klein/Qwen2511에는 없는 SDXL 고유 UI.
 import { tabSettings } from "../../shared/settingsTabs";
+import { mountTurboSettings } from "../../shared/turboLora";
 import { BRAND as TAB_BRAND } from "../../identity";
 import type { SDXLState, ModelLoaderMode } from "./core";
 import { C, el, SUBFOLDER, BRAND } from "./core";
@@ -203,6 +204,7 @@ export function createSettingsOverlay(state: SDXLState, ctx: SettingsCtx) {
     })
     .catch(() => {});
 
+  mountTurboSettings(ov, state as any, ctx as any);
   const tabs = tabSettings(ov, { brand: TAB_BRAND, bg: C.bg2, border: C.border, nodeKey: "sdxl" });
   return {
     el: ov,

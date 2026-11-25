@@ -111,6 +111,11 @@ export interface Krea2State {
   scheduler: string;
   seed: number;
   seedMode: string;
+
+  // Turbo LoRA (picked in Settings) + the Turbo Mode switch above SEED; see shared/turboLora.ts
+  turboLora: string;
+  turboStrength: number;
+  turboMode: boolean;
   autoEnhance: boolean;
   // Enhance — Enhanced KSampler (TJ)'s krea2 txtfusion amplification. Off by default (an opt-in amplifier, not a correctness fix).
   enhanceEnabled: boolean;
@@ -232,6 +237,10 @@ export function defaultState(saved: Partial<Krea2State> = {}): Krea2State {
     scheduler: saved.scheduler || "simple",
     seed: saved.seed ?? 0,
     seedMode: saved.seedMode || "randomize",
+
+    turboLora: saved.turboLora || "",
+    turboStrength: saved.turboStrength ?? 1,
+    turboMode: saved.turboMode ?? false,
     autoEnhance: saved.autoEnhance ?? false,
     enhanceEnabled: saved.enhanceEnabled ?? false,
     enhanceStrength: saved.enhanceStrength ?? 1.0,
